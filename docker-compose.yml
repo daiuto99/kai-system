@@ -54,6 +54,35 @@ services:
       kai-council-api:
         condition: service_healthy
 
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: kai-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - /home/leo/vault:/vault:rw
+    env_file:
+      - .env
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://192.168.68.30:5678
+      - N8N_ENCRYPTION_KEY=
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=
+      - N8N_BASIC_AUTH_PASSWORD=
+      - GENERIC_TIMEZONE=America/New_York
+      - TZ=America/New_York
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   cloudflare-tunnel:
     image: cloudflare/cloudflared:latest
     container_name: cloudflare-tunnel
@@ -84,6 +113,9 @@ services:
     depends_on:
       kai-worker-api:
         condition: service_healthy
+
+volumes:
+  n8n_data:
 
 secrets:
   anthropic_api_key:
