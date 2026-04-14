@@ -1,11 +1,12 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
 from pathlib import Path
 from pydantic import BaseModel
 import anthropic
 import os
+import re
+from datetime import datetime
 
-app = FastAPI(title="kai-council-api", version="0.1.0")
+app = FastAPI(title="kai-council-api", version="0.2.0")
 
 VAULT_PATH = Path("/vault")
 COUNCIL_PATH = VAULT_PATH / "60_Council"
@@ -18,15 +19,25 @@ ADVISOR_CHANNELS = {
     "doc": "doc",
     "coach": "coach",
     "biz": "biz",
+    "council": "chief",
+    "council-daily": "chief",
+    "council-weekly": "chief",
+    "council-monthly": "chief",
 }
+
+INSIGHT_CATEGORIES = {"Insights", "Truths", "Patterns", "Realizations", "Questions"}
+
+# Matches: [INSIGHT:Category] content [/INSIGHT]
+# Also handles: [INSIGHT:Category] content (no closing tag, to end of line)
+INSIGHT_PATTERN = re.compile(
+    r"\[INSIGHT:([A-Za-z]+)\](.*?)(?:\[/INSIGHT\]|(?=\[INSIGHT:)|\Z)",
+    re.DOTALL,
+)
 
 
 def get_anthropic_client():
     secret_path = Path("/run/secrets/anthropic_api_key")
-    if secret_path.exists():
-        api_key = secret_path.read_text().strip()
-    else:
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = secret_path.read_text().strip() if secret_path.exists() else os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise HTTPException(status_code=503, detail="Anthropic API key not configured")
     return anthropic.Anthropic(api_key=api_key)
@@ -37,23 +48,74 @@ def load_persona(advisor: str, channel: str = None) -> str:
     persona_file = advisor_dir / f"{advisor.upper()}.md"
     if not persona_file.exists():
         raise HTTPException(status_code=404, detail=f"Persona not found: {advisor}")
-    persona = persona_file.read_text(encoding="utf-8")
+
+    parts = [persona_file.read_text(encoding="utf-8")]
 
     context_file = advisor_dir / "context.md"
     if context_file.exists():
-        persona += "\n\n---\n\n" + context_file.read_text(encoding="utf-8")
+        parts.append(context_file.read_text(encoding="utf-8"))
 
-    # Beats personal channel also loads deep.md
     if channel == "beats-personal" and (advisor_dir / "deep.md").exists():
-        persona += "\n\n---\n\n" + (advisor_dir / "deep.md").read_text(encoding="utf-8")
+        parts.append((advisor_dir / "deep.md").read_text(encoding="utf-8"))
 
-    # Ember also loads insights.md
     if advisor == "ember" and (advisor_dir / "insights.md").exists():
         insights = (advisor_dir / "insights.md").read_text(encoding="utf-8")
         if insights.strip():
-            persona += "\n\n---\n\n" + insights
+            parts.append(insights)
 
-    return persona
+    return "\n\n---\n\n".join(parts)
+
+
+def extract_and_strip_insights(text: str) -> tuple[str, list[dict]]:
+    """Extract [INSIGHT:...] tags from text, return (clean_text, insights_list)."""
+    insights = []
+    for match in INSIGHT_PATTERN.finditer(text):
+        category = match.group(1).strip()
+        content = match.group(2).strip()
+        if category in INSIGHT_CATEGORIES and content:
+            insights.append({"category": category, "content": content})
+
+    # Strip all insight tags from the reply
+    clean = re.sub(r"\[INSIGHT:[A-Za-z]+\].*?(?:\[/INSIGHT\])", "", text, flags=re.DOTALL)
+    # Also strip unclosed tags (to end of line)
+    clean = re.sub(r"\[INSIGHT:[A-Za-z]+\].*$", "", clean, flags=re.MULTILINE)
+    clean = re.sub(r"\[/INSIGHT\]", "", clean)
+    clean = clean.strip()
+
+    return clean, insights
+
+
+def append_insights_to_vault(insights: list[dict]) -> int:
+    """Append extracted insights to ember/insights.md. Returns count written."""
+    if not insights:
+        return 0
+
+    insights_file = COUNCIL_PATH / "ember" / "insights.md"
+    if not insights_file.exists():
+        return 0
+
+    content = insights_file.read_text(encoding="utf-8")
+    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    for item in insights:
+        category = item["category"]
+        entry = f"- [{date_str}] {item['content']}"
+
+        # Find the category section and append after it
+        header = f"## {category}"
+        if header in content:
+            # Insert after the header line
+            content = content.replace(
+                header,
+                f"{header}\n{entry}",
+                1,
+            )
+        else:
+            # Category not found — append new section at end
+            content += f"\n\n{header}\n{entry}\n"
+
+    insights_file.write_text(content, encoding="utf-8")
+    return len(insights)
 
 
 class MessageRequest(BaseModel):
@@ -74,14 +136,14 @@ def health():
     council_ok = COUNCIL_PATH.exists()
     advisors_present = []
     if council_ok:
-        for advisor in ADVISOR_CHANNELS.values():
+        for advisor in set(ADVISOR_CHANNELS.values()):
             if (COUNCIL_PATH / advisor).exists():
                 advisors_present.append(advisor)
     return {
         "status": "ok",
         "service": "kai-council-api",
         "council_path_mounted": council_ok,
-        "advisors_ready": sorted(set(advisors_present)),
+        "advisors_ready": sorted(advisors_present),
     }
 
 
@@ -95,7 +157,7 @@ def council_message(req: MessageRequest):
     system_prompt = load_persona(advisor, channel)
     client = get_anthropic_client()
 
-    messages = req.history[-10:]  # last 10 exchanges max
+    messages = req.history[-10:]
     messages.append({"role": "user", "content": req.message})
 
     response = client.messages.create(
@@ -105,11 +167,21 @@ def council_message(req: MessageRequest):
         messages=messages,
     )
 
-    reply = response.content[0].text
+    raw_reply = response.content[0].text
+
+    # T1 privacy: insight extraction happens here on the worker, never leaves this process
+    insights_logged = 0
+    if advisor == "ember":
+        clean_reply, insights = extract_and_strip_insights(raw_reply)
+        insights_logged = append_insights_to_vault(insights)
+    else:
+        clean_reply = raw_reply
+
     return {
         "advisor": advisor,
         "channel": channel,
-        "reply": reply,
+        "reply": clean_reply,
+        "insights_logged": insights_logged,
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
     }
@@ -132,3 +204,11 @@ def get_context(advisor: str):
     if not context_file.exists():
         raise HTTPException(status_code=404, detail=f"Context not found for: {advisor}")
     return {"advisor": advisor, "content": context_file.read_text(encoding="utf-8")}
+
+
+@app.get("/council/insights")
+def get_insights():
+    insights_file = COUNCIL_PATH / "ember" / "insights.md"
+    if not insights_file.exists():
+        raise HTTPException(status_code=404, detail="Insights file not found")
+    return {"content": insights_file.read_text(encoding="utf-8")}
