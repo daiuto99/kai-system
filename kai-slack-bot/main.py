@@ -81,7 +81,9 @@ def call_council(channel: str, message: str, user_id: str, ts: str) -> str:
         history.append({"role": "assistant", "content": reply})
         _history[key] = history[-20:]  # keep last 20 turns
 
-        log.info(f"Council response: {data['advisor']} — {data['input_tokens']}in/{data['output_tokens']}out tokens")
+        insights = data.get("insights_logged", 0)
+        insight_note = f" | {insights} insight(s) logged" if insights else ""
+        log.info(f"Council response: {data['advisor']} — {data['input_tokens']}in/{data['output_tokens']}out tokens{insight_note}")
         return reply
 
     except httpx.HTTPStatusError as e:
