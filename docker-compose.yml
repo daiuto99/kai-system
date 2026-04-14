@@ -1,0 +1,96 @@
+services:
+
+  kai-worker-api:
+    build: ./kai-worker-api
+    container_name: kai-worker-api
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    volumes:
+      - /home/leo/vault:/vault:ro
+    env_file:
+      - .env
+    secrets:
+      - anthropic_api_key
+      - slack_bot_token
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  kai-council-api:
+    build: ./kai-council-api
+    container_name: kai-council-api
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    volumes:
+      - /home/leo/vault:/vault:rw
+    env_file:
+      - .env
+    secrets:
+      - anthropic_api_key
+      - slack_bot_token
+    depends_on:
+      kai-worker-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  kai-slack-bot:
+    build: ./kai-slack-bot
+    container_name: kai-slack-bot
+    restart: unless-stopped
+    secrets:
+      - slack_bot_token
+      - slack_app_token
+    depends_on:
+      kai-council-api:
+        condition: service_healthy
+
+  cloudflare-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflare-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    secrets:
+      - cloudflare_tunnel_token
+    environment:
+      - TUNNEL_TOKEN_FILE=/run/secrets/cloudflare_tunnel_token
+    depends_on:
+      kai-worker-api:
+        condition: service_healthy
+      kai-council-api:
+        condition: service_healthy
+
+  kai-scheduler:
+    build: ./kai-worker-api
+    container_name: kai-scheduler
+    restart: unless-stopped
+    command: python scheduler.py
+    volumes:
+      - /home/leo/vault:/vault:rw
+    env_file:
+      - .env
+    secrets:
+      - anthropic_api_key
+      - slack_bot_token
+    depends_on:
+      kai-worker-api:
+        condition: service_healthy
+
+secrets:
+  anthropic_api_key:
+    file: ./secrets/anthropic_api_key.txt
+  slack_bot_token:
+    file: ./secrets/slack_bot_token.txt
+  slack_app_token:
+    file: ./secrets/slack_app_token.txt
+  cloudflare_tunnel_token:
+    file: ./secrets/cloudflare_tunnel_token.txt
