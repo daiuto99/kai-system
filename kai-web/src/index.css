@@ -3,13 +3,7 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    color-scheme: dark;
-  }
-
-  * {
-    box-sizing: border-box;
-  }
+  * { box-sizing: border-box; }
 
   html, body, #root {
     height: 100%;
@@ -17,90 +11,128 @@
   }
 
   body {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overscroll-behavior: none;
+    line-height: 1.6;
+    color: #1f2937;
   }
 
-  /* Scrollbar */
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 2px; }
-  .light ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); }
+  ::-webkit-scrollbar-thumb { background: #e8ecf1; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
 
-  /* Hide scrollbar but keep scroll */
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 }
 
 @layer components {
-  /* ── Surfaces ── */
-  .kai-screen {
-    @apply bg-kai-dark-bg text-white min-h-screen;
+  /* ── Nav tab ── */
+  .nav-tab {
+    @apply flex items-center gap-1.5 px-4 py-2 rounded-item text-item font-medium transition-all duration-200 cursor-pointer border-none;
+    font-size: 13px;
+    color: #6b7280;
+    background: transparent;
   }
+  .nav-tab:hover {
+    background: #fff7ed;
+    color: #c2410c;
+  }
+  .nav-tab.active {
+    background: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(194,65,12,0.2);
+  }
+
+  /* ── Outer section card ── */
   .kai-card {
-    @apply bg-kai-dark-card rounded-xl border border-kai-dark-border;
-  }
-  .kai-card-2 {
-    @apply bg-kai-dark-card2 rounded-lg border border-kai-dark-border;
-  }
-  .kai-divider {
-    @apply border-kai-dark-divider;
-  }
-  .kai-text-secondary { @apply text-white/60; }
-  .kai-text-subtle    { @apply text-white/40; }
-
-  /* ── Light mode ── */
-  .light .kai-screen {
-    @apply bg-kai-light-bg text-gray-900;
-  }
-  .light .kai-card {
-    @apply bg-kai-light-card border-kai-light-border shadow-card-light;
-  }
-  .light .kai-card-2 {
-    @apply bg-gray-50 border-kai-light-border;
-  }
-  .light .kai-divider    { @apply border-kai-light-divider; }
-  .light .kai-text-secondary { @apply text-gray-500; }
-  .light .kai-text-subtle    { @apply text-gray-400; }
-
-  /* ── Status pills ── */
-  .status-green  { @apply bg-kai-green-dim  text-kai-green  text-xs font-medium px-2 py-0.5 rounded-full; }
-  .status-yellow { @apply bg-kai-yellow-dim text-kai-yellow text-xs font-medium px-2 py-0.5 rounded-full; }
-  .status-red    { @apply bg-kai-red-dim    text-kai-red    text-xs font-medium px-2 py-0.5 rounded-full; }
-
-  /* ── Nav ── */
-  .nav-item {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer;
-    @apply text-white/50 hover:text-white/80 hover:bg-white/5;
-  }
-  .nav-item.active {
-    @apply text-white bg-kai-blue/20;
-  }
-  .light .nav-item {
-    @apply text-gray-500 hover:text-gray-700 hover:bg-gray-100;
-  }
-  .light .nav-item.active {
-    @apply text-kai-blue bg-blue-50;
+    background: #ffffff;
+    border-radius: 20px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+    border: 1px solid rgba(0,0,0,0.04);
   }
 
-  /* ── Buttons ── */
+  /* ── Inner widget card ── */
+  .kai-inner {
+    background: #fafbfc;
+    border-radius: 16px;
+    border: 1px solid #e8ecf1;
+    padding: 20px;
+  }
+
+  /* ── Section title ── */
+  .section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #7c2d12;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* ── Task / habit item ── */
+  .list-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: #ffffff;
+    border-radius: 10px;
+    border: 1px solid #e8ecf1;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 13px;
+    color: #1f2937;
+  }
+  .list-item:hover {
+    background: #fff7ed;
+    border-color: #c2410c;
+    transform: translateX(4px);
+  }
+
+  /* ── Primary button ── */
   .btn-primary {
-    @apply bg-kai-blue hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors;
+    padding: 10px 20px;
+    border-radius: 10px;
+    border: none;
+    background: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(194,65,12,0.2);
   }
-  .btn-ghost {
-    @apply text-white/50 hover:text-white/80 hover:bg-white/5 text-sm px-3 py-1.5 rounded-lg transition-colors;
-  }
-  .light .btn-ghost {
-    @apply text-gray-500 hover:text-gray-700 hover:bg-gray-100;
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(194,65,12,0.3);
   }
 
-  /* ── Mobile bottom nav bg ── */
-  .kai-screen .bottom-nav-bg {
-    background-color: #0D1829;
+  /* ── Add button ── */
+  .add-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    border: none;
+    background: #e8ecf1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 18px;
+    color: #6b7280;
+    transition: all 0.2s ease;
   }
-  .light .bottom-nav-bg {
-    background-color: #ffffff;
+  .add-btn:hover {
+    background: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
+    color: #ffffff;
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(194,65,12,0.2);
+  }
+
+  /* ── Chat dark override (chat page stays dark) ── */
+  .chat-dark {
+    color-scheme: dark;
   }
 }

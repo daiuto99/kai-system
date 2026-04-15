@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Plus, Check, ChevronRight, Send, Clock } from 'lucide-react'
+import { Plus, Check, Send, Clock, ExternalLink, FileText, Link, Image, Lightbulb, Film, Archive } from 'lucide-react'
 import { api } from '../lib/api'
 import { ADVISORS, getAdvisor } from '../lib/advisors'
 
@@ -13,32 +12,23 @@ function greeting() {
   return 'Good evening'
 }
 
-function formatTime(ts) {
+function fmtTime(ts) {
   if (!ts) return ''
   return new Date(parseFloat(ts) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-// ── Widget shell ───────────────────────────────────────────────────────────
+// ── Section header ─────────────────────────────────────────────────────────
 
-function Widget({ title, action, children, className = '', noPad = false }) {
+function SectionHeader({ title, action }) {
   return (
-    <div className={`bg-white rounded-2xl border border-kai-light-border shadow-widget flex flex-col overflow-hidden ${className}`}>
-      {title && (
-        <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
-          <span className="text-[11px] font-semibold uppercase tracking-widest text-kai-light-subtle">
-            {title}
-          </span>
-          {action}
-        </div>
-      )}
-      <div className={`flex-1 overflow-hidden ${noPad ? '' : 'px-4 pb-4'}`}>
-        {children}
-      </div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+      <span className="section-title">{title}</span>
+      {action}
     </div>
   )
 }
 
-// ── Projects & Status ──────────────────────────────────────────────────────
+// ── Projects ───────────────────────────────────────────────────────────────
 
 const PROJECTS = [
   { name: 'KAI', status: 'green', next: 'Phase 2 — Command Center UI' },
@@ -48,142 +38,136 @@ const PROJECTS = [
   { name: 'Revolt Group', status: 'yellow', next: 'Messaging + website overhaul' },
 ]
 
-const STATUS_DOT = { green: 'bg-kai-green', yellow: 'bg-kai-yellow', red: 'bg-kai-red' }
+const SDOT = { green: '#10b981', yellow: '#f59e0b', red: '#ef4444' }
 
-function ProjectsWidget({ className }) {
+function ProjectsWidget() {
   return (
-    <Widget title="Projects" className={className}>
-      <div className="space-y-2.5">
+    <div className="kai-inner" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <SectionHeader title="Projects & Status" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', overflowY: 'auto' }}>
         {PROJECTS.map(p => (
-          <div key={p.name} className="flex items-start gap-2.5 group cursor-pointer">
-            <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${STATUS_DOT[p.status]}`} />
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-kai-light-text leading-tight">{p.name}</p>
-              <p className="text-xs text-kai-light-muted leading-snug mt-0.5 truncate">{p.next}</p>
+          <div key={p.name} className="list-item" style={{ gap: '10px' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: SDOT[p.status], flexShrink: 0 }} />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: '13px', fontWeight: 500, color: '#1f2937', lineHeight: 1.3 }}>{p.name}</div>
+              <div style={{ fontSize: '11px', color: '#6b7280', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.next}</div>
             </div>
-            <ChevronRight size={14} className="ml-auto mt-1 text-kai-light-subtle opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
           </div>
         ))}
       </div>
-    </Widget>
+    </div>
   )
 }
 
-// ── Habits / Harmony ───────────────────────────────────────────────────────
+// ── Harmony ────────────────────────────────────────────────────────────────
 
-function HabitsHarmonyWidget({ className }) {
-  const [harmony, setHarmony] = useState(null)
+function HarmonyWidget() {
+  const [counts, setCounts] = useState(null)
 
   useEffect(() => {
     api.getHarmony?.()
-      .then(setHarmony)
+      .then(data => {
+        const c = { G: 0, Y: 0, R: 0 }
+        Object.values(data).forEach(d => {
+          Object.values(d.aspects || {}).forEach(v => { c[v] = (c[v] || 0) + 1 })
+        })
+        setCounts(c)
+      })
       .catch(() => {})
   }, [])
 
-  const counts = harmony
-    ? Object.values(harmony).reduce((acc, d) => {
-        Object.values(d.aspects || {}).forEach(v => {
-          acc[v] = (acc[v] || 0) + 1
-        })
-        return acc
-      }, { G: 0, Y: 0, R: 0 })
-    : null
-
   return (
-    <Widget title="Harmony" className={className}>
-      <div className="flex flex-col items-center justify-center h-full py-2 gap-3">
-        <span className="text-4xl text-kai-light-subtle select-none" style={{ fontFamily: 'serif' }}>和</span>
-        {counts ? (
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-kai-green" />
-              <span className="text-xs text-kai-light-muted">{counts.G || 0}</span>
+    <div className="kai-inner" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+      <SectionHeader title="Harmony" />
+      <div style={{ fontSize: 40, color: '#9ca3af', fontFamily: 'serif', lineHeight: 1, userSelect: 'none' }}>和</div>
+      {counts ? (
+        <div style={{ display: 'flex', gap: 16 }}>
+          {[['G','#10b981'],['Y','#f59e0b'],['R','#ef4444']].map(([k,c]) => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: c }} />
+              <span style={{ fontSize: 12, color: '#6b7280' }}>{counts[k] || 0}</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-kai-yellow" />
-              <span className="text-xs text-kai-light-muted">{counts.Y || 0}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-kai-red" />
-              <span className="text-xs text-kai-light-muted">{counts.R || 0}</span>
-            </div>
-          </div>
-        ) : (
-          <p className="text-xs text-kai-light-subtle">Loading…</p>
-        )}
-      </div>
-    </Widget>
+          ))}
+        </div>
+      ) : (
+        <span style={{ fontSize: 12, color: '#9ca3af' }}>Loading…</span>
+      )}
+    </div>
   )
 }
 
 // ── Today's Play ───────────────────────────────────────────────────────────
 
-function TodayPlayWidget({ className }) {
+function TodayPlayWidget() {
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
   const [checked, setChecked] = useState({})
 
   useEffect(() => {
     api.getTodayFocus?.()
-      .then(data => setTasks(data.tasks || data.items || []))
-      .catch(() => setTasks([]))
+      .then(d => setTasks(d.tasks || d.items || []))
+      .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
   return (
-    <Widget title="Today's Play" className={className}>
-      <div className="flex flex-col h-full">
-        <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-          {loading ? (
-            <p className="text-xs text-kai-light-subtle pt-2">Loading…</p>
-          ) : tasks.length === 0 ? (
-            <p className="text-xs text-kai-light-subtle pt-2">No tasks for today. Plan your day with KAI →</p>
-          ) : (
-            tasks.map((t, i) => (
-              <div key={i} className="flex items-start gap-2.5 group">
-                <button
-                  onClick={() => setChecked(c => ({ ...c, [i]: !c[i] }))}
-                  className={`mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-colors ${
-                    checked[i]
-                      ? 'bg-kai-terra border-kai-terra'
-                      : 'border-kai-light-border hover:border-kai-terra'
-                  }`}
-                >
-                  {checked[i] && <Check size={10} className="text-white" strokeWidth={3} />}
-                </button>
-                <span className={`text-sm leading-snug ${checked[i] ? 'line-through text-kai-light-subtle' : 'text-kai-light-text'}`}>
-                  {t.content || t.title || t}
-                </span>
+    <div className="kai-inner" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <SectionHeader title="Today's Play" action={<button className="add-btn"><Plus size={14} /></button>} />
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {loading ? (
+          <p style={{ fontSize: 12, color: '#9ca3af', padding: '8px 0' }}>Loading…</p>
+        ) : tasks.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '24px 16px', color: '#9ca3af' }}>
+            <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.5 }}>📋</div>
+            <p style={{ fontSize: 13 }}>No tasks for today.<br/>Use KAI to plan your day →</p>
+          </div>
+        ) : (
+          tasks.map((t, i) => (
+            <div
+              key={i}
+              className="list-item"
+              onClick={() => setChecked(c => ({ ...c, [i]: !c[i] }))}
+              style={{ opacity: checked[i] ? 0.55 : 1 }}
+            >
+              <div style={{
+                width: 18, height: 18, borderRadius: 5, border: `2px solid ${checked[i] ? '#c2410c' : '#9ca3af'}`,
+                backgroundColor: checked[i] ? '#c2410c' : 'transparent', flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s',
+              }}>
+                {checked[i] && <Check size={10} color="white" strokeWidth={3} />}
               </div>
-            ))
-          )}
-        </div>
-        {/* Up next — calendar placeholder */}
-        <div className="flex-shrink-0 mt-3 pt-3 border-t border-kai-light-divider flex items-center gap-2">
-          <Clock size={12} className="text-kai-light-subtle flex-shrink-0" />
-          <span className="text-xs text-kai-light-subtle italic">Calendar sync coming soon</span>
-        </div>
+              <span style={{ flex: 1, fontSize: 13, textDecoration: checked[i] ? 'line-through' : 'none', color: checked[i] ? '#9ca3af' : '#1f2937' }}>
+                {t.content || t.title || String(t)}
+              </span>
+              {(t.priority === 1 || t.priority === 'high') && (
+                <span style={{ fontSize: 10, padding: '3px 6px', borderRadius: 5, background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontWeight: 600, textTransform: 'uppercase' }}>High</span>
+              )}
+            </div>
+          ))
+        )}
       </div>
-    </Widget>
+      {/* Up next */}
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e8ecf1', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Clock size={11} color="#9ca3af" />
+        <span style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>Calendar sync coming soon</span>
+      </div>
+    </div>
   )
 }
 
 // ── Check-In ───────────────────────────────────────────────────────────────
 
-function CheckInWidget({ className }) {
+function CheckInWidget() {
   const [intent, setIntent] = useState('')
   const [saved, setSaved] = useState(false)
-  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetch('/api/checkin')
       .then(r => r.json())
       .then(d => {
-        const today = new Date().toISOString().slice(0, 10)
-        if (d.date === today) setIntent(d.intent || '')
+        if (d.date === new Date().toISOString().slice(0, 10)) setIntent(d.intent || '')
       })
       .catch(() => {})
-      .finally(() => setLoading(false))
   }, [])
 
   function save() {
@@ -191,45 +175,43 @@ function CheckInWidget({ className }) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ intent }),
-    })
-      .then(() => { setSaved(true); setTimeout(() => setSaved(false), 2000) })
-      .catch(() => {})
+    }).then(() => { setSaved(true); setTimeout(() => setSaved(false), 2000) })
   }
 
   return (
-    <Widget title="Today's Intent" className={className}>
-      <div className="flex flex-col h-full gap-2">
-        <textarea
-          value={intent}
-          onChange={e => setIntent(e.target.value)}
-          onBlur={save}
-          placeholder="What do you want to get done today?"
-          className="flex-1 w-full text-sm text-kai-light-text placeholder:text-kai-light-subtle resize-none outline-none leading-relaxed bg-transparent"
-          style={{ fontSize: '16px', minHeight: '80px' }}
-        />
-        <div className="flex items-center justify-between flex-shrink-0">
-          <span className="text-[11px] text-kai-light-subtle">Auto-saves on blur</span>
-          {saved && <span className="text-[11px] text-kai-green">Saved ✓</span>}
-        </div>
-      </div>
-    </Widget>
+    <div className="kai-inner" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <SectionHeader
+        title="Today's Intent"
+        action={saved ? <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600 }}>Saved ✓</span> : null}
+      />
+      <textarea
+        value={intent}
+        onChange={e => setIntent(e.target.value)}
+        onBlur={save}
+        placeholder="What do you want to get done today?"
+        style={{
+          flex: 1, width: '100%', fontSize: 13, color: '#1f2937', lineHeight: 1.6,
+          background: 'transparent', border: 'none', outline: 'none', resize: 'none',
+          fontFamily: 'inherit', minHeight: 80, placeholder: { color: '#9ca3af' },
+        }}
+      />
+    </div>
   )
 }
 
 // ── Chat Widget ────────────────────────────────────────────────────────────
 
-function ChatWidget({ className }) {
+function ChatWidget() {
   const [advisor, setAdvisor] = useState(getAdvisor('kai'))
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
-  const [showAdvisors, setShowAdvisors] = useState(false)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
 
   useEffect(() => {
     api.getChannelHistory(advisor.channel)
-      .then(data => setMessages(data.messages || []))
+      .then(d => setMessages(d.messages || []))
       .catch(() => {})
   }, [advisor.channel])
 
@@ -241,13 +223,13 @@ function ChatWidget({ className }) {
     const text = input.trim()
     if (!text || thinking) return
     setInput('')
-    setMessages(prev => [...prev, { role: 'user', content: text, ts: String(Date.now() / 1000) }])
+    setMessages(p => [...p, { role: 'user', content: text, ts: String(Date.now() / 1000) }])
     setThinking(true)
     try {
-      const data = await api.sendMessage(text, advisor.channel)
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply || data.message || '', ts: String(Date.now() / 1000) }])
+      const d = await api.sendMessage(text, advisor.channel)
+      setMessages(p => [...p, { role: 'assistant', content: d.reply || d.message || '', ts: String(Date.now() / 1000) }])
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong.', error: true, ts: String(Date.now() / 1000) }])
+      setMessages(p => [...p, { role: 'assistant', content: 'Something went wrong.', error: true, ts: String(Date.now() / 1000) }])
     } finally {
       setThinking(false)
       inputRef.current?.focus()
@@ -255,63 +237,65 @@ function ChatWidget({ className }) {
   }
 
   return (
-    <div className={`bg-white rounded-2xl border border-kai-light-border shadow-widget flex flex-col overflow-hidden ${className}`}>
-      {/* Header */}
-      <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-kai-light-border">
-        <button onClick={() => setShowAdvisors(v => !v)} className="flex items-center gap-2 group">
-          <span className="text-lg">{advisor.emoji}</span>
-          <div className="text-left">
-            <p className="text-sm font-semibold text-kai-light-text leading-tight">{advisor.name}</p>
-            <p className="text-[11px] text-kai-light-subtle leading-none mt-0.5">{advisor.role}</p>
-          </div>
-        </button>
-        <div className="flex items-center gap-1">
+    <div style={{
+      background: '#ffffff', borderRadius: 20, boxShadow: '0 4px 20px rgba(0,0,0,0.06)',
+      border: '1px solid rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column',
+      overflow: 'hidden', height: '100%',
+    }}>
+      {/* Advisor row */}
+      <div style={{ flexShrink: 0, padding: '14px 20px 10px', borderBottom: '1px solid #e8ecf1' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {ADVISORS.map(a => (
             <button
               key={a.id}
-              onClick={() => { setAdvisor(a); setShowAdvisors(false) }}
-              className={`w-7 h-7 rounded-full flex items-center justify-center text-sm transition-all ${
-                advisor.id === a.id ? 'bg-kai-terra-dim ring-1 ring-kai-terra/30' : 'hover:bg-kai-light-bg'
-              }`}
-              title={a.name}
+              onClick={() => setAdvisor(a)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px',
+                borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 500,
+                transition: 'all 0.2s',
+                background: advisor.id === a.id ? '#fff7ed' : 'transparent',
+                color: advisor.id === a.id ? '#c2410c' : '#6b7280',
+              }}
             >
-              {a.emoji}
+              <span style={{ fontSize: 14 }}>{a.emoji}</span>
+              {a.name}
             </button>
           ))}
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 8, background: '#fafbfc' }}>
         {messages.length === 0 && !thinking && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-6">
-            <span className="text-3xl mb-2">{advisor.emoji}</span>
-            <p className="text-xs text-kai-light-subtle max-w-[200px] leading-relaxed">{advisor.intro}</p>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, color: '#9ca3af' }}>
+            <span style={{ fontSize: 32 }}>{advisor.emoji}</span>
+            <p style={{ fontSize: 13, textAlign: 'center', maxWidth: 220, lineHeight: 1.5 }}>{advisor.intro}</p>
           </div>
         )}
         {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            {msg.role !== 'user' && (
-              <span className="text-base mr-1.5 mt-0.5 flex-shrink-0">{advisor.emoji}</span>
-            )}
-            <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
-              msg.role === 'user'
-                ? 'bg-kai-terra text-white rounded-tr-sm'
-                : 'bg-kai-light-bg text-kai-light-text border border-kai-light-border rounded-tl-sm'
-            }`}>
-              <p className="whitespace-pre-wrap">{msg.content}</p>
-              {msg.ts && <p className="text-[10px] opacity-40 mt-1 text-right">{formatTime(msg.ts)}</p>}
+          <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+            {msg.role !== 'user' && <span style={{ fontSize: 14, marginRight: 6, marginTop: 2, flexShrink: 0 }}>{advisor.emoji}</span>}
+            <div style={{
+              maxWidth: '80%', padding: '8px 12px', borderRadius: 10, fontSize: 13, lineHeight: 1.4,
+              background: msg.role === 'user' ? '#fff7ed' : '#ffffff',
+              color: '#1f2937',
+              border: msg.role === 'user' ? 'none' : '1px solid #e8ecf1',
+              alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+              marginLeft: msg.role === 'user' ? 'auto' : 0,
+            }}>
+              <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{msg.content}</p>
+              {msg.ts && <p style={{ fontSize: 10, opacity: 0.4, marginTop: 4, textAlign: 'right', marginBottom: 0 }}>{fmtTime(msg.ts)}</p>}
             </div>
           </div>
         ))}
         {thinking && (
-          <div className="flex items-end gap-1.5">
-            <span className="text-base">{advisor.emoji}</span>
-            <div className="bg-kai-light-bg border border-kai-light-border rounded-2xl rounded-tl-sm px-3 py-2">
-              <div className="flex gap-1 items-center h-4">
-                <span className="w-1.5 h-1.5 rounded-full bg-kai-light-subtle animate-bounce [animation-delay:0ms]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-kai-light-subtle animate-bounce [animation-delay:150ms]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-kai-light-subtle animate-bounce [animation-delay:300ms]" />
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
+            <span style={{ fontSize: 14 }}>{advisor.emoji}</span>
+            <div style={{ background: '#ffffff', border: '1px solid #e8ecf1', borderRadius: 10, padding: '8px 12px' }}>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center', height: 16 }}>
+                {[0, 150, 300].map(d => (
+                  <span key={d} style={{ width: 6, height: 6, borderRadius: '50%', background: '#9ca3af', display: 'inline-block', animation: `bounce 1s ${d}ms infinite` }} />
+                ))}
               </div>
             </div>
           </div>
@@ -320,62 +304,125 @@ function ChatWidget({ className }) {
       </div>
 
       {/* Input */}
-      <div className="flex-shrink-0 px-3 py-3 border-t border-kai-light-border">
-        <div className="flex items-end gap-2 bg-kai-light-bg rounded-xl px-3 py-2 border border-kai-light-border">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-            placeholder={`Message ${advisor.name}…`}
-            rows={1}
-            className="flex-1 bg-transparent resize-none outline-none text-kai-light-text placeholder:text-kai-light-subtle leading-relaxed overflow-y-auto"
-            style={{ fontSize: '16px', minHeight: '20px', maxHeight: '96px' }}
-            onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 96) + 'px' }}
-          />
-          <button
-            onClick={send}
-            disabled={!input.trim() || thinking}
-            className="flex-shrink-0 w-7 h-7 rounded-full bg-kai-terra flex items-center justify-center transition-opacity disabled:opacity-30"
-          >
-            <Send size={13} className="text-white" />
-          </button>
-        </div>
+      <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid #e8ecf1', display: 'flex', gap: 10 }}>
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+          placeholder={`Ask ${advisor.name} anything…`}
+          style={{
+            flex: 1, padding: '10px 14px', borderRadius: 10, border: '1px solid #e8ecf1',
+            background: '#fafbfc', color: '#1f2937', fontSize: 13, fontFamily: 'inherit', outline: 'none',
+          }}
+          onFocus={e => e.target.style.borderColor = '#c2410c'}
+          onBlur={e => e.target.style.borderColor = '#e8ecf1'}
+        />
+        <button
+          onClick={send}
+          disabled={!input.trim() || thinking}
+          className="btn-primary"
+          style={{ padding: '10px 16px', opacity: (!input.trim() || thinking) ? 0.4 : 1 }}
+        >
+          Send
+        </button>
       </div>
     </div>
   )
 }
 
-// ── The Lot ────────────────────────────────────────────────────────────────
+// ── The Lot (thumbnail grid) ───────────────────────────────────────────────
+
+const CAT_ICON = {
+  'Links':     { icon: Link,      color: '#3b82f6', bg: '#eff6ff' },
+  'Notes':     { icon: FileText,  color: '#8b5cf6', bg: '#f5f3ff' },
+  'Images':    { icon: Image,     color: '#ec4899', bg: '#fdf2f8' },
+  'Ideas':     { icon: Lightbulb, color: '#f59e0b', bg: '#fffbeb' },
+  'Videos':    { icon: Film,      color: '#10b981', bg: '#ecfdf5' },
+  'Documents': { icon: FileText,  color: '#6b7280', bg: '#f9fafb' },
+}
+
+function LotThumbnail({ item }) {
+  const cat = item.category || 'Notes'
+  const { icon: Icon, color, bg } = CAT_ICON[cat] || CAT_ICON['Notes']
+  const isUrl = item.url || (item.content && item.content.startsWith('http'))
+  const url = item.url || (isUrl ? item.content : null)
+
+  return (
+    <div style={{
+      background: '#ffffff', borderRadius: 12, border: '1px solid #e8ecf1',
+      overflow: 'hidden', cursor: 'pointer', transition: 'all 0.2s',
+    }}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
+    >
+      {/* Thumbnail */}
+      <div style={{ height: 72, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+        {item.thumbnail ? (
+          <img src={item.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : (
+          <Icon size={24} color={color} strokeWidth={1.5} />
+        )}
+        {url && (
+          <a href={url} target="_blank" rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(255,255,255,0.9)', borderRadius: 6, padding: '3px 5px', display: 'flex' }}>
+            <ExternalLink size={11} color="#6b7280" />
+          </a>
+        )}
+      </div>
+      {/* Label */}
+      <div style={{ padding: '8px 10px' }}>
+        <p style={{ fontSize: 12, fontWeight: 500, color: '#1f2937', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3 }}>
+          {item.title || item.content?.slice(0, 35) || 'Untitled'}
+        </p>
+        <p style={{ fontSize: 10, color: '#9ca3af', margin: '2px 0 0', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 500 }}>
+          {cat}
+        </p>
+      </div>
+    </div>
+  )
+}
 
 function LotWidget() {
   const [items, setItems] = useState([])
 
   useEffect(() => {
     api.getParkingLot?.()
-      .then(data => setItems(data.items || []))
+      .then(d => setItems(d.items || []))
       .catch(() => {})
   }, [])
 
   return (
-    <div className="bg-white rounded-2xl border border-kai-light-border shadow-widget overflow-hidden">
-      <div className="flex items-center justify-between px-4 pt-4 pb-2">
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-kai-light-subtle">The Lot</span>
-        <span className="text-xs text-kai-light-subtle">{items.length} items</span>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 4fr', gap: 12 }}>
+      {/* Drop zone */}
+      <div style={{
+        background: '#fafbfc', padding: 20, display: 'flex', alignItems: 'center',
+        justifyContent: 'center', border: '2px dashed #d1d5db', borderRadius: 16,
+        transition: 'all 0.3s', cursor: 'default', minHeight: 100,
+      }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = '#c2410c'; e.currentTarget.style.background = '#fff7ed' }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.background = '#fafbfc' }}
+      >
+        <div style={{ textAlign: 'center' }}>
+          <Archive size={20} color="#9ca3af" style={{ margin: '0 auto 6px' }} />
+          <p style={{ fontSize: 11, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 500, margin: 0 }}>Drop Zone</p>
+        </div>
       </div>
-      <div className="px-4 pb-4">
+
+      {/* Inventory */}
+      <div style={{ background: '#fafbfc', padding: 20, borderRadius: 16, border: '1px solid #e8ecf1' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <span className="section-title">The Lot</span>
+          <span style={{ fontSize: 11, color: '#9ca3af' }}>{items.length} items</span>
+        </div>
         {items.length === 0 ? (
-          <p className="text-xs text-kai-light-subtle py-2">Nothing in The Lot</p>
+          <div style={{ textAlign: 'center', padding: '20px 0', color: '#9ca3af' }}>
+            <p style={{ fontSize: 13 }}>Nothing in The Lot</p>
+          </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {items.slice(0, 8).map((item, i) => (
-              <div key={i} className="bg-kai-light-bg rounded-lg px-3 py-2 border border-kai-light-border">
-                <p className="text-xs font-medium text-kai-light-text truncate">{item.title || item.content?.slice(0, 40) || 'Untitled'}</p>
-                {item.category && (
-                  <p className="text-[10px] text-kai-light-subtle mt-0.5">{item.category}</p>
-                )}
-              </div>
-            ))}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10 }}>
+            {items.slice(0, 12).map((item, i) => <LotThumbnail key={i} item={item} />)}
           </div>
         )}
       </div>
@@ -383,49 +430,51 @@ function LotWidget() {
   )
 }
 
-// ── Main page ──────────────────────────────────────────────────────────────
+// ── Page ───────────────────────────────────────────────────────────────────
 
 export default function Today() {
   return (
-    <div className="h-full bg-kai-light-bg overflow-y-auto md:overflow-hidden">
-      <div className="md:h-full flex flex-col px-4 pt-5 pb-4 gap-4">
+    <div style={{ height: '100%', background: '#f8f9fa', overflowY: 'auto' }}>
+      <div style={{ maxWidth: 1400, margin: '0 auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-        {/* Greeting */}
-        <div className="flex-shrink-0 px-1">
-          <h1 className="text-xl text-kai-light-text">
-            {greeting()}, <strong>Leo</strong>
-          </h1>
+        {/* Top card — greeting + widget grid */}
+        <div className="kai-card" style={{ padding: 24 }}>
+          <p style={{ fontSize: 22, fontWeight: 300, color: '#1f2937', letterSpacing: '-0.02em', marginBottom: 20 }}>
+            {greeting()}, <strong style={{ fontWeight: 600 }}>Leo</strong>
+          </p>
+
+          {/* Desktop grid */}
+          <div className="hidden md:grid" style={{ gridTemplateColumns: '1.2fr 0.6fr 1.3fr', gridTemplateRows: '1fr 1fr', gap: 12, minHeight: 480 }}>
+            <div style={{ gridColumn: 1, gridRow: 1, display: 'flex' }}><ProjectsWidget /></div>
+            <div style={{ gridColumn: 2, gridRow: 1, display: 'flex' }}><HarmonyWidget /></div>
+            <div style={{ gridColumn: 3, gridRow: '1 / 3' }}><ChatWidget /></div>
+            <div style={{ gridColumn: 1, gridRow: 2, display: 'flex' }}><TodayPlayWidget /></div>
+            <div style={{ gridColumn: 2, gridRow: 2, display: 'flex' }}><CheckInWidget /></div>
+          </div>
+
+          {/* Mobile stack */}
+          <div className="md:hidden" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <CheckInWidget />
+            <TodayPlayWidget />
+            <HarmonyWidget />
+            <ProjectsWidget />
+            <div style={{ minHeight: 400 }}><ChatWidget /></div>
+          </div>
         </div>
 
-        {/* Desktop grid */}
-        <div className="hidden md:grid flex-1 min-h-0" style={{
-          gridTemplateColumns: '1fr 0.7fr 1.1fr',
-          gridTemplateRows: '1fr 1fr',
-          gridTemplateAreas: '"projects harmony chat" "todayplay checkin chat"',
-          gap: '12px',
-        }}>
-          <ProjectsWidget style={{ gridArea: 'projects' }} className="[grid-area:projects]" />
-          <HabitsHarmonyWidget className="[grid-area:harmony]" style={{ gridArea: 'harmony' }} />
-          <ChatWidget className="[grid-area:chat] row-span-2" style={{ gridArea: 'chat' }} />
-          <TodayPlayWidget className="[grid-area:todayplay]" style={{ gridArea: 'todayplay' }} />
-          <CheckInWidget className="[grid-area:checkin]" style={{ gridArea: 'checkin' }} />
-        </div>
-
-        {/* Mobile stack */}
-        <div className="md:hidden flex flex-col gap-3 pb-24">
-          <CheckInWidget className="min-h-[120px]" />
-          <TodayPlayWidget className="min-h-[200px]" />
-          <HabitsHarmonyWidget className="min-h-[140px]" />
-          <ProjectsWidget className="min-h-[200px]" />
-          <ChatWidget className="min-h-[400px]" />
-        </div>
-
-        {/* The Lot — full width below grid */}
-        <div className="flex-shrink-0 hidden md:block">
+        {/* Lot card */}
+        <div className="kai-card" style={{ padding: 20 }}>
           <LotWidget />
         </div>
 
       </div>
+
+      <style>{`
+        @keyframes bounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-4px); }
+        }
+      `}</style>
     </div>
   )
 }
