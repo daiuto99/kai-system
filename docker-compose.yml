@@ -7,12 +7,13 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      - /home/leo/vault:/vault:ro
+      - /home/leo/vault:/vault:rw
     env_file:
       - .env
     secrets:
       - anthropic_api_key
       - slack_bot_token
+      - todoist_api_key
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
@@ -74,6 +75,7 @@ services:
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=
       - N8N_BASIC_AUTH_PASSWORD=
+      - N8N_SECURE_COOKIE=false
       - GENERIC_TIMEZONE=America/New_York
       - TZ=America/New_York
     healthcheck:
@@ -110,6 +112,7 @@ services:
     secrets:
       - anthropic_api_key
       - slack_bot_token
+      - todoist_api_key
     depends_on:
       kai-worker-api:
         condition: service_healthy
@@ -126,3 +129,5 @@ secrets:
     file: ./secrets/slack_app_token.txt
   cloudflare_tunnel_token:
     file: ./secrets/cloudflare_tunnel_token.txt
+  todoist_api_key:
+    file: ./secrets/todoist_api_key.txt

@@ -51,3 +51,19 @@ def list_files(path: str = ""):
         raise HTTPException(status_code=404, detail=f"Path not found: {path}")
     files = [str(f.relative_to(VAULT_PATH)) for f in target.rglob("*") if f.is_file()]
     return {"path": path, "files": sorted(files)}
+
+
+# ── Focus Brief ──────────────────────────────────────────────────────────────
+
+from focus import run_focus_brief
+from pydantic import BaseModel as _BaseModel
+
+class FocusRequest(_BaseModel):
+    kai_focus_channel_id: str
+
+
+@app.post("/focus/run")
+def trigger_focus_brief(req: FocusRequest):
+    """Trigger the morning focus brief. Called by n8n at 8:45am EST."""
+    result = run_focus_brief(req.kai_focus_channel_id)
+    return result
