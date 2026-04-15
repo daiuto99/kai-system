@@ -50,7 +50,13 @@ def load_persona(advisor: str, channel: str = None) -> str:
     if not persona_file.exists():
         raise HTTPException(status_code=404, detail=f"Persona not found: {advisor}")
 
-    parts = [persona_file.read_text(encoding="utf-8")]
+    # Always prepend business profile for full session context
+    parts = []
+    business_profile = VAULT_PATH / "00_System" / "business_profile.md"
+    if business_profile.exists():
+        parts.append(business_profile.read_text(encoding="utf-8"))
+
+    parts.append(persona_file.read_text(encoding="utf-8"))
 
     context_file = advisor_dir / "context.md"
     if context_file.exists():
