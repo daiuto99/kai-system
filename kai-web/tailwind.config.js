@@ -5,20 +5,26 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Encore-derived KAI design tokens
         kai: {
-          // Dark (Stage) profile
+          // Dark (Chat) profile
           'dark-bg':      '#060E1F',
           'dark-card':    '#0D1829',
           'dark-card2':   '#112236',
           'dark-border':  'rgba(255,255,255,0.08)',
           'dark-divider': 'rgba(255,255,255,0.12)',
-          // Light (Classic) profile
-          'light-bg':     '#F2F2F7',
+          // Light (Command Center) profile
+          'light-bg':     '#F4F3F0',
           'light-card':   '#FFFFFF',
-          'light-border': 'rgba(0,0,0,0.08)',
-          'light-divider':'rgba(0,0,0,0.10)',
-          // Accents
+          'light-border': '#E8E5E0',
+          'light-divider':'#EAE7E2',
+          'light-text':   '#1A1918',
+          'light-muted':  '#6B6866',
+          'light-subtle': '#9B9490',
+          // Terracotta accent
+          'terra':        '#C0512A',
+          'terra-light':  '#D4623A',
+          'terra-dim':    'rgba(192,81,42,0.10)',
+          // Accents (keep for chat)
           'blue':         '#3882F6',
           'blue-dim':     '#1D4ED8',
           'blue-glow':    'rgba(56,130,246,0.15)',
@@ -36,8 +42,9 @@ export default {
         mono: ['JetBrains Mono', 'Menlo', 'monospace'],
       },
       boxShadow: {
+        'widget': '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+        'widget-hover': '0 4px 12px rgba(0,0,0,0.10)',
         'card-light': '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)',
-        'card-hover': '0 4px 12px rgba(0,0,0,0.12)',
       }
     },
   },

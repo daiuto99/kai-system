@@ -1,3 +1,5 @@
+import json
+from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
@@ -312,3 +314,47 @@ def get_insights():
 
     insights.reverse()  # Newest first
     return {"insights": insights, "count": len(insights)}
+
+
+# ── Check-In ──────────────────────────────────────────────────────────────
+
+CHECKIN_FILE = VAULT_PATH / "00_System" / "checkin.json"
+
+@app.get("/checkin")
+def get_checkin():
+    if CHECKIN_FILE.exists():
+        return json.loads(CHECKIN_FILE.read_text())
+    return {"intent": "", "date": ""}
+
+class CheckInRequest(BaseModel):
+    intent: str = ""
+
+@app.post("/checkin")
+def save_checkin(req: CheckInRequest):
+    from datetime import datetime as _dt
+    data = {"intent": req.intent, "date": _dt.utcnow().strftime("%Y-%m-%d")}
+    CHECKIN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CHECKIN_FILE.write_text(json.dumps(data, indent=2))
+    return data
+
+# ── Settings ──────────────────────────────────────────────────────────────
+
+SETTINGS_FILE = VAULT_PATH / "00_System" / "ui_settings.json"
+
+@app.get("/settings")
+def get_settings():
+    if SETTINGS_FILE.exists():
+        return json.loads(SETTINGS_FILE.read_text())
+    return {"working_on": "", "o365_cal_1": "", "o365_cal_2": ""}
+
+class UISettingsRequest(BaseModel):
+    working_on: str = ""
+    o365_cal_1: str = ""
+    o365_cal_2: str = ""
+
+@app.post("/settings")
+def save_settings(req: UISettingsRequest):
+    data = req.dict()
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_FILE.write_text(json.dumps(data, indent=2))
+    return data

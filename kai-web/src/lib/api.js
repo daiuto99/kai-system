@@ -47,6 +47,7 @@ export const api = {
 
   // Focus / Today
   getFocusBrief: () => get(`${BASE}/focus/today`),
+  getTodayFocus: () => get(`${BASE}/focus/today`),
 
   // Council — chat
   sendMessage: (message, channel = 'kai') =>
