@@ -54,7 +54,15 @@ def load_persona(advisor: str, channel: str = None) -> str:
     parts = []
     business_profile = VAULT_PATH / "00_System" / "business_profile.md"
     if business_profile.exists():
-        parts.append(business_profile.read_text(encoding="utf-8"))
+        profile_text = business_profile.read_text(encoding="utf-8")
+        parts.append(
+            "<background_context>\n"
+            "The following is Leo's business and life profile. "
+            "Use it as silent context to inform every response. "
+            "Do NOT recite, summarize, or reference this document unless Leo explicitly asks.\n\n"
+            + profile_text +
+            "\n</background_context>"
+        )
 
     parts.append(persona_file.read_text(encoding="utf-8"))
 

@@ -18,7 +18,7 @@ export default function Layout({ children, dark, onToggleTheme }) {
       </div>
 
       {/* Main content — extra bottom padding on mobile for nav */}
-      <main className="flex-1 overflow-y-auto min-w-0 pb-[env(safe-area-inset-bottom)] md:pb-0">
+      <main className="flex-1 overflow-hidden min-w-0 md:overflow-y-auto">
         {children}
       </main>
 

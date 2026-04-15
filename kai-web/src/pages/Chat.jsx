@@ -84,7 +84,7 @@ export default function Chat() {
   }
 
   return (
-    <div className="flex flex-col h-full max-h-screen">
+    <div className="flex flex-col md:h-full" style={{ height: '100dvh' }}>
 
       {/* Header */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b kai-divider">
@@ -206,7 +206,10 @@ export default function Chat() {
       </div>
 
       {/* Input */}
-      <div className="flex-shrink-0 px-4 py-3 border-t kai-divider">
+      <div
+        className="flex-shrink-0 px-4 pt-3 border-t kai-divider"
+        style={{ paddingBottom: 'max(0.75rem, calc(84px + env(safe-area-inset-bottom)))' }}
+      >
         <div className="flex items-end gap-2 bg-kai-dark-card2 border border-kai-dark-border rounded-2xl px-4 py-3">
           <textarea
             ref={inputRef}
@@ -215,8 +218,8 @@ export default function Chat() {
             onKeyDown={handleKey}
             placeholder={`Message ${advisor.name}…`}
             rows={1}
-            className="flex-1 bg-transparent text-sm resize-none outline-none kai-text-secondary placeholder:text-white/20 leading-relaxed max-h-32 overflow-y-auto"
-            style={{ minHeight: '20px' }}
+            className="flex-1 bg-transparent resize-none outline-none kai-text-secondary placeholder:text-white/20 leading-relaxed max-h-32 overflow-y-auto"
+            style={{ fontSize: '16px', minHeight: '20px' }}
             onInput={e => {
               e.target.style.height = 'auto'
               e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px'
