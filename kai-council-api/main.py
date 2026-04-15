@@ -12,6 +12,7 @@ VAULT_PATH = Path("/vault")
 COUNCIL_PATH = VAULT_PATH / "60_Council"
 
 ADVISOR_CHANNELS = {
+    "kai":   "chief",
     "chief": "chief",
     "beats": "beats",
     "beats-personal": "beats",
@@ -121,7 +122,7 @@ def append_insights_to_vault(insights: list[dict]) -> int:
 class MessageRequest(BaseModel):
     channel: str
     message: str
-    user_id: str
+    user_id: str = ""
     history: list[dict] = []
     thread_ts: str = ""
 
@@ -177,6 +178,10 @@ def council_message(req: MessageRequest):
     else:
         clean_reply = raw_reply
 
+    # Log conversation history to vault
+    _append_history(channel, "user", req.message)
+    _append_history(channel, "assistant", clean_reply)
+
     return {
         "advisor": advisor,
         "channel": channel,
@@ -185,6 +190,13 @@ def council_message(req: MessageRequest):
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
     }
+
+
+
+@app.post("/message")
+def web_message(req: MessageRequest):
+    """Web UI alias — nginx strips /council/ prefix."""
+    return council_message(req)
 
 
 @app.post("/council/context/update")
@@ -212,3 +224,38 @@ def get_insights():
     if not insights_file.exists():
         raise HTTPException(status_code=404, detail="Insights file not found")
     return {"content": insights_file.read_text(encoding="utf-8")}
+
+
+# ── Conversation History ──────────────────────────────────────────────────────
+
+import json as _json
+from datetime import datetime as _dt
+
+HISTORY_DIR = VAULT_PATH / "60_Council" / "_history"
+
+
+def _history_file(channel: str) -> Path:
+    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    return HISTORY_DIR / f"{channel}.jsonl"
+
+
+def _append_history(channel: str, role: str, content: str):
+    f = _history_file(channel)
+    entry = {"role": role, "content": content, "ts": str(_dt.utcnow().timestamp())}
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write(_json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+@app.get("/history/{channel}")
+def get_history(channel: str, limit: int = 50):
+    f = _history_file(channel)
+    if not f.exists():
+        return {"messages": [], "channel": channel}
+    lines = f.read_text(encoding="utf-8").strip().splitlines()
+    messages = []
+    for line in lines[-limit:]:
+        try:
+            messages.append(_json.loads(line))
+        except Exception:
+            pass
+    return {"messages": messages, "channel": channel}

@@ -55,6 +55,18 @@ services:
       kai-council-api:
         condition: service_healthy
 
+  kai-web:
+    build: ./kai-web
+    container_name: kai-web
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      kai-worker-api:
+        condition: service_healthy
+      kai-council-api:
+        condition: service_healthy
+
   n8n:
     image: n8nio/n8n:latest
     container_name: kai-n8n

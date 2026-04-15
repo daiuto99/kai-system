@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior: none;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 2px; }
+  .light ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); }
+
+  /* Hide scrollbar but keep scroll */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+@layer components {
+  /* ── Surfaces ── */
+  .kai-screen {
+    @apply bg-kai-dark-bg text-white min-h-screen;
+  }
+  .kai-card {
+    @apply bg-kai-dark-card rounded-xl border border-kai-dark-border;
+  }
+  .kai-card-2 {
+    @apply bg-kai-dark-card2 rounded-lg border border-kai-dark-border;
+  }
+  .kai-divider {
+    @apply border-kai-dark-divider;
+  }
+  .kai-text-secondary { @apply text-white/60; }
+  .kai-text-subtle    { @apply text-white/40; }
+
+  /* ── Light mode ── */
+  .light .kai-screen {
+    @apply bg-kai-light-bg text-gray-900;
+  }
+  .light .kai-card {
+    @apply bg-kai-light-card border-kai-light-border shadow-card-light;
+  }
+  .light .kai-card-2 {
+    @apply bg-gray-50 border-kai-light-border;
+  }
+  .light .kai-divider    { @apply border-kai-light-divider; }
+  .light .kai-text-secondary { @apply text-gray-500; }
+  .light .kai-text-subtle    { @apply text-gray-400; }
+
+  /* ── Status pills ── */
+  .status-green  { @apply bg-kai-green-dim  text-kai-green  text-xs font-medium px-2 py-0.5 rounded-full; }
+  .status-yellow { @apply bg-kai-yellow-dim text-kai-yellow text-xs font-medium px-2 py-0.5 rounded-full; }
+  .status-red    { @apply bg-kai-red-dim    text-kai-red    text-xs font-medium px-2 py-0.5 rounded-full; }
+
+  /* ── Nav ── */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer;
+    @apply text-white/50 hover:text-white/80 hover:bg-white/5;
+  }
+  .nav-item.active {
+    @apply text-white bg-kai-blue/20;
+  }
+  .light .nav-item {
+    @apply text-gray-500 hover:text-gray-700 hover:bg-gray-100;
+  }
+  .light .nav-item.active {
+    @apply text-kai-blue bg-blue-50;
+  }
+
+  /* ── Buttons ── */
+  .btn-primary {
+    @apply bg-kai-blue hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors;
+  }
+  .btn-ghost {
+    @apply text-white/50 hover:text-white/80 hover:bg-white/5 text-sm px-3 py-1.5 rounded-lg transition-colors;
+  }
+  .light .btn-ghost {
+    @apply text-gray-500 hover:text-gray-700 hover:bg-gray-100;
+  }
+
+  /* ── Mobile bottom nav bg ── */
+  .kai-screen .bottom-nav-bg {
+    background-color: #0D1829;
+  }
+  .light .bottom-nav-bg {
+    background-color: #ffffff;
+  }
+}

@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 from pathlib import Path
 import httpx
 from slack_bolt import App
@@ -16,6 +17,8 @@ COUNCIL_CHANNELS = {
     "ember", "doc", "coach", "biz",
     "council", "council-daily", "council-weekly", "council-monthly",
 }
+
+PARKING_LOT_CHANNEL = "kai-parking-lot"
 
 
 def load_secret(name: str) -> str:
@@ -76,10 +79,9 @@ def call_council(channel: str, message: str, user_id: str, ts: str) -> str:
         data = r.json()
         reply = data["reply"]
 
-        # Update history
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": reply})
-        _history[key] = history[-20:]  # keep last 20 turns
+        _history[key] = history[-20:]
 
         insights = data.get("insights_logged", 0)
         insight_note = f" | {insights} insight(s) logged" if insights else ""
@@ -107,29 +109,44 @@ def handle_message(event, say):
     channel_id = event["channel"]
     ch_name = channel_name(channel_id)
 
-    if ch_name not in COUNCIL_CHANNELS:
-        return
-
+    # Extract common fields up front
     text = event.get("text", "").strip()
+    user_id = event.get("user", "unknown")
+    ts = event.get("thread_ts") or event["ts"]
+
     if not text:
         return
 
-    user_id = event.get("user", "unknown")
-    # Use thread_ts if in a thread, else the message ts (start a new thread)
-    ts = event.get("thread_ts") or event["ts"]
+    # Parking Lot
+    if ch_name == PARKING_LOT_CHANNEL:
+        try:
+            r = httpx.post(
+                f"{WORKER_API}/parking-lot/capture",
+                json={
+                    "text": text,
+                    "channel_id": channel_id,
+                    "thread_ts": ts,
+                    "user_id": user_id,
+                },
+                timeout=30.0,
+            )
+            data = r.json()
+            log.info(f"Parking lot: {data.get('type', '?')}: {data.get('title', '?')[:40]}")
+        except Exception as e:
+            log.error(f"Parking lot error: {e}")
+        return
+
+    if ch_name not in COUNCIL_CHANNELS:
+        return
 
     log.info(f"Message in #{ch_name} from {user_id}: {text[:60]}")
-
     reply = call_council(ch_name, text, user_id, ts)
     say(text=reply, thread_ts=ts)
 
 
 @app.event("app_mention")
 def handle_mention(event, say):
-    # Strip the @mention and treat as a message
     text = event.get("text", "")
-    # Remove <@BOTID> from text
-    import re
     text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
     if text:
         event["text"] = text
