@@ -14,6 +14,7 @@ services:
       - anthropic_api_key
       - slack_bot_token
       - todoist_api_key
+      - habitsync_password
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
@@ -129,8 +130,20 @@ services:
       kai-worker-api:
         condition: service_healthy
 
+  kai-habitsync:
+    image: ghcr.io/jofoerster/habitsync:latest
+    container_name: kai-habitsync
+    restart: unless-stopped
+    env_file:
+      - .env.habitsync
+    volumes:
+      - habitsync_data:/data
+    ports:
+      - "6842:6842"
+
 volumes:
   n8n_data:
+  habitsync_data:
 
 secrets:
   anthropic_api_key:
@@ -143,3 +156,6 @@ secrets:
     file: ./secrets/cloudflare_tunnel_token.txt
   todoist_api_key:
     file: ./secrets/todoist_api_key.txt
+  habitsync_password:
+    file: ./secrets/habitsync_password.txt
+

@@ -3,11 +3,11 @@ export const ADVISORS = [
     id:      'kai',
     channel: 'chief',
     name:    'KAI',
-    role:    'Chief of Staff',
+    role:    'Command',
     emoji:   '⚡',
     color:   '#3882F6',
     avatar:  '/avatar-kai.png',
-    intro:   'Your chief of staff. Always in the room.',
+    intro:   'KAI. Always in the room.'
   },
   {
     id:      'ember',

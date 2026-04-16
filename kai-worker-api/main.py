@@ -248,6 +248,73 @@ source: web
     (LOT_DIR / f"{slug}.md").write_text(content, encoding="utf-8")
     return {"ok": True, "slug": slug}
 
+
+@app.get("/stoic-quote")
+def get_stoic_quote():
+    """Return a daily-cached stoic quote."""
+    import httpx as _hx
+    from datetime import date as _d
+    import random as _random
+    today = _d.today().isoformat()
+
+    _STOIC = [
+        {"content": "You have power over your mind, not outside events. Realize this, and you will find strength.", "author": "Marcus Aurelius"},
+        {"content": "The impediment to action advances action. What stands in the way becomes the way.", "author": "Marcus Aurelius"},
+        {"content": "Waste no more time arguing about what a good man should be. Be one.", "author": "Marcus Aurelius"},
+        {"content": "If it is not right, do not do it; if it is not true, do not say it.", "author": "Marcus Aurelius"},
+        {"content": "He who fears death will never do anything worthy of a man who is alive.", "author": "Seneca"},
+        {"content": "Luck is what happens when preparation meets opportunity.", "author": "Seneca"},
+        {"content": "Begin at once to live, and count each separate day as a separate life.", "author": "Seneca"},
+        {"content": "No man is free who is not master of himself.", "author": "Epictetus"},
+        {"content": "Make the best use of what is in your power, and take the rest as it happens.", "author": "Epictetus"},
+        {"content": "He is a wise man who does not grieve for things he has not, but rejoices for those he has.", "author": "Epictetus"},
+        {"content": "First say to yourself what you would be; and then do what you have to do.", "author": "Epictetus"},
+        {"content": "Difficulties are things that show a person what they are.", "author": "Epictetus"},
+        {"content": "Man conquers the world by conquering himself.", "author": "Zeno of Citium"},
+        {"content": "Confine yourself to the present.", "author": "Marcus Aurelius"},
+        {"content": "Very little is needed to make a happy life; it is all within yourself, in your way of thinking.", "author": "Marcus Aurelius"},
+    ]
+
+    # Daily stable selection based on date
+    _random.seed(today)
+    quote = _random.choice(_STOIC)
+
+    # Try quotable.io for variety (fall back to local on failure)
+    try:
+        r = _hx.get("https://api.quotable.io/random?tags=stoicism&maxLength=130", timeout=3)
+        if r.status_code == 200:
+            d = r.json()
+            if d.get("content") and d.get("author"):
+                return {"content": d["content"], "author": d["author"]}
+    except Exception:
+        pass
+
+    return quote
+
+
+@app.get("/parking-lot/og")
+def parking_lot_og_image(url: str):
+    """Fetch OG image URL for a given URL (for Lot thumbnails)."""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 Twitterbot/1.0"}
+        with httpx.Client(timeout=5, follow_redirects=True) as client:
+            r = client.get(url, headers=headers)
+        html = r.text[:80000]
+        # og:image — two attribute orderings
+        m = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html, re.I)
+        if not m:
+            m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', html, re.I)
+        if m:
+            img = m.group(1)
+            if img.startswith("/"):
+                from urllib.parse import urlparse
+                p = urlparse(url)
+                img = f"{p.scheme}://{p.netloc}{img}"
+            return {"image": img}
+        return {"image": ""}
+    except Exception:
+        return {"image": ""}
+
 @app.get("/parking-lot/list")
 def parking_lot_list():
     LOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -262,6 +329,32 @@ def parking_lot_list():
 
 class RouteBody(_BaseModel):
     advisor: str
+
+
+@app.patch("/parking-lot/{slug}")
+def parking_lot_edit(slug: str, body: dict):
+    """Edit a lot item's title."""
+    path = LOT_DIR / f"{slug}.md"
+    if not path.exists():
+        raise HTTPException(404, "Not found")
+    text = path.read_text()
+    new_title = body.get("title", "").strip()
+    if new_title:
+        # Update title in frontmatter if present, else prepend
+        import re as _re_edit
+        if _re_edit.search(r'^title:', text, _re_edit.MULTILINE):
+            text = _re_edit.sub(r'^title:.*$', f'title: {new_title}', text, flags=_re_edit.MULTILINE)
+        path.write_text(text)
+    return {"ok": True}
+
+
+@app.delete("/parking-lot/{slug}")
+def parking_lot_delete(slug: str):
+    """Permanently delete a lot item."""
+    path = LOT_DIR / f"{slug}.md"
+    if path.exists():
+        path.unlink()
+    return {"ok": True}
 
 
 @app.post("/parking-lot/{slug}/route")
@@ -424,50 +517,32 @@ def get_projects_v2():
 
 # ── Habits ────────────────────────────────────────────────────────────────────
 
-HABITS_FILE = VAULT_PATH / "00_System" / "habits.json"
+# ── Habits (HabitSync) ───────────────────────────────────────────────────────
 
 @app.get("/habits")
-def get_habits():
+def get_habits_endpoint():
     from datetime import date as _d
-    today = _d.today().isoformat()
-    if not HABITS_FILE.exists():
-        return {"habits": [], "date": today}
-    habits = json.loads(HABITS_FILE.read_text())
-    for h in habits:
-        completions = h.get("completions", [])
-        h["done_today"] = today in completions
-    return {"habits": habits, "date": today}
+    try:
+        habits = hs_get_habits()
+        return {"habits": habits, "date": _d.today().isoformat()}
+    except Exception as e:
+        return {"habits": [], "date": _d.today().isoformat(), "error": str(e)}
 
 @app.post("/habits/{habit_id}/complete")
 def complete_habit(habit_id: str):
-    from datetime import date as _d
-    today = _d.today().isoformat()
-    if not HABITS_FILE.exists():
-        raise HTTPException(404, "habits.json not found")
-    habits = json.loads(HABITS_FILE.read_text())
-    for h in habits:
-        if h["id"] == habit_id:
-            if today not in h.get("completions", []):
-                h.setdefault("completions", []).append(today)
-                # Keep only last 90 days
-                h["completions"] = sorted(h["completions"])[-90:]
-            HABITS_FILE.write_text(json.dumps(habits, indent=2))
-            return {"ok": True, "habit_id": habit_id, "date": today}
-    raise HTTPException(404, f"Habit {habit_id} not found")
+    try:
+        result = log_habit(habit_id)
+        return {"ok": True, "habit_id": habit_id, **result}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 @app.delete("/habits/{habit_id}/complete")
 def uncomplete_habit(habit_id: str):
-    from datetime import date as _d
-    today = _d.today().isoformat()
-    if not HABITS_FILE.exists():
-        raise HTTPException(404, "habits.json not found")
-    habits = json.loads(HABITS_FILE.read_text())
-    for h in habits:
-        if h["id"] == habit_id:
-            h["completions"] = [c for c in h.get("completions", []) if c != today]
-            HABITS_FILE.write_text(json.dumps(habits, indent=2))
-            return {"ok": True, "habit_id": habit_id, "date": today}
-    raise HTTPException(404, f"Habit {habit_id} not found")
+    try:
+        result = unlog_habit(habit_id)
+        return {"ok": True, "habit_id": habit_id, **result}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 # ── Weather ───────────────────────────────────────────────────────────────────
@@ -562,6 +637,7 @@ def get_quote():
 
 # ── Tasks (Todoist) ───────────────────────────────────────────────────────────
 
+from services.habitsync import get_habits as hs_get_habits, log_habit, unlog_habit
 from services.todoist import (
     get_inbox, get_today, create_task, update_task,
     complete_task as todoist_complete, reschedule_task,
