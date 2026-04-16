@@ -6,6 +6,7 @@ export const ADVISORS = [
     role:    'Chief of Staff',
     emoji:   '⚡',
     color:   '#3882F6',
+    avatar:  '/avatar-kai.png',
     intro:   'Your chief of staff. Always in the room.',
   },
   {
@@ -15,6 +16,7 @@ export const ADVISORS = [
     role:    'Emotional & personal',
     emoji:   '🔥',
     color:   '#F43F5E',
+    avatar:  '/avatar-ember.png',
     intro:   'Warm, direct, deeply present. Patterns, insight, growth.',
   },
   {
@@ -24,6 +26,7 @@ export const ADVISORS = [
     role:    'Music & creative',
     emoji:   '🎵',
     color:   '#F97316',
+    avatar:  '/avatar-beats.png',
     intro:   'Your music director. Studio, tone, creative direction.',
   },
   {

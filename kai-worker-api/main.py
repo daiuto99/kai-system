@@ -358,3 +358,280 @@ def save_settings(req: UISettingsRequest):
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_FILE.write_text(json.dumps(data, indent=2))
     return data
+
+
+
+
+
+# ── Projects v2 (STATUS.md) ──────────────────────────────────────────────────
+
+import re as _re_status
+import yaml as _yaml
+
+def _parse_status_md(path: Path) -> dict:
+    """Parse YAML frontmatter from a STATUS.md file."""
+    text = path.read_text(encoding="utf-8")
+    m = _re_status.match(r"^---\s*\n(.*?)\n---", text, _re_status.DOTALL)
+    if not m:
+        return {}
+    try:
+        return _yaml.safe_load(m.group(1)) or {}
+    except Exception:
+        return {}
+
+PROJECTS_FILE = VAULT_PATH / "00_System" / "projects.json"
+PROJECTS_DIR  = VAULT_PATH / "20_Projects"
+
+@app.get("/projects")
+def get_projects_v2():
+    """Read project metadata from projects.json + live status from STATUS.md files."""
+    # Load base project list
+    base = []
+    if PROJECTS_FILE.exists():
+        base = json.loads(PROJECTS_FILE.read_text())
+
+    result = []
+    for project in base:
+        if not project.get("active", True):
+            continue
+        pid = project["id"]
+        # Try to find STATUS.md — check both lowercase and original-case folder
+        status_data = {}
+        for folder_name in [pid, pid.capitalize(), pid.upper()]:
+            status_path = PROJECTS_DIR / folder_name / "STATUS.md"
+            if status_path.exists():
+                status_data = _parse_status_md(status_path)
+                break
+
+        entry = {
+            "id":           project["id"],
+            "name":         project["name"],
+            "description":  project.get("description", ""),
+            "advisor":      project.get("advisor", "kai"),
+            "url":          project.get("url", ""),
+            # From STATUS.md (with fallback to projects.json)
+            "status":       status_data.get("status",       project.get("status", "green")),
+            "version":      status_data.get("version",      None),
+            "milestone":    status_data.get("milestone",    project.get("next", "")),
+            "milestone_pct":status_data.get("milestone_pct", None),
+            "updated":      str(status_data.get("updated", "")),
+            "next":         status_data.get("next",         project.get("next", "")),
+        }
+        result.append(entry)
+
+    return {"projects": result}
+
+
+# ── Habits ────────────────────────────────────────────────────────────────────
+
+HABITS_FILE = VAULT_PATH / "00_System" / "habits.json"
+
+@app.get("/habits")
+def get_habits():
+    from datetime import date as _d
+    today = _d.today().isoformat()
+    if not HABITS_FILE.exists():
+        return {"habits": [], "date": today}
+    habits = json.loads(HABITS_FILE.read_text())
+    for h in habits:
+        completions = h.get("completions", [])
+        h["done_today"] = today in completions
+    return {"habits": habits, "date": today}
+
+@app.post("/habits/{habit_id}/complete")
+def complete_habit(habit_id: str):
+    from datetime import date as _d
+    today = _d.today().isoformat()
+    if not HABITS_FILE.exists():
+        raise HTTPException(404, "habits.json not found")
+    habits = json.loads(HABITS_FILE.read_text())
+    for h in habits:
+        if h["id"] == habit_id:
+            if today not in h.get("completions", []):
+                h.setdefault("completions", []).append(today)
+                # Keep only last 90 days
+                h["completions"] = sorted(h["completions"])[-90:]
+            HABITS_FILE.write_text(json.dumps(habits, indent=2))
+            return {"ok": True, "habit_id": habit_id, "date": today}
+    raise HTTPException(404, f"Habit {habit_id} not found")
+
+@app.delete("/habits/{habit_id}/complete")
+def uncomplete_habit(habit_id: str):
+    from datetime import date as _d
+    today = _d.today().isoformat()
+    if not HABITS_FILE.exists():
+        raise HTTPException(404, "habits.json not found")
+    habits = json.loads(HABITS_FILE.read_text())
+    for h in habits:
+        if h["id"] == habit_id:
+            h["completions"] = [c for c in h.get("completions", []) if c != today]
+            HABITS_FILE.write_text(json.dumps(habits, indent=2))
+            return {"ok": True, "habit_id": habit_id, "date": today}
+    raise HTTPException(404, f"Habit {habit_id} not found")
+
+
+# ── Weather ───────────────────────────────────────────────────────────────────
+
+@app.get("/weather")
+def get_weather():
+    import httpx as _httpx
+    api_key = os.environ.get("OPENWEATHERMAP_API_KEY", "")
+    lat     = os.environ.get("WEATHER_LAT", "")
+    lon     = os.environ.get("WEATHER_LON", "")
+
+    if not api_key or not lat or not lon:
+        return {"error": "weather_not_configured", "temp": None, "condition": None}
+
+    try:
+        url = (
+            f"https://api.openweathermap.org/data/2.5/weather"
+            f"?lat={lat}&lon={lon}&appid={api_key}&units=imperial"
+        )
+        with _httpx.Client(timeout=10) as client:
+            r = client.get(url)
+            r.raise_for_status()
+            d = r.json()
+
+        weather_id = d["weather"][0]["id"]
+        # Map condition ID to theme
+        if weather_id == 800:
+            theme = "clear"
+        elif weather_id > 800:
+            theme = "clouds"
+        elif weather_id >= 700:
+            theme = "atmosphere"
+        elif weather_id >= 600:
+            theme = "snow"
+        elif weather_id >= 500:
+            theme = "rain"
+        elif weather_id >= 300:
+            theme = "drizzle"
+        elif weather_id >= 200:
+            theme = "thunderstorm"
+        else:
+            theme = "clear"
+
+        return {
+            "temp":        round(d["main"]["temp"]),
+            "feels_like":  round(d["main"]["feels_like"]),
+            "condition":   d["weather"][0]["description"],
+            "theme":       theme,
+            "icon":        d["weather"][0]["icon"],
+            "humidity":    d["main"]["humidity"],
+            "city":        d.get("name", ""),
+        }
+    except Exception as e:
+        return {"error": str(e), "temp": None, "condition": None}
+
+
+# ── Quote (daily cached) ──────────────────────────────────────────────────────
+
+DAILY_CACHE_FILE = VAULT_PATH / "00_System" / "daily_cache.json"
+
+@app.get("/quote")
+def get_quote():
+    import httpx as _httpx
+    from datetime import date as _d
+    today = _d.today().isoformat()
+
+    # Return cached quote if still today's
+    if DAILY_CACHE_FILE.exists():
+        cache = json.loads(DAILY_CACHE_FILE.read_text())
+        if cache.get("date") == today and cache.get("quote"):
+            return cache["quote"]
+
+    # Fetch fresh quote
+    try:
+        with _httpx.Client(timeout=10) as client:
+            r = client.get("https://api.quotable.io/random?maxLength=150")
+            r.raise_for_status()
+            d = r.json()
+        quote = {"content": d["content"], "author": d["author"]}
+    except Exception:
+        quote = {"content": "The secret of getting ahead is getting started.", "author": "Mark Twain"}
+
+    # Cache it
+    DAILY_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    cache = json.loads(DAILY_CACHE_FILE.read_text()) if DAILY_CACHE_FILE.exists() else {}
+    cache["date"] = today
+    cache["quote"] = quote
+    DAILY_CACHE_FILE.write_text(json.dumps(cache, indent=2))
+
+    return quote
+
+
+# ── Tasks (Todoist) ───────────────────────────────────────────────────────────
+
+from services.todoist import (
+    get_inbox, get_today, create_task, update_task,
+    complete_task as todoist_complete, reschedule_task,
+    delete_task, shape_task, move_to_today
+)
+
+
+@app.get("/tasks")
+def get_tasks():
+    try:
+        inbox = [shape_task(t) for t in get_inbox()]
+        today = [shape_task(t) for t in get_today()]
+        # Sort both by priority
+        inbox.sort(key=lambda t: t["priority"])
+        today.sort(key=lambda t: (t["priority"], t["due"] or "9999"))
+        return {"today": today, "inbox": inbox}
+    except Exception as e:
+        return {"today": [], "inbox": [], "error": str(e)}
+
+
+class TaskCreateRequest(BaseModel):
+    content: str
+    due_date: str = None
+    priority: int = 4
+    project_id: str = None
+    description: str = ""
+
+
+@app.post("/tasks")
+def api_create_task(req: TaskCreateRequest):
+    task = create_task(
+        content=req.content,
+        due_date=req.due_date,
+        priority=req.priority,
+        project_id=req.project_id,
+        description=req.description,
+    )
+    return shape_task(task)
+
+
+class TaskUpdateRequest(BaseModel):
+    content: str = None
+    due_date: str = None
+    priority: int = None
+    description: str = None
+    move_to_today: bool = False
+
+
+@app.patch("/tasks/{task_id}")
+def api_update_task(task_id: str, req: TaskUpdateRequest):
+    if req.move_to_today:
+        task = move_to_today(task_id)
+    else:
+        task = update_task(
+            task_id,
+            content=req.content,
+            due_date=req.due_date,
+            priority=req.priority,
+            description=req.description,
+        )
+    return shape_task(task) if task else {"ok": True}
+
+
+@app.post("/tasks/{task_id}/complete")
+def api_complete_task(task_id: str):
+    ok = todoist_complete(task_id)
+    return {"ok": ok}
+
+
+@app.delete("/tasks/{task_id}")
+def api_delete_task(task_id: str):
+    ok = delete_task(task_id)
+    return {"ok": ok}

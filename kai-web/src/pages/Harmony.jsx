@@ -20,24 +20,22 @@ const ASPECT_DESCRIPTIONS = {
 
 function AspectRow({ aspect, data, onStatusChange }) {
   return (
-    <div className="py-3 border-b kai-divider last:border-0">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <p className="text-sm font-medium capitalize">{ASPECT_LABELS[aspect]}</p>
-            <p className="text-xs kai-text-subtle hidden sm:block">
+    <div style={{ padding: '12px 0', borderBottom: '1px solid #e8ecf1' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <p style={{ fontSize: 13, fontWeight: 500, color: '#1f2937', margin: 0 }}>{ASPECT_LABELS[aspect]}</p>
+            <p style={{ fontSize: 12, color: '#9ca3af', margin: 0, display: 'none' }} className="sm:block">
               — {ASPECT_DESCRIPTIONS[aspect]}
             </p>
           </div>
-          <div className="space-y-1">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {data.statements.map((s, i) => (
-              <p key={i} className="text-xs kai-text-secondary leading-relaxed">
-                {s}
-              </p>
+              <p key={i} style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.5, margin: 0 }}>{s}</p>
             ))}
           </div>
         </div>
-        <div className="flex-shrink-0 pt-0.5">
+        <div style={{ flexShrink: 0, paddingTop: 2 }}>
           <StatusToggle status={data.status} onChange={(s) => onStatusChange(aspect, s)} />
         </div>
       </div>
@@ -50,16 +48,22 @@ function DomainCard({ domain, onStatusChange }) {
   const overall = domainOverallStatus(domain)
 
   return (
-    <div className="kai-card overflow-hidden">
+    <div className="kai-card" style={{ overflow: 'hidden' }}>
       <button
         onClick={() => setExpanded(e => !e)}
-        className="w-full px-5 py-4 flex items-center gap-4 text-left hover:bg-white/5 transition-colors"
+        style={{
+          width: '100%', padding: '14px 20px', display: 'flex', alignItems: 'center',
+          gap: 12, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer',
+          transition: 'background 0.15s', fontFamily: 'inherit',
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = '#fafbfc'}
+        onMouseLeave={e => e.currentTarget.style.background = 'none'}
       >
         <StatusDot status={overall} size={9} />
-        <span className="text-lg">{domain.icon}</span>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium">{domain.name}</p>
-          <div className="flex gap-1 mt-1">
+        <span style={{ fontSize: 18 }}>{domain.icon}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 13, fontWeight: 500, color: '#1f2937', margin: 0 }}>{domain.name}</p>
+          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
             {Object.values(domain.aspects).map((a, i) => (
               <StatusDot key={i} status={a.status} size={5} />
             ))}
@@ -67,14 +71,14 @@ function DomainCard({ domain, onStatusChange }) {
         </div>
         <StatusBadge status={overall} />
         {expanded
-          ? <ChevronDown size={15} className="kai-text-subtle flex-shrink-0" />
-          : <ChevronRight size={15} className="kai-text-subtle flex-shrink-0" />
+          ? <ChevronDown size={15} color="#9ca3af" style={{ flexShrink: 0 }} />
+          : <ChevronRight size={15} color="#9ca3af" style={{ flexShrink: 0 }} />
         }
       </button>
 
       {expanded && (
-        <div className="px-5 pb-4 border-t kai-divider">
-          <div className="pt-3">
+        <div style={{ padding: '0 20px 16px', borderTop: '1px solid #e8ecf1' }}>
+          <div style={{ paddingTop: 4 }}>
             {Object.entries(domain.aspects).map(([aspect, data]) => (
               <AspectRow
                 key={aspect}
@@ -103,7 +107,6 @@ export default function Harmony() {
 
   function handleStatusChange(domainId) {
     return async (aspect, status) => {
-      // Optimistic update
       setDomains(prev => prev.map(d =>
         d.id === domainId
           ? { ...d, aspects: { ...d.aspects, [aspect]: { ...d.aspects[aspect], status } } }
@@ -113,7 +116,7 @@ export default function Harmony() {
       try {
         await api.updateAspectStatus(domainId, aspect, status)
       } catch {
-        // Silent fail — local state kept
+        // Silent fail
       } finally {
         setSaving(false)
       }
@@ -131,44 +134,58 @@ export default function Harmony() {
     ? domains
     : domains.filter(d => domainOverallStatus(d) === filter)
 
+  const statusColors = {
+    red:    { text: '#ef4444', bg: 'rgba(239,68,68,0.08)',   border: filter === 'red'    ? '#ef4444' : '#e8ecf1' },
+    yellow: { text: '#f59e0b', bg: 'rgba(245,158,11,0.08)',  border: filter === 'yellow' ? '#f59e0b' : '#e8ecf1' },
+    green:  { text: '#10b981', bg: 'rgba(16,185,129,0.08)',  border: filter === 'green'  ? '#10b981' : '#e8ecf1' },
+  }
+
   return (
-    <div className="max-w-3xl mx-auto px-8 py-10">
+    <div style={{ maxWidth: 720, margin: '0 auto', padding: '32px 24px' }}>
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Harmony</h1>
-          <p className="kai-text-subtle text-sm mt-1">13 domains. 4 aspects each. Your life in full.</p>
+          <h1 style={{ fontSize: 22, fontWeight: 300, color: '#1f2937', letterSpacing: '-0.02em', margin: 0, lineHeight: 1.3 }}>
+            Harmony <span style={{ fontWeight: 600 }}>— Your Life Map</span>
+          </h1>
+          <p style={{ fontSize: 13, color: '#9ca3af', margin: '4px 0 0' }}>13 domains. 4 aspects each. Your life in full.</p>
         </div>
-        {saving && <p className="text-xs kai-text-subtle">Saving...</p>}
+        {saving && <p style={{ fontSize: 12, color: '#9ca3af' }}>Saving...</p>}
       </div>
 
       {/* Status summary */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
         {[
           { status: 'red',    label: 'Needs attention' },
           { status: 'yellow', label: 'In & out'        },
           { status: 'green',  label: 'Embodied'        },
-        ].map(({ status, label }) => (
-          <button
-            key={status}
-            onClick={() => setFilter(f => f === status ? 'all' : status)}
-            className={`kai-card px-4 py-3 text-left transition-all
-              ${filter === status ? 'ring-1 ring-kai-blue' : 'hover:bg-white/5'}`}
-          >
-            <div className="flex items-center gap-2 mb-1">
-              <StatusDot status={status} size={7} />
-              <span className={`text-lg font-semibold
-                ${status === 'red' ? 'text-kai-red' : status === 'yellow' ? 'text-kai-yellow' : 'text-kai-green'}`}>
-                {counts[status]}
-              </span>
-            </div>
-            <p className="text-xs kai-text-subtle">{label}</p>
-          </button>
-        ))}
+        ].map(({ status, label }) => {
+          const sc = statusColors[status]
+          return (
+            <button
+              key={status}
+              onClick={() => setFilter(f => f === status ? 'all' : status)}
+              style={{
+                background: filter === status ? sc.bg : '#ffffff',
+                border: `1px solid ${sc.border}`,
+                borderRadius: 16, padding: '12px 16px', textAlign: 'left',
+                cursor: 'pointer', transition: 'all 0.2s',
+                boxShadow: filter === status ? 'none' : '0 2px 8px rgba(0,0,0,0.04)',
+                fontFamily: 'inherit',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: sc.text, display: 'inline-block' }} />
+                <span style={{ fontSize: 20, fontWeight: 600, color: sc.text }}>{counts[status]}</span>
+              </div>
+              <p style={{ fontSize: 12, color: '#9ca3af', margin: 0 }}>{label}</p>
+            </button>
+          )
+        })}
       </div>
 
       {/* Domain list */}
-      <div className="space-y-2">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {filtered.map(domain => (
           <DomainCard
             key={domain.id}
