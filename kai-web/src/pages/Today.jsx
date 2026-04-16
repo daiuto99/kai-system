@@ -333,12 +333,15 @@ function HabitsWidget() {
                   width: 26, height: 26, borderRadius: '50%',
                   background: isDone ? '#10b981' : '#e8ecf1',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'background 0.15s',
+                  transition: 'background 0.15s', fontSize: 14, lineHeight: 1,
                 }}>
-                  {isDone && <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>✓</span>}
+                  {isDone
+                    ? <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>✓</span>
+                    : h.emoji ? <span>{h.emoji}</span> : null
+                  }
                 </div>
                 <span style={{ fontSize: 9, fontWeight: 500, color: isDone ? '#059669' : '#6b7280', textAlign: 'center', lineHeight: 1.2, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '90%' }}>
-                  {h.name}
+                  {h.displayName || h.name}
                 </span>
               </div>
             )
@@ -514,7 +517,7 @@ function ChatWidget() {
             </button>
           )
         })}
-        <button onClick={() => setMessages([])} title="Clear chat" style={{ marginLeft: 'auto', flexShrink: 0, alignSelf: 'center', background: 'none', border: 'none', cursor: 'pointer', color: '#d1d5db', fontSize: 14, padding: '4px 8px', lineHeight: 1, transition: 'color 0.15s' }}
+        <button onClick={() => { setMessages([]); api.clearHistory(advisor.channel).catch(() => {}) }} title="Clear chat" style={{ marginLeft: 'auto', flexShrink: 0, alignSelf: 'center', background: 'none', border: 'none', cursor: 'pointer', color: '#d1d5db', fontSize: 14, padding: '4px 8px', lineHeight: 1, transition: 'color 0.15s' }}
           onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
           onMouseLeave={e => e.currentTarget.style.color = '#d1d5db'}
         >✕</button>
@@ -579,36 +582,49 @@ const LOT_CATS = [
   { key: 'documents', label: 'Docs',    types: ['document','doc'] },
 ]
 
-const TYPE_STYLE = {
-  link:     { icon: '🔗', color: '#3b82f6', bg: '#eff6ff' },
-  product:  { icon: '🛍️', color: '#3b82f6', bg: '#eff6ff' },
-  url:      { icon: '🔗', color: '#3b82f6', bg: '#eff6ff' },
-  note:     { icon: '📝', color: '#8b5cf6', bg: '#f5f3ff' },
-  item:     { icon: '📌', color: '#8b5cf6', bg: '#f5f3ff' },
-  text:     { icon: '📝', color: '#8b5cf6', bg: '#f5f3ff' },
-  image:    { icon: '🖼️', color: '#ec4899', bg: '#fdf2f8' },
-  idea:     { icon: '💡', color: '#f59e0b', bg: '#fffbeb' },
-  video:    { icon: '🎬', color: '#10b981', bg: '#ecfdf5' },
-  document: { icon: '📄', color: '#6b7280', bg: '#f9fafb' },
-  doc:      { icon: '📄', color: '#6b7280', bg: '#f9fafb' },
+const LOT_TYPE = {
+  link:     { label: 'Link',    from: '#1e3a8a', to: '#3b82f6' },
+  url:      { label: 'Link',    from: '#1e3a8a', to: '#3b82f6' },
+  product:  { label: 'Product', from: '#7c2d12', to: '#f97316' },
+  note:     { label: 'Note',    from: '#3b0764', to: '#7c3aed' },
+  item:     { label: 'Item',    from: '#3b0764', to: '#7c3aed' },
+  text:     { label: 'Text',    from: '#3b0764', to: '#7c3aed' },
+  image:    { label: 'Image',   from: '#831843', to: '#ec4899' },
+  idea:     { label: 'Idea',    from: '#78350f', to: '#d97706' },
+  video:    { label: 'Video',   from: '#064e3b', to: '#10b981' },
+  document: { label: 'Doc',     from: '#1e293b', to: '#64748b' },
+  doc:      { label: 'Doc',     from: '#1e293b', to: '#64748b' },
+}
+const LOT_DEFAULT = { label: 'Item', from: '#1f2937', to: '#4b5563' }
+
+function LotIcon({ type, size = 28 }) {
+  const P = {
+    link:     <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />,
+    url:      <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />,
+    product:  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />,
+    note:     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />,
+    text:     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />,
+    item:     <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />,
+    idea:     <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />,
+    image:    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />,
+    video:    <><path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15.91 11.672a.375.375 0 010 .656l-5.603 3.113a.375.375 0 01-.557-.328V8.887c0-.286.307-.466.557-.328l5.603 3.113z" /></>,
+    document: <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />,
+    doc:      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />,
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.92)" strokeWidth="1.5" style={{ display: 'block', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }}>
+      {P[type] || P.item}
+    </svg>
+  )
 }
 
 function LotCard({ item, onArchive, onDelete }) {
-  const [thumb,   setThumb]   = useState(item.thumbnail || null)
   const [hover,   setHover]   = useState(false)
   const [editing, setEditing] = useState(false)
   const [title,   setTitle]   = useState(item.title || item.slug)
   const inputRef = useRef(null)
-  const style = TYPE_STYLE[item.type] || { icon: '📌', color: '#6b7280', bg: '#f9fafb' }
+  const cfg = LOT_TYPE[item.type] || LOT_DEFAULT
   const isImgUrl = item.url && /\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(item.url)
-
-  useEffect(() => {
-    if (isImgUrl) { setThumb(item.url); return }
-    if (!item.thumbnail && item.url) {
-      fetch('/api/parking-lot/og?url=' + encodeURIComponent(item.url))
-        .then(r => r.json()).then(d => { if (d.image) setThumb(d.image) }).catch(() => {})
-    }
-  }, [item.url])
 
   useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
 
@@ -618,32 +634,38 @@ function LotCard({ item, onArchive, onDelete }) {
   }
 
   return (
-    <div style={{ background: '#ffffff', borderRadius: 12, border: `1px solid ${hover ? '#c4c9d4' : '#e8ecf1'}`, overflow: 'hidden', transition: 'all 0.15s', position: 'relative', boxShadow: hover ? '0 4px 12px rgba(0,0,0,0.1)' : '0 1px 3px rgba(0,0,0,0.04)' }}
+    <div style={{ background: '#ffffff', borderRadius: 12, border: `1px solid ${hover ? '#c4c9d4' : '#e8ecf1'}`, overflow: 'hidden', transition: 'all 0.15s', position: 'relative', boxShadow: hover ? '0 6px 20px rgba(0,0,0,0.12)' : '0 1px 4px rgba(0,0,0,0.05)' }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
     >
       {/* Thumbnail */}
-      <div style={{ height: 80, background: style.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-        {thumb
-          ? <img src={thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={() => setThumb(null)} />
-          : <span style={{ fontSize: 26 }}>{style.icon}</span>
+      <div style={{
+        height: 80, position: 'relative', overflow: 'hidden',
+        background: `linear-gradient(135deg, ${cfg.from} 0%, ${cfg.to} 100%)`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {isImgUrl
+          ? <img src={item.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : <>
+              <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 50% 30%, rgba(255,255,255,0.18) 0%, transparent 65%)' }} />
+              <LotIcon type={item.type} size={28} />
+            </>
         }
-        {/* Hover actions */}
         {hover && (
           <div style={{ position: 'absolute', top: 5, right: 5, display: 'flex', gap: 3 }}>
             {[
               { label: '✏️', title: 'Edit',    fn: () => setEditing(true) },
               { label: '📦', title: 'Archive', fn: () => onArchive(item.slug) },
-              { label: '✕',  title: 'Delete',  fn: () => onDelete(item.slug), color: '#ef4444' },
-            ].map(({ label, title, fn, color }) => (
-              <button key={title} onClick={e => { e.stopPropagation(); fn() }} title={title} style={{ width: 24, height: 24, borderRadius: 6, border: 'none', background: 'rgba(255,255,255,0.92)', cursor: 'pointer', fontSize: 11, color: color || '#374151', boxShadow: '0 1px 4px rgba(0,0,0,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{label}</button>
+              { label: '✕',  title: 'Delete',  fn: () => onDelete(item.slug) },
+            ].map(({ label, title: t, fn }) => (
+              <button key={t} onClick={e => { e.stopPropagation(); fn() }} title={t} style={{ width: 24, height: 24, borderRadius: 6, border: 'none', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(6px)', cursor: 'pointer', fontSize: 11, color: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{label}</button>
             ))}
           </div>
         )}
-        <div style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(255,255,255,0.88)', borderRadius: 4, padding: '1px 5px', fontSize: 9, fontWeight: 600, color: style.color, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{item.type || 'item'}</div>
+        <div style={{ position: 'absolute', bottom: 5, left: 6, background: 'rgba(0,0,0,0.32)', backdropFilter: 'blur(6px)', borderRadius: 4, padding: '1px 6px', fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.88)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{cfg.label}</div>
       </div>
 
       {/* Title */}
-      <div style={{ padding: '7px 9px' }}>
+      <div style={{ padding: '8px 10px' }}>
         {editing ? (
           <input ref={inputRef} value={title} onChange={e => setTitle(e.target.value)}
             onBlur={saveTitle} onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { setTitle(item.title); setEditing(false) } }}
@@ -652,7 +674,7 @@ function LotCard({ item, onArchive, onDelete }) {
         ) : (
           <p style={{ fontSize: 11, fontWeight: 500, color: '#1f2937', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3 }}>{title}</p>
         )}
-        {item.date && <p style={{ fontSize: 9, color: '#9ca3af', margin: '2px 0 0' }}>{new Date(item.date + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>}
+        {item.date && <p style={{ fontSize: 9, color: '#9ca3af', margin: '3px 0 0' }}>{new Date(item.date + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>}
       </div>
     </div>
   )

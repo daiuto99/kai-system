@@ -19,6 +19,16 @@ def _auth_header() -> dict:
     token = base64.b64encode(f"kai:{password}".encode()).decode()
     return {"Authorization": f"Basic {token}"}
 
+
+def _extract_emoji(name: str) -> tuple[str, str]:
+    """Return (emoji, display_name). Extracts leading emoji from name like '🎸 Guitar'."""
+    if not name:
+        return "", ""
+    parts = name.split(None, 1)
+    if parts and ord(parts[0][0]) > 0x00FF:
+        return parts[0], parts[1] if len(parts) > 1 else parts[0]
+    return "", name
+
 def _today_epoch() -> int:
     return date.today().toordinal() - date(1970, 1, 1).toordinal()
 
@@ -52,9 +62,14 @@ def get_habits() -> list:
                 for rec in records
                 if rec.get("recordValue", 0) > 0
             ]
+            emoji, display_name = _extract_emoji(h.get("name", ""))
             result.append({
                 "id": uuid,
                 "name": h.get("name", ""),
+                "displayName": display_name or h.get("name", ""),
+                "emoji": emoji,
+                "color": h.get("color", 0),
+                "group": h.get("group", ""),
                 "completions": completions,
             })
     return result

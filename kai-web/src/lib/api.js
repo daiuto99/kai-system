@@ -48,6 +48,7 @@ export const api = {
   // Focus / Today
   getFocusBrief: () => get(`${BASE}/focus/today`),
   getTodayFocus: () => get(`${BASE}/focus/today`),
+  getTodayFocus: () => get(`${BASE}/focus/today`),
 
   // Council — chat
   sendMessage: (message, channel = 'kai') =>
@@ -56,6 +57,8 @@ export const api = {
   // Council — history
   getChannelHistory: (channel, limit = 80) =>
     get(`${COUNCIL}/history/${channel}?limit=${limit}`),
+  clearHistory: (channel) =>
+    fetch(`${COUNCIL}/history/${channel}`, { method: 'DELETE' }).then(r => r.json()),
 
   // Insights
   getInsights: () => get(`${BASE}/insights`),

@@ -273,3 +273,11 @@ def get_history(channel: str, limit: int = 50):
         except Exception:
             pass
     return {"messages": messages, "channel": channel}
+
+
+@app.delete("/history/{channel}")
+def clear_history(channel: str):
+    f = _history_file(channel)
+    if f.exists():
+        f.write_text("", encoding="utf-8")
+    return {"ok": True, "channel": channel}

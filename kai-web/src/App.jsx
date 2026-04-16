@@ -8,6 +8,7 @@ import Insights from './pages/Insights'
 import Tasks from './pages/Tasks'
 import More from './pages/More'
 import Settings from './pages/Settings'
+import Habits from './pages/Habits'
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/chat/:advisorId" element={<Chat />} />
         <Route path="/harmony" element={<Harmony />} />
         <Route path="/tasks" element={<Tasks />} />
+        <Route path="/habits" element={<Habits />} />
         <Route path="/parking-lot" element={<ParkingLot />} />
         <Route path="/insights" element={<Insights />} />
         <Route path="/settings" element={<Settings />} />
