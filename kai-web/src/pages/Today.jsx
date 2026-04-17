@@ -9,7 +9,7 @@ import {
   Music, Palette, Mic, Camera, Pen, Mountain,
   Shield, Crown, Award, TreePine, Leaf, Coffee,
   Gem, Rocket, Bike, Wind, Flower, Eye, Anchor, Map, Flag, Clock,
-  Plus, Trash2, X as XIcon, Check, Send as SendIcon,
+  Plus, Trash2, X as XIcon, Check, Send as SendIcon, Pin, PinOff, ExternalLink,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { ADVISORS, getAdvisor } from '../lib/advisors'
@@ -81,71 +81,154 @@ function daysAgo(dateStr) {
   return `${diff}d ago`
 }
 
-function ProjectsWidget() {
-  const [projects, setProjects] = useState([])
-
-  useEffect(() => {
-    fetch('/api/projects')
-      .then(r => r.json())
-      .then(d => setProjects(d.projects || []))
-      .catch(() => {})
-  }, [])
-
-  const visible = [...projects]
-    .sort((a, b) => (b.updated || '').localeCompare(a.updated || ''))
-    .slice(0, 5)
-
+function ProjectProfile({ project, onClose, onPin }) {
+  const sc  = SDOT[project.status]  || '#9ca3af'
+  const stc = STEXT[project.status] || '#6b7280'
+  const sbg = SBG[project.status]   || 'rgba(156,163,175,0.08)'
   return (
-    <div className="kai-inner" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-      <SectionHeader
-        title={
-          <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            Projects
-            {projects.length > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', background: 'var(--bg-muted)', borderRadius: 10, padding: '2px 7px' }}>
-                {projects.length}
-              </span>
+    <div style={{ position: 'fixed', right: 0, top: 0, bottom: 0, width: 360, background: 'var(--bg-card)', borderLeft: '1px solid var(--border)', zIndex: 200, display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 32px rgba(0,0,0,0.3)' }}>
+      {/* Header */}
+      <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: sc, flexShrink: 0 }} />
+            <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{project.name}</span>
+            {project.version && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>v{project.version}</span>}
+          </div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button onClick={() => onPin(project)} title={project.pinned ? 'Unpin' : 'Pin to top'}
+              style={{ all: 'unset', cursor: 'pointer', padding: 6, borderRadius: 7, color: project.pinned ? 'var(--accent)' : 'var(--text-muted)', background: project.pinned ? 'var(--accent-bg)' : 'transparent', transition: 'all 0.15s' }}>
+              {project.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+            </button>
+            <button onClick={onClose} style={{ all: 'unset', cursor: 'pointer', padding: 6, borderRadius: 7, color: 'var(--text-muted)', transition: 'all 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+            ><XIcon size={16} /></button>
+          </div>
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 5, background: sbg, color: stc, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{project.status}</span>
+      </div>
+      {/* Body */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {project.description && (
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>About</div>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{project.description}</p>
+          </div>
+        )}
+        {project.milestone && (
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Current Milestone</div>
+            <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', margin: '0 0 8px' }}>{project.milestone}</p>
+            {project.milestone_pct != null && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${project.milestone_pct}%`, background: sc, borderRadius: 2, transition: 'width 0.5s ease' }} />
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 600, color: sc, flexShrink: 0 }}>{project.milestone_pct}%</span>
+              </div>
             )}
-          </span>
-        }
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, overflow: 'hidden' }}>
-        {visible.map(p => {
-          const sc  = SDOT[p.status]  || '#9ca3af'
-          const stc = STEXT[p.status] || '#6b7280'
-          const sbg = SBG[p.status]   || 'rgba(156,163,175,0.08)'
-          const ago = daysAgo(p.updated)
-          const pct = p.milestone_pct ?? null
-          return (
-            <div key={p.id} style={{ padding: '6px 11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-card)', transition: 'all 0.15s' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover-bg)'; e.currentTarget.style.borderColor = 'var(--accent)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border)' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: sc, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</span>
-                {p.milestone && <>
-                  <span style={{ fontSize: 11, color: '#d1d5db' }}>|</span>
-                  <span style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.milestone}</span>
-                </>}
-                {p.version && <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>v{p.version}</span>}
-                <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, flexShrink: 0, background: sbg, color: stc, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{p.status}</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.next}</span>
-                {pct !== null && <>
-                  <div style={{ width: 40, height: 2, borderRadius: 1, background: '#e8ecf1', overflow: 'hidden', flexShrink: 0 }}>
-                    <div style={{ height: '100%', width: `${pct}%`, background: sc }} />
-                  </div>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: sc, flexShrink: 0 }}>{pct}%</span>
-                </>}
-                {ago && <span style={{ fontSize: 10, color: 'var(--text-subtle)', flexShrink: 0 }}>{ago}</span>}
-              </div>
-            </div>
-          )
-        })}
+          </div>
+        )}
+        {project.next && (
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Next Action</div>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0, borderLeft: '2px solid var(--accent)', paddingLeft: 10 }}>{project.next}</p>
+          </div>
+        )}
+        {project.advisor && (
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Advisor</div>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', textTransform: 'capitalize' }}>{project.advisor}</span>
+          </div>
+        )}
+        {project.url && (
+          <a href={project.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>
+            <ExternalLink size={12} /> {project.url}
+          </a>
+        )}
       </div>
     </div>
+  )
+}
+
+function ProjectsWidget() {
+  const [projects,  setProjects]  = useState([])
+  const [selected,  setSelected]  = useState(null)
+
+  function load() {
+    fetch('/api/projects').then(r => r.json()).then(d => setProjects(d.projects || [])).catch(() => {})
+  }
+  useEffect(() => { load() }, [])
+
+  function togglePin(p) {
+    const next = !p.pinned
+    setProjects(prev => prev.map(x => x.id === p.id ? { ...x, pinned: next } : x))
+    if (selected?.id === p.id) setSelected(s => ({ ...s, pinned: next }))
+    fetch(`/api/projects/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: next }) }).catch(() => {})
+  }
+
+  const visible = [...projects]
+    .sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1
+      if (!a.pinned && b.pinned) return 1
+      return (b.updated || '').localeCompare(a.updated || '')
+    })
+    .slice(0, 6)
+
+  return (
+    <>
+      {selected && (
+        <ProjectProfile project={selected} onClose={() => setSelected(null)} onPin={p => { togglePin(p) }} />
+      )}
+      <div className="kai-inner" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <SectionHeader title={
+          <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            Projects
+            {projects.length > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', background: 'var(--bg-muted)', borderRadius: 10, padding: '2px 7px' }}>{projects.length}</span>}
+          </span>
+        } />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, overflow: 'hidden' }}>
+          {visible.map(p => {
+            const sc  = SDOT[p.status]  || '#9ca3af'
+            const stc = STEXT[p.status] || '#6b7280'
+            const sbg = SBG[p.status]   || 'rgba(156,163,175,0.08)'
+            const ago = daysAgo(p.updated)
+            const pct = p.milestone_pct ?? null
+            const isSelected = selected?.id === p.id
+            return (
+              <div key={p.id} onClick={() => setSelected(isSelected ? null : p)}
+                style={{ padding: '6px 11px', borderRadius: 10, border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`, background: isSelected ? 'var(--accent-bg)' : 'var(--bg-card)', cursor: 'pointer', transition: 'all 0.15s', position: 'relative' }}
+                onMouseEnter={e => { if (!isSelected) { e.currentTarget.style.background = 'var(--hover-bg)'; e.currentTarget.style.borderColor = 'var(--accent)' } }}
+                onMouseLeave={e => { if (!isSelected) { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border)' } }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                  {p.pinned && <Pin size={9} color="var(--accent)" strokeWidth={2.5} style={{ flexShrink: 0 }} />}
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: sc, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</span>
+                  {p.milestone && <>
+                    <span style={{ fontSize: 11, color: '#d1d5db' }}>|</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.milestone}</span>
+                  </>}
+                  {p.version && <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>v{p.version}</span>}
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, flexShrink: 0, background: sbg, color: stc, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{p.status}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 10, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.next}</span>
+                  {pct !== null && <>
+                    <div style={{ width: 40, height: 2, borderRadius: 1, background: '#e8ecf1', overflow: 'hidden', flexShrink: 0 }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: sc }} />
+                    </div>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: sc, flexShrink: 0 }}>{pct}%</span>
+                  </>}
+                  {ago && <span style={{ fontSize: 10, color: 'var(--text-subtle)', flexShrink: 0 }}>{ago}</span>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -245,7 +328,14 @@ function HarmonyWidget() {
 
   return (
     <div style={{ flex: 1, background: 'var(--bg-surface)', borderRadius: 16, border: '1px solid var(--border)', padding: '14px 14px 10px', display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden' }}>
-      <span className="section-title" style={{ flexShrink: 0 }}>Harmony</span>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexShrink: 0 }}>
+        <span className="section-title">Harmony</span>
+        {domains.length > 0 && (() => {
+          const allStats = BAR_GROUPS.flatMap(g => g.ids.map(id => domains.find(x => x.id === id)).filter(Boolean).map(d => domainStatus(d.aspects)))
+          const aligned = allStats.filter(s => s === 'green').length
+          return <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600 }}>{aligned}/{allStats.length} aligned</span>
+        })()}
+      </div>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7, minHeight: 0, justifyContent: 'space-between' }}>
         {BAR_GROUPS.map(g => {

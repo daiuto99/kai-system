@@ -753,3 +753,27 @@ def api_complete_task(task_id: str):
 def api_delete_task(task_id: str):
     ok = delete_task(task_id)
     return {"ok": ok}
+
+
+class ProjectPatch(BaseModel):
+    pinned: bool = None
+    status: str = None
+    next: str = None
+    milestone: str = None
+    milestone_pct: int = None
+
+@app.patch("/projects/{project_id}")
+def patch_project(project_id: str, body: ProjectPatch):
+    if not PROJECTS_FILE.exists():
+        raise HTTPException(404, "projects file not found")
+    projects = json.loads(PROJECTS_FILE.read_text())
+    for p in projects:
+        if p["id"] == project_id:
+            if body.pinned is not None: p["pinned"] = body.pinned
+            if body.status:             p["status"]  = body.status
+            if body.next:               p["next"]    = body.next
+            if body.milestone:          p["milestone"] = body.milestone
+            if body.milestone_pct is not None: p["milestone_pct"] = body.milestone_pct
+            PROJECTS_FILE.write_text(json.dumps(projects, indent=2))
+            return {"ok": True, "project": p}
+    raise HTTPException(404, "project not found")

@@ -80,3 +80,31 @@ def update_aspect(domain_id: str, aspect: str, body: AspectUpdate):
             return {"ok": True, "domain_id": domain_id, "aspect": aspect, "status": body.status}
 
     raise HTTPException(404, f"Domain {domain_id} not found")
+
+
+class StatementsUpdate(BaseModel):
+    statements: list[str]
+
+@router.put("/{domain_id}/aspect/{aspect}/statements")
+def update_statements(domain_id: str, aspect: str, body: StatementsUpdate):
+    if aspect not in ("premise", "vision", "purpose", "strategy"):
+        raise HTTPException(400, "unknown aspect")
+    data = load_harmony()
+    for domain in data["domains"]:
+        if domain["id"] == domain_id:
+            domain["aspects"][aspect]["statements"] = body.statements
+            domain["lastUpdated"] = datetime.now(timezone.utc).isoformat()
+            _save(data)
+            return {"ok": True}
+    raise HTTPException(404, "domain not found")
+
+
+@router.post("/{domain_id}/review")
+def mark_reviewed(domain_id: str):
+    data = load_harmony()
+    for domain in data["domains"]:
+        if domain["id"] == domain_id:
+            domain["lastReviewed"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            _save(data)
+            return {"ok": True, "lastReviewed": domain["lastReviewed"]}
+    raise HTTPException(404, "domain not found")
