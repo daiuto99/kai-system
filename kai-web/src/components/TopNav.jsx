@@ -48,10 +48,7 @@ export default function TopNav({ onCapture }) {
     }}>
       {/* Left — logo + primary nav */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
-          <img src="/icon-192.png" alt="KAI" style={{ width: 24, height: 24, borderRadius: 6 }} />
-          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>KAI</span>
-        </div>
+        <img src="/icon-192.png" alt="KAI" style={{ width: 28, height: 28, borderRadius: 0, background: 'none' }} />
         <div style={{ width: 1, height: 20, background: 'var(--border)', flexShrink: 0 }} />
         <div style={{ display: 'flex', gap: 4 }}>
         {NAV_ITEMS.map(({ to, label, icon }) => (

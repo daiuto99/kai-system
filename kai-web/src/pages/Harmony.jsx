@@ -356,7 +356,7 @@ export default function Harmony() {
           return (
             <div key={g.name}>
               {/* Group bar */}
-              <div style={{ position: 'relative', height: 40, borderRadius: 8, overflow: 'hidden', background: g.color + '18', marginBottom: 10, cursor: 'default' }}>
+              <div style={{ position: 'relative', height: 22, borderRadius: 6, overflow: 'hidden', background: g.color + '18', marginBottom: 10, cursor: 'default' }}>
                 <div style={{
                   position: 'absolute', top: 0, left: 0, bottom: 0,
                   width: `${pct}%`,
@@ -368,13 +368,13 @@ export default function Harmony() {
                   display: 'flex', alignItems: 'center',
                   padding: '0 12px', gap: 8, pointerEvents: 'none',
                 }}>
-                  <LucideIcon name={g.icon} size={14} color={pct > 30 ? 'rgba(255,255,255,0.9)' : g.color} />
+                  <LucideIcon name={g.icon} size={12} color={pct > 30 ? 'rgba(255,255,255,0.9)' : g.color} />
                   <span style={{
-                    fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', flex: 1,
+                    fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', flex: 1,
                     color: pct > 30 ? 'rgba(255,255,255,0.92)' : g.color,
                   }}>{g.name}</span>
                   <span style={{
-                    fontSize: 10, fontWeight: 600,
+                    fontSize: 9, fontWeight: 600,
                     color: pct > 85 ? 'rgba(255,255,255,0.7)' : g.color + '99',
                   }}>{pct}%</span>
                 </div>

@@ -635,6 +635,48 @@ def get_quote():
     return quote
 
 
+
+# ── Workflows ─────────────────────────────────────────────────────────────────
+
+WORKFLOWS_FILE = VAULT_PATH / "00_System" / "workflows.json"
+
+@app.get("/workflows")
+def get_workflows():
+    if WORKFLOWS_FILE.exists():
+        return {"workflows": json.loads(WORKFLOWS_FILE.read_text())}
+    return {"workflows": []}
+
+class WorkflowModel(BaseModel):
+    id: str
+    label: str
+    prompt: str
+    send: bool = True
+    description: str = ""
+
+@app.post("/workflows")
+def upsert_workflow(w: WorkflowModel):
+    from datetime import date as _wd
+    workflows = json.loads(WORKFLOWS_FILE.read_text()) if WORKFLOWS_FILE.exists() else []
+    idx = next((i for i, x in enumerate(workflows) if x["id"] == w.id), None)
+    entry = w.dict()
+    entry["updated"] = _wd.today().isoformat()
+    if idx is not None:
+        workflows[idx] = entry
+    else:
+        entry["created"] = _wd.today().isoformat()
+        workflows.append(entry)
+    WORKFLOWS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    WORKFLOWS_FILE.write_text(json.dumps(workflows, indent=2))
+    return {"ok": True, "workflow": entry}
+
+@app.delete("/workflows/{workflow_id}")
+def delete_workflow_endpoint(workflow_id: str):
+    if not WORKFLOWS_FILE.exists():
+        return {"ok": True}
+    workflows = [w for w in json.loads(WORKFLOWS_FILE.read_text()) if w["id"] != workflow_id]
+    WORKFLOWS_FILE.write_text(json.dumps(workflows, indent=2))
+    return {"ok": True}
+
 # ── Tasks (Todoist) ───────────────────────────────────────────────────────────
 
 from services.habitsync import get_habits as hs_get_habits, log_habit, unlog_habit

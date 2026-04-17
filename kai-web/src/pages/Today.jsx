@@ -9,6 +9,7 @@ import {
   Music, Palette, Mic, Camera, Pen, Mountain,
   Shield, Crown, Award, TreePine, Leaf, Coffee,
   Gem, Rocket, Bike, Wind, Flower, Eye, Anchor, Map, Flag, Clock,
+  Plus, Trash2, X as XIcon, Check, Send as SendIcon,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { ADVISORS, getAdvisor } from '../lib/advisors'
@@ -652,11 +653,24 @@ function AdvisorAvatar({ advisor, size, isActive }) {
   )
 }
 
+const DEFAULT_FUNCTIONS = [
+  { id: 'gm',         label: 'Good Morning',  prompt: "Good morning KAI — let\'s do my morning check-in. What should I focus on today?",          send: true  },
+  { id: 'gn',         label: 'Good Night',    prompt: "Good night KAI — quick recap. What did I accomplish today and what should I prioritize tomorrow?", send: true  },
+  { id: 'research',   label: 'Research',      prompt: 'Research: ',     send: false },
+  { id: 'brainstorm', label: 'Brainstorm',    prompt: 'Brainstorm: ',   send: false },
+]
+
 function ChatWidget() {
   const [advisor,  setAdvisor]  = useState(getAdvisor('kai'))
   const [messages, setMessages] = useState([])
   const [input,    setInput]    = useState('')
   const [thinking, setThinking] = useState(false)
+  const [functions,   setFunctions]   = useState(DEFAULT_FUNCTIONS)
+  const [showFuncEd,  setShowFuncEd]  = useState(false)
+  const [editingFunc, setEditingFunc] = useState(null) // null = new, else func obj
+  const [funcLabel,   setFuncLabel]   = useState('')
+  const [funcPrompt,  setFuncPrompt]  = useState('')
+  const [funcSend,    setFuncSend]    = useState(false)
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
 
@@ -664,10 +678,17 @@ function ChatWidget() {
     api.getChannelHistory(advisor.channel).then(d => setMessages(d.messages || [])).catch(() => {})
   }, [advisor.channel])
 
+  function fetchWorkflows() {
+    fetch('/api/workflows').then(r => r.json())
+      .then(d => { if (d.workflows?.length) setFunctions(d.workflows) })
+      .catch(() => {})
+  }
+  useEffect(() => { fetchWorkflows() }, [])
+
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, thinking])
 
-  async function send() {
-    const text = input.trim()
+  async function send(overrideText) {
+    const text = (overrideText ?? input).trim()
     if (!text || thinking) return
     setInput('')
     setMessages(p => [...p, { role: 'user', content: text, ts: String(Date.now() / 1000) }])
@@ -677,28 +698,109 @@ function ChatWidget() {
       setMessages(p => [...p, { role: 'assistant', content: d.reply || d.message || '', ts: String(Date.now() / 1000) }])
     } catch {
       setMessages(p => [...p, { role: 'assistant', content: 'Something went wrong.', error: true, ts: String(Date.now() / 1000) }])
-    } finally { setThinking(false); inputRef.current?.focus() }
+    } finally { setThinking(false); inputRef.current?.focus(); fetchWorkflows() }
+  }
+
+  function fireFunction(fn) {
+    if (fn.send) {
+      send(fn.prompt)
+    } else {
+      setInput(fn.prompt)
+      inputRef.current?.focus()
+    }
+  }
+
+  function saveFunctions(updated) {
+    setFunctions(updated)
+  }
+  async function saveWorkflowToAPI(entry) {
+    await fetch('/api/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) }).catch(() => {})
+    fetchWorkflows()
+  }
+  async function deleteWorkflowFromAPI(id) {
+    await fetch(`/api/workflows/${id}`, { method: 'DELETE' }).catch(() => {})
+    fetchWorkflows()
+  }
+
+  function openNewFunc() {
+    setEditingFunc(null); setFuncLabel(''); setFuncPrompt(''); setFuncSend(false); setShowFuncEd(true)
+  }
+  function openEditFunc(fn) {
+    setEditingFunc(fn); setFuncLabel(fn.label); setFuncPrompt(fn.prompt); setFuncSend(fn.send); setShowFuncEd(true)
+  }
+  function saveFunc() {
+    if (!funcLabel.trim() || !funcPrompt.trim()) return
+    const entry = { id: editingFunc?.id || funcLabel.trim().toLowerCase().replace(/\s+/g, '-'), label: funcLabel.trim(), prompt: funcPrompt.trim(), send: funcSend }
+    saveWorkflowToAPI(entry)
+    setShowFuncEd(false)
+  }
+  function deleteFunc(id) {
+    deleteWorkflowFromAPI(id)
+    setShowFuncEd(false)
+  }
+  function resetFunctions() {
+    DEFAULT_FUNCTIONS.forEach(f => saveWorkflowToAPI(f))
   }
 
   return (
     <div style={{ background: 'var(--bg-card)', borderRadius: 20, boxShadow: '0 4px 20px rgba(0,0,0,0.06)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}>
-      <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', padding: '12px 20px', background: `linear-gradient(to right, ${advisor.color}06 0%, transparent 50%)`, display: 'flex', alignItems: 'center', gap: 10, overflowX: 'auto' }} className="no-scrollbar">
+      {/* Function editor modal */}
+      {showFuncEd && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={() => setShowFuncEd(false)}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 16, padding: '20px 22px', border: '1px solid var(--border)', width: 340, boxShadow: '0 24px 48px rgba(0,0,0,0.4)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{editingFunc ? 'Edit Command' : 'New Command'}</span>
+              <button onClick={() => setShowFuncEd(false)} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-muted)' }}><XIcon size={16} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Button label</label>
+                <input value={funcLabel} onChange={e => setFuncLabel(e.target.value)} placeholder="Good Morning" style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} autoFocus />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Prompt</label>
+                <textarea value={funcPrompt} onChange={e => setFuncPrompt(e.target.value)} placeholder="Good morning KAI — let's do my check-in..." rows={3} style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 12, fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)' }}>
+                <input type="checkbox" checked={funcSend} onChange={e => setFuncSend(e.target.checked)} style={{ accentColor: 'var(--accent)', width: 14, height: 14 }} />
+                Send immediately (don't pre-fill)
+              </label>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18, gap: 8 }}>
+              {editingFunc ? (
+                <button onClick={() => deleteFunc(editingFunc.id)} style={{ all: 'unset', cursor: 'pointer', fontSize: 12, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid #ef444433' }}>
+                  <Trash2 size={13} /> Delete
+                </button>
+              ) : (
+                <button onClick={resetFunctions} style={{ all: 'unset', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)', padding: '8px 10px' }}>Reset defaults</button>
+              )}
+              <button onClick={saveFunc} disabled={!funcLabel.trim() || !funcPrompt.trim()} style={{ all: 'unset', cursor: funcLabel.trim() && funcPrompt.trim() ? 'pointer' : 'default', fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 9, background: funcLabel.trim() && funcPrompt.trim() ? 'var(--accent)' : 'var(--border)', color: '#fff', transition: 'all 0.15s' }}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Advisor tabs */}
+      <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', padding: '10px 16px', background: `linear-gradient(to right, ${advisor.color}08 0%, transparent 60%)`, display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto' }} className="no-scrollbar">
         {ADVISORS.map(a => {
           const active = advisor.id === a.id
           return (
-            <button key={a.id} onClick={() => setAdvisor(a)} title={a.name} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 8px', borderRadius: 10, opacity: active ? 1 : 0.45, flexShrink: 0, transition: 'opacity 0.15s' }}
+            <button key={a.id} onClick={() => setAdvisor(a)} title={a.name} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 10, opacity: active ? 1 : 0.4, flexShrink: 0, transition: 'opacity 0.15s' }}
               onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.opacity = '0.45' }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.opacity = '0.4' }}
             >
-              <AdvisorAvatar advisor={a} size={active ? 42 : 34} isActive={active} />
-              <span style={{ fontSize: 10, fontWeight: active ? 600 : 400, color: active ? advisor.color : '#9ca3af', whiteSpace: 'nowrap' }}>{a.name}</span>
+              <AdvisorAvatar advisor={a} size={active ? 38 : 30} isActive={active} />
+              <span style={{ fontSize: 9, fontWeight: active ? 700 : 400, color: active ? advisor.color : 'var(--text-muted)', whiteSpace: 'nowrap', letterSpacing: '0.04em' }}>{a.name}</span>
             </button>
           )
         })}
-        <button onClick={() => { setMessages([]); api.clearHistory(advisor.channel).catch(() => {}) }} title="Clear chat" style={{ marginLeft: 'auto', flexShrink: 0, alignSelf: 'center', background: 'none', border: 'none', cursor: 'pointer', color: '#d1d5db', fontSize: 14, padding: '4px 8px', lineHeight: 1, transition: 'color 0.15s' }}
+        <button onClick={() => { setMessages([]); api.clearHistory(advisor.channel).catch(() => {}) }} title="Clear chat"
+          style={{ marginLeft: 'auto', flexShrink: 0, alignSelf: 'center', all: 'unset', cursor: 'pointer', color: 'var(--text-subtle)', padding: '6px', borderRadius: 8, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}
           onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-          onMouseLeave={e => e.currentTarget.style.color = '#d1d5db'}
-        >✕</button>
+          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-subtle)'}
+        ><XIcon size={15} /></button>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--bg-surface)' }}>
@@ -711,7 +813,7 @@ function ChatWidget() {
         {messages.map((msg, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 8 }}>
             {msg.role !== 'user' && <AdvisorAvatar advisor={advisor} size={26} isActive={false} />}
-            <div style={{ maxWidth: '78%', padding: '9px 13px', borderRadius: msg.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px', fontSize: 13, lineHeight: 1.5, background: msg.role === 'user' ? 'var(--accent-bg)' : 'var(--bg-card)', color: 'var(--text-primary)', border: msg.role === 'user' ? '1px solid var(--accent-bg)' : '1px solid var(--border)' }}>
+            <div style={{ maxWidth: '78%', padding: '9px 13px', borderRadius: msg.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px', fontSize: 13, lineHeight: 1.5, background: msg.role === 'user' ? advisor.color + '22' : 'var(--bg-card)', color: 'var(--text-primary)', border: msg.role === 'user' ? `1px solid ${advisor.color}44` : '1px solid var(--border)' }}>
               <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
                 {msg.content}
                 {msg.ts && <span style={{ fontSize: 10, opacity: 0.3, marginLeft: 8, whiteSpace: 'nowrap', verticalAlign: 'bottom' }}>{fmtTime(msg.ts)}</span>}
@@ -732,16 +834,42 @@ function ChatWidget() {
         <div ref={bottomRef} />
       </div>
 
-      <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 10, background: 'var(--bg-card)' }}>
+      {/* Functions bar */}
+      <div style={{ flexShrink: 0, borderTop: '1px solid var(--border)', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', background: 'var(--bg-surface)' }} className="no-scrollbar">
+        {functions.map(fn => (
+          <button key={fn.id} onClick={() => fireFunction(fn)} onContextMenu={e => { e.preventDefault(); openEditFunc(fn) }}
+            title={`${fn.prompt}${fn.send ? ' (sends immediately)' : ' (pre-fill)'}
+Right-click to edit`}
+            style={{ all: 'unset', cursor: 'pointer', flexShrink: 0, padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 600, letterSpacing: '0.02em',
+              background: `${advisor.color}18`, color: advisor.color, border: `1px solid ${advisor.color}33`, transition: 'all 0.15s', whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = `${advisor.color}30`; e.currentTarget.style.borderColor = `${advisor.color}66` }}
+            onMouseLeave={e => { e.currentTarget.style.background = `${advisor.color}18`; e.currentTarget.style.borderColor = `${advisor.color}33` }}
+          >{fn.label}</button>
+        ))}
+        <button onClick={openNewFunc} title="Add command"
+          style={{ all: 'unset', cursor: 'pointer', flexShrink: 0, width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-subtle)', border: '1px dashed var(--border)', transition: 'all 0.15s' }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-subtle)' }}
+        ><Plus size={12} /></button>
+      </div>
+
+      {/* Input row */}
+      <div style={{ flexShrink: 0, padding: '10px 14px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, background: 'var(--bg-card)' }}>
         <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
           placeholder={`Message ${advisor.name}…`}
-          style={{ flex: 1, padding: '7px 11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', outline: 'none', transition: 'border-color 0.15s' }}
+          style={{ flex: 1, padding: '8px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', outline: 'none', transition: 'border-color 0.15s' }}
           onFocus={e => e.target.style.borderColor = advisor.color}
           onBlur={e => e.target.style.borderColor = 'var(--border)'}
         />
-        <button onClick={send} disabled={!input.trim() || thinking} style={{ padding: '10px 16px', borderRadius: 10, border: 'none', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', transition: 'all 0.2s', cursor: input.trim() && !thinking ? 'pointer' : 'default', background: input.trim() && !thinking ? `linear-gradient(135deg, ${advisor.color} 0%, ${advisor.color}cc 100%)` : '#e8ecf1', color: input.trim() && !thinking ? '#ffffff' : '#9ca3af' }}>
-          Send
+        <button onClick={() => send()} disabled={!input.trim() || thinking}
+          style={{ padding: '8px 16px', borderRadius: 10, border: 'none', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.2s', cursor: input.trim() && !thinking ? 'pointer' : 'default',
+            background: input.trim() && !thinking ? advisor.color : 'var(--bg-elevated)',
+            color: input.trim() && !thinking ? '#fff' : 'var(--text-muted)',
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+          <SendIcon size={14} /> Send
         </button>
       </div>
     </div>
@@ -915,9 +1043,9 @@ function LotWidget() {
         onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover-bg)'; e.currentTarget.style.borderColor = 'var(--accent)' }}
         onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-surface)'; e.currentTarget.style.borderColor = 'var(--border)' }}
       >
-        <div style={{ width: 40, height: 40, borderRadius: 10, border: '2px dashed #d1d5db', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, transition: 'all 0.2s' }}>📥</div>
-        <p style={{ margin: 0, fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textAlign: 'center', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Drop Zone</p>
-        <p style={{ margin: 0, fontSize: 9, color: 'var(--text-subtle)', textAlign: 'center', lineHeight: 1.4 }}>{items.length} items</p>
+        <div style={{ width: 64, height: 64, borderRadius: 14, border: '2px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, transition: 'all 0.2s' }}>📥</div>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textAlign: 'center', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Drop Zone</p>
+        <p style={{ margin: 0, fontSize: 10, color: 'var(--text-subtle)', textAlign: 'center', lineHeight: 1.4 }}>{items.length} items</p>
       </div>
     </div>
   )

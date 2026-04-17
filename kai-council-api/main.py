@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+import httpx
 from pathlib import Path
 from pydantic import BaseModel
 import anthropic
@@ -34,6 +35,63 @@ INSIGHT_PATTERN = re.compile(
     r"\[INSIGHT:([A-Za-z]+)\](.*?)(?:\[/INSIGHT\]|(?=\[INSIGHT:)|\Z)",
     re.DOTALL,
 )
+
+WORKER_URL = "http://kai-worker-api:8001"
+
+KAI_TOOLS = [
+    {
+        "name": "save_workflow",
+        "description": "Save or update a command button/workflow that appears in the dashboard functions bar. Use this when Leo asks you to define, create, update, or configure a workflow, command, or function button.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id":          {"type": "string",  "description": "Unique slug (lowercase, hyphens ok). Use existing ID to update."},
+                "label":       {"type": "string",  "description": "Short button label shown in the UI (2-4 words max)"},
+                "prompt":      {"type": "string",  "description": "The full prompt text that gets sent when the button is clicked"},
+                "send":        {"type": "boolean", "description": "True = send immediately on click. False = pre-fill the input box for editing before sending."},
+                "description": {"type": "string",  "description": "One-line description of what this workflow does"}
+            },
+            "required": ["id", "label", "prompt", "send"]
+        }
+    },
+    {
+        "name": "list_workflows",
+        "description": "List all currently saved command workflows/buttons.",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "delete_workflow",
+        "description": "Delete a workflow button by ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "The workflow ID to delete"}
+            },
+            "required": ["id"]
+        }
+    }
+]
+
+
+def execute_tool(tool_name: str, tool_input: dict) -> dict:
+    import json as _tj
+    try:
+        with httpx.Client(timeout=10) as client:
+            if tool_name == "save_workflow":
+                r = client.post(f"{WORKER_URL}/workflows", json=tool_input)
+                return r.json()
+            elif tool_name == "list_workflows":
+                r = client.get(f"{WORKER_URL}/workflows")
+                return r.json()
+            elif tool_name == "delete_workflow":
+                wid = tool_input.get("id", "")
+                r = client.delete(f"{WORKER_URL}/workflows/{wid}")
+                return r.json()
+    except Exception as e:
+        return {"error": str(e)}
+    return {"error": "Unknown tool"}
+
+
 
 
 def get_anthropic_client():
@@ -164,6 +222,7 @@ def health():
 
 @app.post("/council/message")
 def council_message(req: MessageRequest):
+    import json as _mj
     channel = req.channel.lstrip("#")
     advisor = ADVISOR_CHANNELS.get(channel)
     if not advisor:
@@ -175,14 +234,48 @@ def council_message(req: MessageRequest):
     messages = req.history[-10:]
     messages.append({"role": "user", "content": req.message})
 
-    response = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=2048,
-        system=system_prompt,
-        messages=messages,
-    )
+    # Tool use only for KAI (chief)
+    tools = KAI_TOOLS if advisor == "chief" else []
+    total_input_tokens = 0
+    total_output_tokens = 0
 
-    raw_reply = response.content[0].text
+    # Agentic loop — handles tool calls
+    while True:
+        kwargs = dict(
+            model="claude-sonnet-4-5",
+            max_tokens=2048,
+            system=system_prompt,
+            messages=messages,
+        )
+        if tools:
+            kwargs["tools"] = tools
+
+        response = client.messages.create(**kwargs)
+        total_input_tokens  += response.usage.input_tokens
+        total_output_tokens += response.usage.output_tokens
+
+        if response.stop_reason == "tool_use":
+            # Append assistant turn (includes tool_use blocks)
+            messages.append({"role": "assistant", "content": response.content})
+            # Execute each tool and collect results
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    result = execute_tool(block.name, block.input)
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": _mj.dumps(result),
+                    })
+            messages.append({"role": "user", "content": tool_results})
+            continue  # loop back for final reply
+
+        # stop_reason == "end_turn" — extract text
+        raw_reply = next(
+            (b.text for b in response.content if hasattr(b, "text")),
+            ""
+        )
+        break
 
     # T1 privacy: insight extraction happens here on the worker, never leaves this process
     insights_logged = 0
@@ -201,8 +294,8 @@ def council_message(req: MessageRequest):
         "channel": channel,
         "reply": clean_reply,
         "insights_logged": insights_logged,
-        "input_tokens": response.usage.input_tokens,
-        "output_tokens": response.usage.output_tokens,
+        "input_tokens": total_input_tokens,
+        "output_tokens": total_output_tokens,
     }
 
 
