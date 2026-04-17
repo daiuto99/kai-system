@@ -69,14 +69,200 @@ KAI_TOOLS = [
             },
             "required": ["id"]
         }
+    },
+    {
+        "name": "create_task",
+        "description": "Create a task in Todoist. Use when Leo asks you to add a task, to-do, or action item.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content":     {"type": "string",  "description": "Task title"},
+                "due_date":    {"type": "string",  "description": "Due date YYYY-MM-DD (optional)"},
+                "priority":    {"type": "integer", "description": "1=urgent, 2=high, 3=medium, 4=normal. Default 4."},
+                "description": {"type": "string",  "description": "Task notes (optional)"}
+            },
+            "required": ["content"]
+        }
+    },
+    {
+        "name": "create_project",
+        "description": "Create a new project in KAI. Use when setting up a new project, initiative, or work stream.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id":          {"type": "string", "description": "Unique slug (lowercase, hyphens)"},
+                "name":        {"type": "string", "description": "Display name"},
+                "description": {"type": "string", "description": "One-line description"},
+                "status":      {"type": "string", "description": "green/yellow/red", "enum": ["green","yellow","red"]},
+                "next":        {"type": "string", "description": "Current focus / next action"},
+                "advisor":     {"type": "string", "description": "Advisor who owns this (kai/biz/ember/etc)"}
+            },
+            "required": ["id", "name", "description", "status"]
+        }
+    },
+    {
+        "name": "update_project",
+        "description": "Update a project's status, next action, or milestone.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id":            {"type": "string",  "description": "Project ID"},
+                "status":        {"type": "string",  "description": "green/yellow/red"},
+                "next":          {"type": "string",  "description": "Current focus / next action"},
+                "milestone":     {"type": "string",  "description": "Current milestone description"},
+                "milestone_pct": {"type": "integer", "description": "Milestone % complete 0-100"}
+            },
+            "required": ["id"]
+        }
+    },
+    {
+        "name": "list_projects",
+        "description": "List all current projects with their status.",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "write_to_vault",
+        "description": "Write a document to the vault. Use during mission execution to save deliverables, plans, briefs, mockups, or any generated content.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path":    {"type": "string", "description": "Relative vault path (e.g. '20_Projects/flower-shop/brief.md')"},
+                "content": {"type": "string", "description": "Full file content"},
+                "description": {"type": "string", "description": "One-line description of this document"}
+            },
+            "required": ["path", "content"]
+        }
+    },
+    {
+        "name": "read_vault",
+        "description": "Read a file from the vault for context before writing or to check existing content.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Relative vault path"}
+            },
+            "required": ["path"]
+        }
+    },
+    {
+        "name": "send_slack_message",
+        "description": "Post a message to a Slack channel. Use for project updates, async notifications, mission status, and team coordination.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "string", "description": "Channel name without # (e.g. 'ops', 'encore', 'general')"},
+                "message": {"type": "string", "description": "Message text (Slack markdown supported)"},
+                "advisor": {"type": "string", "description": "Posting advisor identity (kai/ember/biz/beats/doc/coach/creative/tech/dev). Default: kai"}
+            },
+            "required": ["channel", "message"]
+        }
+    },
+    {
+        "name": "start_mission",
+        "description": "Record the start of an autonomous mission. Call this when Leo grants you autonomous execution scope.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name":  {"type": "string", "description": "Short mission name"},
+                "scope": {"type": "array",  "items": {"type": "string"}, "description": "List of deliverables/actions in scope"},
+                "notes": {"type": "string", "description": "Any constraints or context for this mission"}
+            },
+            "required": ["name", "scope"]
+        }
+    },
+    {
+        "name": "complete_mission",
+        "description": "Mark the current mission complete and compile the review briefing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "built":     {"type": "array",  "items": {"type": "object"}, "description": "List of {label, path} for each deliverable created"},
+                "decisions": {"type": "array",  "items": {"type": "string"}, "description": "Decisions Leo needs to make on review"}
+            },
+            "required": ["built"]
+        }
+    },
+    {
+        "name": "log_action",
+        "description": "Log a governance action to the team changelog. Use when taking any notable action, especially Tier 2+.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action":      {"type": "string",  "description": "What was done"},
+                "tier":        {"type": "integer", "description": "Governance tier 1/2/3"},
+                "approved_by": {"type": "string",  "description": "How approved (e.g. 'Leo via Slack ✅', 'Autonomous Tier 1')"}
+            },
+            "required": ["action", "tier", "approved_by"]
+        }
     }
 ]
 
 
+def _slack_token() -> str:
+    p = Path("/run/secrets/slack_bot_token")
+    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
+
+ADVISOR_AVATARS = {
+    "kai":      "https://kai.sonicink.space/avatar-kai.png",
+    "ember":    "https://kai.sonicink.space/avatar-ember.png",
+    "beats":    "https://kai.sonicink.space/avatar-beats.png",
+    "doc":      "https://kai.sonicink.space/icon-192.png",
+    "coach":    "https://kai.sonicink.space/icon-192.png",
+    "biz":      "https://kai.sonicink.space/icon-192.png",
+    "creative": "https://kai.sonicink.space/icon-192.png",
+    "tech":     "https://kai.sonicink.space/icon-192.png",
+    "dev":      "https://kai.sonicink.space/icon-192.png",
+}
+
+
+# ── Token usage tracker ───────────────────────────────────────────────────────
+def _track_usage(advisor: str, input_tokens: int, output_tokens: int):
+    """Append token usage to vault/00_System/token_usage.json"""
+    import json, datetime
+    try:
+        usage_path = Path("/vault/00_System/token_usage.json")
+        today = datetime.date.today().isoformat()
+        cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
+
+        if usage_path.exists():
+            data = json.loads(usage_path.read_text())
+        else:
+            data = {"days": [], "total": {"input": 0, "output": 0, "cost_usd": 0.0, "calls": 0, "by_advisor": {}}}
+
+        # Ensure total exists
+        if "total" not in data:
+            data["total"] = {"input": 0, "output": 0, "cost_usd": 0.0, "calls": 0, "by_advisor": {}}
+        if "by_advisor" not in data["total"]:
+            data["total"]["by_advisor"] = {}
+
+        # Update or create today's entry
+        day = next((d for d in data["days"] if d["date"] == today), None)
+        if day is None:
+            day = {"date": today, "input": 0, "output": 0, "cost_usd": 0.0, "calls": 0, "by_advisor": {}}
+            data["days"].append(day)
+
+        day["input"] += input_tokens
+        day["output"] += output_tokens
+        day["cost_usd"] = round(day["cost_usd"] + cost, 6)
+        day["calls"] += 1
+        day["by_advisor"][advisor] = day["by_advisor"].get(advisor, 0) + 1
+
+        data["total"]["input"] += input_tokens
+        data["total"]["output"] += output_tokens
+        data["total"]["cost_usd"] = round(data["total"]["cost_usd"] + cost, 6)
+        data["total"]["calls"] += 1
+        data["total"]["by_advisor"][advisor] = data["total"]["by_advisor"].get(advisor, 0) + 1
+
+        usage_path.write_text(json.dumps(data, indent=2))
+    except Exception as e:
+        print(f"[token-usage] error: {e}")
+
 def execute_tool(tool_name: str, tool_input: dict) -> dict:
     import json as _tj
+    from datetime import datetime as _dt2, date as _d2
     try:
-        with httpx.Client(timeout=10) as client:
+        with httpx.Client(timeout=15) as client:
+            # ── Workflows ──────────────────────────────────────────────────
             if tool_name == "save_workflow":
                 r = client.post(f"{WORKER_URL}/workflows", json=tool_input)
                 return r.json()
@@ -84,12 +270,113 @@ def execute_tool(tool_name: str, tool_input: dict) -> dict:
                 r = client.get(f"{WORKER_URL}/workflows")
                 return r.json()
             elif tool_name == "delete_workflow":
-                wid = tool_input.get("id", "")
-                r = client.delete(f"{WORKER_URL}/workflows/{wid}")
+                r = client.delete(f"{WORKER_URL}/workflows/{tool_input.get('id','')}")
                 return r.json()
+
+            # ── Tasks ──────────────────────────────────────────────────────
+            elif tool_name == "create_task":
+                r = client.post(f"{WORKER_URL}/tasks", json=tool_input)
+                return r.json()
+
+            # ── Projects ───────────────────────────────────────────────────
+            elif tool_name == "create_project":
+                r = client.post(f"{WORKER_URL}/projects", json=tool_input)
+                return r.json()
+            elif tool_name == "update_project":
+                pid = tool_input.pop("id")
+                r = client.patch(f"{WORKER_URL}/projects/{pid}", json=tool_input)
+                return r.json()
+            elif tool_name == "list_projects":
+                r = client.get(f"{WORKER_URL}/projects")
+                return r.json()
+
+            # ── Vault ──────────────────────────────────────────────────────
+            elif tool_name == "write_to_vault":
+                r = client.post(f"{WORKER_URL}/vault/write",
+                    params={"path": tool_input["path"], "content": tool_input["content"]})
+                result = r.json()
+                # Log to mission deliverables if mission active
+                _log_mission_deliverable(tool_input["path"], tool_input.get("description",""))
+                return result
+            elif tool_name == "read_vault":
+                r = client.get(f"{WORKER_URL}/vault/read",
+                    params={"path": tool_input["path"]})
+                return r.json()
+
+            # ── Slack ──────────────────────────────────────────────────────
+            elif tool_name == "send_slack_message":
+                token = _slack_token()
+                if not token:
+                    return {"error": "Slack token not configured"}
+                advisor = tool_input.get("advisor", "kai")
+                channel = tool_input.get("channel", "ops")
+                if not channel.startswith("#"):
+                    channel = f"#{channel}"
+                payload = {
+                    "channel": channel,
+                    "text": tool_input["message"],
+                    "username": advisor.upper() if advisor == "kai" else advisor.capitalize(),
+                    "icon_url": ADVISOR_AVATARS.get(advisor, ADVISOR_AVATARS["kai"]),
+                }
+                r = client.post("https://slack.com/api/chat.postMessage",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json=payload)
+                data = r.json()
+                if not data.get("ok"):
+                    return {"error": data.get("error", "slack error"), "detail": data}
+                return {"ok": True, "channel": channel}
+
+            # ── Mission state ──────────────────────────────────────────────
+            elif tool_name == "start_mission":
+                mission = {
+                    "name": tool_input["name"],
+                    "scope": tool_input["scope"],
+                    "notes": tool_input.get("notes", ""),
+                    "granted": _dt2.utcnow().isoformat(),
+                    "status": "in_progress",
+                    "deliverables": [],
+                }
+                mission_file = VAULT_PATH / "00_System" / "active_mission.json"
+                mission_file.write_text(_tj.dumps(mission, indent=2))
+                return {"ok": True, "mission": tool_input["name"]}
+            elif tool_name == "complete_mission":
+                mission_file = VAULT_PATH / "00_System" / "active_mission.json"
+                if mission_file.exists():
+                    mission = _tj.loads(mission_file.read_text())
+                    mission["status"] = "review_ready"
+                    mission["completed"] = _dt2.utcnow().isoformat()
+                    mission["built"] = tool_input.get("built", [])
+                    mission["decisions"] = tool_input.get("decisions", [])
+                    mission_file.write_text(_tj.dumps(mission, indent=2))
+                return {"ok": True, "status": "review_ready"}
+
+            # ── Governance log ─────────────────────────────────────────────
+            elif tool_name == "log_action":
+                changelog = VAULT_PATH / "00_System" / "team_changelog.md"
+                if not changelog.exists():
+                    changelog.write_text("# KAI Team Changelog\n\n")
+                entry = f"- {_d2.today().isoformat()} | KAI | {tool_input['action']} | Tier {tool_input['tier']} | {tool_input['approved_by']}\n"
+                with open(changelog, "a") as f:
+                    f.write(entry)
+                return {"ok": True}
+
     except Exception as e:
         return {"error": str(e)}
-    return {"error": "Unknown tool"}
+    return {"error": f"Unknown tool: {tool_name}"}
+
+
+def _log_mission_deliverable(path: str, description: str):
+    import json as _mj
+    mission_file = VAULT_PATH / "00_System" / "active_mission.json"
+    if not mission_file.exists():
+        return
+    try:
+        mission = _mj.loads(mission_file.read_text())
+        if mission.get("status") == "in_progress":
+            mission.setdefault("deliverables", []).append({"path": path, "description": description})
+            mission_file.write_text(_mj.dumps(mission, indent=2))
+    except Exception:
+        pass
 
 
 
@@ -288,6 +575,9 @@ def council_message(req: MessageRequest):
     # Log conversation history to vault
     _append_history(channel, "user", req.message)
     _append_history(channel, "assistant", clean_reply)
+
+    # Track token usage
+    _track_usage(advisor, total_input_tokens, total_output_tokens)
 
     return {
         "advisor": advisor,

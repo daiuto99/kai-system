@@ -1143,6 +1143,49 @@ function LotWidget() {
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
+
+// ── Token Usage Widget ────────────────────────────────────────────────────────
+function TokenUsageWidget() {
+  const [data, setData] = React.useState(null)
+
+  React.useEffect(() => {
+    fetch('/api/token-usage').then(r => r.json()).then(setData).catch(() => {})
+  }, [])
+
+  if (!data) return null
+
+  const today = new Date().toISOString().slice(0, 10)
+  const todayEntry = (data.days || []).find(d => d.date === today) || { input: 0, output: 0, cost_usd: 0, calls: 0 }
+  const total = data.total || { input: 0, output: 0, cost_usd: 0, calls: 0 }
+
+  const fmt = n => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n
+  const fmtCost = c => c < 0.01 ? '<$0.01' : '$' + c.toFixed(2)
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '10px 16px', background: 'var(--bg-card)', borderRadius: 10, border: '1px solid var(--border)' }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>Token Usage</span>
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+        <Stat label="Today calls" value={todayEntry.calls} />
+        <Stat label="Today tokens" value={fmt((todayEntry.input||0) + (todayEntry.output||0))} />
+        <Stat label="Today cost" value={fmtCost(todayEntry.cost_usd || 0)} accent />
+        <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
+        <Stat label="All-time calls" value={total.calls} />
+        <Stat label="All-time tokens" value={fmt((total.input||0) + (total.output||0))} />
+        <Stat label="All-time cost" value={fmtCost(total.cost_usd || 0)} />
+      </div>
+    </div>
+  )
+}
+
+function Stat({ label, value, accent }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <span style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 600, color: accent ? 'var(--accent)' : 'var(--text-primary)' }}>{value}</span>
+    </div>
+  )
+}
+
 export default function Today() {
   return (
     <div style={{ height: '100%', background: 'var(--bg-screen)', overflowY: 'auto' }}>
@@ -1163,6 +1206,7 @@ export default function Today() {
             <div style={{ minHeight: 400 }}><ChatWidget /></div>
           </div>
         </div>
+        <TokenUsageWidget />
         <LotWidget />
       </div>
       <style>{`@keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }`}</style>

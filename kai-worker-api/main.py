@@ -777,3 +777,36 @@ def patch_project(project_id: str, body: ProjectPatch):
             PROJECTS_FILE.write_text(json.dumps(projects, indent=2))
             return {"ok": True, "project": p}
     raise HTTPException(404, "project not found")
+
+
+# ── POST /projects — create new project ─────────────────────────────────────
+class ProjectCreate(BaseModel):
+    id: str
+    name: str
+    status: str = "green"
+    next: str = ""
+    description: str = ""
+    url: str = ""
+    advisor: str = "kai"
+    active: bool = True
+
+@app.post("/projects")
+def create_project(body: ProjectCreate):
+    projects = json.loads(PROJECTS_FILE.read_text()) if PROJECTS_FILE.exists() else []
+    if any(p["id"] == body.id for p in projects):
+        raise HTTPException(400, f"project '{body.id}' already exists")
+    p = body.dict()
+    p.setdefault("pinned", False)
+    projects.append(p)
+    PROJECTS_FILE.write_text(json.dumps(projects, indent=2))
+    return {"ok": True, "project": p}
+
+# ── GET /token-usage — daily + running totals ────────────────────────────────
+TOKEN_USAGE_FILE = VAULT_PATH / "00_System" / "token_usage.json"
+
+@app.get("/token-usage")
+def get_token_usage():
+    if not TOKEN_USAGE_FILE.exists():
+        return {"days": [], "total": {"input": 0, "output": 0, "cost_usd": 0.0, "calls": 0}}
+    data = json.loads(TOKEN_USAGE_FILE.read_text())
+    return data
