@@ -978,3 +978,40 @@ def read_decisions_month(month: str):
     if not target.exists():
         raise HTTPException(404, f"No decisions for {month}")
     return {"month": month, "content": target.read_text(encoding="utf-8")}
+
+
+# ── Specialists ────────────────────────────────────────────────────────────────
+
+SPECIALISTS_FILE = VAULT_PATH / "00_System" / "specialists.json"
+
+@app.get("/specialists")
+def list_specialists():
+    if not SPECIALISTS_FILE.exists():
+        return {"specialists": []}
+    import json as _sj
+    return {"specialists": _sj.loads(SPECIALISTS_FILE.read_text())}
+
+# ── n8n Workflow Registry ──────────────────────────────────────────────────────
+
+N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
+
+@app.get("/n8n/workflows")
+def list_n8n_workflows():
+    if not N8N_REGISTRY_FILE.exists():
+        return {"workflows": {}}
+    import json as _nj
+    return {"workflows": _nj.loads(N8N_REGISTRY_FILE.read_text())}
+
+@app.post("/n8n/workflows")
+def register_n8n_workflow(body: dict):
+    import json as _nj
+    registry = _nj.loads(N8N_REGISTRY_FILE.read_text()) if N8N_REGISTRY_FILE.exists() else {}
+    name = body.get("name")
+    if not name:
+        raise HTTPException(400, "name required")
+    registry[name] = {
+        "webhook_url": body.get("webhook_url", ""),
+        "description": body.get("description", ""),
+    }
+    N8N_REGISTRY_FILE.write_text(_nj.dumps(registry, indent=2))
+    return {"ok": True, "name": name}

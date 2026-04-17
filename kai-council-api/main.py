@@ -253,6 +253,78 @@ KAI_TOOLS = [
             },
             "required": ["decision", "context"]
         }
+    },
+    {
+        "name": "trigger_n8n_workflow",
+        "description": "Trigger an n8n workflow by name. Use to launch automations, scheduled tasks, or any n8n workflow Leo has set up. The workflow runs on the n8n server and returns its output.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workflow": {"type": "string", "description": "Workflow name (as registered in the n8n registry, e.g. 'morning-brief', 'gmail-read')"},
+                "payload":  {"type": "object", "description": "Optional JSON payload to pass to the workflow"}
+            },
+            "required": ["workflow"]
+        }
+    },
+    {
+        "name": "list_n8n_workflows",
+        "description": "List all registered n8n workflows KAI can trigger.",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "register_n8n_workflow",
+        "description": "Register a new n8n workflow webhook URL so KAI can trigger it by name. Use when Leo sets up a new n8n workflow and wants KAI to be able to call it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name":        {"type": "string", "description": "Short identifier (lowercase, hyphens). e.g. 'morning-brief'"},
+                "webhook_url": {"type": "string", "description": "Full n8n webhook URL"},
+                "description": {"type": "string", "description": "What this workflow does"}
+            },
+            "required": ["name", "webhook_url"]
+        }
+    },
+    {
+        "name": "list_specialists",
+        "description": "List all specialist personas KAI can consult for deep expertise.",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "consult_specialist",
+        "description": "Consult a specialist persona for expert input on a specific topic. The specialist reads the question and responds with deep domain expertise. Use when Leo needs specialist-level thinking beyond what the lead advisors cover.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "specialist": {"type": "string", "description": "Specialist ID (e.g. 'strategist', 'architect', 'designer', 'researcher', 'copywriter', 'lead-developer', 'pm', 'test-engineer', 'data-engineer', 'graphic-designer')"},
+                "question":   {"type": "string", "description": "The question or brief to put to the specialist"},
+                "context":    {"type": "string", "description": "Any project context the specialist needs to answer well"}
+            },
+            "required": ["specialist", "question"]
+        }
+    },
+    {
+        "name": "read_email",
+        "description": "Read recent emails from the sonicink Gmail inbox. Returns subject, sender, date, and a preview of the most recent messages.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "max_results": {"type": "integer", "description": "Max number of emails to return (default 10)"},
+                "query":       {"type": "string",  "description": "Gmail search query (e.g. 'is:unread', 'from:john@example.com')"}
+            }
+        }
+    },
+    {
+        "name": "draft_email",
+        "description": "Create an email draft in Gmail. The draft is NOT sent — Leo must review and send manually. Always use this, never send directly.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to":      {"type": "string", "description": "Recipient email address"},
+                "subject": {"type": "string", "description": "Email subject"},
+                "body":    {"type": "string", "description": "Email body (plain text or simple HTML)"}
+            },
+            "required": ["to", "subject", "body"]
+        }
     }
 ]
 
@@ -453,9 +525,156 @@ def execute_tool(tool_name: str, tool_input: dict) -> dict:
                     outcome=tool_input.get("outcome", ""),
                 )
 
+            # ── n8n workflows ──────────────────────────────────────────────
+            elif tool_name == "trigger_n8n_workflow":
+                return _trigger_n8n(tool_input["workflow"], tool_input.get("payload", {}))
+            elif tool_name == "list_n8n_workflows":
+                return _list_n8n_workflows()
+            elif tool_name == "register_n8n_workflow":
+                return _register_n8n_workflow(
+                    tool_input["name"], tool_input["webhook_url"],
+                    tool_input.get("description", "")
+                )
+
+            # ── Specialists ────────────────────────────────────────────────
+            elif tool_name == "list_specialists":
+                return _list_specialists()
+            elif tool_name == "consult_specialist":
+                return _consult_specialist(
+                    tool_input["specialist"],
+                    tool_input["question"],
+                    tool_input.get("context", "")
+                )
+
+            # ── Email (via n8n) ────────────────────────────────────────────
+            elif tool_name == "read_email":
+                return _trigger_n8n("gmail-read", {
+                    "max_results": tool_input.get("max_results", 10),
+                    "query": tool_input.get("query", "")
+                })
+            elif tool_name == "draft_email":
+                return _trigger_n8n("gmail-draft", {
+                    "to": tool_input["to"],
+                    "subject": tool_input["subject"],
+                    "body": tool_input["body"]
+                })
+
     except Exception as e:
         return {"error": str(e)}
     return {"error": f"Unknown tool: {tool_name}"}
+
+
+# ── n8n Workflow Registry ─────────────────────────────────────────────────────
+
+N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
+N8N_BASE = "http://kai-n8n:5678"
+
+def _load_n8n_registry() -> dict:
+    import json as _nj
+    if N8N_REGISTRY_FILE.exists():
+        try:
+            return _nj.loads(N8N_REGISTRY_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+def _save_n8n_registry(registry: dict):
+    import json as _nj
+    N8N_REGISTRY_FILE.write_text(_nj.dumps(registry, indent=2))
+
+def _trigger_n8n(workflow: str, payload: dict) -> dict:
+    import json as _nj
+    registry = _load_n8n_registry()
+    entry = registry.get(workflow)
+    if not entry:
+        return {"error": f"Workflow '{workflow}' not registered. Use list_n8n_workflows or register_n8n_workflow."}
+    webhook_url = entry["webhook_url"] if isinstance(entry, dict) else entry
+    with httpx.Client(timeout=30) as client:
+        r = client.post(webhook_url, json=payload)
+        if r.status_code == 200:
+            try:
+                return {"ok": True, "workflow": workflow, "result": r.json()}
+            except Exception:
+                return {"ok": True, "workflow": workflow, "result": r.text[:2000]}
+        return {"error": f"n8n returned {r.status_code}", "body": r.text[:500]}
+
+def _list_n8n_workflows() -> dict:
+    registry = _load_n8n_registry()
+    workflows = []
+    for name, entry in registry.items():
+        if isinstance(entry, dict):
+            workflows.append({"name": name, "description": entry.get("description", ""), "url": entry.get("webhook_url", "")})
+        else:
+            workflows.append({"name": name, "description": "", "url": entry})
+    return {"workflows": workflows, "count": len(workflows)}
+
+def _register_n8n_workflow(name: str, webhook_url: str, description: str) -> dict:
+    registry = _load_n8n_registry()
+    registry[name] = {"webhook_url": webhook_url, "description": description}
+    _save_n8n_registry(registry)
+    return {"ok": True, "name": name, "registered": True}
+
+
+# ── Specialist Consultation ────────────────────────────────────────────────────
+
+SPECIALISTS_FILE = VAULT_PATH / "00_System" / "specialists.json"
+
+def _list_specialists() -> dict:
+    import json as _sj
+    if not SPECIALISTS_FILE.exists():
+        return {"specialists": []}
+    specialists = _sj.loads(SPECIALISTS_FILE.read_text())
+    return {"specialists": [{"id": s["id"], "name": s["name"], "domain": s["domain"]} for s in specialists]}
+
+def _consult_specialist(specialist_id: str, question: str, context: str) -> dict:
+    import json as _cj
+    if not SPECIALISTS_FILE.exists():
+        return {"error": "Specialists registry not found"}
+
+    specialists = _cj.loads(SPECIALISTS_FILE.read_text())
+    spec = next((s for s in specialists if s["id"] == specialist_id), None)
+    if not spec:
+        available = [s["id"] for s in specialists]
+        return {"error": f"Specialist '{specialist_id}' not found. Available: {available}"}
+
+    spec_file = VAULT_PATH / spec["file"]
+    if not spec_file.exists():
+        return {"error": f"Persona file not found: {spec['file']}"}
+
+    persona = spec_file.read_text(encoding="utf-8")
+
+    # Load business profile for context
+    bp = VAULT_PATH / "00_System" / "business_profile.md"
+    system = ""
+    if bp.exists():
+        system = (
+            "<background_context>\n"
+            + bp.read_text(encoding="utf-8")
+            + "\n</background_context>\n\n"
+        )
+    system += persona
+
+    user_msg = question
+    if context:
+        user_msg = f"Context: {context}\n\nQuestion: {question}"
+
+    try:
+        client = get_anthropic_client()
+        response = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=1500,
+            system=system,
+            messages=[{"role": "user", "content": user_msg}]
+        )
+        reply = response.content[0].text
+        _track_usage("specialist", response.usage.input_tokens, response.usage.output_tokens)
+        return {
+            "specialist": spec["name"],
+            "domain": spec["domain"],
+            "response": reply,
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ── Knowledge Layer ──────────────────────────────────────────────────────────
