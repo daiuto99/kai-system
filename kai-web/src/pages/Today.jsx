@@ -1,4 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
+import {
+  Activity, Brain, HeartHandshake, Briefcase, Compass,
+  Dumbbell, Stethoscope, HeartPulse, Heart, Smile,
+  BookOpen, Lightbulb, Infinity, Feather,
+  Users, Baby, Globe, Home, Waves,
+  TrendingUp, DollarSign, BarChart, Target, Trophy,
+  Sparkles, Star, Sun, Moon, Flame, Zap,
+  Music, Palette, Mic, Camera, Pen, Mountain,
+  Shield, Crown, Award, TreePine, Leaf, Coffee,
+  Gem, Rocket, Bike, Wind, Flower, Eye, Anchor, Map, Flag, Clock,
+} from 'lucide-react'
 import { api } from '../lib/api'
 import { ADVISORS, getAdvisor } from '../lib/advisors'
 
@@ -33,6 +44,29 @@ function SectionHeader({ title, action }) {
 }
 
 // ── Projects ───────────────────────────────────────────────────────────────
+
+
+const _ICON_MAP = {
+  Activity, Brain, HeartHandshake, Briefcase, Compass,
+  Dumbbell, Stethoscope, HeartPulse, Heart, Smile,
+  BookOpen, Lightbulb, Infinity, Feather,
+  Users, Baby, Globe, Home, Waves,
+  TrendingUp, DollarSign, BarChart, Target, Trophy,
+  Sparkles, Star, Sun, Moon, Flame, Zap,
+  Music, Palette, Mic, Camera, Pen, Mountain,
+  Shield, Crown, Award, TreePine, Leaf, Coffee,
+  Gem, Rocket, Bike, Wind, Flower, Eye, Anchor, Map, Flag, Clock,
+}
+function LucideIcon({ name, size = 14, color = 'currentColor' }) {
+  const C = _ICON_MAP[name]
+  return C ? <C size={size} color={color} strokeWidth={1.75} /> : null
+}
+function loadGroupConfig(defaults) {
+  try {
+    const saved = JSON.parse(localStorage.getItem('kai-harmony-groups') || '{}')
+    return defaults.map(g => ({ ...g, ...saved[g.name] }))
+  } catch { return defaults }
+}
 
 const SDOT  = { green: '#10b981', yellow: '#f59e0b', red: '#ef4444' }
 const STEXT = { green: '#059669', yellow: '#d97706', red: '#dc2626' }
@@ -184,20 +218,29 @@ function HarmonyRings({ domains }) {
   )
 }
 
-const BAR_GROUPS = [
-  { name: 'Body',          ids: ['health-fitness', 'quality-of-life'],                                    color: '#f97316' },
-  { name: 'Mind',          ids: ['intellectual-life', 'emotional-life', 'character', 'spiritual-life'],   color: '#a855f7' },
-  { name: 'Relationships', ids: ['love-relationship', 'parenting', 'social-life'],                        color: '#ec4899' },
-  { name: 'Work & Money',  ids: ['career', 'financial-life'],                                             color: '#3b82f6' },
-  { name: 'Life',          ids: ['life-vision', 'passion-sex'],                                           color: '#10b981' },
+const _DEFAULT_BAR_GROUPS = [
+  { name: 'Life',          ids: ['life-vision', 'passion-sex'],                                           color: '#10b981', icon: 'Compass' },
+  { name: 'Body',          ids: ['health-fitness', 'quality-of-life'],                                    color: '#f97316', icon: 'Activity' },
+  { name: 'Mind',          ids: ['intellectual-life', 'emotional-life', 'character', 'spiritual-life'],   color: '#a855f7', icon: 'Brain' },
+  { name: 'Work & Money',  ids: ['career', 'financial-life'],                                             color: '#3b82f6', icon: 'Briefcase' },
+  { name: 'Relationships', ids: ['love-relationship', 'parenting', 'social-life'],                        color: '#ec4899', icon: 'HeartHandshake' },
 ]
 
 function HarmonyWidget() {
   const [domains, setDomains] = useState([])
+  const [tooltip, setTooltip] = useState(null)
+  const BAR_GROUPS = loadGroupConfig(_DEFAULT_BAR_GROUPS)
 
   useEffect(() => {
     fetch('/api/harmony').then(r => r.json()).then(d => setDomains(d.domains || [])).catch(() => {})
   }, [])
+
+  const SC = { green: '#10b981', yellow: '#f59e0b', red: '#ef4444' }
+
+  function handleEnter(e, g) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    setTooltip({ group: g, x: rect.right + 10, y: rect.top + rect.height / 2 })
+  }
 
   return (
     <div style={{ flex: 1, background: 'var(--bg-surface)', borderRadius: 16, border: '1px solid var(--border)', padding: '14px 14px 10px', display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden' }}>
@@ -213,51 +256,65 @@ function HarmonyWidget() {
           const pct   = stats.length ? Math.round((green / stats.length) * 100) : 0
 
           return (
-            <div key={g.name} style={{
-              flex: 1, position: 'relative', borderRadius: 8, overflow: 'hidden',
-              background: g.color + '18',
-            }}>
-              {/* fill left to right */}
+            <div key={g.name}
+              onMouseEnter={e => handleEnter(e, g.name)}
+              onMouseLeave={() => setTooltip(null)}
+              style={{ flex: 1, position: 'relative', borderRadius: 8, overflow: 'hidden', background: g.color + '18', cursor: 'default' }}
+            >
               <div style={{
                 position: 'absolute', top: 0, left: 0, bottom: 0,
                 width: `${pct}%`,
                 background: `linear-gradient(to right, ${g.color}, ${g.color}cc)`,
-                borderRadius: 8,
-                transition: 'width 0.9s cubic-bezier(.4,0,.2,1)',
-                zIndex: 0,
+                borderRadius: 8, transition: 'width 0.9s cubic-bezier(.4,0,.2,1)',
               }} />
-
-              {/* label + % inside bar */}
               <div style={{
-                position: 'absolute', inset: 0,
+                position: 'absolute', inset: 0, zIndex: 1,
                 display: 'flex', alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '0 12px',
-                pointerEvents: 'none',
-                zIndex: 1,
+                padding: '0 12px', gap: 7, pointerEvents: 'none',
               }}>
+                <LucideIcon name={g.icon} size={13} color={pct > 30 ? 'rgba(255,255,255,0.85)' : g.color} />
                 <span style={{
-                  fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                  color: pct > 30 ? 'rgba(255,255,255,0.92)' : g.color + 'cc',
-                  transition: 'color 0.3s',
-                }}>
-                  {g.name}
-                </span>
+                  fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', flex: 1,
+                  color: pct > 30 ? 'rgba(255,255,255,0.92)' : g.color + 'cc', transition: 'color 0.3s',
+                }}>{g.name}</span>
                 <span style={{
                   fontSize: 10, fontWeight: 600,
-                  color: pct > 85 ? 'rgba(255,255,255,0.7)' : g.color + '99',
-                  transition: 'color 0.3s',
-                }}>
-                  {pct}%
-                </span>
+                  color: pct > 85 ? 'rgba(255,255,255,0.7)' : g.color + '99', transition: 'color 0.3s',
+                }}>{pct}%</span>
               </div>
             </div>
           )
         })}
-      </div>    </div>
+      </div>
+
+      {/* fixed tooltip — escapes all overflow:hidden parents */}
+      {tooltip && (() => {
+        const g = BAR_GROUPS.find(x => x.name === tooltip.group)
+        if (!g) return null
+        const groupDomains = g.ids.map(id => domains.find(x => x.id === id)).filter(Boolean)
+        return (
+          <div style={{
+            position: 'fixed', left: tooltip.x, top: tooltip.y,
+            transform: 'translateY(-50%)',
+            background: 'var(--bg-card)', border: '1px solid var(--border)',
+            borderRadius: 10, padding: '10px 12px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+            zIndex: 9999, minWidth: 160, pointerEvents: 'none',
+          }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: g.color, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 7 }}>{g.name}</div>
+            {groupDomains.map(d => (
+              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 0' }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: SC[domainStatus(d.aspects)], flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{d.icon} {d.name}</span>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
+    </div>
   )
 }
+
 
 // ── Intention ──────────────────────────────────────────────────────────────
 
