@@ -1,20 +1,4 @@
-# Secrets — never commit
-.env
-secrets/
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-.venv/
-.uv/
-
-# Docker
-.docker/
-
-# Logs
-*.log
-logs/
-
-# OS
-.DS_Store
+node_modules/
+dist/
+*.env
+.env.*
