@@ -194,7 +194,34 @@ KAI_TOOLS = [
             },
             "required": ["action", "tier", "approved_by"]
         }
-    }
+    },
+        {
+            "name": "get_calendar",
+            "description": "Get upcoming calendar events across the next N days.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "days":        {"type": "integer", "description": "Days to look ahead (default 7)"},
+                    "calendar_id": {"type": "string",  "description": "Calendar ID (default: primary)"}
+                }
+            }
+        },
+        {
+            "name": "create_event",
+            "description": "Create a Google Calendar event.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "title":       {"type": "string", "description": "Event title"},
+                    "start":       {"type": "string", "description": "Start ISO 8601 e.g. 2026-04-18T10:00:00"},
+                    "end":         {"type": "string", "description": "End ISO 8601"},
+                    "description": {"type": "string", "description": "Optional description"},
+                    "location":    {"type": "string", "description": "Optional location"},
+                    "calendar_id": {"type": "string", "description": "Calendar ID (default: primary)"}
+                },
+                "required": ["title", "start", "end"]
+            }
+        }
 ]
 
 
@@ -351,6 +378,17 @@ def execute_tool(tool_name: str, tool_input: dict) -> dict:
                 return {"ok": True, "status": "review_ready"}
 
             # ── Governance log ─────────────────────────────────────────────
+
+            elif tool_name == "get_calendar":
+                params = {"days": tool_input.get("days", 7)}
+                if tool_input.get("calendar_id"):
+                    params["calendar_id"] = tool_input["calendar_id"]
+                r = client.get(f"{WORKER_URL}/calendar/events", params=params)
+                return r.json()
+
+            elif tool_name == "create_event":
+                r = client.post(f"{WORKER_URL}/calendar/events", json=tool_input)
+                return r.json()
             elif tool_name == "log_action":
                 changelog = VAULT_PATH / "00_System" / "team_changelog.md"
                 if not changelog.exists():

@@ -810,3 +810,114 @@ def get_token_usage():
         return {"days": [], "total": {"input": 0, "output": 0, "cost_usd": 0.0, "calls": 0}}
     data = json.loads(TOKEN_USAGE_FILE.read_text())
     return data
+
+# ── Google Calendar Integration ───────────────────────────────────────────────
+GCAL_CREDS_FILE  = VAULT_PATH / "00_System" / "google_calendar_token.json"
+GCAL_CLIENT_FILE = VAULT_PATH / "00_System" / "google_calendar_client.json"
+GCAL_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly",
+               "https://www.googleapis.com/auth/calendar.events"]
+
+def _gcal_service():
+    """Return an authenticated Google Calendar service, or None if not configured."""
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+
+        if not GCAL_CREDS_FILE.exists():
+            return None
+        creds = Credentials.from_authorized_user_file(str(GCAL_CREDS_FILE), GCAL_SCOPES)
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            GCAL_CREDS_FILE.write_text(creds.to_json())
+        return build("calendar", "v3", credentials=creds)
+    except Exception as e:
+        print(f"[gcal] service error: {e}")
+        return None
+
+@app.get("/calendar/auth-url")
+def gcal_auth_url():
+    """Step 1: return the URL the user must visit to authorize."""
+    try:
+        from google_auth_oauthlib.flow import Flow
+        if not GCAL_CLIENT_FILE.exists():
+            raise HTTPException(400, "google_calendar_client.json not found in vault")
+        flow = Flow.from_client_secrets_file(
+            str(GCAL_CLIENT_FILE), scopes=GCAL_SCOPES,
+            redirect_uri="urn:ietf:wg:oauth:2.0:oob"
+        )
+        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+        return {"auth_url": auth_url}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+class GCalCodeRequest(BaseModel):
+    code: str
+
+@app.post("/calendar/auth-code")
+def gcal_auth_code(req: GCalCodeRequest):
+    """Step 2: exchange the code for tokens and save to vault."""
+    try:
+        from google_auth_oauthlib.flow import Flow
+        if not GCAL_CLIENT_FILE.exists():
+            raise HTTPException(400, "google_calendar_client.json not found in vault")
+        flow = Flow.from_client_secrets_file(
+            str(GCAL_CLIENT_FILE), scopes=GCAL_SCOPES,
+            redirect_uri="urn:ietf:wg:oauth:2.0:oob"
+        )
+        flow.fetch_token(code=req.code)
+        creds = flow.credentials
+        GCAL_CREDS_FILE.write_text(creds.to_json())
+        return {"ok": True, "message": "Calendar authorized and token saved"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+@app.get("/calendar/events")
+def gcal_events(days: int = 7, calendar_id: str = "primary"):
+    """Get upcoming events across the next N days."""
+    import datetime
+    svc = _gcal_service()
+    if not svc:
+        return {"events": [], "error": "calendar not configured"}
+    now = datetime.datetime.utcnow().isoformat() + "Z"
+    end = (datetime.datetime.utcnow() + datetime.timedelta(days=days)).isoformat() + "Z"
+    result = svc.events().list(
+        calendarId=calendar_id, timeMin=now, timeMax=end,
+        maxResults=50, singleEvents=True, orderBy="startTime"
+    ).execute()
+    events = []
+    for e in result.get("items", []):
+        start = e["start"].get("dateTime", e["start"].get("date"))
+        events.append({
+            "id": e["id"],
+            "title": e.get("summary", "(no title)"),
+            "start": start,
+            "end": e["end"].get("dateTime", e["end"].get("date")),
+            "location": e.get("location", ""),
+            "description": e.get("description", ""),
+            "calendar": calendar_id,
+        })
+    return {"events": events}
+
+class GCalEventCreate(BaseModel):
+    title: str
+    start: str           # ISO 8601 e.g. "2026-04-18T10:00:00"
+    end: str             # ISO 8601
+    description: str = ""
+    location: str = ""
+    calendar_id: str = "primary"
+
+@app.post("/calendar/events")
+def gcal_create_event(body: GCalEventCreate):
+    svc = _gcal_service()
+    if not svc:
+        raise HTTPException(503, "calendar not configured")
+    event = {
+        "summary": body.title,
+        "location": body.location,
+        "description": body.description,
+        "start": {"dateTime": body.start, "timeZone": "America/New_York"},
+        "end":   {"dateTime": body.end,   "timeZone": "America/New_York"},
+    }
+    created = svc.events().insert(calendarId=body.calendar_id, body=event).execute()
+    return {"ok": True, "event_id": created["id"], "link": created.get("htmlLink")}
