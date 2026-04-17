@@ -25,6 +25,8 @@ ADVISOR_CHANNELS = {
     "council-daily": "chief",
     "council-weekly": "chief",
     "council-monthly": "chief",
+    "sky": "sky",
+    "roads": "roads",
 }
 
 INSIGHT_CATEGORIES = {"Insights", "Truths", "Patterns", "Realizations", "Questions"}
@@ -239,6 +241,8 @@ ADVISOR_AVATARS = {
     "creative": "https://kai.sonicink.space/icon-192.png",
     "tech":     "https://kai.sonicink.space/icon-192.png",
     "dev":      "https://kai.sonicink.space/icon-192.png",
+    "sky":      "https://kai.sonicink.space/avatar-sky.png",
+    "roads":    "https://kai.sonicink.space/avatar-roads.png",
 }
 
 

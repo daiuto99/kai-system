@@ -56,6 +56,26 @@ export const ADVISORS = [
     color:   '#A855F7',
     intro:   'Strategy, finance, business decisions.',
   },
+  {
+    id:      'sky',
+    channel: 'sky',
+    name:    'Sky',
+    role:    'Studio Assistant',
+    emoji:   '🎙️',
+    color:   '#06B6D4',
+    avatar:  '/avatar-sky.png',
+    intro:   'Studio operations, session management, creative support.',
+  },
+  {
+    id:      'roads',
+    channel: 'roads',
+    name:    'Roads',
+    role:    'Gear Guru & Roadie',
+    emoji:   '🎸',
+    color:   '#F59E0B',
+    avatar:  '/avatar-roads.png',
+    intro:   'Gear, equipment, tech specs, live production.',
+  },
 ]
 
 export function getAdvisor(id) {

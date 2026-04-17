@@ -16,6 +16,7 @@ COUNCIL_CHANNELS = {
     "chief", "beats", "beats-personal",
     "ember", "doc", "coach", "biz",
     "council", "council-daily", "council-weekly", "council-monthly",
+    "sky", "roads",
 }
 
 PARKING_LOT_CHANNEL = "kai-parking-lot"
