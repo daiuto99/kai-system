@@ -97,6 +97,18 @@ def call_council(channel: str, message: str, user_id: str, ts: str) -> str:
         return "I couldn't reach the Council API. Check that kai-council-api is running."
 
 
+# Per-advisor identity for bot override posts
+ADVISOR_IDENTITIES = {
+    "chief":   {"username": "KAI",   "icon_url": "https://kai.sonicink.space/avatar-kai.png"},
+    "beats":   {"username": "Beats", "icon_url": "https://kai.sonicink.space/avatar-beats.png"},
+    "biz":     {"username": "Biz",   "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "ember":   {"username": "Ember", "icon_url": "https://kai.sonicink.space/avatar-ember.png"},
+    "doc":     {"username": "Doc",   "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "coach":   {"username": "Coach", "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "sky":     {"username": "Sky",   "icon_url": "https://kai.sonicink.space/avatar-sky.png"},
+    "roads":   {"username": "Roads", "icon_url": "https://kai.sonicink.space/avatar-roads.png"},
+}
+
 @app.event("message")
 def handle_message(event, say):
     # Ignore bot messages and edits
@@ -142,7 +154,17 @@ def handle_message(event, say):
 
     log.info(f"Message in #{ch_name} from {user_id}: {text[:60]}")
     reply = call_council(ch_name, text, user_id, ts)
-    say(text=reply, thread_ts=ts)
+    identity = ADVISOR_IDENTITIES.get(ch_name, {})
+    if identity:
+        app.client.chat_postMessage(
+            channel=channel_id,
+            text=reply,
+            thread_ts=ts,
+            username=identity["username"],
+            icon_url=identity["icon_url"],
+        )
+    else:
+        say(text=reply, thread_ts=ts)
 
 
 @app.event("app_mention")
