@@ -380,11 +380,12 @@ def execute_tool(tool_name: str, tool_input: dict) -> dict:
             # ── Governance log ─────────────────────────────────────────────
 
             elif tool_name == "get_calendar":
-                params = {"days": tool_input.get("days", 7)}
-                if tool_input.get("calendar_id"):
-                    params["calendar_id"] = tool_input["calendar_id"]
-                r = client.get(f"{WORKER_URL}/calendar/events", params=params)
-                return r.json()
+                # Route through n8n webhook which handles Google OAuth
+                days = tool_input.get("days", 7)
+                r = client.post("http://kai-n8n:5678/webhook/kai-calendar-events",
+                               json={"days": days}, timeout=15)
+                events = r.json() if r.status_code == 200 else []
+                return {"events": events}
 
             elif tool_name == "create_event":
                 r = client.post(f"{WORKER_URL}/calendar/events", json=tool_input)
