@@ -66,21 +66,21 @@ export default function Habits() {
   const total = habits.length
 
   return (
-    <div style={{ height: '100%', background: '#f8f9fa', overflowY: 'auto' }}>
+    <div style={{ height: '100%', background: 'var(--bg-screen)', overflowY: 'auto' }}>
       <div style={{ maxWidth: 700, margin: '0 auto', padding: '24px 16px' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1f2937', margin: 0 }}>Habits</h1>
-            <p style={{ fontSize: 13, color: '#9ca3af', margin: '3px 0 0' }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Habits</h1>
+            <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '3px 0 0' }}>
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
           {total > 0 && (
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 28, fontWeight: 700, color: done === total ? '#10b981' : '#1f2937' }}>
-                {done}<span style={{ fontSize: 16, color: '#9ca3af', fontWeight: 400 }}>/{total}</span>
+                {done}<span style={{ fontSize: 16, color: 'var(--text-tertiary)', fontWeight: 400 }}>/{total}</span>
               </div>
               <div style={{ height: 4, width: 80, background: '#e8ecf1', borderRadius: 2, marginTop: 4 }}>
                 <div style={{ height: '100%', width: `${total ? (done / total) * 100 : 0}%`, background: '#10b981', borderRadius: 2, transition: 'width 0.3s' }} />
@@ -90,16 +90,16 @@ export default function Habits() {
         </div>
 
         {loading ? (
-          <p style={{ color: '#9ca3af', textAlign: 'center', padding: '40px 0' }}>Loading…</p>
+          <p style={{ color: 'var(--text-tertiary)', textAlign: 'center', padding: '40px 0' }}>Loading…</p>
         ) : habits.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
-            <p style={{ fontSize: 14, color: '#9ca3af' }}>No habits yet.</p>
-            <p style={{ fontSize: 13, color: '#c4c9d4' }}>Add habits at <strong>habits.sonicink.space</strong></p>
+            <p style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>No habits yet.</p>
+            <p style={{ fontSize: 13, color: 'var(--text-subtle)' }}>Add habits at <strong>habits.sonicink.space</strong></p>
           </div>
         ) : (
           Object.entries(groups).map(([groupName, groupHabits]) => (
             <div key={groupName} style={{ marginBottom: 28 }}>
-              <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: 10 }}>
+              <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-tertiary)', marginBottom: 10 }}>
                 {groupName}
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

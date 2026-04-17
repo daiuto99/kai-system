@@ -7,7 +7,7 @@ const PRIORITY_STYLE = {
   1: { color: '#ef4444' },
   2: { color: '#f59e0b' },
   3: { color: '#3882F6' },
-  4: { color: '#9ca3af' },
+  4: { color: 'var(--text-tertiary)' },
 }
 
 export default function Tasks() {
@@ -33,11 +33,11 @@ export default function Tasks() {
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '32px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 300, color: '#1f2937', letterSpacing: '-0.02em', margin: 0, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 300, color: 'var(--text-primary)', letterSpacing: '-0.02em', margin: 0, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 8 }}>
             <CheckSquare size={20} color="#9ca3af" />
             <span>Tasks</span>
           </h1>
-          <p style={{ fontSize: 13, color: '#9ca3af', margin: '4px 0 0' }}>Pulled from Todoist. Ranked by KAI.</p>
+          <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '4px 0 0' }}>Pulled from Todoist. Ranked by KAI.</p>
         </div>
         <button onClick={load} className="btn-ghost" style={{ padding: '6px 10px' }}>
           <RefreshCw size={13} />
@@ -45,12 +45,12 @@ export default function Tasks() {
       </div>
 
       {loading ? (
-        <div className="kai-card" style={{ padding: '48px 20px', textAlign: 'center', fontSize: 13, color: '#9ca3af' }}>
+        <div className="kai-card" style={{ padding: '48px 20px', textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)' }}>
           Loading tasks...
         </div>
       ) : tasks.length === 0 ? (
         <div className="kai-card" style={{ padding: '48px 20px', textAlign: 'center' }}>
-          <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Queue is clear.</p>
+          <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: 0 }}>Queue is clear.</p>
         </div>
       ) : (
         <div className="kai-card" style={{ overflow: 'hidden' }}>
@@ -62,19 +62,19 @@ export default function Tasks() {
                 borderBottom: i < tasks.length - 1 ? '1px solid #e8ecf1' : 'none',
               }}
             >
-              <span style={{ fontSize: 11, color: '#9ca3af', fontFamily: 'monospace', marginTop: 2, width: 20, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'monospace', marginTop: 2, width: 20, flexShrink: 0 }}>
                 {i + 1}
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: 13, color: '#1f2937', lineHeight: 1.4, margin: 0 }}>{task.content}</p>
+                <p style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.4, margin: 0 }}>{task.content}</p>
                 {task.due && (
-                  <p style={{ fontSize: 12, color: '#9ca3af', margin: '2px 0 0' }}>Due {task.due}</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '2px 0 0' }}>Due {task.due}</p>
                 )}
                 {task.project && (
-                  <p style={{ fontSize: 12, color: '#9ca3af', margin: '2px 0 0' }}>{task.project}</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '2px 0 0' }}>{task.project}</p>
                 )}
               </div>
-              <span style={{ fontSize: 11, fontFamily: 'monospace', flexShrink: 0, marginTop: 2, ...(PRIORITY_STYLE[task.priority] || { color: '#9ca3af' }) }}>
+              <span style={{ fontSize: 11, fontFamily: 'monospace', flexShrink: 0, marginTop: 2, ...(PRIORITY_STYLE[task.priority] || { color: 'var(--text-tertiary)' }) }}>
                 {PRIORITY_LABEL[task.priority] || '—'}
               </span>
             </div>

@@ -20,18 +20,18 @@ const ASPECT_DESCRIPTIONS = {
 
 function AspectRow({ aspect, data, onStatusChange }) {
   return (
-    <div style={{ padding: '12px 0', borderBottom: '1px solid #e8ecf1' }}>
+    <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <p style={{ fontSize: 13, fontWeight: 500, color: '#1f2937', margin: 0 }}>{ASPECT_LABELS[aspect]}</p>
-            <p style={{ fontSize: 12, color: '#9ca3af', margin: 0, display: 'none' }} className="sm:block">
+            <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', margin: 0 }}>{ASPECT_LABELS[aspect]}</p>
+            <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: 0, display: 'none' }} className="sm:block">
               — {ASPECT_DESCRIPTIONS[aspect]}
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {data.statements.map((s, i) => (
-              <p key={i} style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.5, margin: 0 }}>{s}</p>
+              <p key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>{s}</p>
             ))}
           </div>
         </div>
@@ -56,13 +56,13 @@ function DomainCard({ domain, onStatusChange }) {
           gap: 12, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer',
           transition: 'background 0.15s', fontFamily: 'inherit',
         }}
-        onMouseEnter={e => e.currentTarget.style.background = '#fafbfc'}
+        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-surface)'}
         onMouseLeave={e => e.currentTarget.style.background = 'none'}
       >
         <StatusDot status={overall} size={9} />
         <span style={{ fontSize: 18 }}>{domain.icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontSize: 13, fontWeight: 500, color: '#1f2937', margin: 0 }}>{domain.name}</p>
+          <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', margin: 0 }}>{domain.name}</p>
           <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
             {Object.values(domain.aspects).map((a, i) => (
               <StatusDot key={i} status={a.status} size={5} />
@@ -77,7 +77,7 @@ function DomainCard({ domain, onStatusChange }) {
       </button>
 
       {expanded && (
-        <div style={{ padding: '0 20px 16px', borderTop: '1px solid #e8ecf1' }}>
+        <div style={{ padding: '0 20px 16px', borderTop: '1px solid var(--border)' }}>
           <div style={{ paddingTop: 4 }}>
             {Object.entries(domain.aspects).map(([aspect, data]) => (
               <AspectRow
@@ -145,12 +145,12 @@ export default function Harmony() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 300, color: '#1f2937', letterSpacing: '-0.02em', margin: 0, lineHeight: 1.3 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 300, color: 'var(--text-primary)', letterSpacing: '-0.02em', margin: 0, lineHeight: 1.3 }}>
             Harmony <span style={{ fontWeight: 600 }}>— Your Life Map</span>
           </h1>
-          <p style={{ fontSize: 13, color: '#9ca3af', margin: '4px 0 0' }}>13 domains. 4 aspects each. Your life in full.</p>
+          <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '4px 0 0' }}>13 domains. 4 aspects each. Your life in full.</p>
         </div>
-        {saving && <p style={{ fontSize: 12, color: '#9ca3af' }}>Saving...</p>}
+        {saving && <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Saving...</p>}
       </div>
 
       {/* Status summary */}
@@ -178,7 +178,7 @@ export default function Harmony() {
                 <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: sc.text, display: 'inline-block' }} />
                 <span style={{ fontSize: 20, fontWeight: 600, color: sc.text }}>{counts[status]}</span>
               </div>
-              <p style={{ fontSize: 12, color: '#9ca3af', margin: 0 }}>{label}</p>
+              <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: 0 }}>{label}</p>
             </button>
           )
         })}
