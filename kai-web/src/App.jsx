@@ -9,6 +9,7 @@ import Tasks from './pages/Tasks'
 import More from './pages/More'
 import Settings from './pages/Settings'
 import Habits from './pages/Habits'
+import Knowledge from './pages/Knowledge'
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/insights" element={<Insights />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/more" element={<More />} />
+        <Route path="/knowledge" element={<Knowledge />} />
       </Routes>
     </Layout>
   )

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 import httpx
 from pathlib import Path
 from pydantic import BaseModel
@@ -223,7 +223,37 @@ KAI_TOOLS = [
                 },
                 "required": ["title", "start", "end"]
             }
+        },
+    {
+        "name": "save_session",
+        "description": "Save a structured summary of the current conversation session to the knowledge vault. Use when Leo asks to save, document, or archive the session, or when a meaningful conversation has concluded.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title":    {"type": "string", "description": "Short descriptive title for this session (e.g. 'Sprint 6 planning', 'Encore strategy review')"},
+                "topics":   {"type": "array", "items": {"type": "string"}, "description": "Key topics discussed"},
+                "decisions":{"type": "array", "items": {"type": "string"}, "description": "Decisions made or confirmed"},
+                "actions":  {"type": "array", "items": {"type": "string"}, "description": "Action items or next steps"},
+                "context":  {"type": "string", "description": "Any important context for the next session with this advisor"},
+                "channel":  {"type": "string", "description": "Channel this session is for (defaults to current channel)"}
+            },
+            "required": ["title", "topics"]
         }
+    },
+    {
+        "name": "log_decision",
+        "description": "Log a key decision to the decisions vault. Use when Leo makes a notable choice, sets direction, or commits to a path.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "decision": {"type": "string", "description": "What was decided"},
+                "context":  {"type": "string", "description": "Why — the reasoning or constraints"},
+                "outcome":  {"type": "string", "description": "Expected outcome or what this unlocks"},
+                "channel":  {"type": "string", "description": "Which channel/advisor this came from"}
+            },
+            "required": ["decision", "context"]
+        }
+    }
 ]
 
 
@@ -403,9 +433,166 @@ def execute_tool(tool_name: str, tool_input: dict) -> dict:
                     f.write(entry)
                 return {"ok": True}
 
+            # ── Knowledge ──────────────────────────────────────────────────
+            elif tool_name == "save_session":
+                ch = tool_input.get("channel", "chief")
+                return _write_session_summary(
+                    channel=ch,
+                    title=tool_input["title"],
+                    topics=tool_input.get("topics", []),
+                    decisions=tool_input.get("decisions", []),
+                    actions=tool_input.get("actions", []),
+                    context_note=tool_input.get("context", ""),
+                )
+            elif tool_name == "log_decision":
+                ch = tool_input.get("channel", "chief")
+                return _write_decision(
+                    channel=ch,
+                    decision=tool_input["decision"],
+                    context=tool_input["context"],
+                    outcome=tool_input.get("outcome", ""),
+                )
+
     except Exception as e:
         return {"error": str(e)}
     return {"error": f"Unknown tool: {tool_name}"}
+
+
+# ── Knowledge Layer ──────────────────────────────────────────────────────────
+
+def _write_session_summary(channel: str, title: str, topics: list, decisions: list,
+                            actions: list, context_note: str) -> dict:
+    """Write a structured session summary to vault/60_Council/sessions/{channel}/"""
+    import json as _kj
+    from datetime import datetime as _kdt
+    sessions_dir = COUNCIL_PATH / "sessions" / channel
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    ts = _kdt.utcnow()
+    filename = ts.strftime("%Y-%m-%dT%H%M") + ".md"
+    filepath = sessions_dir / filename
+
+    lines = [
+        f"# Session — {channel} — {ts.strftime('%Y-%m-%d')}",
+        f"",
+        f"**Title:** {title}  ",
+        f"**Channel:** {channel}  ",
+        f"**Date:** {ts.strftime('%Y-%m-%d %H:%M')} UTC  ",
+        f"",
+    ]
+    if topics:
+        lines += ["## Topics", ""] + [f"- {t}" for t in topics] + [""]
+    if decisions:
+        lines += ["## Decisions", ""] + [f"- {d}" for d in decisions] + [""]
+    if actions:
+        lines += ["## Action Items", ""] + [f"- [ ] {a}" for a in actions] + [""]
+    if context_note:
+        lines += ["## Context for Next Session", "", context_note, ""]
+
+    filepath.write_text("\n".join(lines), encoding="utf-8")
+    return {"ok": True, "path": f"60_Council/sessions/{channel}/{filename}", "title": title}
+
+
+def _write_decision(channel: str, decision: str, context: str, outcome: str) -> dict:
+    """Append a decision entry to vault/60_Council/decisions/{YYYY-MM}.md"""
+    from datetime import datetime as _ddt
+    decisions_dir = COUNCIL_PATH / "decisions"
+    decisions_dir.mkdir(parents=True, exist_ok=True)
+    ts = _ddt.utcnow()
+    filename = ts.strftime("%Y-%m") + ".md"
+    filepath = decisions_dir / filename
+
+    header = f"# Decisions — {ts.strftime('%Y-%m')}\n\n" if not filepath.exists() else ""
+    entry = (
+        f"## {ts.strftime('%Y-%m-%d')} — {channel}\n\n"
+        f"**Decision:** {decision}  \n"
+        f"**Context:** {context}  \n"
+    )
+    if outcome:
+        entry += f"**Outcome:** {outcome}  \n"
+    entry += "\n---\n\n"
+
+    with open(filepath, "a", encoding="utf-8") as f:
+        if header:
+            f.write(header)
+        f.write(entry)
+    return {"ok": True, "path": f"60_Council/decisions/{filename}", "decision": decision}
+
+
+def _auto_summarize(channel: str, advisor: str):
+    """Background: generate a session summary if history has grown significantly since last auto-summary."""
+    try:
+        from datetime import datetime as _adt
+        history_file = HISTORY_DIR / f"{channel}.jsonl"
+        if not history_file.exists():
+            return
+
+        # Check marker: last line count at time of previous auto-summary
+        marker_file = HISTORY_DIR / f".{channel}.summarized"
+        last_count = int(marker_file.read_text().strip()) if marker_file.exists() else 0
+        lines = history_file.read_text(encoding="utf-8").strip().splitlines()
+        current_count = len(lines)
+
+        # Trigger if 20+ new lines (10 exchanges) since last summary
+        if current_count - last_count < 20:
+            return
+
+        # Load recent messages since marker
+        import json as _aj
+        recent = []
+        for line in lines[last_count:]:
+            try:
+                recent.append(_aj.loads(line))
+            except Exception:
+                pass
+
+        if len(recent) < 10:
+            return
+
+        # Build a compact transcript
+        transcript_parts = []
+        for msg in recent[-30:]:  # cap at 30 entries
+            role = "Leo" if msg["role"] == "user" else advisor.upper()
+            transcript_parts.append(f"{role}: {msg['content'][:400]}")
+        transcript = "\n".join(transcript_parts)
+
+        # Generate summary via Claude
+        client = get_anthropic_client()
+        response = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=800,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Summarize this {advisor} conversation session concisely. "
+                    f"Return ONLY a JSON object with keys: title (short string), "
+                    f"topics (array of strings), decisions (array of strings), "
+                    f"actions (array of strings), context (one paragraph for next session).\n\n"
+                    f"Transcript:\n{transcript}"
+                )
+            }]
+        )
+        import json as _sj, re as _re
+        raw = response.content[0].text.strip()
+        # Extract JSON from response (may be wrapped in ```json blocks)
+        match = _re.search(r"\{.*\}", raw, _re.DOTALL)
+        if not match:
+            return
+        summary = _sj.loads(match.group())
+
+        _write_session_summary(
+            channel=channel,
+            title=summary.get("title", f"Auto-summary {_adt.utcnow().strftime('%Y-%m-%d')}"),
+            topics=summary.get("topics", []),
+            decisions=summary.get("decisions", []),
+            actions=summary.get("actions", []),
+            context_note=summary.get("context", ""),
+        )
+        # Update marker
+        marker_file.write_text(str(current_count))
+        _track_usage(advisor, response.usage.input_tokens, response.usage.output_tokens)
+    except Exception as e:
+        # Non-critical — never fail the main response
+        pass
 
 
 def _log_mission_deliverable(path: str, description: str):
@@ -551,7 +738,7 @@ def health():
 
 
 @app.post("/council/message")
-def council_message(req: MessageRequest):
+def council_message(req: MessageRequest, background_tasks: BackgroundTasks = None):
     import json as _mj
     channel = req.channel.lstrip("#")
     advisor = ADVISOR_CHANNELS.get(channel)
@@ -621,6 +808,10 @@ def council_message(req: MessageRequest):
 
     # Track token usage
     _track_usage(advisor, total_input_tokens, total_output_tokens)
+
+    # Auto-summarize in background if history has grown enough
+    if background_tasks:
+        background_tasks.add_task(_auto_summarize, channel, advisor)
 
     return {
         "advisor": advisor,

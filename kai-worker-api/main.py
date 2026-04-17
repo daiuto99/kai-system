@@ -921,3 +921,60 @@ def gcal_create_event(body: GCalEventCreate):
     }
     created = svc.events().insert(calendarId=body.calendar_id, body=event).execute()
     return {"ok": True, "event_id": created["id"], "link": created.get("htmlLink")}
+
+
+# ── Knowledge Layer ────────────────────────────────────────────────────────────
+
+SESSIONS_DIR = VAULT_PATH / "60_Council" / "sessions"
+DECISIONS_DIR = VAULT_PATH / "60_Council" / "decisions"
+
+@app.get("/knowledge/sessions")
+def list_all_sessions():
+    """List all session summaries grouped by channel."""
+    if not SESSIONS_DIR.exists():
+        return {"sessions": {}}
+    result = {}
+    for ch_dir in sorted(SESSIONS_DIR.iterdir()):
+        if ch_dir.is_dir():
+            files = sorted(ch_dir.glob("*.md"), reverse=True)
+            result[ch_dir.name] = []
+            for f in files:
+                first_line = f.read_text(encoding="utf-8").split("\n")[0].replace("# ", "").strip()
+                result[ch_dir.name].append({
+                    "filename": f.name,
+                    "path": f"60_Council/sessions/{ch_dir.name}/{f.name}",
+                    "title": first_line,
+                    "channel": ch_dir.name,
+                })
+    return {"sessions": result}
+
+@app.get("/knowledge/session")
+def read_session(path: str):
+    """Read a specific session file. path = relative vault path."""
+    target = VAULT_PATH / path
+    if not target.exists() or not str(target).startswith(str(VAULT_PATH)):
+        raise HTTPException(404, "Session not found")
+    return {"path": path, "content": target.read_text(encoding="utf-8")}
+
+@app.get("/knowledge/decisions")
+def list_decisions():
+    """List all decision entries across all monthly files."""
+    if not DECISIONS_DIR.exists():
+        return {"decisions": [], "files": []}
+    files = sorted(DECISIONS_DIR.glob("*.md"), reverse=True)
+    all_files = []
+    for f in files:
+        all_files.append({
+            "filename": f.name,
+            "path": f"60_Council/decisions/{f.name}",
+            "month": f.stem,
+        })
+    return {"files": all_files}
+
+@app.get("/knowledge/decisions/{month}")
+def read_decisions_month(month: str):
+    """Read decisions for a given month (YYYY-MM)."""
+    target = DECISIONS_DIR / f"{month}.md"
+    if not target.exists():
+        raise HTTPException(404, f"No decisions for {month}")
+    return {"month": month, "content": target.read_text(encoding="utf-8")}
