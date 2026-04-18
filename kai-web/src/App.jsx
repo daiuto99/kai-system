@@ -10,6 +10,7 @@ import More from './pages/More'
 import Settings from './pages/Settings'
 import Habits from './pages/Habits'
 import Knowledge from './pages/Knowledge'
+import Models from './pages/Models'
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/more" element={<More />} />
         <Route path="/knowledge" element={<Knowledge />} />
+        <Route path="/models" element={<Models />} />
       </Routes>
     </Layout>
   )

@@ -349,13 +349,24 @@ ADVISOR_AVATARS = {
 
 
 # ── Token usage tracker ───────────────────────────────────────────────────────
-def _track_usage(advisor: str, input_tokens: int, output_tokens: int):
+def _track_usage(advisor: str, input_tokens: int, output_tokens: int, provider: str = "anthropic", model: str = "claude-sonnet-4-5"):
     """Append token usage to vault/00_System/token_usage.json"""
     import json, datetime
     try:
         usage_path = Path("/vault/00_System/token_usage.json")
         today = datetime.date.today().isoformat()
-        cost = (input_tokens * 3 + output_tokens * 15) / 1_000_000
+        # Cost per provider/model
+        COSTS = {
+            "claude-sonnet-4-5": (3, 15),
+            "claude-sonnet-4-6": (3, 15),
+            "claude-opus-4-6":   (15, 75),
+            "gpt-4o":            (5, 15),
+            "gpt-4o-mini":       (0.15, 0.6),
+            "llama3.2":          (0, 0),
+            "llama3.1:8b":       (0, 0),
+        }
+        in_rate, out_rate = COSTS.get(model, (3, 15))
+        cost = (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000
 
         if usage_path.exists():
             data = json.loads(usage_path.read_text())
@@ -379,6 +390,11 @@ def _track_usage(advisor: str, input_tokens: int, output_tokens: int):
         day["cost_usd"] = round(day["cost_usd"] + cost, 6)
         day["calls"] += 1
         day["by_advisor"][advisor] = day["by_advisor"].get(advisor, 0) + 1
+        # Track by provider
+        if "by_provider" not in day:
+            day["by_provider"] = {}
+        pkey = f"{provider}/{model}"
+        day["by_provider"][pkey] = day["by_provider"].get(pkey, 0) + 1
 
         data["total"]["input"] += input_tokens
         data["total"]["output"] += output_tokens
@@ -838,6 +854,75 @@ def get_anthropic_client():
     return anthropic.Anthropic(api_key=api_key)
 
 
+# ── Multi-provider model routing ───────────────────────────────────────────────
+
+MODEL_CONFIG_FILE = VAULT_PATH / "00_System" / "model_config.json"
+
+def _load_model_config() -> dict:
+    import json as _mcj
+    if MODEL_CONFIG_FILE.exists():
+        try:
+            return _mcj.loads(MODEL_CONFIG_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+def _get_advisor_config(advisor: str) -> dict:
+    config = _load_model_config()
+    return config.get("advisors", {}).get(advisor, {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5",
+    })
+
+def _call_ollama(model: str, system: str, messages: list, max_tokens: int = 2048) -> tuple:
+    """Call local Ollama. Returns (reply, input_tokens, output_tokens)."""
+    ollama_msgs = []
+    if system:
+        ollama_msgs.append({"role": "system", "content": system})
+    for m in messages:
+        content = m["content"] if isinstance(m["content"], str) else str(m["content"])
+        ollama_msgs.append({"role": m["role"], "content": content})
+
+    with httpx.Client(timeout=120) as hc:
+        r = hc.post("http://kai-ollama:11434/api/chat", json={
+            "model": model,
+            "messages": ollama_msgs,
+            "stream": False,
+            "options": {"num_predict": max_tokens},
+        })
+    if r.status_code != 200:
+        raise RuntimeError(f"Ollama {r.status_code}: {r.text[:300]}")
+    data = r.json()
+    reply = data["message"]["content"]
+    return reply, data.get("prompt_eval_count", 0), data.get("eval_count", 0)
+
+def _call_openai(model: str, system: str, messages: list, max_tokens: int = 2048) -> tuple:
+    """Call OpenAI API. Returns (reply, input_tokens, output_tokens)."""
+    secret_path = Path("/run/secrets/openai_api_key")
+    api_key = secret_path.read_text().strip() if secret_path.exists() else os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("OpenAI API key not configured — add OPENAI_API_KEY secret")
+
+    oai_msgs = []
+    if system:
+        oai_msgs.append({"role": "system", "content": system})
+    for m in messages:
+        if isinstance(m["content"], str):
+            oai_msgs.append({"role": m["role"], "content": m["content"]})
+
+    with httpx.Client(timeout=60) as hc:
+        r = hc.post("https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": model, "messages": oai_msgs, "max_tokens": max_tokens},
+        )
+    if r.status_code != 200:
+        raise RuntimeError(f"OpenAI {r.status_code}: {r.text[:300]}")
+    data = r.json()
+    reply = data["choices"][0]["message"]["content"]
+    usage = data.get("usage", {})
+    return reply, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
+
+
 def load_persona(advisor: str, channel: str = None) -> str:
     advisor_dir = COUNCIL_PATH / advisor
     persona_file = advisor_dir / f"{advisor.upper()}.md"
@@ -965,53 +1050,104 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
         raise HTTPException(status_code=400, detail=f"Unknown channel: {channel}")
 
     system_prompt = load_persona(advisor, channel)
-    client = get_anthropic_client()
 
     messages = req.history[-10:]
     messages.append({"role": "user", "content": req.message})
 
-    # Tool use only for KAI (chief)
-    tools = KAI_TOOLS if advisor == "chief" else []
     total_input_tokens = 0
     total_output_tokens = 0
+    raw_reply = ""
 
-    # Agentic loop — handles tool calls
-    while True:
-        kwargs = dict(
-            model="claude-sonnet-4-5",
-            max_tokens=2048,
-            system=system_prompt,
-            messages=messages,
-        )
-        if tools:
-            kwargs["tools"] = tools
+    # Determine provider/model — chief always uses Anthropic (tool-use requirement)
+    if advisor == "chief":
+        adv_cfg = {"provider": "anthropic", "model": "claude-sonnet-4-5"}
+    else:
+        adv_cfg = _get_advisor_config(advisor)
 
-        response = client.messages.create(**kwargs)
-        total_input_tokens  += response.usage.input_tokens
-        total_output_tokens += response.usage.output_tokens
+    provider = adv_cfg.get("provider", "anthropic")
+    model    = adv_cfg.get("model", "claude-sonnet-4-5")
+    actual_provider = provider
+    actual_model    = model
 
-        if response.stop_reason == "tool_use":
-            # Append assistant turn (includes tool_use blocks)
-            messages.append({"role": "assistant", "content": response.content})
-            # Execute each tool and collect results
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    result = execute_tool(block.name, block.input)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": _mj.dumps(result),
-                    })
-            messages.append({"role": "user", "content": tool_results})
-            continue  # loop back for final reply
+    if provider == "anthropic":
+        client = get_anthropic_client()
+        tools = KAI_TOOLS if advisor == "chief" else []
 
-        # stop_reason == "end_turn" — extract text
-        raw_reply = next(
-            (b.text for b in response.content if hasattr(b, "text")),
-            ""
-        )
-        break
+        # Agentic loop — handles tool calls
+        while True:
+            kwargs = dict(
+                model=model,
+                max_tokens=2048,
+                system=system_prompt,
+                messages=messages,
+            )
+            if tools:
+                kwargs["tools"] = tools
+
+            response = client.messages.create(**kwargs)
+            total_input_tokens  += response.usage.input_tokens
+            total_output_tokens += response.usage.output_tokens
+
+            if response.stop_reason == "tool_use":
+                messages.append({"role": "assistant", "content": response.content})
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        result = execute_tool(block.name, block.input)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": _mj.dumps(result),
+                        })
+                messages.append({"role": "user", "content": tool_results})
+                continue
+
+            raw_reply = next(
+                (b.text for b in response.content if hasattr(b, "text")), ""
+            )
+            break
+
+    elif provider == "ollama":
+        try:
+            raw_reply, total_input_tokens, total_output_tokens = _call_ollama(
+                model, system_prompt, messages
+            )
+        except Exception as ollama_err:
+            # Fallback to Anthropic
+            fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-5")
+            actual_provider = "anthropic"
+            actual_model = fallback_model
+            client = get_anthropic_client()
+            response = client.messages.create(
+                model=fallback_model, max_tokens=2048,
+                system=system_prompt + f"\n\n[Note: Local model unavailable ({ollama_err}), using cloud fallback]",
+                messages=messages,
+            )
+            total_input_tokens  = response.usage.input_tokens
+            total_output_tokens = response.usage.output_tokens
+            raw_reply = next((b.text for b in response.content if hasattr(b, "text")), "")
+
+    elif provider == "openai":
+        try:
+            raw_reply, total_input_tokens, total_output_tokens = _call_openai(
+                model, system_prompt, messages
+            )
+        except Exception as oai_err:
+            # Fallback to Anthropic
+            fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-5")
+            actual_provider = "anthropic"
+            actual_model = fallback_model
+            client = get_anthropic_client()
+            response = client.messages.create(
+                model=fallback_model, max_tokens=2048,
+                system=system_prompt + f"\n\n[Note: OpenAI unavailable ({oai_err}), using Anthropic fallback]",
+                messages=messages,
+            )
+            total_input_tokens  = response.usage.input_tokens
+            total_output_tokens = response.usage.output_tokens
+            raw_reply = next((b.text for b in response.content if hasattr(b, "text")), "")
+    else:
+        raise HTTPException(400, f"Unknown provider: {provider}")
 
     # T1 privacy: insight extraction happens here on the worker, never leaves this process
     insights_logged = 0
@@ -1026,7 +1162,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     _append_history(channel, "assistant", clean_reply)
 
     # Track token usage
-    _track_usage(advisor, total_input_tokens, total_output_tokens)
+    _track_usage(advisor, total_input_tokens, total_output_tokens, actual_provider, actual_model)
 
     # Auto-summarize in background if history has grown enough
     if background_tasks:
@@ -1039,6 +1175,8 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
         "insights_logged": insights_logged,
         "input_tokens": total_input_tokens,
         "output_tokens": total_output_tokens,
+        "provider": actual_provider,
+        "model": actual_model,
     }
 
 
@@ -1047,6 +1185,50 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
 def web_message(req: MessageRequest):
     """Web UI alias — nginx strips /council/ prefix."""
     return council_message(req)
+
+
+# ── Model config API ──────────────────────────────────────────────────────────
+
+@app.get("/models/config")
+def get_model_config():
+    return _load_model_config()
+
+@app.patch("/models/config/advisor/{advisor_id}")
+def update_advisor_model(advisor_id: str, body: dict):
+    import json as _cmj
+    config = _load_model_config()
+    if "advisors" not in config:
+        config["advisors"] = {}
+    if advisor_id not in config["advisors"]:
+        config["advisors"][advisor_id] = {}
+    config["advisors"][advisor_id].update(body)
+    MODEL_CONFIG_FILE.write_text(_cmj.dumps(config, indent=2))
+    return {"ok": True, "advisor": advisor_id, "config": config["advisors"][advisor_id]}
+
+@app.get("/models/status")
+def get_model_status():
+    """Returns provider availability status."""
+    status = {}
+    # Anthropic
+    secret_path = Path("/run/secrets/anthropic_api_key")
+    has_anthropic = secret_path.exists() or bool(os.environ.get("ANTHROPIC_API_KEY"))
+    status["anthropic"] = {"available": has_anthropic, "label": "Anthropic Claude"}
+    # OpenAI
+    oai_path = Path("/run/secrets/openai_api_key")
+    has_openai = oai_path.exists() or bool(os.environ.get("OPENAI_API_KEY"))
+    status["openai"] = {"available": has_openai, "label": "OpenAI GPT"}
+    # Ollama
+    try:
+        with httpx.Client(timeout=3) as hc:
+            r = hc.get("http://kai-ollama:11434/api/tags")
+            if r.status_code == 200:
+                models = [m["name"] for m in r.json().get("models", [])]
+                status["ollama"] = {"available": True, "label": "Ollama (Local)", "models": models}
+            else:
+                status["ollama"] = {"available": False, "label": "Ollama (Local)", "error": f"HTTP {r.status_code}"}
+    except Exception as e:
+        status["ollama"] = {"available": False, "label": "Ollama (Local)", "error": str(e)}
+    return {"providers": status}
 
 
 @app.post("/council/context/update")

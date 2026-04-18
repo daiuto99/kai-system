@@ -1,5 +1,5 @@
 # KAI — State of the Union
-**Last updated: 2026-04-17 | v0.7.0**
+**Last updated: 2026-04-18 | v0.8.0**
 
 ---
 
@@ -30,7 +30,9 @@ The design philosophy is JARVIS DNA: KAI never says "I can't." The answer is alw
 | Email routing | Cloudflare Email Routing (inbound) + Resend.com (outbound) |
 | Habits sync | HabitSync (Docker, jofoerster/habitsync) |
 | Infrastructure | Ubuntu 22.04 Linux worker, Docker Compose v5.1.2 |
-| AI model | `claude-sonnet-4-5` (Anthropic) |
+| AI models | `claude-sonnet-4-5` (Anthropic), `llama3.2` (Ollama local), `gpt-4o` (OpenAI — key needed) |
+| Local AI | Ollama — runs on worker, zero cost, fully private |
+| Model config | Per-advisor, changeable live via dashboard Models page or KAI chat |
 
 ---
 
@@ -45,7 +47,8 @@ All services run as Docker containers on the worker via `~/kai-system/docker-com
 | `kai-council-api` | 8002 | AI conversation engine — routes messages to advisors, runs KAI tool loop |
 | `kai-slack-bot` | — | Slack Socket Mode bot — receives messages, routes to council API, posts replies with advisor identity override |
 | `kai-web` | 3001→80 | React dashboard — served via nginx, proxies /api/ → worker, /council/ → council |
-| `kai-n8n` | 5678 | n8n automation engine — currently hosts Google Calendar OAuth + webhook |
+| `kai-n8n` | 5678 | n8n automation engine — Google Calendar + Gmail OAuth + webhooks |
+| `kai-ollama` | 11434 | Ollama local AI — llama3.2 for Doc + Ember (privacy-first) |
 | `kai-habitsync` | 6842 | Todoist → local habits sync |
 | `cloudflare-tunnel` | — | Routes public domains → containers |
 | `kai-scheduler` | — | Placeholder — no scheduled jobs yet |
@@ -284,6 +287,110 @@ KAI (chief advisor) has access to 13 tools in its agentic loop:
 
 ---
 
+## Multi-Model Architecture
+
+KAI routes each advisor to the right AI provider based on use case and privacy requirements. Model assignments are stored in `vault/00_System/model_config.json` and changeable live via the dashboard **Models** page or by telling KAI.
+
+### Provider Overview
+
+| Provider | Status | Best For | Cost |
+|---|---|---|---|
+| Anthropic Claude | ✅ Active | KAI (tool-use), code, complex reasoning | Sonnet: $3/$15 per 1M tokens in/out |
+| Ollama (Local) | ✅ Setting up | Doc, Ember — private health/personal data | $0 — runs on worker hardware |
+| OpenAI GPT | ⏳ Key needed | Brainstorming, research, creative ideation | gpt-4o: ~$5/$15 per 1M tokens |
+
+### Advisor → Model Mapping
+
+| Advisor | Provider | Model | Reason |
+|---|---|---|---|
+| KAI (chief) | Anthropic | claude-sonnet-4-5 | Requires tool-use — must stay on Anthropic |
+| Ember | Ollama (local) | llama3.2 | Personal/emotional data — privacy-first |
+| Doc | Ollama (local) | llama3.2 | Health data — never leaves the worker |
+| Beats, Sky, Roads, Coach | Anthropic | claude-sonnet-4-5 | Creative/domain knowledge depth |
+| Biz | Anthropic → OpenAI | claude-sonnet-4-5 → gpt-4o | Switch to GPT once key added — better for brainstorming |
+
+### Use-Case → Model Routing (planned)
+
+| Use Case | Provider | Model |
+|---|---|---|
+| General chat / ops | Anthropic | claude-sonnet-4-5 |
+| Brainstorming | OpenAI | gpt-4o |
+| Research | OpenAI | gpt-4o |
+| Code / architecture | Anthropic | claude-sonnet-4-5 |
+| Health analysis | Ollama | llama3.2 |
+| Personal / emotional | Ollama | llama3.2 |
+
+To add OpenAI: add `OPENAI_API_KEY` to `/home/leo/kai-system/secrets/openai_api_key.txt` and wire it as a Docker secret.
+
+---
+
+## Communication Channels & Privacy
+
+### Channel Architecture
+
+| Channel | Interface | Use Case | Model |
+|---|---|---|---|
+| Web dashboard | kai.sonicink.space | Visual context, data review, model config | Per advisor |
+| Slack DMs | Desktop + iOS app | Personal advisors, async, mobile-first | Per advisor |
+| Slack channels | Project channels | Team brainstorming, creative/dev collaboration | Per advisor |
+| Email | Gmail via n8n | Read inbox, create drafts (never sends autonomously) | Anthropic |
+| iOS Shortcut | Parking Lot | Quick capture from anywhere (planned) | n/a |
+| Telegram | — | Quick capture, mobile interface (planned, not built) | TBD |
+| Voice | Siri Shortcut | Speak → KAI → response (future) | TBD |
+
+### Slack — Defined Use Cases
+
+Slack is not just a chat interface — it has distinct roles by channel type:
+
+**Personal DMs (6 real advisor accounts):** KAI, Ember, Coach, Doc, Sky, Roads
+1:1 conversations for personal planning, health, music, emotional support. Same conversation history as the web dashboard (shared vault). Best used for mobile access and when you want push notifications.
+
+**Project channels (#encore, #launchbox, #soul-collective, #revolt-group, #kai-system):**
+Primary use is **brainstorming and collaboration with the dev and creative teams**. When designing a product, planning marketing, or working through creative direction — this is where KAI routes channel-based advisors (Biz, Beats, Creative, Tech, Dev) via bot persona overrides. Real humans can join alongside AI participants.
+
+**Slack vs Web — Key Differences:**
+- **Same history**: Both read/write to the same vault `.jsonl` files — conversation is continuous across both
+- **Slack advantage**: Native mobile app, push notifications, reaction-based approval flows (Tier 2)
+- **Web advantage**: Full visual dashboard, model config, habits, harmony, parking lot, knowledge browser
+- **Slack brainstorming note**: Channel-based advisors (Biz for product/business, Beats/Creative for music/brand) work best in Slack channels where the conversation thread is the artifact
+
+### Token Usage by Channel
+
+Every conversation tracked in `vault/00_System/token_usage.json` by advisor, provider, and model. Viewable on the dashboard Token Usage widget and Models page.
+
+| Channel | Provider | Approximate Cost |
+|---|---|---|
+| KAI (any interface) | Anthropic | ~$0.03–0.10 per conversation |
+| Ember / Doc (any interface) | Ollama | $0 — local |
+| All other advisors | Anthropic | ~$0.02–0.08 per conversation |
+| Session auto-summaries | Anthropic | ~$0.01 per trigger |
+| Specialist consultation | Anthropic | ~$0.02–0.05 per consult |
+| Telegram (planned) | TBD | TBD |
+
+### Privacy Architecture
+
+**Local-first advisors:** Doc and Ember run on Ollama (llama3.2) by default. Health data, medical questions, and personal/emotional content never leave the worker. If Ollama is unavailable, falls back to Anthropic with a logged note. Fallback can be disabled to enforce local-only.
+
+**Data that leaves the worker:**
+- AI inference calls to Anthropic (cloud advisors) — Anthropic does not train on API data
+- Calendar and email fetched from Google via n8n — not stored locally
+- Slack messages pass through Slack's servers
+- Todoist tasks synced via Todoist API
+
+**Data that stays on the worker:**
+- All conversation history (vault/60_Council/_history/)
+- Ember insights and Doc health notes
+- Session summaries and decisions
+- All vault config and state
+
+**Non-negotiable rules:**
+- Email: KAI never sends. Always draft → Leo sends manually. Tier 3 gate.
+- Deletion: typed confirmation required
+- Financial access: not wired, Tier 3 minimum when added
+- External comms: Slack ✅ reaction required (Tier 2) — not yet wired, Sprint 8
+
+---
+
 ## Dev Plan — Where We Are
 
 ### ✅ Sprint 1 (complete)
@@ -311,17 +418,19 @@ Project channels created (#encore, #launchbox, #soul-collective, #revolt-group, 
 Slack bot: per-advisor username/icon overrides via chat.postMessage
 Slack scopes: messages.channels, channels:manage, channels:read, groups:read, im:read, mpim:read, reactions:read, chat:write.customize
 
-### 🔜 Sprint 6 — Knowledge Layer
-- [ ] Advisor conversation → structured .md knowledge files (per advisor + per project)
-- [ ] Automatic session summaries written to vault/60_Council/sessions/
-- [ ] Decisions logged to vault/60_Council/decisions/
-- [ ] Knowledge searchable by KAI at query time via read_vault
+### ✅ Sprint 6 (complete — 2026-04-17)
+Knowledge Layer: `save_session` + `log_decision` KAI tools, auto-summarize after 10+ exchanges
+Worker API: /knowledge/sessions, /knowledge/decisions
+Dashboard: Knowledge page with Sessions browser + Decisions viewer
 
-### 🔜 Sprint 7 — Email + n8n Trigger
-- [ ] Gmail API: read access for sonicink, Revolt, Penn State
-- [ ] Email draft + Leo approval flow (T3 gate before send)
-- [ ] n8n trigger tool: KAI calls n8n workflows by name
-- [ ] Team lead personas → vault (from ~/sonicink/claude-team/personas/)
+### ✅ Sprint 7 (complete — 2026-04-18)
+Gmail read + draft via n8n (live)
+n8n trigger tool: KAI calls workflows by name via vault registry
+10 specialist personas: vault/60_Council/specialists/ + `consult_specialist` tool
+Multi-model: Anthropic/Ollama/OpenAI routing per advisor, fallback on failure
+Ollama local AI: llama3.2 for Doc + Ember (privacy-first, $0)
+Model config: vault/00_System/model_config.json + live Models page
+KAI_Architecture.html: interactive system reference doc
 
 ### 🔜 Sprint 8 — Calendars + Mobile
 - [ ] Revolt O365 calendar (read-only)

@@ -141,9 +141,25 @@ services:
     ports:
       - "6842:6842"
 
+  kai-ollama:
+    image: ollama/ollama:latest
+    container_name: kai-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
 volumes:
   n8n_data:
   habitsync_data:
+  ollama_data:
 
 secrets:
   anthropic_api_key:

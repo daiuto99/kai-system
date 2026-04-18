@@ -4,7 +4,7 @@ import TopNav from './TopNav'
 import BottomNav from './BottomNav'
 import CaptureModal from './CaptureModal'
 
-const FRAMED_PAGES = ['/today', '/harmony', '/tasks', '/habits', '/insights', '/settings', '/parking-lot', '/knowledge']
+const FRAMED_PAGES = ['/today', '/harmony', '/tasks', '/habits', '/insights', '/settings', '/parking-lot', '/knowledge', '/models']
 
 export default function Layout({ children }) {
   const [captureOpen, setCaptureOpen] = useState(false)
