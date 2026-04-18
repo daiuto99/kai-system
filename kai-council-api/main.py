@@ -874,27 +874,49 @@ def _get_advisor_config(advisor: str) -> dict:
         "model": "claude-sonnet-4-5",
     })
 
-def _call_ollama(model: str, system: str, messages: list, max_tokens: int = 2048) -> tuple:
-    """Call local Ollama. Returns (reply, input_tokens, output_tokens)."""
-    ollama_msgs = []
-    if system:
-        ollama_msgs.append({"role": "system", "content": system})
-    for m in messages:
-        content = m["content"] if isinstance(m["content"], str) else str(m["content"])
-        ollama_msgs.append({"role": m["role"], "content": content})
+def _call_ollama(model: str, system: str, messages: list, max_tokens: int = 1024) -> tuple:
+    """Call local Ollama. Returns (reply, input_tokens, output_tokens).
+    Uses a short system prompt (persona identity only) for CPU inference speed.
+    Business profile is NOT injected — not needed for privacy-first advisors.
+    Model stays loaded in memory via keep_alive=30m.
+    """
+    # Extract just the persona identity — first 800 chars after business profile
+    if "</background_context>" in system:
+        system = system.split("</background_context>", 1)[1].strip()
+    # Further cap at 1200 chars to keep prompt short for CPU speed
+    if len(system) > 1200:
+        system = system[:1200] + "\n[Respond in character per the above.]"
 
-    with httpx.Client(timeout=120) as hc:
+    ollama_msgs = [{"role": "system", "content": system}]
+    # Only last 4 history messages to keep context tight
+    for m in messages[-4:]:
+        c = m["content"] if isinstance(m["content"], str) else str(m["content"])
+        ollama_msgs.append({"role": m["role"], "content": c})
+
+    with httpx.Client(timeout=30) as hc:
         r = hc.post("http://kai-ollama:11434/api/chat", json={
             "model": model,
             "messages": ollama_msgs,
             "stream": False,
-            "options": {"num_predict": max_tokens},
+            "keep_alive": "30m",
+            "options": {"num_predict": max_tokens, "temperature": 0.7},
         })
     if r.status_code != 200:
         raise RuntimeError(f"Ollama {r.status_code}: {r.text[:300]}")
     data = r.json()
     reply = data["message"]["content"]
     return reply, data.get("prompt_eval_count", 0), data.get("eval_count", 0)
+
+
+def _warmup_ollama(model: str = "llama3.2"):
+    """Pre-warm Ollama so the model is loaded into RAM. Non-blocking."""
+    try:
+        with httpx.Client(timeout=5) as hc:
+            hc.post("http://kai-ollama:11434/api/generate", json={
+                "model": model, "prompt": "", "keep_alive": "30m"
+            })
+    except Exception:
+        pass
 
 def _call_openai(model: str, system: str, messages: list, max_tokens: int = 2048) -> tuple:
     """Call OpenAI API. Returns (reply, input_tokens, output_tokens)."""
