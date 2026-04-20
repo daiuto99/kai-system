@@ -154,10 +154,11 @@ function ProjectProfile({ project, onClose, onPin }) {
 
 function ProjectsWidget() {
   const [projects,  setProjects]  = useState([])
+  const [projectsError, setProjectsError] = useState(false)
   const [selected,  setSelected]  = useState(null)
 
   function load() {
-    fetch('/api/projects').then(r => r.json()).then(d => setProjects(d.projects || [])).catch(() => {})
+    fetch('/api/projects').then(r => r.json()).then(d => setProjects(d.projects || [])).catch(() => setProjectsError(true))
   }
   useEffect(() => { load() }, [])
 

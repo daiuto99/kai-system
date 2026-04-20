@@ -4,6 +4,21 @@ import TopNav from './TopNav'
 import BottomNav from './BottomNav'
 import CaptureModal from './CaptureModal'
 
+const PAGE_LABELS = {
+  '/today': 'Today',
+  '/harmony': 'Harmony',
+  '/tasks': 'Tasks',
+  '/habits': 'Habits',
+  '/insights': 'Insights',
+  '/settings': 'Settings',
+  '/parking-lot': 'Parking Lot',
+  '/knowledge': 'Knowledge',
+  '/models': 'Performance',
+  '/advisors': 'Advisors',
+  '/wiki': 'Wiki',
+  '/chat': 'Chat',
+}
+
 const FRAMED_PAGES = ['/today', '/harmony', '/tasks', '/habits', '/insights', '/settings', '/parking-lot', '/knowledge', '/models', '/advisors', '/wiki']
 
 export default function Layout({ children }) {
@@ -43,7 +58,7 @@ export default function Layout({ children }) {
           borderBottom: '1px solid var(--border)',
         }}>
           <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: '0.02em', color: 'var(--text-primary)' }}>
-            KAI
+            KAI{(() => { const label = Object.entries(PAGE_LABELS).find(([k]) => pathname === k || pathname.startsWith(k + '/')); return label ? ' — ' + label[1] : ''; })()}
           </span>
           <button
             onClick={() => setCaptureOpen(true)}

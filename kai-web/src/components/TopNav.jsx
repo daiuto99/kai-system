@@ -54,7 +54,7 @@ export default function TopNav({ onCapture }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
         <img src="/icon-192.png" alt="KAI" style={{ width: 28, height: 28, borderRadius: 0, background: 'none' }} />
         <div style={{ width: 1, height: 20, background: 'var(--border)', flexShrink: 0 }} />
-        <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
         {NAV_ITEMS.map(({ to, label, icon }) => (
           <NavLink key={to + label} to={to} style={({ isActive }) => ({
             display: 'flex', alignItems: 'center', gap: 5,

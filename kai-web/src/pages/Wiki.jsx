@@ -2,6 +2,71 @@ import React, { useState, useEffect } from 'react'
 
 const API = '/api'
 
+function renderMarkdown(text) {
+  if (!text) return null
+  const lines = text.split('\n')
+  const elements = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    // H1
+    if (line.startsWith('# ')) {
+      elements.push(<h1 key={i} style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', margin: '20px 0 8px', letterSpacing: '-0.02em' }}>{renderInline(line.slice(2))}</h1>)
+    // H2
+    } else if (line.startsWith('## ')) {
+      elements.push(<h2 key={i} style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', margin: '16px 0 6px' }}>{renderInline(line.slice(3))}</h2>)
+    // H3
+    } else if (line.startsWith('### ')) {
+      elements.push(<h3 key={i} style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', margin: '12px 0 4px' }}>{renderInline(line.slice(4))}</h3>)
+    // HR
+    } else if (line === '---' || line === '***') {
+      elements.push(<hr key={i} style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '16px 0' }} />)
+    // List items
+    } else if (line.startsWith('- ') || line.startsWith('* ')) {
+      elements.push(<li key={i} style={{ marginLeft: 20, marginBottom: 2, fontSize: 13, lineHeight: 1.6, color: 'var(--text-primary)' }}>{renderInline(line.slice(2))}</li>)
+    // Blank line
+    } else if (line.trim() === '') {
+      elements.push(<div key={i} style={{ height: 8 }} />)
+    } else {
+      elements.push(<p key={i} style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text-primary)', margin: '2px 0' }}>{renderInline(line)}</p>)
+    }
+    i++
+  }
+  return elements
+}
+
+function renderInline(text) {
+  // Handle bold **text**, inline `code`
+  const parts = []
+  let remaining = text
+  let key = 0
+  while (remaining.length > 0) {
+    const boldIdx = remaining.indexOf('**')
+    const codeIdx = remaining.indexOf('`')
+    if (boldIdx === -1 && codeIdx === -1) {
+      parts.push(<span key={key++}>{remaining}</span>)
+      break
+    }
+    const nextIdx = (boldIdx === -1) ? codeIdx : (codeIdx === -1) ? boldIdx : Math.min(boldIdx, codeIdx)
+    if (nextIdx > 0) {
+      parts.push(<span key={key++}>{remaining.slice(0, nextIdx)}</span>)
+      remaining = remaining.slice(nextIdx)
+    }
+    if (remaining.startsWith('**')) {
+      const end = remaining.indexOf('**', 2)
+      if (end === -1) { parts.push(<span key={key++}>{remaining}</span>); break }
+      parts.push(<strong key={key++} style={{ fontWeight: 600 }}>{remaining.slice(2, end)}</strong>)
+      remaining = remaining.slice(end + 2)
+    } else if (remaining.startsWith('`')) {
+      const end = remaining.indexOf('`', 1)
+      if (end === -1) { parts.push(<span key={key++}>{remaining}</span>); break }
+      parts.push(<code key={key++} style={{ fontFamily: 'monospace', fontSize: 12, background: 'var(--bg-screen)', padding: '1px 4px', borderRadius: 3 }}>{remaining.slice(1, end)}</code>)
+      remaining = remaining.slice(end + 1)
+    }
+  }
+  return parts
+}
+
 export default function Wiki() {
   const [tree, setTree] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -43,14 +108,13 @@ export default function Wiki() {
               color: 'var(--text-secondary)', fontSize: 11, fontWeight: 700,
               textTransform: 'uppercase', letterSpacing: '0.06em',
             }}>
-              <span style={{ fontSize: 9, opacity: 0.6 }}>{open ? '▾' : '▸'}</span>
+              <span style={{ fontSize: 9, opacity: 0.6 }}>{open ? '\u25be' : '\u25b8'}</span>
               {node.name}
             </button>
             {open && node.children && node.children.length > 0 && renderTree(node.children, depth + 1)}
           </div>
         )
       }
-      // file
       const isActive = selected?.path === node.path
       return (
         <button key={node.path} onClick={() => openFile(node.path, node.name.replace('.md', ''))} style={{
@@ -113,11 +177,9 @@ export default function Wiki() {
                   70_Knowledge/{selected.path}
                 </div>
               </div>
-              <pre style={{
-                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                fontSize: 13, lineHeight: 1.75, color: 'var(--text-primary)',
-                margin: 0, fontFamily: 'inherit',
-              }}>{content}</pre>
+              <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+                {renderMarkdown(content)}
+              </div>
             </>
           )}
         </div>

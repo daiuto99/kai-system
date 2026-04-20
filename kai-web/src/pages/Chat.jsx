@@ -39,7 +39,7 @@ export default function Chat() {
     setMessages([])
     api.getChannelHistory(advisor.channel)
       .then(data => setMessages(data.messages || []))
-      .catch(() => setMessages([]))
+      .catch(() => setMessages([{ role: 'assistant', content: "Couldn't load history. Try refreshing.", ts: '', error: true }]))
       .finally(() => setLoadingHistory(false))
   }, [advisor.channel])
 
