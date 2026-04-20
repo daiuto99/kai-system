@@ -407,51 +407,95 @@ function HarmonyWidget() {
 }
 
 
-// ── Intention ──────────────────────────────────────────────────────────────
+// ── Intention ────────────────────────────────────────────────────────────────────────────
+
+const SLEEP_OPTIONS = ['great', 'good', 'ok', 'rough', 'terrible']
 
 function IntentionSection() {
-  const [intent,  setIntent]  = useState('')
-  const [editing, setEditing] = useState(false)
-  const [saved,   setSaved]   = useState(false)
+  const [intent,       setIntent]       = useState('')
+  const [sleepQuality, setSleepQuality] = useState('')
+  const [restfulness,  setRestfulness]  = useState('')
+  const [editing,      setEditing]      = useState(false)
+  const [saved,        setSaved]        = useState(false)
   const ref = useRef(null)
 
   useEffect(() => {
     fetch('/api/checkin').then(r => r.json()).then(d => {
-      if (d.date === new Date().toISOString().slice(0, 10)) setIntent(d.intent || '')
+      if (d.date === new Date().toISOString().slice(0, 10)) {
+        setIntent(d.intent || '')
+        setSleepQuality(d.sleep_quality || '')
+        setRestfulness(d.restfulness || '')
+      }
     }).catch(() => {})
   }, [])
 
   useEffect(() => { if (editing) ref.current?.focus() }, [editing])
 
-  function save() {
+  function save(overrides = {}) {
     setEditing(false)
-    fetch('/api/checkin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ intent }) })
-      .then(() => { setSaved(true); setTimeout(() => setSaved(false), 1500) })
+    const payload = { intent, sleep_quality: sleepQuality, restfulness, ...overrides }
+    fetch('/api/checkin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(() => { setSaved(true); setTimeout(() => setSaved(false), 1500) })
   }
 
+  const sleepColor = { great: '#10b981', good: '#34d399', ok: '#f59e0b', rough: '#f97316', terrible: '#ef4444' }
+
   return (
-    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 7, flex: 1, minHeight: 0, cursor: editing ? 'default' : 'text' }}
-      onClick={() => { if (!editing) setEditing(true) }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>Intention</span>
+    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 7, flex: 1, minHeight: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>Morning Check-in</span>
         {saved && <span style={{ fontSize: 10, color: '#10b981' }}>Saved ✓</span>}
-        {!editing && !saved && <span style={{ fontSize: 10, color: 'var(--accent)', opacity: 0.4 }}>edit</span>}
       </div>
-      {editing ? (
-        <textarea ref={ref} value={intent} onChange={e => setIntent(e.target.value)}
-          onBlur={save} onKeyDown={e => { if (e.key === 'Escape') save() }}
-          placeholder="What is your intention for today?"
-          style={{ width: '100%', fontSize: 11, color: 'var(--text-primary)', lineHeight: 1.5, background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontFamily: 'inherit', minHeight: 36 }}
-        />
-      ) : (
-        <p style={{ fontSize: 11, margin: 0, lineHeight: 1.5, fontStyle: 'italic', color: intent ? '#4b5563' : '#c4c9d4', borderLeft: '2px solid var(--accent-bg)', paddingLeft: 8 }}>
-          {intent || 'Set your intention for today…'}
-        </p>
-      )}
+
+      <div style={{ marginBottom: 6 }}>
+        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sleep</div>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {SLEEP_OPTIONS.map(opt => {
+            const active = sleepQuality === opt
+            const next = active ? '' : opt
+            return (
+              <button key={opt} onClick={() => { setSleepQuality(next); save({ sleep_quality: next }) }}
+                style={{ padding: '2px 8px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600,
+                  background: active ? (sleepColor[opt] || 'var(--accent)') : 'var(--bg-elevated)',
+                  color: active ? '#fff' : 'var(--text-secondary)', transition: 'all 0.15s' }}>
+                {opt}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 6 }}>
+        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>How rested?</div>
+        <input value={restfulness} onChange={e => setRestfulness(e.target.value)}
+          onBlur={() => save()} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
+          placeholder="e.g. sharp, a bit foggy, exhausted…"
+          style={{ width: '100%', boxSizing: 'border-box', fontSize: 11, color: 'var(--text-primary)',
+            background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6,
+            padding: '4px 8px', outline: 'none', fontFamily: 'inherit' }} />
+      </div>
+
+      <div style={{ cursor: editing ? 'default' : 'text' }} onClick={() => { if (!editing) setEditing(true) }}>
+        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Intention</div>
+        {editing ? (
+          <textarea ref={ref} value={intent} onChange={e => setIntent(e.target.value)}
+            onBlur={() => save()} onKeyDown={e => { if (e.key === 'Escape') save() }}
+            placeholder="What is your intention for today?"
+            style={{ width: '100%', fontSize: 11, color: 'var(--text-primary)', lineHeight: 1.5,
+              background: 'transparent', border: 'none', outline: 'none', resize: 'none',
+              fontFamily: 'inherit', minHeight: 36 }} />
+        ) : (
+          <p style={{ fontSize: 11, margin: 0, lineHeight: 1.5, fontStyle: 'italic',
+            color: intent ? '#4b5563' : '#c4c9d4', borderLeft: '2px solid var(--accent-bg)', paddingLeft: 8 }}>
+            {intent || 'Set your intention for today…'}
+          </p>
+        )}
+      </div>
     </div>
   )
 }
-
 // ── Habits (icon grid) ─────────────────────────────────────────────────────
 
 function HabitsWidget() {
@@ -761,6 +805,7 @@ function ChatWidget() {
   const [funcLabel,   setFuncLabel]   = useState('')
   const [funcPrompt,  setFuncPrompt]  = useState('')
   const [funcSend,    setFuncSend]    = useState(false)
+  const [modelCfg, setModelCfg] = useState({})
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
 
@@ -775,6 +820,13 @@ function ChatWidget() {
   }
   useEffect(() => { fetchWorkflows() }, [])
 
+  useEffect(() => {
+    fetch('/council/models/config')
+      .then(r => r.json())
+      .then(d => setModelCfg(d.advisors || {}))
+      .catch(() => {})
+  }, [])
+
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, thinking])
 
   async function send(overrideText) {
@@ -785,7 +837,7 @@ function ChatWidget() {
     setThinking(true)
     try {
       const d = await api.sendMessage(text, advisor.channel)
-      setMessages(p => [...p, { role: 'assistant', content: d.reply || d.message || '', ts: String(Date.now() / 1000) }])
+      setMessages(p => [...p, { role: 'assistant', content: d.reply || d.message || '', ts: String(Date.now() / 1000), provider: d.provider, model: d.model }])
     } catch {
       setMessages(p => [...p, { role: 'assistant', content: 'Something went wrong.', error: true, ts: String(Date.now() / 1000) }])
     } finally { setThinking(false); inputRef.current?.focus(); fetchWorkflows() }
@@ -893,6 +945,29 @@ function ChatWidget() {
         ><XIcon size={15} /></button>
       </div>
 
+      {/* Model indicator */}
+      {(() => {
+        const acfg = modelCfg[advisor.channel] || {}
+        const prov = acfg.provider || 'anthropic'
+        const mdl  = acfg.model || '—'
+        const color = prov === 'anthropic' ? '#6366f1' : prov === 'ollama' ? '#f59e0b' : prov === 'openai' ? '#10a37f' : '#6b7280'
+        const provLabel = prov === 'anthropic' ? 'Anthropic' : prov === 'ollama' ? 'Local' : prov === 'openai' ? 'OpenAI' : prov
+        return (
+          <div style={{
+            flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
+            padding: '5px 16px', borderBottom: '1px solid var(--border)',
+            background: color + '08',
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
+            <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-secondary)', fontWeight: 600 }}>{mdl}</span>
+            <span style={{ fontSize: 10, color: 'var(--text-subtle)' }}>·</span>
+            <span style={{ fontSize: 10, color: color, fontWeight: 600, letterSpacing: '0.04em' }}>{provLabel}</span>
+            {prov === 'ollama' && acfg.fallback_provider === 'anthropic' && (
+              <span style={{ fontSize: 9, color: 'var(--text-subtle)', marginLeft: 4 }}>→ Anthropic fallback</span>
+            )}
+          </div>
+        )
+      })()}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--bg-surface)' }}>
         {messages.length === 0 && !thinking && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
@@ -903,12 +978,39 @@ function ChatWidget() {
         {messages.map((msg, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 8 }}>
             {msg.role !== 'user' && <AdvisorAvatar advisor={advisor} size={26} isActive={false} />}
-            <div style={{ maxWidth: '78%', padding: '9px 13px', borderRadius: msg.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px', fontSize: 13, lineHeight: 1.5, background: msg.role === 'user' ? advisor.color + '22' : 'var(--bg-card)', color: 'var(--text-primary)', border: msg.role === 'user' ? `1px solid ${advisor.color}44` : '1px solid var(--border)' }}>
+            <div style={{ maxWidth: '78%', padding: '9px 13px', borderRadius: msg.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px', fontSize: 13, lineHeight: 1.5, background: msg.role === 'user' ? advisor.color + '22' : 'var(--bg-card)', color: 'var(--text-primary)', border: msg.role === 'user' ? `1px solid ${advisor.color}44` : '1px solid var(--border)', position: 'relative' }}>
               <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
                 {msg.content}
                 {msg.ts && <span style={{ fontSize: 10, opacity: 0.3, marginLeft: 8, whiteSpace: 'nowrap', verticalAlign: 'bottom' }}>{fmtTime(msg.ts)}</span>}
-              </p>
-            </div>
+         
+              {msg.role !== 'user' && msg.provider && (
+                <span title={msg.provider + '/' + msg.model} style={{
+                  position: 'absolute', bottom: 5, right: 7,
+                  width: 7, height: 7, borderRadius: '50%', display: 'inline-block',
+                  background: msg.provider === 'anthropic' ? '#6366f1' : msg.provider === 'ollama' ? '#f59e0b' : msg.provider === 'openai' ? '#10a37f' : '#6b7280',
+                  opacity: 0.8, cursor: 'default',
+                }} />
+              )}
+     </p>
+            
+              {msg.role !== 'user' && msg.provider && (
+                <span title={msg.provider + '/' + msg.model} style={{
+                  position: 'absolute', bottom: 5, right: 7,
+                  width: 7, height: 7, borderRadius: '50%', display: 'inline-block',
+                  background: msg.provider === 'anthropic' ? '#6366f1' : msg.provider === 'ollama' ? '#f59e0b' : msg.provider === 'openai' ? '#10a37f' : '#6b7280',
+                  opacity: 0.8, cursor: 'default',
+                }} />
+              )}
+
+              {msg.role !== 'user' && msg.provider && (
+                <span title={msg.provider + '/' + msg.model} style={{
+                  position: 'absolute', bottom: 5, right: 7,
+                  width: 7, height: 7, borderRadius: '50%', display: 'inline-block',
+                  background: msg.provider === 'anthropic' ? '#6366f1' : msg.provider === 'ollama' ? '#f59e0b' : msg.provider === 'openai' ? '#10a37f' : '#6b7280',
+                  opacity: 0.8, cursor: 'default',
+                }} />
+              )}
+</div>
           </div>
         ))}
         {thinking && (
@@ -1080,8 +1182,14 @@ function LotWidget() {
   const [items,    setItems]    = useState([])
   const [category, setCategory] = useState('all')
 
-  useEffect(() => {
+  function fetchLot() {
     fetch('/api/parking-lot/list').then(r => r.json()).then(d => setItems(d.items || [])).catch(() => {})
+  }
+
+  useEffect(() => {
+    fetchLot()
+    const timer = setInterval(fetchLot, 30000)
+    return () => clearInterval(timer)
   }, [])
 
   function archive(slug) { fetch(`/api/parking-lot/${slug}/archive`, { method: 'POST' }).then(() => setItems(p => p.filter(i => i.slug !== slug))).catch(() => {}) }
@@ -1148,8 +1256,14 @@ function LotWidget() {
 function TokenUsageWidget() {
   const [data, setData] = React.useState(null)
 
-  React.useEffect(() => {
+  function fetchTokenUsage() {
     fetch('/api/token-usage').then(r => r.json()).then(setData).catch(() => {})
+  }
+
+  React.useEffect(() => {
+    fetchTokenUsage()
+    const timer = setInterval(fetchTokenUsage, 60000)
+    return () => clearInterval(timer)
   }, [])
 
   if (!data) return null
@@ -1202,8 +1316,11 @@ export default function Today() {
             <div style={{ gridColumn: 2, gridRow: 2, display: 'flex', overflow: 'hidden' }}><HabitsWidget /></div>
           </div>
           <div className="md:hidden flex flex-col" style={{ gap: 12 }}>
-            <HabitsWidget /><TodayPlayWidget /><HarmonyWidget /><ProjectsWidget />
-            <div style={{ minHeight: 400 }}><ChatWidget /></div>
+            <div style={{ minHeight: 480, display: 'flex', flexDirection: 'column' }}><ChatWidget /></div>
+            <TodayPlayWidget />
+            <ProjectsWidget />
+            <HarmonyWidget />
+            <HabitsWidget />
           </div>
         </div>
         <TokenUsageWidget />

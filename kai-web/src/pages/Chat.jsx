@@ -20,6 +20,14 @@ export default function Chat() {
   const [thinking, setThinking] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(true)
   const [showAdvisors, setShowAdvisors] = useState(false)
+  const [modelCfg, setModelCfg] = useState({})
+
+  useEffect(() => {
+    fetch('/council/models/config')
+      .then(r => r.json())
+      .then(d => setModelCfg(d.advisors || {}))
+      .catch(() => {})
+  }, [])
 
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
@@ -56,6 +64,8 @@ export default function Chat() {
         role: 'assistant',
         content: reply,
         ts: String(Date.now() / 1000),
+        provider: data.provider,
+        model: data.model,
       }
       setMessages(prev => [...prev, assistantMsg])
     } catch (err) {
@@ -144,6 +154,26 @@ export default function Chat() {
         </div>
       )}
 
+      {/* Model indicator */}
+      {(() => {
+        const acfg = modelCfg[advisor.channel] || {}
+        const prov = acfg.provider || 'anthropic'
+        const mdl  = acfg.model || (prov === 'anthropic' ? 'claude-sonnet-4-5' : '—')
+        const color = prov === 'anthropic' ? '#6366f1' : prov === 'ollama' ? '#f59e0b' : prov === 'openai' ? '#10a37f' : '#6b7280'
+        const provLabel = prov === 'anthropic' ? 'Anthropic' : prov === 'ollama' ? 'Local' : prov === 'openai' ? 'OpenAI' : prov
+        return (
+          <div className="flex-shrink-0 flex items-center gap-1.5 px-4 py-1.5 border-b kai-divider" style={{ background: color + '08' }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
+            <span className="font-mono text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{mdl}</span>
+            <span className="text-xs kai-text-subtle">·</span>
+            <span className="text-xs font-semibold" style={{ color }}>{provLabel}</span>
+            {prov === 'ollama' && (
+              <span className="text-xs kai-text-subtle ml-1">→ Anthropic fallback</span>
+            )}
+          </div>
+        )
+      })()}
+
       {/* Messages */}
       <div
         ref={messagesRef}
@@ -169,6 +199,7 @@ export default function Chat() {
                 <span className="text-base mr-2 mt-0.5 flex-shrink-0">{advisor.emoji}</span>
               )}
               <div
+                style={{ position: 'relative' }}
                 className={`max-w-[85%] md:max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed
                   ${msg.role === 'user'
                     ? 'bg-kai-blue text-white rounded-tr-sm'
@@ -182,6 +213,14 @@ export default function Chat() {
                   <p className="text-[10px] opacity-40 mt-1.5 text-right">
                     {formatTime(msg.ts)}
                   </p>
+                )}
+                {msg.role !== 'user' && msg.provider && (
+                  <span title={msg.provider + '/' + msg.model} style={{
+                    position: 'absolute', bottom: 5, right: 7,
+                    width: 7, height: 7, borderRadius: '50%', display: 'inline-block',
+                    background: msg.provider === 'anthropic' ? '#6366f1' : msg.provider === 'ollama' ? '#f59e0b' : msg.provider === 'openai' ? '#10a37f' : '#6b7280',
+                    opacity: 0.8, cursor: 'default',
+                  }} />
                 )}
               </div>
             </div>

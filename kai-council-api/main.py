@@ -199,7 +199,7 @@ KAI_TOOLS = [
     },
         {
             "name": "get_calendar",
-            "description": "Get upcoming calendar events across the next N days.",
+            "description": "Get upcoming calendar events across the next N days. Fetches Google Calendar (primary) AND Revolt O365 AND Penn State O365 and returns a unified view. Always use this for schedule questions.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -325,7 +325,188 @@ KAI_TOOLS = [
             },
             "required": ["to", "subject", "body"]
         }
-    }
+    },
+    {
+        "name": "setup_project",
+        "description": "Full project creation: adds to projects.json, creates vault directory from template files (STATUS.md, BRIEF.md, DECISIONS.md, NOTES.md), creates Slack channel, queues T2 invite approval for any humans. Use when Leo says create/set up a project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id":            {"type": "string", "description": "URL slug (lowercase, hyphens). e.g. my-project"},
+                "name":          {"type": "string", "description": "Display name"},
+                "description":   {"type": "string", "description": "One-line description"},
+                "advisor":       {"type": "string", "description": "Council advisor ID: kai, biz, ember, doc, coach, beats"},
+                "status":        {"type": "string", "description": "green | yellow | red"},
+                "next":          {"type": "string", "description": "Immediate next action"},
+                "template_version": {"type": "string", "description": "Template version, default v1"},
+                "create_slack_channel": {"type": "boolean", "description": "Create Slack channel, default true"},
+                "slack_channel_name": {"type": "string", "description": "Slack channel name (defaults to id)"},
+                "invite_contacts": {"type": "array", "items": {"type": "string"}, "description": "Contact names/emails to invite (T2 gated)"}
+            },
+            "required": ["id", "name"]
+        }
+    },
+    {
+        "name": "create_slack_channel",
+        "description": "Create a new Slack channel by name.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name":    {"type": "string", "description": "Channel name (lowercase, hyphens, no #)"},
+                "private": {"type": "boolean", "description": "Make private"}
+            },
+            "required": ["name"]
+        }
+    },
+    {
+        "name": "invite_to_slack_channel",
+        "description": "Invite people to a Slack channel. Tier 2 — queues a Slack approval request. Do NOT use for KAI, only real humans.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel":       {"type": "string", "description": "Slack channel name (no #)"},
+                "emails":        {"type": "array", "items": {"type": "string"}, "description": "Email addresses"},
+                "contact_names": {"type": "array", "items": {"type": "string"}, "description": "Contact names from registry"}
+            },
+            "required": ["channel"]
+        }
+    },
+    {
+        "name": "lookup_contact",
+        "description": "Look up a person in the contacts registry by name, alias, or email.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Name, alias, or email"}},
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "add_contact",
+        "description": "Add a new person to the contacts registry.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name":     {"type": "string"},
+                "email":    {"type": "string"},
+                "role":     {"type": "string"},
+                "slack_id": {"type": "string"},
+                "aliases":  {"type": "array", "items": {"type": "string"}}
+            },
+            "required": ["name"]
+        }
+    },
+    {
+        "name": "get_o365_calendar",
+        "description": "Fetch calendar events from Revolt and/or Penn State O365 accounts (via ICS feed). Use when Leo asks about his Revolt or PSU schedule, meetings, or wants a unified view across all calendars.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "Number of days ahead to fetch (default 7)"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "web_search",
+        "description": "Search the web for current information using Tavily. Use when the answer requires live/recent data, news, prices, or anything past the knowledge cutoff. Returns a summary and source URLs.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The search query"},
+                "max_results": {"type": "integer", "description": "Max results to return (default 5, max 10)"}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "lookup_google_contact",
+        "description": "Search Leo's Google Contacts by name, email, or organization. Returns matching contacts with name, email, phone, and org.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Name, email, or company to search for"}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "request_t2_approval",
+        "description": "Queue any action that requires Leo's explicit approval via Slack before executing. Use for anything that costs money, sends external communications, modifies shared data, or is otherwise risky. Leo will see a Slack message with ✅/❌ reactions to approve or reject.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "description": "Short description of the action (e.g. 'Send invoice to Client X')"},
+                "detail": {"type": "string", "description": "Full detail of what will happen when approved"},
+                "slack_channel": {"type": "string", "description": "Slack channel to post approval request (default: kai)"}
+            },
+            "required": ["action", "detail"]
+        }
+    },
+    {
+        "name": "get_oura_data",
+        "description": "Fetch Leo's Oura Ring health data: readiness score, sleep quality, HRV, resting heart rate, sleep stages, and activity. Use when Leo asks about sleep, recovery, HRV, energy levels, or daily readiness.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "data_type": {
+                    "type": "string",
+                    "enum": ["readiness", "sleep", "activity", "all"],
+                    "description": "Type of data to fetch. Use 'all' for a full health snapshot."
+                },
+                "days": {
+                    "type": "integer",
+                    "description": "Number of past days to fetch (default 1 = today only, max 7)"
+                }
+            },
+            "required": ["data_type"]
+        }
+    },
+    {
+        "name": "wordpress_get_posts",
+        "description": "Fetch recent posts from a WordPress site. Use to review existing content before creating new posts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "site": {"type": "string", "description": "Site key from wordpress_sites.json (e.g. 'leodaiuto', 'sonicink', 'the71'). Use 'leodaiuto' as default if not specified."},
+                "count": {"type": "integer", "description": "Number of posts to fetch (default 5, max 20)"},
+                "status": {"type": "string", "description": "Post status: 'publish', 'draft', or 'any' (default: 'any')"}
+            },
+            "required": ["site"]
+        }
+    },
+    {
+        "name": "wordpress_create_post",
+        "description": "Create a WordPress post (saved as draft by default — never publishes without Leo's explicit approval). Use for content creation, blog posts, updates.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "site": {"type": "string", "description": "Site key (e.g. 'leodaiuto', 'sonicink', 'the71')"},
+                "title": {"type": "string", "description": "Post title"},
+                "content": {"type": "string", "description": "Post content (HTML or plain text)"},
+                "status": {"type": "string", "description": "Post status: 'draft' (default) or 'publish'. Only use 'publish' if Leo explicitly says to publish now."},
+                "tags": {"type": "array", "items": {"type": "string"}, "description": "Tag names to apply"},
+                "excerpt": {"type": "string", "description": "Short excerpt/summary"}
+            },
+            "required": ["site", "title", "content"]
+        }
+    },
+    {
+        "name": "add_to_parking_lot",
+        "description": "Save any item to Leo's Parking Lot for later review. Use this when Leo sends a URL, link, idea, note, or says 'add this to the lot', 'save this', 'capture this', 'parking lot this'. Just save it — don't ask questions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "The content to save — URL, text, idea, or note"},
+                "source": {"type": "string", "description": "Source of the capture (default: kai-chat)"}
+            },
+            "required": ["content"]
+        }
+    },
+    {
+        "name": "list_templates",
+        "description": "List available project template versions.",
+        "input_schema": {"type": "object", "properties": {}}
+    },
 ]
 
 
@@ -349,58 +530,78 @@ ADVISOR_AVATARS = {
 
 
 # ── Token usage tracker ───────────────────────────────────────────────────────
-def _track_usage(advisor: str, input_tokens: int, output_tokens: int, provider: str = "anthropic", model: str = "claude-sonnet-4-5"):
+def _track_usage(advisor: str, input_tokens: int, output_tokens: int, provider: str = "anthropic", model: str = "claude-sonnet-4-6"):
     """Append token usage to vault/00_System/token_usage.json"""
     import json, datetime
     try:
         usage_path = Path("/vault/00_System/token_usage.json")
-        today = datetime.date.today().isoformat()
-        # Cost per provider/model
+        now = datetime.datetime.now()
+        today = now.date().isoformat()
+        hour_key = now.strftime("%H")
+        # Cost per provider/model (per 1M tokens in/out)
         COSTS = {
-            "claude-sonnet-4-5": (3, 15),
+            "claude-sonnet-4-6": (3, 15),
             "claude-sonnet-4-6": (3, 15),
             "claude-opus-4-6":   (15, 75),
             "gpt-4o":            (5, 15),
             "gpt-4o-mini":       (0.15, 0.6),
             "llama3.2":          (0, 0),
             "llama3.1:8b":       (0, 0),
+            "qwen2.5:3b":        (0, 0),
+            "gemma3:4b":         (0, 0),
         }
         in_rate, out_rate = COSTS.get(model, (3, 15))
         cost = (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000
+        pkey = f"{provider}/{model}"
 
         if usage_path.exists():
             data = json.loads(usage_path.read_text())
         else:
-            data = {"days": [], "total": {"input": 0, "output": 0, "cost_usd": 0.0, "calls": 0, "by_advisor": {}}}
+            data = {"days": [], "total": {"input": 0, "output": 0, "cost_usd": 0.0, "calls": 0, "by_advisor": {}, "by_model": {}}}
 
-        # Ensure total exists
-        if "total" not in data:
-            data["total"] = {"input": 0, "output": 0, "cost_usd": 0.0, "calls": 0, "by_advisor": {}}
-        if "by_advisor" not in data["total"]:
-            data["total"]["by_advisor"] = {}
+        # Ensure total structure
+        t = data.setdefault("total", {})
+        for k, v in [("input", 0), ("output", 0), ("cost_usd", 0.0), ("calls", 0)]:
+            t.setdefault(k, v)
+        t.setdefault("by_advisor", {})
+        t.setdefault("by_model", {})
 
-        # Update or create today's entry
+        # Update or create today's day entry
         day = next((d for d in data["days"] if d["date"] == today), None)
         if day is None:
-            day = {"date": today, "input": 0, "output": 0, "cost_usd": 0.0, "calls": 0, "by_advisor": {}}
+            day = {"date": today, "input": 0, "output": 0, "cost_usd": 0.0, "calls": 0,
+                   "by_advisor": {}, "by_model": {}, "hours": {}}
             data["days"].append(day)
+
+        day.setdefault("by_model", {})
+        day.setdefault("hours", {})
 
         day["input"] += input_tokens
         day["output"] += output_tokens
         day["cost_usd"] = round(day["cost_usd"] + cost, 6)
         day["calls"] += 1
         day["by_advisor"][advisor] = day["by_advisor"].get(advisor, 0) + 1
-        # Track by provider
+        day["by_model"][pkey] = day["by_model"].get(pkey, 0) + 1
+        # Legacy compat
         if "by_provider" not in day:
             day["by_provider"] = {}
-        pkey = f"{provider}/{model}"
         day["by_provider"][pkey] = day["by_provider"].get(pkey, 0) + 1
 
-        data["total"]["input"] += input_tokens
-        data["total"]["output"] += output_tokens
-        data["total"]["cost_usd"] = round(data["total"]["cost_usd"] + cost, 6)
-        data["total"]["calls"] += 1
-        data["total"]["by_advisor"][advisor] = data["total"]["by_advisor"].get(advisor, 0) + 1
+        # Hourly tracking
+        h = day["hours"].setdefault(hour_key, {"calls": 0, "cost_usd": 0.0, "input": 0, "output": 0, "by_model": {}})
+        h["calls"] += 1
+        h["cost_usd"] = round(h["cost_usd"] + cost, 6)
+        h["input"] += input_tokens
+        h["output"] += output_tokens
+        h["by_model"][pkey] = h["by_model"].get(pkey, 0) + 1
+
+        # Update totals
+        t["input"] += input_tokens
+        t["output"] += output_tokens
+        t["cost_usd"] = round(t["cost_usd"] + cost, 6)
+        t["calls"] += 1
+        t["by_advisor"][advisor] = t["by_advisor"].get(advisor, 0) + 1
+        t["by_model"][pkey] = t["by_model"].get(pkey, 0) + 1
 
         usage_path.write_text(json.dumps(data, indent=2))
     except Exception as e:
@@ -574,7 +775,213 @@ def execute_tool(tool_name: str, tool_input: dict) -> dict:
                     "subject": tool_input["subject"],
                     "body": tool_input["body"]
                 })
+            elif tool_name == "setup_project":
+                r = httpx.post(
+                    f"{WORKER_API}/projects/setup",
+                    json=tool_input,
+                    timeout=30,
+                )
+                return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
+            elif tool_name == "create_slack_channel":
+                r = httpx.post(
+                    f"{WORKER_API}/slack/channels",
+                    json=tool_input,
+                    timeout=15,
+                )
+                return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
+            elif tool_name == "invite_to_slack_channel":
+                channel = tool_input.get("channel", "")
+                # Resolve contact names to emails first
+                emails = list(tool_input.get("emails", []))
+                for cname in tool_input.get("contact_names", []):
+                    cr = httpx.get(f"{WORKER_API}/contacts/lookup", params={"q": cname}, timeout=5)
+                    if cr.status_code == 200 and cr.json().get("found"):
+                        email = cr.json()["contact"].get("email")
+                        if email:
+                            emails.append(email)
+                # Queue as T2 action
+                t2r = httpx.post(
+                    f"{WORKER_API}/t2/queue",
+                    json={
+                        "action": f"Invite {', '.join(emails or tool_input.get('contact_names', []))} to #{channel}",
+                        "detail": f"Emails: {emails}",
+                        "advisor": "kai",
+                        "slack_channel": "kai",
+                    },
+                    timeout=5,
+                )
+                return {"queued": True, "emails": emails, "t2": t2r.json() if t2r.status_code == 200 else {}}
+            elif tool_name == "lookup_contact":
+                r = httpx.get(f"{WORKER_API}/contacts/lookup", params={"q": tool_input.get("query", "")}, timeout=5)
+                return r.json() if r.status_code == 200 else {"error": r.text}
+            elif tool_name == "add_contact":
+                r = httpx.post(f"{WORKER_API}/contacts", json=tool_input, timeout=5)
+                return r.json() if r.status_code == 200 else {"error": r.text}
+            elif tool_name == "list_templates":
+                r = httpx.get(f"{WORKER_API}/templates", timeout=5)
+                return r.json() if r.status_code == 200 else {"error": r.text}
 
+            elif tool_name == "get_o365_calendar":
+                days = tool_input.get("days", 7)
+                r = client.get(f"{WORKER_URL}/calendar/ics", params={"days": days}, timeout=15)
+                return r.json() if r.status_code == 200 else {"error": r.text}
+            elif tool_name == "web_search":
+                import json as _wsj
+                tavily_key_path = Path("/run/secrets/tavily_api_key")
+                tavily_key = tavily_key_path.read_text().strip() if tavily_key_path.exists() else os.environ.get("TAVILY_API_KEY", "")
+                if not tavily_key:
+                    return {"error": "Tavily API key not configured. Add it to secrets/tavily_api_key.txt and wire in docker-compose."}
+                query = tool_input.get("query", "")
+                max_results = min(tool_input.get("max_results", 5), 10)
+                try:
+                    resp = httpx.post(
+                        "https://api.tavily.com/search",
+                        json={"api_key": tavily_key, "query": query, "max_results": max_results, "search_depth": "basic"},
+                        timeout=15
+                    )
+                    data = resp.json()
+                    results = data.get("results", [])
+                    answer = data.get("answer", "")
+                    out = {"query": query, "answer": answer, "results": [{"title": r.get("title",""), "url": r.get("url",""), "content": r.get("content","")[:500]} for r in results]}
+                    return out
+                except Exception as e:
+                    return {"error": f"Tavily search failed: {e}"}
+            elif tool_name == "lookup_google_contact":
+                query = tool_input.get("query", "")
+                n8n_url = "https://n8n.sonicink.space/webhook/kai-contacts-lookup"
+                try:
+                    import logging as _log
+                    _log.warning(f"[contacts] querying n8n for: {query}")
+                    resp = httpx.post(n8n_url, json={"query": query}, timeout=15)
+                    _log.warning(f"[contacts] status={resp.status_code} body={resp.text[:200]}")
+                    data = resp.json()
+                    # n8n returns array — unwrap first item
+                    if isinstance(data, list) and data:
+                        data = data[0]
+                    return data
+                except Exception as e:
+                    import logging as _log
+                    _log.error(f"[contacts] exception: {e}")
+                    return {"error": f"Google Contacts lookup failed: {e}"}
+            elif tool_name == "get_oura_data":
+                data_type = tool_input.get("data_type", "all")
+                days = min(tool_input.get("days", 1), 7)
+                oura_token_path = Path("/run/secrets/oura_token")
+                oura_token = oura_token_path.read_text().strip() if oura_token_path.exists() else os.environ.get("OURA_TOKEN", "")
+                if not oura_token:
+                    return {"error": "Oura token not configured."}
+                from datetime import date, timedelta
+                end_date = date.today().isoformat()
+                start_date = (date.today() - timedelta(days=days - 1)).isoformat()
+                headers = {"Authorization": f"Bearer {oura_token}"}
+                base = "https://api.ouraring.com/v2/usercollection"
+                result = {}
+                try:
+                    if data_type in ("readiness", "all"):
+                        r = httpx.get(f"{base}/daily_readiness", params={"start_date": start_date, "end_date": end_date}, headers=headers, timeout=10)
+                        result["readiness"] = r.json().get("data", [])
+                    if data_type in ("sleep", "all"):
+                        r = httpx.get(f"{base}/daily_sleep", params={"start_date": start_date, "end_date": end_date}, headers=headers, timeout=10)
+                        result["sleep"] = r.json().get("data", [])
+                    if data_type in ("activity", "all"):
+                        r = httpx.get(f"{base}/daily_activity", params={"start_date": start_date, "end_date": end_date}, headers=headers, timeout=10)
+                        result["activity"] = r.json().get("data", [])
+                    return result
+                except Exception as e:
+                    return {"error": f"Oura API error: {e}"}
+            elif tool_name == "wordpress_get_posts":
+                site_key = tool_input.get("site", "leodaiuto")
+                count = min(tool_input.get("count", 5), 20)
+                status = tool_input.get("status", "any")
+                try:
+                    wp_sites = json.loads((Path(VAULT_PATH) / "00_System" / "wordpress_sites.json").read_text())
+                    site = wp_sites["sites"].get(site_key)
+                    if not site:
+                        return {"error": f"Unknown site: {site_key}. Available: {list(wp_sites['sites'].keys())}"}
+                    if not site.get("app_password"):
+                        return {"error": f"No app password configured for {site_key}. Add it to vault/00_System/wordpress_sites.json"}
+                    import base64 as _b64
+                    creds = _b64.b64encode(f"{site['username']}:{site['app_password']}".encode()).decode()
+                    r = httpx.get(
+                        f"{site['url']}/wp-json/wp/v2/posts",
+                        params={"per_page": count, "status": status, "_fields": "id,title,status,date,link,excerpt"},
+                        headers={"Authorization": f"Basic {creds}"},
+                        timeout=15
+                    )
+                    posts = r.json()
+                    return {"site": site_key, "url": site["url"], "posts": [
+                        {"id": p.get("id"), "title": p.get("title", {}).get("rendered", ""),
+                         "status": p.get("status"), "date": p.get("date","")[:10],
+                         "link": p.get("link"), "excerpt": p.get("excerpt", {}).get("rendered", "")[:200]}
+                        for p in posts
+                    ]}
+                except Exception as e:
+                    return {"error": f"WordPress get posts failed: {e}"}
+            elif tool_name == "wordpress_create_post":
+                site_key = tool_input.get("site", "leodaiuto")
+                title = tool_input.get("title", "")
+                content_body = tool_input.get("content", "")
+                status = tool_input.get("status", "draft")
+                tags = tool_input.get("tags", [])
+                excerpt = tool_input.get("excerpt", "")
+                try:
+                    wp_sites = json.loads((Path(VAULT_PATH) / "00_System" / "wordpress_sites.json").read_text())
+                    site = wp_sites["sites"].get(site_key)
+                    if not site:
+                        return {"error": f"Unknown site: {site_key}"}
+                    if not site.get("app_password"):
+                        return {"error": f"No app password for {site_key}. Add credentials to vault/00_System/wordpress_sites.json"}
+                    import base64 as _b64
+                    creds = _b64.b64encode(f"{site['username']}:{site['app_password']}".encode()).decode()
+                    headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
+                    # Resolve tag IDs
+                    tag_ids = []
+                    for tag_name in tags:
+                        tr = httpx.get(f"{site['url']}/wp-json/wp/v2/tags", params={"search": tag_name}, headers=headers, timeout=10)
+                        existing = tr.json()
+                        if existing:
+                            tag_ids.append(existing[0]["id"])
+                        else:
+                            cr = httpx.post(f"{site['url']}/wp-json/wp/v2/tags", json={"name": tag_name}, headers=headers, timeout=10)
+                            tag_ids.append(cr.json().get("id"))
+                    payload = {"title": title, "content": content_body, "status": status, "excerpt": excerpt}
+                    if tag_ids:
+                        payload["tags"] = tag_ids
+                    r = httpx.post(f"{site['url']}/wp-json/wp/v2/posts", json=payload, headers=headers, timeout=20)
+                    post = r.json()
+                    return {
+                        "created": True, "id": post.get("id"), "status": post.get("status"),
+                        "link": post.get("link"), "title": title, "site": site_key,
+                        "message": f"Post {'published' if status == 'publish' else 'saved as draft'} on {site['url']}"
+                    }
+                except Exception as e:
+                    return {"error": f"WordPress create post failed: {e}"}
+            elif tool_name == "add_to_parking_lot":
+                capture_content = tool_input.get("content", "")
+                source = tool_input.get("source", "kai-chat")
+                try:
+                    resp = httpx.post(
+                        f"{WORKER_URL}/parking-lot/quick",
+                        json={"content": capture_content, "source": source},
+                        timeout=10
+                    )
+                    return {"saved": True, "message": "Added to your parking lot."}
+                except Exception as e:
+                    return {"error": f"Parking lot save failed: {e}"}
+            elif tool_name == "request_t2_approval":
+                action = tool_input.get("action", "")
+                detail = tool_input.get("detail", "")
+                slack_channel = tool_input.get("slack_channel", "kai")
+                try:
+                    resp = httpx.post(
+                        f"{WORKER_URL}/t2/queue",
+                        json={"action": action, "detail": detail, "advisor": advisor, "slack_channel": slack_channel},
+                        timeout=10
+                    )
+                    result = resp.json()
+                    return {"queued": True, "id": result.get("id"), "message": f"T2 approval requested in Slack. Action ID: {result.get('id')}. React ✅ to approve or ❌ to reject."}
+                except Exception as e:
+                    return {"error": f"T2 queue failed: {e}"}
     except Exception as e:
         return {"error": str(e)}
     return {"error": f"Unknown tool: {tool_name}"}
@@ -677,7 +1084,7 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
     try:
         client = get_anthropic_client()
         response = client.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-sonnet-4-6",
             max_tokens=1500,
             system=system,
             messages=[{"role": "user", "content": user_msg}]
@@ -793,7 +1200,7 @@ def _auto_summarize(channel: str, advisor: str):
         # Generate summary via Claude
         client = get_anthropic_client()
         response = client.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-sonnet-4-6",
             max_tokens=800,
             messages=[{
                 "role": "user",
@@ -867,11 +1274,51 @@ def _load_model_config() -> dict:
             pass
     return {}
 
+
+def _classify_complexity(message: str) -> str:
+    """Classify message complexity: simple | standard | deep.
+    Used to select Haiku vs Sonnet vs Opus.
+    Chief always stays Sonnet (tool-use) unless message is clearly simple.
+    """
+    msg = message.lower().strip()
+
+    DEEP_SIGNALS = [
+        "major decision", "life decision", "deep analysis", "strategy session",
+        "really important", "most important", "change my life", "should i",
+        "weigh the options", "pros and cons", "comprehensive", "thorough analysis",
+    ]
+    # These force at least standard (Sonnet) — they require tool use or lookup
+    TOOL_SIGNALS = [
+        "look up", "find ", "search", "contact", "phone", "number", "email",
+        "calendar", "schedule", "what's", "who is", "who's", "send ",
+        "draft", "create ", "remind", "project", "task", "slack",
+    ]
+    SIMPLE_SIGNALS = [
+        "add task", "add to", "parking lot",
+        "capture this", "make a note", "note that",
+        "list my", "what are my", "show me my",
+    ]
+
+    # Deep signals take priority
+    if any(s in msg for s in DEEP_SIGNALS):
+        return "deep"
+
+    # Tool signals force at least standard even for short messages
+    if any(s in msg for s in TOOL_SIGNALS):
+        return "standard"
+
+    # Simple: short message OR explicit simple signals
+    word_count = len(msg.split())
+    if word_count <= 6 or any(s in msg for s in SIMPLE_SIGNALS):
+        return "simple"
+
+    return "standard"
+
 def _get_advisor_config(advisor: str) -> dict:
     config = _load_model_config()
     return config.get("advisors", {}).get(advisor, {
         "provider": "anthropic",
-        "model": "claude-sonnet-4-5",
+        "model": "claude-sonnet-4-6",
     })
 
 def _call_ollama(model: str, system: str, messages: list, max_tokens: int = 1024) -> tuple:
@@ -951,19 +1398,17 @@ def load_persona(advisor: str, channel: str = None) -> str:
     if not persona_file.exists():
         raise HTTPException(status_code=404, detail=f"Persona not found: {advisor}")
 
-    # Always prepend business profile for full session context
+    # Always prepend KEYSTONE + business profile for full session context
     parts = []
-    business_profile = VAULT_PATH / "00_System" / "business_profile.md"
-    if business_profile.exists():
-        profile_text = business_profile.read_text(encoding="utf-8")
-        parts.append(
-            "<background_context>\n"
-            "The following is Leo's business and life profile. "
-            "Use it as silent context to inform every response. "
-            "Do NOT recite, summarize, or reference this document unless Leo explicitly asks.\n\n"
-            + profile_text +
-            "\n</background_context>"
-        )
+    keystone_file = VAULT_PATH / '00_System' / 'KEYSTONE.md'
+    bp_file = VAULT_PATH / '00_System' / 'business_profile.md'
+    ctx_parts = []
+    if keystone_file.exists(): ctx_parts.append(keystone_file.read_text(encoding='utf-8'))
+    if bp_file.exists(): ctx_parts.append(bp_file.read_text(encoding='utf-8'))
+    if ctx_parts:
+        combined = '\n\n---\n\n'.join(ctx_parts)
+        parts.append('<background_context>\n' + combined + '\n</background_context>')
+
 
     parts.append(persona_file.read_text(encoding="utf-8"))
 
@@ -1080,14 +1525,50 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     total_output_tokens = 0
     raw_reply = ""
 
-    # Determine provider/model — chief always uses Anthropic (tool-use requirement)
+    # Auto-capture: bare URLs or explicit capture phrases → skip Claude entirely
+    _msg_stripped = req.message.strip()
+    _url_pattern = re.compile(r'^https?://\S+$')
+    _capture_patterns = [
+        re.compile(r'^(add (this )?to (the )?lot|parking lot this|save this|capture this)[:\s]*(.*)$', re.IGNORECASE),
+        re.compile(r'^(article on|check out|look into|save|add|note)[:\s]+\S.{2,}$', re.IGNORECASE),
+    ]
+    _is_bare_url = bool(_url_pattern.match(_msg_stripped))
+    _is_capture = any(p.match(_msg_stripped) for p in _capture_patterns)
+
+    if _is_bare_url or _is_capture:
+        try:
+            _capture_resp = httpx.post(
+                f"{WORKER_URL}/parking-lot/quick",
+                json={"text": _msg_stripped},
+                timeout=10
+            )
+            _track_usage(advisor, 0, 0, "anthropic", "auto-capture")
+            return CouncilResponse(reply="Saved to your parking lot.", advisor=advisor, model="auto-capture", usage={"input_tokens": 0, "output_tokens": 0, "cost_usd": 0})
+        except Exception as _e:
+            pass  # Fall through to normal processing if capture fails
+
+    # Determine provider/model with complexity routing
+    complexity = _classify_complexity(req.message)
     if advisor == "chief":
-        adv_cfg = {"provider": "anthropic", "model": "claude-sonnet-4-5"}
+        # Chief always Anthropic (tool-use). Use Haiku for clearly simple tasks.
+        if complexity == "deep":
+            chief_model = "claude-opus-4-6"
+        elif complexity == "simple":
+            chief_model = "claude-haiku-4-5-20251001"
+        else:
+            chief_model = "claude-sonnet-4-6"
+        adv_cfg = {"provider": "anthropic", "model": chief_model}
     else:
         adv_cfg = _get_advisor_config(advisor)
+        # Apply complexity override for Anthropic advisors
+        if adv_cfg.get("provider") == "anthropic":
+            if complexity == "deep":
+                adv_cfg = dict(adv_cfg, model="claude-opus-4-6")
+            elif complexity == "simple":
+                adv_cfg = dict(adv_cfg, model="claude-haiku-4-5-20251001")
 
     provider = adv_cfg.get("provider", "anthropic")
-    model    = adv_cfg.get("model", "claude-sonnet-4-5")
+    model    = adv_cfg.get("model", "claude-sonnet-4-6")
     actual_provider = provider
     actual_model    = model
 
@@ -1136,7 +1617,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
             )
         except Exception as ollama_err:
             # Fallback to Anthropic
-            fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-5")
+            fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-6")
             actual_provider = "anthropic"
             actual_model = fallback_model
             client = get_anthropic_client()
@@ -1156,7 +1637,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
             )
         except Exception as oai_err:
             # Fallback to Anthropic
-            fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-5")
+            fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-6")
             actual_provider = "anthropic"
             actual_model = fallback_model
             client = get_anthropic_client()
@@ -1229,29 +1710,201 @@ def update_advisor_model(advisor_id: str, body: dict):
 
 @app.get("/models/status")
 def get_model_status():
-    """Returns provider availability status."""
+    """Returns provider availability status with enhanced Ollama model details."""
+    import datetime
     status = {}
     # Anthropic
     secret_path = Path("/run/secrets/anthropic_api_key")
     has_anthropic = secret_path.exists() or bool(os.environ.get("ANTHROPIC_API_KEY"))
-    status["anthropic"] = {"available": has_anthropic, "label": "Anthropic Claude"}
+    status["anthropic"] = {
+        "available": has_anthropic, "label": "Anthropic Claude",
+        "tier": "cloud", "privacy": "cloud",
+        "models_available": ["claude-sonnet-4-6", "claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"],
+    }
     # OpenAI
     oai_path = Path("/run/secrets/openai_api_key")
     has_openai = oai_path.exists() or bool(os.environ.get("OPENAI_API_KEY"))
-    status["openai"] = {"available": has_openai, "label": "OpenAI GPT"}
-    # Ollama
+    status["openai"] = {
+        "available": has_openai, "label": "OpenAI GPT",
+        "tier": "cloud", "privacy": "cloud",
+        "models_available": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1-mini"],
+    }
+    # Ollama — return rich model info
     try:
         with httpx.Client(timeout=3) as hc:
             r = hc.get("http://kai-ollama:11434/api/tags")
             if r.status_code == 200:
-                models = [m["name"] for m in r.json().get("models", [])]
-                status["ollama"] = {"available": True, "label": "Ollama (Local)", "models": models}
+                raw_models = r.json().get("models", [])
+                model_details = []
+                for m in raw_models:
+                    size_gb = round(m.get("size", 0) / 1e9, 1)
+                    modified = m.get("modified_at", "")[:10]
+                    model_details.append({
+                        "name": m["name"],
+                        "size_gb": size_gb,
+                        "modified": modified,
+                        "digest": m.get("digest", "")[:12],
+                        "family": m.get("details", {}).get("family", ""),
+                        "params": m.get("details", {}).get("parameter_size", ""),
+                    })
+                status["ollama"] = {
+                    "available": True, "label": "Ollama (Local)",
+                    "tier": "local", "privacy": "local",
+                    "models": [m["name"] for m in raw_models],
+                    "model_details": model_details,
+                }
             else:
-                status["ollama"] = {"available": False, "label": "Ollama (Local)", "error": f"HTTP {r.status_code}"}
+                status["ollama"] = {"available": False, "label": "Ollama (Local)", "tier": "local", "error": f"HTTP {r.status_code}"}
     except Exception as e:
-        status["ollama"] = {"available": False, "label": "Ollama (Local)", "error": str(e)}
-    return {"providers": status}
+        status["ollama"] = {"available": False, "label": "Ollama (Local)", "tier": "local", "error": str(e)}
 
+    # Load benchmarks if available
+    bench_path = Path("/vault/00_System/model_benchmarks.json")
+    benchmarks = {}
+    if bench_path.exists():
+        import json as _bj
+        try: benchmarks = _bj.loads(bench_path.read_text()).get("benchmarks", {})
+        except: pass
+
+    return {"providers": status, "benchmarks": benchmarks}
+
+
+@app.get("/models/benchmarks")
+def get_benchmarks():
+    """Return stored benchmark results from vault."""
+    import json as _bench_j
+    bench_path = Path("/vault/00_System/model_benchmarks.json")
+    if not bench_path.exists():
+        return {"benchmarks": {}}
+    try:
+        return _bench_j.loads(bench_path.read_text())
+    except:
+        return {"benchmarks": {}}
+
+
+@app.post("/models/benchmarks/run")
+def run_benchmark(body: dict):
+    """Run a quick speed benchmark against a single Ollama model."""
+    import json as _bj, time, datetime
+    model = body.get("model")
+    if not model:
+        raise HTTPException(status_code=400, detail="model required")
+    prompt = "In exactly one sentence, describe your purpose."
+    start = time.time()
+    try:
+        with httpx.Client(timeout=120) as hc:
+            r = hc.post("http://kai-ollama:11434/api/chat", json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "options": {"num_predict": 60, "temperature": 0.1},
+            })
+        elapsed_ms = int((time.time() - start) * 1000)
+        data = r.json()
+        reply = data.get("message", {}).get("content", "")
+        eval_count = data.get("eval_count", 0)
+        prompt_count = data.get("prompt_eval_count", 0)
+        tps = round(eval_count / (elapsed_ms / 1000), 1) if elapsed_ms > 0 else 0
+        result = {
+            "avg_ms": elapsed_ms,
+            "tokens_per_sec": tps,
+            "eval_tokens": eval_count,
+            "prompt_tokens": prompt_count,
+            "last_run": datetime.datetime.now().isoformat()[:19],
+            "status": "ok",
+            "sample": reply[:80],
+        }
+    except Exception as e:
+        elapsed_ms = int((time.time() - start) * 1000)
+        result = {
+            "avg_ms": elapsed_ms, "tokens_per_sec": 0,
+            "last_run": datetime.datetime.now().isoformat()[:19],
+            "status": "error", "error": str(e),
+        }
+
+    bench_path = Path("/vault/00_System/model_benchmarks.json")
+    try:
+        existing = _bj.loads(bench_path.read_text()) if bench_path.exists() else {"benchmarks": {}}
+    except:
+        existing = {"benchmarks": {}}
+    existing["benchmarks"][model] = result
+    bench_path.write_text(_bj.dumps(existing, indent=2))
+    return {"model": model, "result": result}
+
+
+
+
+@app.get("/models/catalog")
+def get_model_catalog():
+    import json as _cj
+    ANTHROPIC_MODELS = [
+        {"name": "claude-sonnet-4-6", "label": "Sonnet 4.6", "tier": "cloud", "speed_label": "~2s", "speed_ms": 2000},
+        {"name": "claude-sonnet-4-6", "label": "Sonnet 4.5", "tier": "cloud", "speed_label": "~2s", "speed_ms": 2000},
+        {"name": "claude-opus-4-6",   "label": "Opus 4.6",   "tier": "premium", "speed_label": "~5s", "speed_ms": 5000},
+        {"name": "claude-haiku-4-5-20251001", "label": "Haiku 4.5", "tier": "cloud", "speed_label": "~0.5s", "speed_ms": 500},
+    ]
+    OPENAI_MODELS = [
+        {"name": "gpt-4o",      "label": "GPT-4o",      "tier": "cloud",   "speed_label": "~3s", "speed_ms": 3000},
+        {"name": "gpt-4o-mini", "label": "GPT-4o mini", "tier": "cloud",   "speed_label": "~1s", "speed_ms": 1000},
+        {"name": "o1-mini",     "label": "o1-mini",     "tier": "premium", "speed_label": "~10s", "speed_ms": 10000},
+    ]
+    ant_ok = Path("/run/secrets/anthropic_api_key").exists() or bool(os.environ.get("ANTHROPIC_API_KEY"))
+    oai_ok = Path("/run/secrets/openai_api_key").exists() or bool(os.environ.get("OPENAI_API_KEY"))
+    ollama_ok = False
+    ollama_installed = []
+    try:
+        with httpx.Client(timeout=3) as hc:
+            r = hc.get("http://kai-ollama:11434/api/tags")
+            if r.status_code == 200:
+                ollama_ok = True
+                for m in r.json().get("models", []):
+                    ollama_installed.append({
+                        "name": m["name"], "label": m["name"], "tier": "local",
+                        "size_gb": round(m.get("size", 0) / 1e9, 1),
+                        "params": m.get("details", {}).get("parameter_size", ""),
+                        "family": m.get("details", {}).get("family", ""),
+                        "modified": m.get("modified_at", "")[:10],
+                    })
+    except: pass
+    bench_path = Path("/vault/00_System/model_benchmarks.json")
+    benchmarks = {}
+    if bench_path.exists():
+        try: benchmarks = _cj.loads(bench_path.read_text()).get("benchmarks", {})
+        except: pass
+    for m in ollama_installed:
+        b = benchmarks.get(m["name"]) or benchmarks.get(m["name"].split(":")[0])
+        if b and b.get("avg_ms"):
+            m["speed_ms"] = b["avg_ms"]; m["tokens_per_sec"] = b.get("tokens_per_sec")
+            m["speed_label"] = f"{b['avg_ms']//1000}s"; m["last_benchmarked"] = b.get("last_run", "")[:16]
+        else:
+            m["speed_ms"] = None; m["speed_label"] = "Not tested"
+    cfg = _load_model_config()
+    advisor_configs = cfg.get("advisors", {})
+    FUNCTION_MAP = [
+        {"function": "KAI Tools",            "description": "create_task, send_slack, create_event, write_vault", "provider": "anthropic", "model": advisor_configs.get("chief", {}).get("model", "claude-sonnet-4-6")},
+        {"function": "Specialist Consult",   "description": "consult_specialist — 10 domain experts",             "provider": "anthropic", "model": advisor_configs.get("chief", {}).get("model", "claude-sonnet-4-6")},
+        {"function": "Session Summaries",    "description": "Auto-summarize after 20+ exchanges",                  "provider": "anthropic", "model": advisor_configs.get("chief", {}).get("model", "claude-sonnet-4-6")},
+        {"function": "Decision Logging",     "description": "log_decision — vault/60_Council/decisions/",          "provider": "anthropic", "model": advisor_configs.get("chief", {}).get("model", "claude-sonnet-4-6")},
+        {"function": "Gmail Read / Draft",   "description": "read_email, draft_email via n8n OAuth",               "provider": "anthropic", "model": advisor_configs.get("chief", {}).get("model", "claude-sonnet-4-6")},
+        {"function": "n8n Workflow Trigger", "description": "trigger_n8n_workflow — calendar, automations",        "provider": "anthropic", "model": advisor_configs.get("chief", {}).get("model", "claude-sonnet-4-6")},
+    ]
+    for adv_id, adv_cfg in advisor_configs.items():
+        FUNCTION_MAP.append({
+            "function": f"{adv_id.title()} Chat",
+            "description": (adv_cfg.get("notes") or "")[:70],
+            "provider": adv_cfg.get("provider", "anthropic"),
+            "model": adv_cfg.get("model", "claude-sonnet-4-6"),
+            "is_advisor": True,
+        })
+    return {
+        "providers": {
+            "anthropic": {"available": ant_ok, "label": "Anthropic Claude", "tier": "cloud", "color": "#6366f1", "models": ANTHROPIC_MODELS},
+            "openai":    {"available": oai_ok, "label": "OpenAI GPT",        "tier": "cloud", "color": "#10a37f", "models": OPENAI_MODELS},
+            "ollama":    {"available": ollama_ok, "label": "Ollama — Local",  "tier": "local", "color": "#f59e0b", "models": ollama_installed},
+        },
+        "function_map": FUNCTION_MAP,
+        "benchmarks": benchmarks,
+    }
 
 @app.post("/council/context/update")
 def update_context(req: ContextUpdateRequest):

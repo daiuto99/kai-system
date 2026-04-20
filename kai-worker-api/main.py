@@ -1,4 +1,5 @@
 import json
+import uuid as _uuid
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -421,11 +422,18 @@ def get_checkin():
 
 class CheckInRequest(BaseModel):
     intent: str = ""
+    sleep_quality: str = ""    # e.g. "great", "ok", "rough"
+    restfulness: str = ""      # free text: how rested Leo feels
 
 @app.post("/checkin")
 def save_checkin(req: CheckInRequest):
     from datetime import datetime as _dt
-    data = {"intent": req.intent, "date": _dt.utcnow().strftime("%Y-%m-%d")}
+    data = {
+        "intent": req.intent,
+        "sleep_quality": req.sleep_quality,
+        "restfulness": req.restfulness,
+        "date": _dt.utcnow().strftime("%Y-%m-%d")
+    }
     CHECKIN_FILE.parent.mkdir(parents=True, exist_ok=True)
     CHECKIN_FILE.write_text(json.dumps(data, indent=2))
     return data
@@ -1015,3 +1023,864 @@ def register_n8n_workflow(body: dict):
     }
     N8N_REGISTRY_FILE.write_text(_nj.dumps(registry, indent=2))
     return {"ok": True, "name": name}
+
+
+# ── Slack Tier 2 Approval Queue ────────────────────────────────────────────────
+
+import uuid as _uuid
+from datetime import datetime as _dt
+
+T2_QUEUE_FILE = VAULT_PATH / "00_System" / "t2_queue.json"
+
+
+def _t2_load() -> list:
+    if T2_QUEUE_FILE.exists():
+        return json.loads(T2_QUEUE_FILE.read_text())
+    return []
+
+
+def _t2_save(queue: list):
+    T2_QUEUE_FILE.write_text(json.dumps(queue, indent=2))
+
+
+class T2ActionRequest(BaseModel):
+    action: str          # Short description
+    detail: str = ""     # Full detail for audit
+    advisor: str = "kai" # Which advisor is requesting
+    slack_channel: str = "kai" # Which slack channel to post approval request
+
+
+@app.get("/t2/queue")
+def get_t2_queue():
+    return {"queue": _t2_load()}
+
+
+@app.post("/t2/queue")
+def create_t2_action(req: T2ActionRequest):
+    """Queue a T2 action for Slack approval. Posts a message to Slack."""
+    queue = _t2_load()
+    action_id = str(_uuid.uuid4())[:8]
+    entry = {
+        "id": action_id,
+        "action": req.action,
+        "detail": req.detail,
+        "advisor": req.advisor,
+        "status": "pending",
+        "created_at": _dt.now().isoformat(),
+        "slack_ts": None,
+        "slack_channel_id": None,
+    }
+
+    # Post to Slack for approval
+    slack_token = Path("/run/secrets/slack_bot_token").read_text().strip() if Path("/run/secrets/slack_bot_token").exists() else ""
+    if slack_token:
+        try:
+            import httpx as _t2hx
+            msg_text = (
+                f"⚡ *T2 Action Request* — `{action_id}`\n"
+                f"*Advisor:* {req.advisor.upper()}\n"
+                f"*Action:* {req.action}\n"
+                f"{('*Detail:* ' + req.detail) if req.detail else ''}\n\n"
+                f"React with ✅ to approve, ❌ to reject."
+            )
+            r = _t2hx.post(
+                "https://slack.com/api/chat.postMessage",
+                headers={"Authorization": f"Bearer {slack_token}"},
+                json={"channel": req.slack_channel, "text": msg_text},
+                timeout=10,
+            )
+            d = r.json()
+            if d.get("ok"):
+                entry["slack_ts"] = d.get("ts")
+                entry["slack_channel_id"] = d.get("channel")
+        except Exception as e:
+            log.error(f"T2 Slack post error: {e}")
+
+    queue.append(entry)
+    _t2_save(queue)
+    return {"ok": True, "id": action_id, "entry": entry}
+
+
+@app.post("/t2/approve/{action_id}")
+def approve_t2_action(action_id: str):
+    """Mark T2 action as approved (called by Slack bot on ✅ reaction)."""
+    queue = _t2_load()
+    for entry in queue:
+        if entry["id"] == action_id:
+            entry["status"] = "approved"
+            entry["approved_at"] = _dt.now().isoformat()
+            _t2_save(queue)
+            log.info(f"T2 action {action_id} approved: {entry['action']}")
+            return {"ok": True, "entry": entry}
+    raise HTTPException(404, f"T2 action {action_id} not found")
+
+
+@app.post("/t2/reject/{action_id}")
+def reject_t2_action(action_id: str):
+    """Mark T2 action as rejected."""
+    queue = _t2_load()
+    for entry in queue:
+        if entry["id"] == action_id:
+            entry["status"] = "rejected"
+            entry["rejected_at"] = _dt.now().isoformat()
+            _t2_save(queue)
+            return {"ok": True, "entry": entry}
+    raise HTTPException(404, f"T2 action {action_id} not found")
+
+
+# ── Telegram Bot Integration ───────────────────────────────────────────────────
+
+from pathlib import Path as _TGPath
+import httpx as _tghttpx
+
+TELEGRAM_API = "https://api.telegram.org"
+
+def _tg_token() -> str:
+    p = _TGPath("/run/secrets/telegram_bot_token")
+    if p.exists():
+        return p.read_text().strip()
+    return os.environ.get("TELEGRAM_BOT_TOKEN", "")
+
+def _tg_send(chat_id: int, text: str):
+    token = _tg_token()
+    if not token:
+        return
+    try:
+        _tghttpx.post(
+            f"{TELEGRAM_API}/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+            timeout=15,
+        )
+    except Exception as e:
+        log.error(f"Telegram send error: {e}")
+
+
+class TelegramUpdate(BaseModel):
+    update_id: int
+    message: dict | None = None
+    callback_query: dict | None = None
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(update: TelegramUpdate):
+    """Receive Telegram update, route to KAI council, reply via Telegram."""
+    msg = update.message
+    if not msg:
+        return {"ok": True}
+
+    chat_id = msg.get("chat", {}).get("id")
+    text = msg.get("text", "").strip()
+    username = msg.get("from", {}).get("username", "unknown")
+
+    if not text or not chat_id:
+        return {"ok": True}
+
+    # /start command
+    if text == "/start":
+        _tg_send(chat_id, "🤖 *KAI online.* Send me a message and I'll respond.")
+        return {"ok": True}
+
+    log.info(f"Telegram msg from @{username} ({chat_id}): {text[:60]}")
+
+    try:
+        # Forward to KAI council chief
+        r = _tghttpx.post(
+            "http://kai-council-api:8002/message",
+            json={"channel": "chief", "message": text, "user_id": f"telegram:{username}"},
+            timeout=90,
+        )
+        r.raise_for_status()
+        data = r.json()
+        reply = data.get("reply", "No response.")
+    except Exception as e:
+        log.error(f"Council API error from Telegram: {e}")
+        reply = "⚠️ KAI is temporarily unavailable. Try again in a moment."
+
+    _tg_send(chat_id, reply)
+    return {"ok": True}
+
+
+@app.get("/telegram/status")
+def telegram_status():
+    """Check if Telegram bot is configured and get bot info."""
+    token = _tg_token()
+    if not token:
+        return {"configured": False, "error": "No telegram_bot_token secret"}
+    try:
+        r = _tghttpx.get(f"{TELEGRAM_API}/bot{token}/getMe", timeout=10)
+        if r.status_code == 200:
+            bot = r.json().get("result", {})
+            return {"configured": True, "bot": bot}
+        return {"configured": False, "error": r.text[:200]}
+    except Exception as e:
+        return {"configured": False, "error": str(e)}
+
+
+@app.post("/telegram/register-webhook")
+def telegram_register_webhook(body: dict):
+    """Register the Telegram webhook URL."""
+    token = _tg_token()
+    if not token:
+        raise HTTPException(500, "No telegram_bot_token secret")
+    webhook_url = body.get("url", "https://kai.sonicink.space/api/telegram/webhook")
+    r = _tghttpx.post(
+        f"{TELEGRAM_API}/bot{token}/setWebhook",
+        json={"url": webhook_url},
+        timeout=15,
+    )
+    return r.json()
+
+
+# ── Contacts Registry ──────────────────────────────────────────────────────────
+
+import uuid as _cuuid
+from datetime import datetime as _cdt
+
+CONTACTS_FILE = VAULT_PATH / "00_System" / "contacts.json"
+
+
+def _contacts_load() -> list:
+    if CONTACTS_FILE.exists():
+        return json.loads(CONTACTS_FILE.read_text())
+    return []
+
+
+def _contacts_save(contacts: list):
+    CONTACTS_FILE.write_text(json.dumps(contacts, indent=2))
+
+
+@app.get("/contacts")
+def list_contacts():
+    return {"contacts": _contacts_load()}
+
+
+@app.post("/contacts")
+def add_contact(body: dict):
+    contacts = _contacts_load()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(400, "name required")
+    contact = {
+        "id": body.get("id") or name.lower().replace(" ", "-"),
+        "name": name,
+        "aliases": body.get("aliases", [name.lower().split()[0]]),
+        "email": body.get("email", ""),
+        "slack_id": body.get("slack_id"),
+        "role": body.get("role", ""),
+        "notes": body.get("notes", ""),
+    }
+    # Remove duplicate if same id
+    contacts = [c for c in contacts if c["id"] != contact["id"]]
+    contacts.append(contact)
+    _contacts_save(contacts)
+    return {"ok": True, "contact": contact}
+
+
+@app.patch("/contacts/{contact_id}")
+def update_contact(contact_id: str, body: dict):
+    contacts = _contacts_load()
+    for c in contacts:
+        if c["id"] == contact_id:
+            c.update({k: v for k, v in body.items() if k != "id"})
+            _contacts_save(contacts)
+            return {"ok": True, "contact": c}
+    raise HTTPException(404, f"Contact {contact_id} not found")
+
+
+@app.get("/contacts/lookup")
+def lookup_contact(q: str):
+    """Look up a contact by name, alias, or email."""
+    contacts = _contacts_load()
+    q_lower = q.lower().strip()
+    for c in contacts:
+        if (q_lower == c["id"] or
+            q_lower in [a.lower() for a in c.get("aliases", [])] or
+            q_lower in c.get("name", "").lower() or
+            q_lower == c.get("email", "").lower()):
+            return {"found": True, "contact": c}
+    return {"found": False, "query": q}
+
+
+# ── Slack Channel Management ───────────────────────────────────────────────────
+
+import httpx as _slhx
+from pathlib import Path as _slp
+
+
+def _slack_token() -> str:
+    p = _slp("/run/secrets/slack_bot_token")
+    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
+
+
+def _slack_api(method: str, payload: dict) -> dict:
+    token = _slack_token()
+    r = _slhx.post(
+        f"https://slack.com/api/{method}",
+        headers={"Authorization": f"Bearer {token}"},
+        json=payload,
+        timeout=15,
+    )
+    return r.json()
+
+
+def _slack_get(method: str, params: dict) -> dict:
+    token = _slack_token()
+    r = _slhx.get(
+        f"https://slack.com/api/{method}",
+        headers={"Authorization": f"Bearer {token}"},
+        params=params,
+        timeout=15,
+    )
+    return r.json()
+
+
+@app.post("/slack/channels")
+def create_slack_channel(body: dict):
+    """Create a new Slack channel."""
+    name = body.get("name", "").lower().replace(" ", "-").replace("_", "-").strip("-")
+    if not name:
+        raise HTTPException(400, "name required")
+    is_private = body.get("private", False)
+    result = _slack_api("conversations.create", {"name": name, "is_private": is_private})
+    if not result.get("ok"):
+        # Channel might already exist
+        error = result.get("error", "unknown")
+        if error == "name_taken":
+            return {"ok": False, "error": "Channel already exists", "name": name}
+        raise HTTPException(400, f"Slack error: {error}")
+    channel = result["channel"]
+    return {"ok": True, "channel_id": channel["id"], "name": channel["name"]}
+
+
+@app.post("/slack/channels/{channel_name}/invite")
+def invite_to_slack_channel(channel_name: str, body: dict):
+    """Invite users to a Slack channel by email or user ID."""
+    emails = body.get("emails", [])
+    user_ids = list(body.get("user_ids", []))
+
+    # Look up emails → user IDs
+    not_found = []
+    for email in emails:
+        res = _slack_get("users.lookupByEmail", {"email": email})
+        if res.get("ok"):
+            user_ids.append(res["user"]["id"])
+        else:
+            not_found.append(email)
+
+    if not user_ids:
+        raise HTTPException(400, "No valid users found")
+
+    # Find channel ID by name
+    channel_id = None
+    res = _slack_get("conversations.list", {"types": "public_channel,private_channel", "limit": 200})
+    for ch in res.get("channels", []):
+        if ch["name"] == channel_name.lstrip("#"):
+            channel_id = ch["id"]
+            break
+
+    if not channel_id:
+        raise HTTPException(404, f"Channel #{channel_name} not found")
+
+    result = _slack_api("conversations.invite", {"channel": channel_id, "users": ",".join(user_ids)})
+    return {
+        "ok": result.get("ok"),
+        "invited": user_ids,
+        "not_found_emails": not_found,
+        "error": result.get("error") if not result.get("ok") else None,
+    }
+
+
+@app.get("/slack/users/lookup")
+def slack_lookup_user(email: str = None, name: str = None):
+    """Look up a Slack user by email or display name."""
+    if email:
+        res = _slack_get("users.lookupByEmail", {"email": email})
+        if res.get("ok"):
+            u = res["user"]
+            return {"found": True, "user_id": u["id"], "name": u["real_name"], "email": email}
+        return {"found": False, "error": res.get("error")}
+    elif name:
+        # Search through member list (expensive — cache contacts)
+        res = _slack_get("users.list", {"limit": 200})
+        name_lower = name.lower()
+        for member in res.get("members", []):
+            if name_lower in member.get("real_name", "").lower() or \
+               name_lower in member.get("name", "").lower():
+                return {"found": True, "user_id": member["id"], "name": member["real_name"]}
+        return {"found": False, "name": name}
+    raise HTTPException(400, "email or name required")
+
+
+# ── Project Template System ────────────────────────────────────────────────────
+
+TEMPLATES_PATH = VAULT_PATH / "00_System" / "templates"
+
+
+def _render_template(content: str, variables: dict) -> str:
+    """Replace {{VARIABLE}} placeholders in a template."""
+    for key, value in variables.items():
+        content = content.replace("{{" + key + "}}", str(value))
+    return content
+
+
+@app.get("/templates")
+def list_templates():
+    """List all template versions."""
+    if not TEMPLATES_PATH.exists():
+        return {"versions": []}
+    versions = []
+    for vdir in sorted(TEMPLATES_PATH.iterdir()):
+        if vdir.is_dir():
+            manifest_file = vdir / "manifest.json"
+            manifest = json.loads(manifest_file.read_text()) if manifest_file.exists() else {}
+            versions.append({
+                "version": vdir.name,
+                "description": manifest.get("description", ""),
+                "files": [f.name for f in vdir.iterdir() if f.suffix == ".md"],
+                "manifest": manifest,
+            })
+    return {"versions": versions, "latest": versions[-1]["version"] if versions else None}
+
+
+@app.get("/templates/{version}/{filename}")
+def get_template(version: str, filename: str):
+    """Get a specific template file content."""
+    tpl_file = TEMPLATES_PATH / version / filename
+    if not tpl_file.exists():
+        raise HTTPException(404, f"Template {version}/{filename} not found")
+    return {"version": version, "filename": filename, "content": tpl_file.read_text()}
+
+
+@app.post("/templates/{version}")
+def create_template_version(version: str, body: dict):
+    """Create or update a template version file."""
+    vdir = TEMPLATES_PATH / version
+    vdir.mkdir(parents=True, exist_ok=True)
+    filename = body.get("filename")
+    content = body.get("content", "")
+    if not filename:
+        raise HTTPException(400, "filename required")
+    (vdir / filename).write_text(content)
+    return {"ok": True, "version": version, "filename": filename}
+
+
+# ── Full Project Setup Pipeline ────────────────────────────────────────────────
+
+class ProjectSetupRequest(BaseModel):
+    id: str                          # slug: "my-project"
+    name: str                        # display: "My Project"
+    description: str = ""
+    advisor: str = "kai"
+    status: str = "yellow"
+    next: str = ""
+    template_version: str = "v1"
+    create_slack_channel: bool = True
+    slack_channel_name: str = ""     # defaults to project id
+    invite_contacts: list = []       # contact IDs or emails to invite (T2 gated)
+    url: str = ""
+
+
+@app.post("/projects/setup")
+def setup_project(req: ProjectSetupRequest):
+    """
+    Full project setup:
+    1. Add to projects.json
+    2. Create vault/20_Projects/{id}/ directory with template files
+    3. Create Slack channel (if requested)
+    4. Queue T2 approval for human invites
+    Returns a full status report.
+    """
+    results = {"project_id": req.id, "steps": [], "errors": []}
+    today = _cdt.now().strftime("%Y-%m-%d")
+
+    # Step 1: Add to projects.json
+    try:
+        proj_file = VAULT_PATH / "00_System" / "projects.json"
+        projects = json.loads(proj_file.read_text()) if proj_file.exists() else []
+        existing = next((p for p in projects if p["id"] == req.id), None)
+        if existing:
+            results["steps"].append({"step": "projects.json", "status": "skipped", "note": "Already exists"})
+        else:
+            projects.append({
+                "id": req.id,
+                "name": req.name,
+                "status": req.status,
+                "next": req.next or f"Define scope and goals",
+                "description": req.description,
+                "url": req.url,
+                "advisor": req.advisor,
+                "active": True,
+            })
+            proj_file.write_text(json.dumps(projects, indent=2))
+            results["steps"].append({"step": "projects.json", "status": "done"})
+    except Exception as e:
+        results["errors"].append(f"projects.json: {e}")
+
+    # Step 2: Create vault project directory + template files
+    slack_channel = req.slack_channel_name or req.id
+    template_vars = {
+        "PROJECT_NAME": req.name,
+        "PROJECT_ID": req.id,
+        "DATE": today,
+        "ADVISOR": req.advisor,
+        "SLACK_CHANNEL": slack_channel,
+    }
+
+    proj_dir = VAULT_PATH / "20_Projects" / req.id
+    proj_dir.mkdir(parents=True, exist_ok=True)
+
+    tpl_dir = TEMPLATES_PATH / req.template_version
+    files_created = []
+    if tpl_dir.exists():
+        for tpl_file in tpl_dir.glob("*.md"):
+            dest = proj_dir / tpl_file.name
+            if not dest.exists():
+                content = _render_template(tpl_file.read_text(), template_vars)
+                dest.write_text(content)
+                files_created.append(tpl_file.name)
+    results["steps"].append({
+        "step": "vault_files",
+        "status": "done",
+        "path": str(proj_dir),
+        "files": files_created,
+    })
+
+    # Step 3: Create Slack channel
+    channel_id = None
+    if req.create_slack_channel:
+        try:
+            slack_result = _slack_api("conversations.create", {
+                "name": slack_channel,
+                "is_private": False,
+            })
+            if slack_result.get("ok"):
+                channel_id = slack_result["channel"]["id"]
+                results["steps"].append({"step": "slack_channel", "status": "done",
+                                          "channel": f"#{slack_channel}", "channel_id": channel_id})
+                # Post KAI kickoff message
+                _slack_api("chat.postMessage", {
+                    "channel": channel_id,
+                    "text": f"👋 *{req.name}* project channel is live.\n*Advisor:* {req.advisor.upper()} | *Description:* {req.description or 'TBD'}\n\nI'll be tracking updates here. Drop questions, blockers, and decisions in this channel.",
+                    "username": "KAI",
+                    "icon_url": "https://kai.sonicink.space/icon-192.png",
+                })
+            else:
+                err = slack_result.get("error", "unknown")
+                if err == "name_taken":
+                    results["steps"].append({"step": "slack_channel", "status": "skipped",
+                                              "note": f"#{slack_channel} already exists"})
+                    # Try to find existing channel ID
+                    ch_list = _slack_get("conversations.list", {
+                        "types": "public_channel,private_channel", "limit": 200
+                    })
+                    for ch in ch_list.get("channels", []):
+                        if ch["name"] == slack_channel:
+                            channel_id = ch["id"]
+                            break
+                else:
+                    results["errors"].append(f"slack_channel: {err}")
+        except Exception as e:
+            results["errors"].append(f"slack_channel: {e}")
+
+    # Step 4: Queue T2 invites for any human contacts
+    if req.invite_contacts and channel_id:
+        contacts = _contacts_load()
+        pending_invites = []
+        for contact_ref in req.invite_contacts:
+            # Look up by id, alias, name, or treat as email
+            match = None
+            for c in contacts:
+                if (contact_ref == c["id"] or
+                    contact_ref.lower() in [a.lower() for a in c.get("aliases", [])] or
+                    contact_ref.lower() in c.get("name", "").lower() or
+                    contact_ref == c.get("email")):
+                    match = c
+                    break
+            if match:
+                pending_invites.append({"name": match["name"], "email": match.get("email"), "slack_id": match.get("slack_id")})
+            else:
+                pending_invites.append({"name": contact_ref, "email": contact_ref if "@" in contact_ref else None})
+
+        if pending_invites:
+            names = ", ".join(p["name"] for p in pending_invites)
+            # Queue as T2 action
+            import httpx as _t2hx2
+            try:
+                _t2hx2.post(
+                    "http://localhost:8001/t2/queue",
+                    json={
+                        "action": f"Invite {names} to #{slack_channel}",
+                        "detail": f"Project: {req.name} | Channel: #{slack_channel} | People: {names}",
+                        "advisor": req.advisor,
+                        "slack_channel": "kai",
+                    },
+                    timeout=5,
+                )
+                results["steps"].append({
+                    "step": "t2_invites",
+                    "status": "queued",
+                    "people": names,
+                    "note": "React ✅ on the Slack approval message to send invites",
+                })
+            except Exception as e:
+                results["errors"].append(f"t2_queue: {e}")
+
+    results["ok"] = len(results["errors"]) == 0
+    return results
+
+# ── ICS Calendar Feed (O365 Revolt + PSU) ────────────────────────────────────
+import re as _re
+from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+
+def _parse_ics(ics_text: str, days: int = 7) -> list:
+    """Parse ICS feed. Handles line folding and TZID= datetime formats."""
+    # Unfold ICS lines (continuation lines start with space or tab)
+    unfolded = []
+    for raw in ics_text.splitlines():
+        if raw and raw[0] in (" ", "	") and unfolded:
+            unfolded[-1] += raw[1:]
+        else:
+            unfolded.append(raw)
+
+    # TZID offset map — Eastern used by O365, add others as needed
+    TZ_OFFSETS = {
+        "Eastern Standard Time": -5,
+        "Eastern Daylight Time": -4,
+        "Central Standard Time": -6,
+        "Mountain Standard Time": -7,
+        "Pacific Standard Time": -8,
+    }
+
+    def _parse_dt(prop: str, val: str):
+        """Parse ICS datetime value, return UTC datetime or None."""
+        # Determine offset from TZID if present
+        offset_h = 0
+        tzid_match = _re.search(r"TZID=([^:]+)", prop)
+        if tzid_match:
+            tzname = tzid_match.group(1)
+            offset_h = TZ_OFFSETS.get(tzname, 0)
+        if val.endswith("Z"):
+            val = val[:-1] + "+00:00"
+        try:
+            if "T" in val:
+                naive = _dt.strptime(val[:15], "%Y%m%dT%H%M%S")
+                return (naive - _td(hours=offset_h)).replace(tzinfo=_tz.utc), False
+            else:
+                return _dt.strptime(val[:8], "%Y%m%d").replace(tzinfo=_tz.utc), True
+        except Exception:
+            return None, False
+
+    now = _dt.now(_tz.utc)
+    cutoff = now + _td(days=days)
+    events, current, in_event = [], {}, False
+
+    for line in unfolded:
+        if line == "BEGIN:VEVENT":
+            in_event, current = True, {}
+        elif line == "END:VEVENT" and in_event:
+            in_event = False
+            start = current.get("start")
+            if start and now <= start <= cutoff:
+                events.append(current)
+        elif in_event:
+            if ":" not in line:
+                continue
+            prop, _, val = line.partition(":")
+            prop_name = prop.split(";")[0].upper()
+            if prop_name == "SUMMARY":
+                current["title"] = val.replace("\,", ",").replace("\n", " ").strip()
+            elif prop_name == "DTSTART":
+                dt, all_day = _parse_dt(prop, val)
+                if dt:
+                    current["start"] = dt
+                    current["all_day"] = all_day
+            elif prop_name == "DTEND":
+                dt, _ = _parse_dt(prop, val)
+                if dt:
+                    current["end"] = dt.isoformat()
+            elif prop_name == "LOCATION":
+                current["location"] = val.replace("\,", ",").strip()
+            elif prop_name == "DESCRIPTION":
+                current["preview"] = val.replace("\n", " ")[:120].strip()
+            elif prop_name == "ORGANIZER":
+                m = _re.search(r"CN=([^;:]+)", prop + ":" + val)
+                if m:
+                    current["organizer"] = m.group(1)
+
+    events.sort(key=lambda e: e.get("start", now))
+    for e in events:
+        if isinstance(e.get("start"), _dt):
+            e["start"] = e["start"].isoformat()
+    return events
+
+
+ICS_FEEDS_FILE = VAULT_PATH / "00_System" / "ics_feeds.json"
+
+def _load_ics_feeds() -> dict:
+    import json as _j
+    if ICS_FEEDS_FILE.exists():
+        return _j.loads(ICS_FEEDS_FILE.read_text())
+    return {}
+
+def _save_ics_feeds(feeds: dict):
+    import json as _j
+    ICS_FEEDS_FILE.write_text(_j.dumps(feeds, indent=2))
+
+
+@app.get("/calendar/ics")
+def get_ics_calendars(days: int = 7):
+    """Fetch all registered ICS feeds and return merged events."""
+    import httpx as _hx
+    feeds = _load_ics_feeds()
+    if not feeds:
+        return {"events": [], "accounts": [], "note": "No ICS feeds registered. POST /calendar/ics/register to add one."}
+    all_events = []
+    errors = []
+    for name, url in feeds.items():
+        try:
+            r = _hx.get(url, timeout=10, follow_redirects=True)
+            if r.status_code == 200:
+                evts = _parse_ics(r.text, days=days)
+                for e in evts:
+                    e["account"] = name
+                all_events.extend(evts)
+            else:
+                errors.append(f"{name}: HTTP {r.status_code}")
+        except Exception as ex:
+            errors.append(f"{name}: {str(ex)}")
+    all_events.sort(key=lambda e: e.get("start", ""))
+    return {"events": all_events, "accounts": list(feeds.keys()), "count": len(all_events), "days": days, "errors": errors}
+
+
+class ICSFeedRequest(BaseModel):
+    name: str
+    url: str
+
+@app.post("/calendar/ics/register")
+def register_ics_feed(req: ICSFeedRequest):
+    """Register a named ICS feed URL."""
+    feeds = _load_ics_feeds()
+    feeds[req.name] = req.url
+    _save_ics_feeds(feeds)
+    return {"ok": True, "name": req.name, "registered": len(feeds)}
+
+@app.delete("/calendar/ics/{name}")
+def remove_ics_feed(name: str):
+    feeds = _load_ics_feeds()
+    if name not in feeds:
+        raise HTTPException(status_code=404, detail=f"Feed not found: {name}")
+    del feeds[name]
+    _save_ics_feeds(feeds)
+    return {"ok": True, "removed": name}
+
+@app.get("/calendar/ics/feeds")
+def list_ics_feeds():
+    feeds = _load_ics_feeds()
+    return {"feeds": list(feeds.keys()), "count": len(feeds)}
+
+
+# ── Advisors ──────────────────────────────────────────────────────────────────
+
+COUNCIL_DIR = VAULT_PATH / "60_Council"
+
+ADVISOR_DISPLAY = {
+    "chief": {"name": "KAI (Chief)", "description": "Primary advisor — executive chief of staff", "model": "claude-sonnet-4-6"},
+    "ember": {"name": "Ember", "description": "Creative strategist — brand, content, soul", "model": "claude-sonnet-4-6"},
+    "doc": {"name": "Doc", "description": "Health advisor — Oura, sleep, recovery, supplements", "model": "claude-sonnet-4-6"},
+    "beats": {"name": "Beats", "description": "Music advisor — studio, gear, projects, artists", "model": "claude-sonnet-4-6"},
+    "coach": {"name": "Coach", "description": "Performance and mindset coach", "model": "claude-sonnet-4-6"},
+    "biz": {"name": "Biz", "description": "Business strategist — finance, ops, growth", "model": "claude-sonnet-4-6"},
+    "sky": {"name": "Sky", "description": "Mindfulness and reflection", "model": "claude-sonnet-4-6"},
+    "roads": {"name": "Roads", "description": "Travel and logistics", "model": "claude-sonnet-4-6"},
+}
+
+@app.get("/advisors")
+def list_advisors():
+    advisors = []
+    if not COUNCIL_DIR.exists():
+        return {"advisors": []}
+    for d in sorted(COUNCIL_DIR.iterdir()):
+        if not d.is_dir() or d.name.startswith("_") or d.name.startswith("."):
+            continue
+        persona_file = d / f"{d.name.upper()}.md"
+        if persona_file.exists():
+            display = ADVISOR_DISPLAY.get(d.name, {"name": d.name.title(), "description": "", "model": "claude-sonnet-4-6"})
+            advisors.append({
+                "id": d.name,
+                "name": display["name"],
+                "description": display["description"],
+                "model": display["model"],
+                "has_persona": True,
+                "persona_file": str(persona_file.relative_to(VAULT_PATH)),
+            })
+    return {"advisors": advisors}
+
+
+@app.get("/advisors/{name}")
+def get_advisor(name: str):
+    persona_file = COUNCIL_DIR / name / f"{name.upper()}.md"
+    if not persona_file.exists():
+        raise HTTPException(404, f"Advisor {name} not found")
+    return {"name": name, "content": persona_file.read_text(encoding="utf-8")}
+
+
+class AdvisorUpdateRequest(BaseModel):
+    content: str
+
+
+@app.put("/advisors/{name}")
+def update_advisor(name: str, req: AdvisorUpdateRequest):
+    persona_file = COUNCIL_DIR / name / f"{name.upper()}.md"
+    if not persona_file.exists():
+        raise HTTPException(404, f"Advisor {name} not found")
+    persona_file.write_text(req.content, encoding="utf-8")
+    return {"ok": True, "name": name, "message": f"Persona updated for {name}"}
+
+
+@app.post("/advisors")
+def create_advisor(req: AdvisorUpdateRequest, name: str = ""):
+    if not name:
+        raise HTTPException(400, "name query parameter required")
+    advisor_dir = COUNCIL_DIR / name
+    advisor_dir.mkdir(exist_ok=True)
+    persona_file = advisor_dir / f"{name.upper()}.md"
+    persona_file.write_text(req.content, encoding="utf-8")
+    return {"ok": True, "name": name, "created": True}
+
+
+# ── Wiki ──────────────────────────────────────────────────────────────────────
+
+@app.get("/wiki/tree")
+def wiki_tree():
+    knowledge_dir = VAULT_PATH / "70_Knowledge"
+    if not knowledge_dir.exists():
+        return {"tree": []}
+
+    def build_tree(path, rel=""):
+        items = []
+        try:
+            for item in sorted(path.iterdir()):
+                rel_path = f"{rel}/{item.name}" if rel else item.name
+                if item.name.startswith("."):
+                    continue
+                if item.is_dir():
+                    children = build_tree(item, rel_path)
+                    items.append({"type": "dir", "name": item.name, "path": rel_path, "children": children})
+                elif item.suffix == ".md":
+                    items.append({"type": "file", "name": item.name, "path": rel_path})
+        except PermissionError:
+            pass
+        return items
+
+    return {"tree": build_tree(knowledge_dir)}
+
+
+@app.get("/wiki/file")
+def wiki_file(path: str):
+    knowledge_dir = VAULT_PATH / "70_Knowledge"
+    full_path = (knowledge_dir / path).resolve()
+    if not str(full_path).startswith(str(knowledge_dir.resolve())):
+        raise HTTPException(403, "Invalid path")
+    if not full_path.exists() or full_path.suffix != ".md":
+        raise HTTPException(404, "File not found")
+    return {"path": path, "content": full_path.read_text(encoding="utf-8"), "name": full_path.stem}

@@ -34,7 +34,7 @@ app_token = load_secret("slack_app_token")
 
 app = App(token=bot_token)
 
-# Per-thread conversation history: {thread_key: [messages]}
+# Per-thread conversation history
 _history: dict[str, list[dict]] = {}
 
 BOT_ID: str = ""
@@ -78,40 +78,102 @@ def call_council(channel: str, message: str, user_id: str, ts: str) -> str:
         )
         r.raise_for_status()
         data = r.json()
-        reply = data["reply"]
 
-        history.append({"role": "user", "content": message})
-        history.append({"role": "assistant", "content": reply})
-        _history[key] = history[-20:]
-
-        insights = data.get("insights_logged", 0)
-        insight_note = f" | {insights} insight(s) logged" if insights else ""
-        log.info(f"Council response: {data['advisor']} — {data['input_tokens']}in/{data['output_tokens']}out tokens{insight_note}")
-        return reply
-
-    except httpx.HTTPStatusError as e:
-        log.error(f"Council API error: {e.response.status_code} {e.response.text}")
-        return f"Something went wrong reaching the Council. (HTTP {e.response.status_code})"
+        _history[key] = data.get("history", history)
+        return data.get("reply", "(no reply)")
     except Exception as e:
-        log.error(f"Council API exception: {e}")
-        return "I couldn't reach the Council API. Check that kai-council-api is running."
+        log.error(f"Council API error: {e}")
+        return "⚠️ KAI is temporarily unavailable."
 
 
-# Per-advisor identity for bot override posts
 ADVISOR_IDENTITIES = {
-    "chief":   {"username": "KAI",   "icon_url": "https://kai.sonicink.space/avatar-kai.png"},
-    "beats":   {"username": "Beats", "icon_url": "https://kai.sonicink.space/avatar-beats.png"},
-    "biz":     {"username": "Biz",   "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "ember":   {"username": "Ember", "icon_url": "https://kai.sonicink.space/avatar-ember.png"},
-    "doc":     {"username": "Doc",   "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "coach":   {"username": "Coach", "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "sky":     {"username": "Sky",   "icon_url": "https://kai.sonicink.space/avatar-sky.png"},
-    "roads":   {"username": "Roads", "icon_url": "https://kai.sonicink.space/avatar-roads.png"},
+    "beats":   {"username": "Beats",   "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "biz":     {"username": "Biz",     "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "creative":{"username": "Creative","icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "tech":    {"username": "Tech",    "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "dev":     {"username": "Dev",     "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "learning":{"username": "Learning","icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "support": {"username": "Support", "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "coach":   {"username": "Coach",   "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "sky":     {"username": "Sky",     "icon_url": "https://kai.sonicink.space/avatar-sky.png"},
+    "roads":   {"username": "Roads",   "icon_url": "https://kai.sonicink.space/avatar-roads.png"},
 }
+
+
+# ── T2 Approval Gate ───────────────────────────────────────────────────────────
+
+def extract_t2_id_from_text(text: str) -> str | None:
+    """Extract T2 action ID from a KAI T2 approval request message."""
+    # Format: ⚡ *T2 Action Request* — `xxxxxxxx`
+    m = re.search(r"`([a-f0-9]{8})`", text)
+    return m.group(1) if m else None
+
+
+@app.event("reaction_added")
+def handle_reaction(event, say):
+    """Handle ✅ and ❌ reactions for T2 approval gate."""
+    reaction = event.get("reaction", "")
+    if reaction not in ("white_check_mark", "x"):
+        return
+
+    # Get the original message that was reacted to
+    item = event.get("item", {})
+    if item.get("type") != "message":
+        return
+
+    channel_id = item["channel"]
+    msg_ts = item["ts"]
+
+    # Fetch the message to extract T2 action ID
+    try:
+        result = app.client.conversations_history(
+            channel=channel_id,
+            latest=msg_ts,
+            inclusive=True,
+            limit=1,
+        )
+        messages = result.get("messages", [])
+        if not messages:
+            return
+        msg_text = messages[0].get("text", "")
+    except Exception as e:
+        log.error(f"T2 reaction message fetch error: {e}")
+        return
+
+    action_id = extract_t2_id_from_text(msg_text)
+    if not action_id:
+        return  # Not a T2 message
+
+    log.info(f"T2 reaction '{reaction}' on action {action_id}")
+
+    try:
+        if reaction == "white_check_mark":
+            r = httpx.post(f"{WORKER_API}/t2/approve/{action_id}", timeout=10)
+            data = r.json()
+            if data.get("ok"):
+                app.client.chat_postMessage(
+                    channel=channel_id,
+                    thread_ts=msg_ts,
+                    text=f"✅ *T2 action `{action_id}` approved.* KAI will proceed.",
+                )
+                log.info(f"T2 action {action_id} approved")
+        elif reaction == "x":
+            r = httpx.post(f"{WORKER_API}/t2/reject/{action_id}", timeout=10)
+            data = r.json()
+            if data.get("ok"):
+                app.client.chat_postMessage(
+                    channel=channel_id,
+                    thread_ts=msg_ts,
+                    text=f"❌ *T2 action `{action_id}` rejected.*",
+                )
+    except Exception as e:
+        log.error(f"T2 approval API error: {e}")
+
+
+# ── Message Handler ────────────────────────────────────────────────────────────
 
 @app.event("message")
 def handle_message(event, say):
-    # Ignore bot messages and edits
     if event.get("bot_id"):
         return
     if event.get("subtype") in ("bot_message", "message_changed", "message_deleted"):
@@ -122,7 +184,6 @@ def handle_message(event, say):
     channel_id = event["channel"]
     ch_name = channel_name(channel_id)
 
-    # Extract common fields up front
     text = event.get("text", "").strip()
     user_id = event.get("user", "unknown")
     ts = event.get("thread_ts") or event["ts"]
@@ -177,7 +238,7 @@ def handle_mention(event, say):
 
 
 def main():
-    log.info("kai-slack-bot starting (Socket Mode)")
+    log.info("kai-slack-bot starting (Socket Mode) — Sprint 8 with T2 gate")
     handler = SocketModeHandler(app, app_token)
     handler.start()
 
