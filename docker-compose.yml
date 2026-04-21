@@ -78,7 +78,7 @@ services:
     ports:
       - "5678:5678"
     volumes:
-      - n8n_data:/home/node/.n8n
+      - ./n8n-data:/home/node/.n8n
       - /home/leo/vault:/vault:rw
     env_file:
       - .env
