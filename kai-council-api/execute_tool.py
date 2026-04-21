@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 # n8n
 N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
 SPECIALISTS_FILE = VAULT_PATH / "00_System" / "specialists.json"
+# Plane PM
+PLANE_API_TOKEN = open("/run/secrets/plane_api_token").read().strip().split("\n")[0]
+PLANE_BASE_URL = "http://172.18.0.1:8090/api/v1"
+PLANE_WORKSPACE = "sonicink"
+
 
 
 def _load_n8n_registry() -> dict:
@@ -503,6 +508,56 @@ def execute_tool(tool_name: str, tool_input: dict, advisor: str = "kai") -> dict
                 except Exception as e:
                     logger.exception("request_t2_approval: %s", e)
                     return {"error": f"T2 queue failed: {e}"}
+
+
+            # Plane PM tools
+            elif tool_name == "get_plane_issues":
+                project_id = tool_input.get("project_id", "")
+                issue_id = tool_input.get("issue_id", "")
+                state = tool_input.get("state", "")
+                headers = {"X-API-Key": PLANE_API_TOKEN}
+                try:
+                    if issue_id and project_id:
+                        r = httpx.get(f"{PLANE_BASE_URL}/workspaces/{PLANE_WORKSPACE}/projects/{project_id}/issues/{issue_id}/", headers=headers, timeout=10)
+                        return r.json()
+                    elif project_id:
+                        params = {}
+                        if state:
+                            params["state"] = state
+                        r = httpx.get(f"{PLANE_BASE_URL}/workspaces/{PLANE_WORKSPACE}/projects/{project_id}/issues/", headers=headers, params=params, timeout=10)
+                        data = r.json()
+                        issues = data.get("results", data) if isinstance(data, dict) else data
+                        return {"issues": [{"id": i.get("id"), "name": i.get("name"), "state": i.get("state_detail", {}).get("name"), "description": i.get("description_stripped", "")} for i in issues]}
+                    else:
+                        # List all projects
+                        r = httpx.get(f"{PLANE_BASE_URL}/workspaces/{PLANE_WORKSPACE}/projects/", headers=headers, timeout=10)
+                        data = r.json()
+                        projects = data.get("results", data) if isinstance(data, dict) else data
+                        return {"projects": [{"id": p.get("id"), "name": p.get("name"), "identifier": p.get("identifier")} for p in projects]}
+                except Exception as e:
+                    return {"error": f"Plane get failed: {e}"}
+
+            elif tool_name == "update_plane_issue":
+                project_id = tool_input.get("project_id", "")
+                issue_id = tool_input.get("issue_id", "")
+                updates = {k: v for k, v in tool_input.items() if k not in ("project_id", "issue_id")}
+                headers = {"X-API-Key": PLANE_API_TOKEN, "Content-Type": "application/json"}
+                try:
+                    r = httpx.patch(f"{PLANE_BASE_URL}/workspaces/{PLANE_WORKSPACE}/projects/{project_id}/issues/{issue_id}/", headers=headers, json=updates, timeout=10)
+                    return {"updated": True, "issue_id": issue_id, "response": r.json()}
+                except Exception as e:
+                    return {"error": f"Plane update failed: {e}"}
+
+            elif tool_name == "create_plane_issue":
+                project_id = tool_input.get("project_id", "")
+                payload = {k: v for k, v in tool_input.items() if k != "project_id"}
+                headers = {"X-API-Key": PLANE_API_TOKEN, "Content-Type": "application/json"}
+                try:
+                    r = httpx.post(f"{PLANE_BASE_URL}/workspaces/{PLANE_WORKSPACE}/projects/{project_id}/issues/", headers=headers, json=payload, timeout=10)
+                    result = r.json()
+                    return {"created": True, "issue_id": result.get("id"), "name": result.get("name")}
+                except Exception as e:
+                    return {"error": f"Plane create failed: {e}"}
 
     except Exception as e:
         logger.exception("execute_tool %s: %s", tool_name, e)

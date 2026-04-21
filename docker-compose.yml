@@ -38,6 +38,7 @@ services:
       - slack_bot_token
       - tavily_api_key
       - oura_token
+      - plane_api_token
     depends_on:
       kai-worker-api:
         condition: service_healthy
@@ -184,6 +185,8 @@ secrets:
     file: ./secrets/telegram_bot_token.txt
   tavily_api_key:
     file: ./secrets/tavily_api_key.txt
+  plane_api_token:
+    file: ./secrets/plane_api_token.txt
   oura_token:
     file: ./secrets/oura_token.txt
 
