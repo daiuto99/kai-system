@@ -8,12 +8,11 @@ Usage:
   python3 sync_plane_state.py get <issue_id_or_name>             # fetch specific issue
   python3 sync_plane_state.py update <issue_id> <state> [notes]  # update state + append discovery
 
-State values: backlog, unstarted, started, completed, cancelled
+State values: backlog, todo, in progress, done, cancelled
 """
 
 import sys, json, datetime
 import urllib.request as ur
-import urllib.parse as up
 from pathlib import Path
 
 API_TOKEN = Path("/home/leo/kai-system/secrets/plane_api_token.txt").read_text().strip().split("\n")[0]
@@ -36,13 +35,14 @@ def get_projects():
 
 
 def get_issues(pid):
-    d = req("GET", f"projects/{pid}/issues/")
+    d = req("GET", f"projects/{pid}/issues/?per_page=100")
     return d.get("results", d) if isinstance(d, dict) else d
 
 
-def get_states(pid):
+def get_state_map(pid):
     d = req("GET", f"projects/{pid}/states/")
-    return d.get("results", d) if isinstance(d, dict) else d
+    states = d.get("results", d) if isinstance(d, dict) else d
+    return {s["id"]: s for s in states}
 
 
 def find_issue(issue_id):
@@ -55,20 +55,24 @@ def find_issue(issue_id):
 
 def list_all():
     for p in get_projects():
+        state_map = get_state_map(p["id"])
         print(f"\n{'='*60}\nPROJECT: {p['name']} ({p['identifier']}) — {p['id']}\n{'='*60}")
         for i in get_issues(p["id"]):
-            state = i.get("state_detail", {}).get("name", "?")
-            print(f"  [{state:12s}] {i['name'][:58]}\n           {i['id']}")
+            s = state_map.get(i.get("state", ""), {})
+            state_name = s.get("name", "?")
+            print(f"  [{state_name:12s}] {i['name'][:56]}\n             {i['id']}")
 
 
 def get_issue(issue_id):
     project, issue = find_issue(issue_id)
     if not issue:
         print(f"Not found: {issue_id}"); sys.exit(1)
+    state_map = get_state_map(project["id"])
+    s = state_map.get(issue.get("state", ""), {})
     print(json.dumps({
         "project": project["name"], "project_id": project["id"],
         "id": issue["id"], "name": issue["name"],
-        "state": issue.get("state_detail", {}).get("name"),
+        "state": s.get("name"), "state_group": s.get("group"),
         "priority": issue.get("priority"),
         "description": issue.get("description_stripped", ""),
         "description_html": issue.get("description_html", ""),
@@ -79,12 +83,13 @@ def update_issue(issue_id, new_state, notes=None):
     project, issue = find_issue(issue_id)
     if not issue:
         print(f"Not found: {issue_id}"); sys.exit(1)
-    states = {s["name"].lower(): s["id"] for s in get_states(project["id"])}
-    aliases = {"done": "completed", "open": "unstarted", "in progress": "started"}
+    state_map = get_state_map(project["id"])
+    states_by_name = {s["name"].lower(): sid for sid, s in state_map.items()}
+    aliases = {"done": "done", "open": "todo", "in progress": "in progress", "wip": "in progress", "backlog": "backlog"}
     resolved = aliases.get(new_state.lower(), new_state.lower())
-    sid = states.get(resolved)
+    sid = states_by_name.get(resolved)
     if not sid:
-        print(f"Unknown state '{new_state}'. Options: {list(states.keys())}"); sys.exit(1)
+        print(f"Unknown state '{new_state}'. Options: {list(states_by_name.keys())}"); sys.exit(1)
     payload = {"state": sid}
     if notes:
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -98,14 +103,17 @@ def warmboot():
     projects = get_projects()
     print(f"\n=== KAI FACTORY WARMBOOT — {WS} | {len(projects)} projects ===")
     for p in projects:
+        state_map = get_state_map(p["id"])
+        completed_groups = {"completed", "cancelled"}
         issues = get_issues(p["id"])
-        open_issues = [i for i in issues if i.get("state_detail", {}).get("group") not in ("completed", "cancelled")]
+        open_issues = [i for i in issues if state_map.get(i.get("state",""), {}).get("group") not in completed_groups]
         if open_issues:
             print(f"\n[{p['identifier']}] {p['name']} — {len(open_issues)} open")
             for i in open_issues:
-                state = i.get("state_detail", {}).get("name", "?")
-                print(f"  • {i['name'][:68]}")
-                print(f"    id:{i['id']} | {state}")
+                s = state_map.get(i.get("state", ""), {})
+                state_name = s.get("name", "?")
+                print(f"  • [{state_name:11s}] {i['name'][:56]}")
+                print(f"    {i['id']}")
     print("\n=================================================")
 
 
