@@ -58,7 +58,7 @@ def _parse_card(path: Path) -> dict:
         if past and line.strip() and not line.startswith("#"):
             summary = line.strip(); break
 
-    urls = re.findall(r"<(https?://[^>]+)>", content)
+    urls = re.findall(r"<(https?://[^>]+)>", content) or re.findall(r"https?://\S+", content)
     return {
         "slug":    path.stem,
         "title":   title or path.stem,

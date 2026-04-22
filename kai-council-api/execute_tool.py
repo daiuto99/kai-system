@@ -227,10 +227,36 @@ def execute_tool(tool_name: str, tool_input: dict, advisor: str = "kai") -> dict
             # Calendar
             elif tool_name == "get_calendar":
                 days = tool_input.get("days", 7)
-                r = client.post("http://kai-n8n:5678/webhook/kai-calendar-events",
-                               json={"days": days}, timeout=15)
-                events = r.json() if r.status_code == 200 else []
-                return {"events": events}
+                # Google Calendar (whitelisted calendars via n8n)
+                gcal_events = []
+                try:
+                    r = client.post("http://kai-n8n:5678/webhook/kai-calendar-events",
+                                   json={"days": days}, timeout=15)
+                    if r.status_code == 200:
+                        for ev in r.json():
+                            ev["source"] = "Google"
+                            gcal_events.append(ev)
+                except Exception:
+                    pass
+                # ICS feeds (Revolt + PSU O365)
+                ics_events = []
+                try:
+                    r2 = client.get(f"{WORKER_URL}/calendar/ics", params={"days": days}, timeout=15)
+                    if r2.status_code == 200:
+                        for ev in r2.json().get("events", []):
+                            summary = ev.get("summary", "").strip()
+                            if summary:
+                                ics_events.append({
+                                    "start": str(ev.get("start", ""))[:16],
+                                    "end": str(ev.get("end", ""))[:16],
+                                    "summary": summary,
+                                    "calendar": ev.get("calendar", "ICS"),
+                                    "source": "ICS",
+                                })
+                except Exception:
+                    pass
+                all_events = sorted(gcal_events + ics_events, key=lambda e: str(e.get("start", "")))
+                return {"events": all_events}
             elif tool_name == "create_event":
                 r = client.post(f"{WORKER_URL}/calendar/events", json=tool_input)
                 return r.json()

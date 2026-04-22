@@ -80,26 +80,46 @@ def slack_open_dm(token: str, user_id: str) -> str | None:
 def build_context() -> str:
     parts = []
 
-    # Calendar events via n8n
+    # Calendar — Google (filtered: Leo's, Band, Family) + ICS (Revolt, PSU)
     try:
-        r = httpx.get(f"{WORKER_API}/n8n/workflows", timeout=5)
-        workflows = r.json().get("workflows", {})
-        cal_webhook = None
-        for name, cfg in workflows.items():
-            if "calendar" in name.lower():
-                cal_webhook = cfg.get("webhook_url")
-                break
-        if cal_webhook:
-            r = httpx.post(cal_webhook, json={}, timeout=15)
-            events = r.json()
-            if isinstance(events, list) and events:
-                parts.append("**TODAY'S CALENDAR:**")
-                for ev in events[:10]:
-                    parts.append(f"  • {ev.get('start','')} — {ev.get('summary', ev.get('title',''))}")
-            else:
-                parts.append("**CALENDAR:** No events today.")
+        gcal_events = []
+        ics_events = []
+
+        # Google Calendar via internal n8n webhook
+        try:
+            r = httpx.post("http://kai-n8n:5678/webhook/kai-calendar-events",
+                          json={"days": 1}, timeout=15)
+            gcal_events = r.json() if r.status_code == 200 else []
+        except Exception as e:
+            log.warning(f"Google Calendar fetch: {e}")
+
+        # ICS feeds (Revolt + PSU)
+        try:
+            r = httpx.get(f"{WORKER_API}/calendar/ics?days=1", timeout=10)
+            ics_events = r.json().get("events", []) if r.status_code == 200 else []
+        except Exception as e:
+            log.warning(f"ICS calendar fetch: {e}")
+
+        all_events = []
+        for ev in gcal_events:
+            start = ev.get("start", {})
+            start_str = start.get("dateTime", start.get("date", "")) if isinstance(start, dict) else str(start)
+            all_events.append({"start": start_str[:16], "summary": ev.get("summary", ""), "source": "Google"})
+        for ev in ics_events:
+            summary = ev.get("summary", "").strip()
+            if summary:  # skip empty events
+                all_events.append({"start": str(ev.get("start", ""))[:16], "summary": summary, "source": ev.get("calendar", "ICS")})
+
+        all_events.sort(key=lambda x: x["start"])
+
+        if all_events:
+            parts.append("**TODAY'S CALENDAR:**")
+            for ev in all_events[:15]:
+                parts.append(f"  • {ev['start']} [{ev['source']}] — {ev['summary']}")
+        else:
+            parts.append("**CALENDAR:** No events today.")
     except Exception as e:
-        log.warning(f"Calendar fetch: {e}")
+        log.warning(f"Calendar build: {e}")
         parts.append("**CALENDAR:** Unavailable.")
 
     # Tasks
@@ -148,47 +168,54 @@ def build_context() -> str:
         pass
 
 
-    # Oura health data
+    # Oura health data — direct API call (worker API chain times out)
     try:
-        from datetime import date as _date, timedelta as _td
-        oura_token = load_secret("oura_token")
-        if oura_token:
-            _today = _date.today().isoformat()
-            _yesterday = (_date.today() - _td(days=1)).isoformat()
-            _headers = {"Authorization": f"Bearer {oura_token}"}
-            _base = "https://api.ouraring.com/v2/usercollection"
-            _oura_parts = []
-            _r = httpx.get(f"{_base}/daily_readiness",
-                           params={"start_date": _yesterday, "end_date": _today},
-                           headers=_headers, timeout=10)
-            _rd = _r.json().get("data", [])
-            if _rd:
-                _l = _rd[-1]
-                _c = _l.get("contributors", {})
+        _oura_token = load_secret("oura_token")
+        _today = datetime.now().strftime("%Y-%m-%d")
+        _headers = {"Authorization": f"Bearer {_oura_token}"}
+        _oura_parts = []
+        _rd_r = httpx.get(
+            "https://api.ouraring.com/v2/usercollection/daily_readiness",
+            params={"start_date": _today, "end_date": _today},
+            headers=_headers, timeout=15
+        )
+        if _rd_r.status_code == 200:
+            _rd_data = _rd_r.json().get("data", [])
+            if _rd_data:
+                _rd = _rd_data[0]
+                _contrib = _rd.get("contributors", {})
                 _oura_parts.append(
-                    f"  Readiness: {_l.get('score','?')}/100 | "
-                    f"HRV balance: {_c.get('hrv_balance','?')} | "
-                    f"RHR: {_c.get('resting_heart_rate','?')} | "
-                    f"Recovery index: {_c.get('recovery_index','?')}"
+                    f"  Readiness: {_rd.get('score','?')}/100 | "
+                    f"HRV balance: {_contrib.get('hrv_balance','?')} | "
+                    f"RHR: {_contrib.get('resting_heart_rate','?')} | "
+                    f"Recovery index: {_contrib.get('recovery_index','?')}"
                 )
-            _r = httpx.get(f"{_base}/daily_sleep",
-                           params={"start_date": _yesterday, "end_date": _today},
-                           headers=_headers, timeout=10)
-            _sd = _r.json().get("data", [])
-            if _sd:
-                _l = _sd[-1]
-                _c = _l.get("contributors", {})
+        _sl_r = httpx.get(
+            "https://api.ouraring.com/v2/usercollection/daily_sleep",
+            params={"start_date": _today, "end_date": _today},
+            headers=_headers, timeout=15
+        )
+        if _sl_r.status_code == 200:
+            _sl_data = _sl_r.json().get("data", [])
+            if _sl_data:
+                _sl = _sl_data[0]
+                _contrib = _sl.get("contributors", {})
+                _total_s = _sl.get("total_sleep_duration", 0)
+                _rem_s = _sl.get("rem_sleep_duration", 0)
+                _deep_s = _sl.get("deep_sleep_duration", 0)
+                def _fmt(s):
+                    return f"{int(s)//3600}h{(int(s)%3600)//60}m" if s else "?"
                 _oura_parts.append(
-                    f"  Sleep score: {_l.get('score','?')}/100 | "
-                    f"Total: {_c.get('total_sleep','?')} | "
-                    f"REM: {_c.get('rem_sleep','?')} | "
-                    f"Deep: {_c.get('deep_sleep','?')} | "
-                    f"Efficiency: {_c.get('efficiency','?')} | "
-                    f"Restfulness: {_c.get('restfulness','?')}"
+                    f"  Sleep score: {_sl.get('score','?')}/100 | "
+                    f"Total: {_fmt(_total_s)} | "
+                    f"REM: {_fmt(_rem_s)} | "
+                    f"Deep: {_fmt(_deep_s)} | "
+                    f"Efficiency: {_contrib.get('efficiency','?')} | "
+                    f"Restfulness: {_contrib.get('restfulness','?')}"
                 )
-            if _oura_parts:
-                parts.append("\n**OURA HEALTH (last night):**")
-                parts.extend(_oura_parts)
+        if _oura_parts:
+            parts.append("\n**OURA HEALTH (last night):**")
+            parts.extend(_oura_parts)
     except Exception as _e:
         log.warning(f"Oura fetch: {_e}")
 

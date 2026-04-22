@@ -16,6 +16,7 @@ services:
       - todoist_api_key
       - habitsync_password
       - telegram_bot_token
+      - oura_token
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
