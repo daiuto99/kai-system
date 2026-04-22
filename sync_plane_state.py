@@ -99,6 +99,28 @@ def update_issue(issue_id, new_state, notes=None):
     print(f"Updated '{issue['name']}' → {new_state}" + (" + notes" if notes else ""))
 
 
+
+def print_sops():
+    projects = get_projects()
+    print("\n=== ACTIVE SOPs ===")
+    found = False
+    for p in projects:
+        state_map = get_state_map(p["id"])
+        for i in get_issues(p["id"]):
+            if i.get("name","").startswith("[SOP]"):
+                s = state_map.get(i.get("state",""), {})
+                if s.get("group") not in ("completed", "cancelled"):
+                    print(f"  {i['name']}")
+                    desc = i.get("description_stripped","")
+                    if desc:
+                        for line in desc.strip().split("\n")[:8]:
+                            if line.strip():
+                                print(f"    {line.strip()}")
+                    found = True
+    if not found:
+        print("  (none)")
+    print("===================")
+
 def warmboot():
     projects = get_projects()
     print(f"\n=== KAI FACTORY WARMBOOT — {WS} | {len(projects)} projects ===")
@@ -115,6 +137,7 @@ def warmboot():
                 print(f"  • [{state_name:11s}] {i['name'][:56]}")
                 print(f"    {i['id']}")
     print("\n=================================================")
+    print_sops()
 
 
 if __name__ == "__main__":
