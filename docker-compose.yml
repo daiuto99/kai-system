@@ -122,6 +122,8 @@ services:
     container_name: kai-scheduler
     restart: unless-stopped
     command: python scheduler.py
+    environment:
+      - TZ=America/New_York
     volumes:
       - /home/leo/vault:/vault:rw
     env_file:

@@ -168,54 +168,61 @@ def build_context() -> str:
         pass
 
 
-    # Oura health data — direct API call (worker API chain times out)
+    # Weather — wttr.in, no API key required
+    try:
+        _loc = "Philadelphia,PA"
+        try:
+            import json as _json
+            _ui = _json.loads((VAULT_PATH / "00_System" / "ui_settings.json").read_text())
+            _loc = _ui.get("weather_location", _loc)
+        except Exception:
+            pass
+        _wr = httpx.get(f"https://wttr.in/{_loc.replace(' ', '+')}?format=3", timeout=8)
+        if _wr.status_code == 200:
+            parts.append(f"\n**WEATHER:** {_wr.text.strip()}")
+    except Exception as _we:
+        log.warning(f"Weather fetch: {_we}")
+
+    # Oura health data — direct API call, with staleness check
     try:
         _oura_token = load_secret("oura_token")
         _today = datetime.now().strftime("%Y-%m-%d")
+        _yesterday = (datetime.now().replace(hour=0, minute=0, second=0)
+                      .__class__.fromtimestamp(datetime.now().timestamp() - 86400)).strftime("%Y-%m-%d")
         _headers = {"Authorization": f"Bearer {_oura_token}"}
         _oura_parts = []
-        _rd_r = httpx.get(
-            "https://api.ouraring.com/v2/usercollection/daily_readiness",
-            params={"start_date": _today, "end_date": _today},
-            headers=_headers, timeout=15
-        )
-        if _rd_r.status_code == 200:
-            _rd_data = _rd_r.json().get("data", [])
-            if _rd_data:
-                _rd = _rd_data[0]
-                _contrib = _rd.get("contributors", {})
-                _oura_parts.append(
-                    f"  Readiness: {_rd.get('score','?')}/100 | "
-                    f"HRV balance: {_contrib.get('hrv_balance','?')} | "
-                    f"RHR: {_contrib.get('resting_heart_rate','?')} | "
-                    f"Recovery index: {_contrib.get('recovery_index','?')}"
-                )
-        _sl_r = httpx.get(
-            "https://api.ouraring.com/v2/usercollection/daily_sleep",
-            params={"start_date": _today, "end_date": _today},
-            headers=_headers, timeout=15
-        )
-        if _sl_r.status_code == 200:
-            _sl_data = _sl_r.json().get("data", [])
-            if _sl_data:
-                _sl = _sl_data[0]
-                _contrib = _sl.get("contributors", {})
-                _total_s = _sl.get("total_sleep_duration", 0)
-                _rem_s = _sl.get("rem_sleep_duration", 0)
-                _deep_s = _sl.get("deep_sleep_duration", 0)
-                def _fmt(s):
-                    return f"{int(s)//3600}h{(int(s)%3600)//60}m" if s else "?"
-                _oura_parts.append(
-                    f"  Sleep score: {_sl.get('score','?')}/100 | "
-                    f"Total: {_fmt(_total_s)} | "
-                    f"REM: {_fmt(_rem_s)} | "
-                    f"Deep: {_fmt(_deep_s)} | "
-                    f"Efficiency: {_contrib.get('efficiency','?')} | "
-                    f"Restfulness: {_contrib.get('restfulness','?')}"
-                )
+
+        # Try today first, fall back to yesterday with date label
+        for _date, _label in [(_today, ""), (_yesterday, " (yesterday — ring not yet synced)")]:
+            _rd_r = httpx.get(
+                "https://api.ouraring.com/v2/usercollection/daily_readiness",
+                params={"start_date": _date, "end_date": _date},
+                headers=_headers, timeout=15
+            )
+            _sl_r = httpx.get(
+                "https://api.ouraring.com/v2/usercollection/daily_sleep",
+                params={"start_date": _date, "end_date": _date},
+                headers=_headers, timeout=15
+            )
+            _rd_data = _rd_r.json().get("data", []) if _rd_r.status_code == 200 else []
+            _sl_data = _sl_r.json().get("data", []) if _sl_r.status_code == 200 else []
+
+            if _rd_data or _sl_data:
+                if _rd_data:
+                    _rd = _rd_data[0]
+                    _oura_parts.append(f"  Readiness: {_rd.get('score','?')}/100{_label}")
+                if _sl_data:
+                    _sl = _sl_data[0]
+                    _total_s = _sl.get("total_sleep_duration", 0)
+                    def _fmt(s): return f"{int(s)//3600}h{(int(s)%3600)//60}m" if s else "?"
+                    _oura_parts.append(f"  Sleep: {_sl.get('score','?')}/100 | {_fmt(_total_s)} total")
+                break
+
         if _oura_parts:
-            parts.append("\n**OURA HEALTH (last night):**")
+            parts.append("\n**OURA:**")
             parts.extend(_oura_parts)
+        else:
+            parts.append("\n**OURA:** No data (ring not synced)")
     except Exception as _e:
         log.warning(f"Oura fetch: {_e}")
 
