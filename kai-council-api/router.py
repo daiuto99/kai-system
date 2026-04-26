@@ -23,6 +23,7 @@ class MessageRequest(BaseModel):
     user_id: str = ""
     history: list = []
     thread_ts: str = ""
+    attachments: list = []  # [{type, media_type, data (base64), filename}]
 
 
 class ContextUpdateRequest(BaseModel):
@@ -55,6 +56,8 @@ KAI_TOOLS = [
     },
     {"name": "list_workflows", "description": "List all currently saved command workflows/buttons.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "delete_workflow", "description": "Delete a workflow button by ID.", "input_schema": {"type": "object", "properties": {"id": {"type": "string", "description": "The workflow ID to delete"}}, "required": ["id"]}},
+    {"name": "list_tasks", "description": "List Leo's tasks from Todoist — today's tasks and inbox. Use this before answering any question about what's on his plate, what's due, or how many tasks exist.", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "complete_task", "description": "Mark a Todoist task as complete by its task ID.", "input_schema": {"type": "object", "properties": {"task_id": {"type": "string", "description": "The Todoist task ID to mark complete"}}, "required": ["task_id"]}},
     {"name": "create_task", "description": "Create a task in Todoist.", "input_schema": {"type": "object", "properties": {"content": {"type": "string"}, "due_date": {"type": "string"}, "priority": {"type": "integer"}, "description": {"type": "string"}}, "required": ["content"]}},
     {"name": "create_project", "description": "Create a new project in KAI.", "input_schema": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "description": {"type": "string"}, "status": {"type": "string", "enum": ["green","yellow","red"]}, "next": {"type": "string"}, "advisor": {"type": "string"}}, "required": ["id", "name", "description", "status"]}},
     {"name": "update_project", "description": "Update a project's status, next action, or milestone.", "input_schema": {"type": "object", "properties": {"id": {"type": "string"}, "status": {"type": "string"}, "next": {"type": "string"}, "milestone": {"type": "string"}, "milestone_pct": {"type": "integer"}}, "required": ["id"]}},
@@ -128,11 +131,22 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
     total_output_tokens = 0
     raw_reply = ""
 
+    # Prompt caching: mark the stable background_context (KEYSTONE + business_profile)
+    # as ephemeral cache. Dynamic parts (datetime, session memory) stay uncached.
+    if "<background_context>" in system_prompt and "</background_context>" in system_prompt:
+        split = system_prompt.index("</background_context>") + len("</background_context>")
+        system: list | str = [
+            {"type": "text", "text": system_prompt[:split], "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": system_prompt[split:].strip()},
+        ]
+    else:
+        system = system_prompt
+
     while True:
         kwargs = dict(
             model=model,
             max_tokens=2048,
-            system=system_prompt,
+            system=system,
             messages=messages,
         )
         if tools:
@@ -178,7 +192,27 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
 
     system_prompt = load_persona(advisor, channel)
     messages = req.history[-10:]
-    messages.append({"role": "user", "content": req.message})
+    if req.attachments:
+        import base64 as _b64
+        user_content = []
+        for att in req.attachments:
+            if att.get("type") == "document":
+                user_content.append({
+                    "type": "document",
+                    "source": {"type": "base64", "media_type": att["media_type"], "data": att["data"]},
+                })
+            elif att.get("type") == "image":
+                user_content.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": att["media_type"], "data": att["data"]},
+                })
+        if req.message.strip() and req.message.strip() not in ("[Photo attached]",):
+            user_content.append({"type": "text", "text": req.message})
+        elif not any(c["type"] == "text" for c in user_content):
+            user_content.append({"type": "text", "text": req.message or "Please review the attached file."})
+        messages.append({"role": "user", "content": user_content})
+    else:
+        messages.append({"role": "user", "content": req.message})
 
     total_input_tokens = 0
     total_output_tokens = 0
@@ -186,14 +220,14 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
 
     # Determine provider/model with complexity routing
     complexity = _classify_complexity(req.message)
-    if advisor == "chief":
+    if advisor == "kai":
         if complexity == "deep":
-            chief_model = "claude-opus-4-6"
+            kai_model = "claude-opus-4-6"
         elif complexity == "simple":
-            chief_model = "claude-haiku-4-5-20251001"
+            kai_model = "claude-haiku-4-5-20251001"
         else:
-            chief_model = "claude-sonnet-4-6"
-        adv_cfg = {"provider": "anthropic", "model": chief_model}
+            kai_model = "claude-sonnet-4-6"
+        adv_cfg = {"provider": "anthropic", "model": kai_model}
     else:
         adv_cfg = _get_advisor_config(advisor)
         if adv_cfg.get("provider") == "anthropic":
@@ -208,7 +242,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     actual_model    = model
 
     if provider == "anthropic":
-        tools = KAI_TOOLS if advisor == "chief" else []
+        tools = KAI_TOOLS if advisor == "kai" else []
         raw_reply, total_input_tokens, total_output_tokens = _run_agentic_loop(
             messages, tools, model, system_prompt, advisor
         )

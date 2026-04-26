@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v1.1.0 · Sprint 8 complete · Voice stack added 2026-04-19</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.0.0 · MASTER_PLAN_v2 locked · Sprint 15 active · 9 council members · KAI-76–112 in Plane · 2026-04-26</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -116,6 +116,34 @@
   <button class="tab" onclick="show('roadmap')">Roadmap</button>
 </div>
 
+
+<div id="git-commit-bar" style="margin:16px 40px 0;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:10px 16px;display:flex;align-items:center;gap:12px;font-size:12px;">
+  <span style="color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Latest Commit</span>
+  <span id="gc-badge" style="background:#6366f118;border:1px solid #6366f144;color:#a5b4fc;padding:2px 8px;border-radius:12px;font-weight:700;font-family:monospace;">...</span>
+  <span id="gc-msg" style="color:#e2e8f0;flex:1;">loading...</span>
+  <span id="gc-branch" style="color:#64748b;"></span>
+  <span id="gc-type" style="padding:2px 8px;border-radius:12px;font-weight:600;"></span>
+  <span id="gc-time" style="color:#475569;"></span>
+</div>
+<script>
+(function(){
+  var T={local:{bg:"#f59e0b18",bd:"#f59e0b44",cl:"#fbbf24",lb:"local"},remote:{bg:"#6366f118",bd:"#6366f144",cl:"#a5b4fc",lb:"pushed"},both:{bg:"#10b98118",bd:"#10b98144",cl:"#34d399",lb:"local+pushed"}};
+  function ago(iso){var s=Math.floor((Date.now()-new Date(iso))/1000);if(s<60)return s+"s ago";if(s<3600)return Math.floor(s/60)+"m ago";if(s<86400)return Math.floor(s/3600)+"h ago";return Math.floor(s/86400)+"d ago";}
+  fetch("/api/git-activity/latest?limit=1").then(r=>r.json()).then(d=>{
+    var c=d.commits&&d.commits[0];
+    if(!c){document.getElementById("gc-msg").textContent="no commits recorded";return;}
+    var t=T[c.commit_type]||T.local;
+    document.getElementById("gc-badge").textContent=c.short_hash||(c.hash||"").slice(0,7);
+    document.getElementById("gc-msg").textContent=c.message;
+    document.getElementById("gc-branch").textContent="branch: "+c.branch;
+    var tp=document.getElementById("gc-type");
+    tp.textContent=t.lb;
+    tp.style.cssText="padding:2px 8px;border-radius:12px;font-weight:600;background:"+t.bg+";border:1px solid "+t.bd+";color:"+t.cl;
+    document.getElementById("gc-time").textContent=ago(c.committed_at);
+  }).catch(function(){document.getElementById("gc-msg").textContent="unavailable";});
+})();
+</script>
+
 <div class="content">
 
 <!-- OVERVIEW -->
@@ -131,6 +159,8 @@
         <span class="badge badge-blue">Slack Native</span>
         <span class="badge badge-yellow">Local AI</span>
         <span class="badge badge-cyan">Telegram Live</span>
+        <span class="badge badge-green">44 KAI Tools</span>
+        <span class="badge badge-blue">Plane CE</span>
       </div>
     </div>
     <div class="card">
@@ -148,12 +178,20 @@
         <span class="badge badge-green"><span class="dot"></span> Live</span>
       </div>
       <div class="container-row" style="margin-bottom:6px">
-        <div><div class="container-name">Ollama Local AI</div><div class="container-meta">qwen2.5:3b — Doc, Ember · 9s/turn</div></div>
-        <span class="badge badge-green"><span class="dot"></span> Active</span>
+        <div><div class="container-name">Ollama Local AI</div><div class="container-meta">qwen2.5:3b — Doc, Ember · 9s/turn · health check failing (container running)</div></div>
+        <span class="badge badge-yellow"><span class="dot"></span> Running</span>
       </div>
-      <div class="container-row">
+      <div class="container-row" style="margin-bottom:6px">
         <div><div class="container-name">@Kai_sonicink_bot</div><div class="container-meta">Telegram — long polling in scheduler</div></div>
         <span class="badge badge-green"><span class="dot"></span> Live</span>
+      </div>
+      <div class="container-row" style="margin-bottom:6px">
+        <div><div class="container-name">pm.sonicink.space</div><div class="container-meta">Plane CE — project management · 4 projects · KAI warm boot</div></div>
+        <span class="badge badge-green"><span class="dot"></span> Live</span>
+      </div>
+      <div class="container-row">
+        <div><div class="container-name">Syncthing</div><div class="container-meta">~/vault/ ↔ iCloud/BRAIN/KAI-SYSTEM/ · bidirectional · Obsidian editing surface</div></div>
+        <span class="badge badge-green"><span class="dot"></span> Active</span>
       </div>
     </div>
   </div>
@@ -218,8 +256,9 @@
         <span class="layer-item" style="background:#10b98120;color:#34d399">Calendar (via n8n)</span>
         <span class="layer-item" style="background:#10b98120;color:#34d399">Slack channels + T2 queue</span>
         <span class="layer-item" style="background:#10b98120;color:#34d399">Contacts registry</span>
-        <span class="layer-item" style="background:#10b98118;color:#64748b">Web search — Tavily (planned)</span>
-        <span class="layer-item" style="background:#10b98118;color:#64748b">Oura API (planned)</span>
+        <span class="layer-item" style="background:#10b98120;color:#34d399">Oura API ✅</span>
+        <span class="layer-item" style="background:#10b98120;color:#34d399">ICS Calendar feeds ✅</span>
+        <span class="layer-item" style="background:#10b98120;color:#34d399">Tavily web search ✅</span>
       </div>
     </div>
     <div class="arrow">↓</div>
@@ -245,10 +284,12 @@
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Telegram</span>
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Cloudflare Tunnel</span>
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Resend (email send)</span>
-        <span class="layer-item" style="background:#3b82f618;color:#64748b">Tavily / Perplexity (planned)</span>
+        <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Tavily (web search) ✅</span>
+        <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Oura API ✅</span>
+        <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Plane CE (project mgmt) ✅</span>
+        <span class="layer-item" style="background:#3b82f618;color:#64748b">Perplexity (deep research, planned)</span>
         <span class="layer-item" style="background:#3b82f618;color:#64748b">WordPress (planned)</span>
         <span class="layer-item" style="background:#3b82f618;color:#64748b">Beehiiv · Ayrshare (planned)</span>
-        <span class="layer-item" style="background:#3b82f618;color:#64748b">Oura API (planned)</span>
         <span class="layer-item" style="background:#3b82f618;color:#64748b">O365 Graph (Revolt + PSU, planned)</span>
       </div>
     </div>
@@ -280,13 +321,13 @@
     <div class="sys-layer-icon">🧠</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#f472b6">AI Council Layer</div>
-      <div class="sys-layer-desc">8 lead advisors + 10 specialist personas. Each advisor has a defined domain, model assignment, and access to KAI tools. KAI chief is the command center — all tool-use runs through the chief. Complexity routing (Haiku/Sonnet/Opus by task type) is the next model-layer improvement.</div>
+      <div class="sys-layer-desc">8 lead advisors + 10 specialist personas. Each advisor has a defined domain, model assignment, and access to KAI tools. KAI chief is the command center — all tool-use runs through the chief. Complexity routing (Haiku/Sonnet/Opus by task type) is live. 44 tools across council and worker.</div>
       <div class="sys-layer-status">
         <span class="badge badge-green">8 advisors live ✅</span>
         <span class="badge badge-green">10 specialists ✅</span>
-        <span class="badge badge-green">30 KAI tools ✅</span>
+        <span class="badge badge-green">44 KAI tools ✅</span>
         <span class="badge badge-green">KEYSTONE context ✅</span>
-        <span class="badge badge-yellow">Complexity routing — Sprint 9</span>
+        <span class="badge badge-green">Complexity routing ✅</span>
         <span class="badge badge-yellow">Cross-advisor briefings — future</span>
       </div>
     </div>
@@ -296,14 +337,16 @@
     <div class="sys-layer-icon">📚</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#fbbf24">Knowledge Layer</div>
-      <div class="sys-layer-desc">The "brain" — persistent memory that makes KAI smarter over time. Currently: vault markdown files + session summaries + decisions log. Next: Qdrant vector DB for semantic search across all vault content and conversation history. Without a proper knowledge layer, KAI doesn't get smarter — it just answers questions from scratch every session.</div>
+      <div class="sys-layer-desc">The "brain" — persistent memory that makes KAI smarter over time. Sprint 15: cross-session memory injection is live. Every conversation loads the last 2 session summaries + a rolling context.md into the system prompt. context.md auto-updates after every save_session call. Knowledge is now read back, not just written. Next: Qdrant vector DB for semantic search across all vault content.</div>
       <div class="sys-layer-status">
         <span class="badge badge-green">Vault (markdown) ✅</span>
         <span class="badge badge-green">Session summaries ✅</span>
         <span class="badge badge-green">Decisions log ✅</span>
         <span class="badge badge-green">KEYSTONE.md ✅</span>
-        <span class="badge badge-yellow">Qdrant vector DB — Sprint 10</span>
-        <span class="badge badge-yellow">Semantic search — Sprint 10</span>
+        <span class="badge badge-green">Cross-session memory injection ✅ Sprint 15</span>
+        <span class="badge badge-green">context.md auto-update ✅ Sprint 15</span>
+        <span class="badge badge-yellow">Qdrant vector DB — future</span>
+        <span class="badge badge-yellow">Semantic search — future</span>
       </div>
     </div>
   </div>
@@ -312,14 +355,16 @@
     <div class="sys-layer-icon">⚡</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#34d399">Action Layer</div>
-      <div class="sys-layer-desc">KAI does things, not just answers questions. Integrated tools let KAI create tasks, manage projects, send Slack messages, draft emails, create calendar events, trigger n8n workflows, manage contacts, and set up entire project spaces in one command. Future: content creation pipeline (write blog post → publish to WordPress → distribute via Ayrshare), podcast automation (convert rehearsal files → upload to SoundCloud), and proactive KAI-initiated actions.</div>
+      <div class="sys-layer-desc">KAI does things, not just answers questions. Integrated tools let KAI create tasks, manage projects, send Slack messages, draft emails, create calendar events, trigger n8n workflows, manage contacts, and set up entire project spaces in one command. Oura health data live in morning brief. Tavily web search active. ICS calendar feeds (Revolt, PSU) merged. Future: content creation pipeline and proactive KAI-initiated actions.</div>
       <div class="sys-layer-status">
-        <span class="badge badge-green">30 tools ✅</span>
+        <span class="badge badge-green">44 tools ✅</span>
         <span class="badge badge-green">Project setup pipeline ✅</span>
         <span class="badge badge-green">Slack T2 gate ✅</span>
-        <span class="badge badge-green">Morning brief ✅</span>
-        <span class="badge badge-yellow">CREATE AI content pipeline — Sprint 11</span>
-        <span class="badge badge-yellow">Proactive layer — Sprint 12</span>
+        <span class="badge badge-green">Morning brief + Oura + weather ✅</span>
+        <span class="badge badge-green">Tavily web search ✅</span>
+        <span class="badge badge-green">ICS calendar feeds ✅</span>
+        <span class="badge badge-yellow">CREATE AI content pipeline — future</span>
+        <span class="badge badge-yellow">Proactive layer — future</span>
       </div>
     </div>
   </div>
@@ -368,13 +413,15 @@
     <div class="sys-layer-icon">🗄️</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#94a3b8">Data Layer</div>
-      <div class="sys-layer-desc">Where is the data, is it backed up, is it secure and encrypted, and is the full system documented end-to-end including the user-facing manual? Currently: vault lives on Linux worker docker volume (n8n_data equivalent — kai_vault). All conversation history, projects, harmony data, config lives there. Recovery plan and automated backup to iCloud is not yet built. Full system documentation (architecture + user manual) is the KAI_Architecture.html file (this document).</div>
+      <div class="sys-layer-desc">Three-location data architecture: (1) ~/vault/ on Linux worker — runtime source of truth, Docker volume-mounted into all containers. (2) iCloud/BRAIN/KAI-SYSTEM/ — Leo's Obsidian editing surface, synced bidirectionally via Syncthing. (3) sonicink/ on Mac mini — Claude Code working directory only. Plane CE is the project management and issue tracking layer (warm boot requirement at every session). Git is the code source of truth (GitHub). Full system reference is KAI-SYSTEM.md.</div>
       <div class="sys-layer-status">
         <span class="badge badge-green">Vault on worker ✅</span>
+        <span class="badge badge-green">Syncthing vault → iCloud ✅</span>
+        <span class="badge badge-green">Plane CE (project tracking) ✅</span>
         <span class="badge badge-green">Architecture doc ✅</span>
-        <span class="badge badge-yellow">Automated vault backup to iCloud — future</span>
+        <span class="badge badge-green">KAI-SYSTEM.md ✅</span>
         <span class="badge badge-yellow">Encryption at rest — future</span>
-        <span class="badge badge-yellow">User manual — future</span>
+        <span class="badge badge-yellow">Qdrant vector DB — future</span>
       </div>
     </div>
   </div>
@@ -391,7 +438,7 @@
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8001</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-council-api</div><div class="container-meta">FastAPI · AI routing · Tool-use loop · 30 KAI tools · KEYSTONE context</div></div>
+      <div><div class="container-name">kai-council-api</div><div class="container-meta">FastAPI · AI routing · Tool-use loop · 44 KAI tools · KEYSTONE context · Tavily</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8002</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
@@ -403,12 +450,12 @@
       <div style="display:flex;gap:8px;align-items:center"><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-n8n</div><div class="container-meta">n8n 2.16 · Google Calendar · Gmail · Webhooks</div></div>
-      <div style="display:flex;gap:8px;align-items:center"><span class="port">:5678</span><span class="badge badge-green"><span class="dot"></span>live</span></div>
+      <div><div class="container-name">kai-n8n</div><div class="container-meta">n8n 2.16 · Google Calendar · Gmail · Webhooks · 6 workflows · health check failing (container running)</div></div>
+      <div style="display:flex;gap:8px;align-items:center"><span class="port">:5678</span><span class="badge badge-yellow"><span class="dot"></span>running</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-ollama</div><div class="container-meta">Ollama · qwen2.5:3b · Doc + Ember local AI · 9s/turn</div></div>
-      <div style="display:flex;gap:8px;align-items:center"><span class="port">:11434</span><span class="badge badge-green"><span class="dot"></span>active</span></div>
+      <div><div class="container-name">kai-ollama</div><div class="container-meta">Ollama · qwen2.5:3b · Doc + Ember local AI · 9s/turn · health check failing (container running)</div></div>
+      <div style="display:flex;gap:8px;align-items:center"><span class="port">:11434</span><span class="badge badge-yellow"><span class="dot"></span>running</span></div>
     </div>
     <div class="container-row">
       <div><div class="container-name">kai-habitsync</div><div class="container-meta">HabitSync · Todoist → vault habits.json</div></div>
@@ -422,6 +469,30 @@
       <div><div class="container-name">cloudflare-tunnel</div><div class="container-meta">Routes public domains to containers</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
+
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#64748b;margin:16px 0 8px">Plane CE Stack (Project Management)</div>
+    <div class="container-row">
+      <div><div class="container-name">plane-proxy</div><div class="container-meta">nginx · routes to plane-api and plane-web</div></div>
+      <div style="display:flex;gap:8px;align-items:center"><span class="port">:8090</span><span class="badge badge-green"><span class="dot"></span>live</span></div>
+    </div>
+    <div class="container-row">
+      <div><div class="container-name">plane-api</div><div class="container-meta">Django REST API · project/issue management</div></div>
+      <div style="display:flex;gap:8px;align-items:center"><span class="port">:8091</span><span class="badge badge-green"><span class="dot"></span>live</span></div>
+    </div>
+    <div class="container-row">
+      <div><div class="container-name">plane-worker / plane-beat</div><div class="container-meta">Celery workers · async tasks + scheduled jobs</div></div>
+      <div style="display:flex;gap:8px;align-items:center"><span class="badge badge-green"><span class="dot"></span>live</span></div>
+    </div>
+    <div class="container-row">
+      <div><div class="container-name">plane-postgres / plane-redis / plane-minio</div><div class="container-meta">Data layer for Plane CE</div></div>
+      <div style="display:flex;gap:8px;align-items:center"><span class="badge badge-green"><span class="dot"></span>live</span></div>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#64748b;margin:16px 0 8px">Sync</div>
+    <div class="container-row">
+      <div><div class="container-name">syncthing</div><div class="container-meta">~/vault/ ↔ iCloud/BRAIN/KAI-SYSTEM/ · bidirectional · Obsidian on Mac mini</div></div>
+      <div style="display:flex;gap:8px;align-items:center"><span class="port">:8384</span><span class="badge badge-green"><span class="dot"></span>active</span></div>
+    </div>
   </div>
 
   <div class="grid grid-2">
@@ -430,6 +501,7 @@
       <div class="container-row"><div class="container-name">kai.sonicink.space</div><span style="font-size:11px;color:#64748b">→ kai-web:80</span></div>
       <div class="container-row"><div class="container-name">n8n.sonicink.space</div><span style="font-size:11px;color:#64748b">→ kai-n8n:5678</span></div>
       <div class="container-row"><div class="container-name">habits.sonicink.space</div><span style="font-size:11px;color:#64748b">→ kai-habitsync:6842</span></div>
+      <div class="container-row"><div class="container-name">pm.sonicink.space</div><span style="font-size:11px;color:#64748b">→ plane-proxy:8090</span></div>
     </div>
     <div class="card">
       <div class="card-title">Key External Services</div>
@@ -438,92 +510,228 @@
       <div class="container-row"><div class="container-name">Google APIs</div><span style="font-size:11px;color:#64748b">Calendar + Gmail via n8n</span></div>
       <div class="container-row"><div class="container-name">Resend.com</div><span style="font-size:11px;color:#64748b">Outbound email sending</span></div>
       <div class="container-row"><div class="container-name">Cloudflare</div><span style="font-size:11px;color:#64748b">DNS + Tunnel + Email routing</span></div>
-      <div class="container-row"><div class="container-name" style="color:#64748b">Tavily</div><span class="badge badge-yellow">Planned — web search</span></div>
-      <div class="container-row"><div class="container-name" style="color:#64748b">WordPress</div><span class="badge badge-yellow">Planned — content</span></div>
+      <div class="container-row"><div class="container-name">Tavily</div><span class="badge badge-green">Live — web search</span></div>
+      <div class="container-row"><div class="container-name">Oura API v2</div><span class="badge badge-green">Live — health + readiness</span></div>
+      <div class="container-row"><div class="container-name">Plane CE</div><span class="badge badge-green">Live — project tracking</span></div>
+      <div class="container-row"><div class="container-name" style="color:#64748b">WordPress</div><span class="badge badge-yellow">Pending activation</span></div>
     </div>
   </div>
+  <!-- OS Health Panel -->
+  <div class="card" id="os-health-card" style="margin-top:16px">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+      Worker OS Health
+      <span id="os-health-ts" style="font-size:11px;color:#64748b;font-weight:400"></span>
+    </div>
+    <div id="os-health-body" style="color:#64748b;font-size:13px">Loading...</div>
+  </div>
+
+  <style>
+    .metric-row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+    .metric-label { width:110px; font-size:12px; color:#94a3b8; flex-shrink:0; }
+    .metric-bar-wrap { flex:1; background:#1e2533; border-radius:4px; height:8px; overflow:hidden; }
+    .metric-bar { height:8px; border-radius:4px; transition:width 0.4s; }
+    .metric-val { font-size:12px; color:#e2e8f0; width:60px; text-align:right; flex-shrink:0; }
+    .bar-green { background:#22c55e; }
+    .bar-yellow { background:#f59e0b; }
+    .bar-red { background:#ef4444; }
+    .health-alert { background:#2d1f1f; border:1px solid #7f1d1d; border-radius:6px; padding:8px 12px; margin-top:10px; font-size:12px; color:#fca5a5; }
+    .health-ok { background:#1a2e1a; border:1px solid #14532d; border-radius:6px; padding:8px 12px; margin-top:10px; font-size:12px; color:#86efac; }
+  </style>
+
+  <script>
+  (function() {
+    function barColor(pct, warn, crit) {
+      if (pct >= crit) return 'bar-red';
+      if (pct >= warn) return 'bar-yellow';
+      return 'bar-green';
+    }
+    function metricRow(label, pct, valStr, warn, crit) {
+      var cls = barColor(pct, warn, crit);
+      return '<div class="metric-row">'
+        + '<span class="metric-label">' + label + '</span>'
+        + '<div class="metric-bar-wrap"><div class="metric-bar ' + cls + '" style="width:' + Math.min(pct,100) + '%"></div></div>'
+        + '<span class="metric-val">' + valStr + '</span>'
+        + '</div>';
+    }
+    function loadHealth() {
+      fetch('/api/system/health')
+        .then(function(r){ return r.json(); })
+        .then(function(d) {
+          var html = '';
+          html += metricRow('Disk', d.disk_pct, d.disk_pct + '% (' + d.disk_free_gb + 'GB free)', 70, 80);
+          html += metricRow('Memory', d.mem_pct, d.mem_pct + '% (' + d.mem_free_gb + 'GB free)', 75, 85);
+          var loadPct = Math.min(d.load_1m * 25, 100);
+          html += metricRow('Load (1m)', loadPct, d.load_1m.toFixed(2), 50, 75);
+          if (d.temp_c !== null) {
+            var tempPct = Math.min(d.temp_c / 100 * 100, 100);
+            html += metricRow('Temp', tempPct, d.temp_c + '°C', 60, 75);
+          }
+          html += '<div style="font-size:12px;color:#64748b;margin-top:4px">Uptime: ' + d.uptime + (d.apt_updates !== null ? ' &nbsp;·&nbsp; Pending updates: <span style="color:' + (d.apt_updates >= 10 ? '#f59e0b' : '#86efac') + '">' + d.apt_updates + '</span>' : '') + '</div>';
+          if (d.alerts && d.alerts.length) {
+            html += '<div class="health-alert">⚠ ' + d.alerts.join('<br>⚠ ') + '</div>';
+          } else {
+            html += '<div class="health-ok">✓ All metrics within policy</div>';
+          }
+          document.getElementById('os-health-body').innerHTML = html;
+          document.getElementById('os-health-ts').textContent = 'updated ' + new Date().toLocaleTimeString();
+        })
+        .catch(function(e) {
+          document.getElementById('os-health-body').innerHTML = '<span style="color:#ef4444">Failed to load</span>';
+        });
+    }
+    loadHealth();
+    setInterval(loadHealth, 60000);
+  })();
+  </script>
+
 </div>
 
 <!-- ADVISORS -->
 <div id="panel-advisors" class="panel">
-  <div style="margin-bottom:16px;font-size:13px;color:#64748b">8 lead advisors + 10 specialist personas available for consultation. Specialists are invoked by KAI on demand — no Slack, no direct channel. All advisors load KEYSTONE.md + business_profile.md as permanent background context every session.</div>
-  <div class="grid grid-2" style="margin-bottom:24px">
-    <div class="advisor-card" style="border-color:#6366f144">
-      <div class="advisor-name" style="color:#a5b4fc">KAI (Chief)</div>
-      <div class="advisor-domain">Command · Operations · Execution · JARVIS DNA</div>
-      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-        <span class="badge badge-purple">Slack DM</span>
-        <span class="badge badge-blue">Tool-use</span>
-        <span class="badge badge-green">30 tools</span>
-        <span class="badge badge-cyan">Telegram</span>
-      </div>
-      <div class="advisor-model"><span class="badge badge-purple">Anthropic · claude-sonnet-4-6</span></div>
-    </div>
-    <div class="advisor-card" style="border-color:#ec489944">
-      <div class="advisor-name" style="color:#f472b6">Ember</div>
-      <div class="advisor-domain">Emotional intelligence · Personal growth · Insights</div>
-      <div style="margin-top:6px;display:flex;gap:6px">
-        <span class="badge badge-pink">Slack DM</span>
-        <span class="badge badge-yellow">Local-first</span>
-      </div>
-      <div class="advisor-model"><span class="badge badge-yellow">Ollama · qwen2.5:3b (local, 9s/turn)</span></div>
-    </div>
-    <div class="advisor-card" style="border-color:#10b98144">
-      <div class="advisor-name" style="color:#34d399">Doc</div>
-      <div class="advisor-domain">Health · Longevity · Medical analysis</div>
-      <div style="margin-top:6px;display:flex;gap:6px">
-        <span class="badge badge-pink">Slack DM</span>
-        <span class="badge badge-yellow">Local-first</span>
-      </div>
-      <div class="advisor-model"><span class="badge badge-yellow">Ollama · qwen2.5:3b (local, 9s/turn)</span></div>
-    </div>
-    <div class="advisor-card" style="border-color:#f59e0b44">
-      <div class="advisor-name" style="color:#fbbf24">Coach</div>
-      <div class="advisor-domain">Performance · Fitness · Physical health</div>
-      <div style="margin-top:6px"><span class="badge badge-pink">Slack DM</span></div>
-      <div class="advisor-model"><span class="badge badge-purple">Anthropic · claude-sonnet-4-6</span></div>
-    </div>
-    <div class="advisor-card" style="border-color:#f59e0b44">
-      <div class="advisor-name" style="color:#fbbf24">Beats</div>
-      <div class="advisor-domain">Music · Creative · Production</div>
-      <div style="margin-top:6px"><span class="badge badge-blue">Channel-routed</span></div>
-      <div class="advisor-model"><span class="badge badge-purple">Anthropic · claude-sonnet-4-6</span></div>
-    </div>
-    <div class="advisor-card" style="border-color:#06b6d444">
-      <div class="advisor-name" style="color:#22d3ee">Sky</div>
-      <div class="advisor-domain">Studio Assistant · DAW · Sessions · Music theory</div>
-      <div style="margin-top:6px"><span class="badge badge-pink">Slack DM</span></div>
-      <div class="advisor-model"><span class="badge badge-purple">Anthropic · claude-sonnet-4-6</span></div>
-    </div>
-    <div class="advisor-card" style="border-color:#f59e0b44">
-      <div class="advisor-name" style="color:#fbbf24">Roads</div>
-      <div class="advisor-domain">Gear Guru · Roadie · Guitars · Amps · Live</div>
-      <div style="margin-top:6px"><span class="badge badge-pink">Slack DM</span></div>
-      <div class="advisor-model"><span class="badge badge-purple">Anthropic · claude-sonnet-4-6</span></div>
-    </div>
-    <div class="advisor-card" style="border-color:#3b82f644">
-      <div class="advisor-name" style="color:#60a5fa">Biz</div>
-      <div class="advisor-domain">Business strategy · Revenue · Operations</div>
-      <div style="margin-top:6px"><span class="badge badge-blue">Channel-routed</span></div>
-      <div class="advisor-model"><span class="badge badge-purple">Anthropic · claude-sonnet-4-6 (OpenAI dropped — unified billing)</span></div>
+  <div style="margin-bottom:12px;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#64748b;margin-bottom:8px">Council Architecture Rule</div>
+    <div style="font-size:13px;color:#94a3b8;line-height:1.7"><strong style="color:#e2e8f0">Council members</strong> = directly DM-able personas with real relationships. <strong style="color:#e2e8f0">Functions</strong> = capabilities invoked by their director (no persona, no SideKick, no DM). If you talk to them directly — they're Council. If they only exist as a role under a director — they're a Function.</div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <span class="badge badge-purple">SideKick: configurable per council member</span>
+      <span class="badge badge-blue">Priority: Sky → Roads → Ember → Beats → Coach → others</span>
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-title">10 Specialist Personas (invoked by KAI on demand)</div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
-      <span class="badge badge-purple">Strategist</span>
-      <span class="badge badge-blue">Architect</span>
-      <span class="badge badge-green">Designer</span>
-      <span class="badge badge-pink">Graphic Designer</span>
-      <span class="badge badge-yellow">Researcher</span>
-      <span class="badge badge-blue">Copywriter</span>
-      <span class="badge badge-purple">Data Engineer</span>
-      <span class="badge badge-green">Lead Developer</span>
-      <span class="badge badge-yellow">Product Manager</span>
-      <span class="badge badge-red">Test Engineer</span>
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#64748b;margin-bottom:8px">Direct Reports to KAI — 9 Council Members</div>
+  <div class="grid grid-3" style="margin-bottom:20px">
+
+    <div class="advisor-card" style="border-color:#6366f144">
+      <div class="advisor-name" style="color:#a5b4fc">KAI</div>
+      <div class="advisor-domain">Chief of Staff · Closest Trusted Confidant · JARVIS DNA</div>
+      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+        <span class="badge badge-purple">Slack DM</span>
+        <span class="badge badge-cyan">Telegram</span>
+        <span class="badge badge-blue">Tool-use</span>
+        <span class="badge badge-green">44 tools</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">System + persona. Command center. Every tool runs through KAI chief.</div>
     </div>
-    <p style="margin-top:12px">To use: tell KAI <em>"consult the strategist on [topic]"</em> — KAI invokes the specialist, gets their response, and synthesizes it into the conversation.</p>
+
+    <div class="advisor-card" style="border-color:#06b6d444">
+      <div class="advisor-name" style="color:#22d3ee">Sky</div>
+      <div class="advisor-domain">Studio Creative Collaborator · Session Director</div>
+      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+        <span class="badge badge-pink">Slack DM</span>
+        <span class="badge badge-cyan">SideKick ✓ (priority 1)</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">Always on in session. Irreverent, trusted. Runs the studio. Gear knowledge Sprint 20.</div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#f59e0b44">
+      <div class="advisor-name" style="color:#fbbf24">Roads</div>
+      <div class="advisor-domain">Guitar Tech & Friend · Guitars · Amps · Live Rig</div>
+      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+        <span class="badge badge-pink">Slack DM</span>
+        <span class="badge badge-cyan">SideKick ✓ (priority 2)</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">30-year friend + tech. Called when needed. Gear knowledge Sprint 20.</div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#ec489944">
+      <div class="advisor-name" style="color:#f472b6">Ember</div>
+      <div class="advisor-domain">Personal Coach · Therapeutic Partner · Fort Knox</div>
+      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+        <span class="badge badge-pink">Slack DM</span>
+        <span class="badge badge-yellow">Local-first</span>
+        <span class="badge badge-cyan">SideKick (priority 3)</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-yellow">Ollama · qwen2.5:3b</span><span class="badge badge-red" style="margin-left:6px">Fort Knox Sprint 20</span></div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">Modeled after 2 therapists. Privacy: sealed vault, CAST.md anonymization. Sprint 20 GATED on Leo sign-off.</div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#10b98144">
+      <div class="advisor-name" style="color:#34d399">Doc</div>
+      <div class="advisor-domain">Chief Medical Advisor · Longevity · Peter Attia model</div>
+      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+        <span class="badge badge-pink">Slack DM</span>
+        <span class="badge badge-yellow">Local-first</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-yellow">Ollama · qwen2.5:3b</span><span class="badge badge-red" style="margin-left:6px">Fort Knox Sprint 20</span></div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">Medical, longevity, general wellness. NOT workouts/nutrition (that's Coach). Same Fort Knox privacy as Ember.</div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#8b5cf644">
+      <div class="advisor-name" style="color:#c4b5fd">Beats</div>
+      <div class="advisor-domain">Musical Partner & Mentor · Rick Beato model</div>
+      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+        <span class="badge badge-pink">Slack DM</span>
+        <span class="badge badge-cyan">SideKick (priority 4)</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">Theory, learning, playing, expanding musically. Mentor not peer. Knowledge base (Beato catalog) Sprint 19.</div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#f59e0b44">
+      <div class="advisor-name" style="color:#fbbf24">Coach</div>
+      <div class="advisor-domain">Health & Performance · Workouts · Nutrition · Wellness</div>
+      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+        <span class="badge badge-pink">Slack DM</span>
+        <span class="badge badge-cyan">SideKick (priority 5)</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">Tony Robbins + Chef + S&amp;C Coach. Meal plans, workouts, meditation, stretching. NOT medical (that's Doc).</div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#ec489944">
+      <div class="advisor-name" style="color:#f472b6">Creative</div>
+      <div class="advisor-domain">Creative Director · Visual Design · Brand · Marketing</div>
+      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+        <span class="badge badge-pink">Slack DM</span>
+        <span class="badge badge-yellow">Future Claude Design</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">Primary creative force. Visual/brand/marketing background. Functions (design, UI/UX, copy) report to her.</div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#3b82f644">
+      <div class="advisor-name" style="color:#60a5fa">Dev</div>
+      <div class="advisor-domain">Technical Director · Code · Software Engineering</div>
+      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+        <span class="badge badge-pink">Slack DM</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">Engineering counterpart to Creative. Functions (architect, lead dev, QA, data) report to Dev.</div>
+    </div>
+
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-title">Functions — Under Creative Director</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span class="badge badge-pink">Designer</span>
+        <span class="badge badge-pink">Graphic Designer</span>
+        <span class="badge badge-pink">Copywriter</span>
+        <span class="badge badge-pink">UI/UX</span>
+        <span class="badge badge-pink">Brand Strategist</span>
+      </div>
+      <p style="margin-top:10px;font-size:12px;color:#64748b">Invoked by Creative Director on demand. No DM, no SideKick, no persona relationship.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">Functions — Under Dev Director</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span class="badge badge-blue">Architect</span>
+        <span class="badge badge-blue">Lead Developer</span>
+        <span class="badge badge-blue">Data Engineer</span>
+        <span class="badge badge-blue">Test Engineer</span>
+        <span class="badge badge-blue">Researcher</span>
+        <span class="badge badge-blue">Product Manager</span>
+      </div>
+      <p style="margin-top:10px;font-size:12px;color:#64748b">Invoked by Dev Director on demand. No DM, no SideKick, no persona relationship.</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;border-color:#64748b30">
+    <div class="card-title">Retired</div>
+    <div style="font-size:13px;color:#64748b"><strong style="color:#94a3b8">Biz</strong> — Retired. Analytical capability absorbed into KAI workflows. No genuine relationship requiring a council seat. Business strategy as needed via KAI tools and existing advisors.</div>
   </div>
 </div>
 
@@ -608,14 +816,14 @@
         <div style="margin-top:8px"><span class="badge badge-green">Works today</span></div>
       </div>
       <div style="background:#f59e0b08;border:1px solid #f59e0b30;border-radius:10px;padding:14px">
-        <div style="font-size:12px;font-weight:700;color:#fbbf24;margin-bottom:6px">Siri Shortcut</div>
-        <div style="font-size:12px;color:#94a3b8;line-height:1.6">"Hey Siri, ask KAI…" → Siri STT (free) → POST /council/kai/chat → Siri reads response via Speak Text. Single-shot, hands-free. Multiple shortcuts: Ask KAI, Add to Lot, etc.</div>
-        <div style="margin-top:8px"><span class="badge badge-yellow">Sprint 9 — build needed</span></div>
+        <div style="font-size:12px;font-weight:700;color:#fbbf24;margin-bottom:6px">iOS Shortcut (Wispr → KAI)</div>
+        <div style="font-size:12px;color:#94a3b8;line-height:1.6">Dictate Text → POST to kai.sonicink.space/api/council/message → Extract reply → Speak Text (iOS native TTS). Hands-free car use. No server changes needed. Wispr Flow handles desktop dictation.</div>
+        <div style="margin-top:8px"><span class="badge badge-yellow">Sprint 15 — KAI-78 in Plane</span></div>
       </div>
       <div style="background:#8b5cf608;border:1px solid #8b5cf630;border-radius:10px;padding:14px">
         <div style="font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:6px">Full Voice Layer</div>
         <div style="font-size:12px;color:#94a3b8;line-height:1.6">True two-way audio conversation. Speak → whisper.cpp (local, free) → KAI → OpenAI TTS or Kokoro (local) → audio plays back. Web button or shortcut trigger.</div>
-        <div style="margin-top:8px"><span class="badge badge-yellow">Sprint 10/11</span></div>
+        <div style="margin-top:8px"><span class="badge badge-yellow">Deferred — after Sprint 17 accuracy proven</span></div>
       </div>
     </div>
     <div class="card-title" style="margin-bottom:10px">Voice Stack Options</div>
@@ -654,8 +862,8 @@
         <span class="badge badge-green"><span class="dot"></span> Live</span>
       </div>
       <div class="container-row">
-        <div><div class="container-name">Voice (Siri Shortcut)</div><div class="container-meta">Speak → KAI → spoken response</div></div>
-        <span class="badge badge-yellow">Sprint 9</span>
+        <div><div class="container-name">Voice (iOS Shortcut + Wispr)</div><div class="container-meta">Dictate → council API → Speak Text · Wispr Flow for desktop</div></div>
+        <span class="badge badge-yellow">Sprint 15 · KAI-78/79</span>
       </div>
       <div class="container-row">
         <div><div class="container-name">Beehiiv</div><div class="container-meta">Email marketing — API-first, KAI-friendly (planned)</div></div>
@@ -702,17 +910,27 @@
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <span style="width:8px;height:8px;border-radius:50%;background:#06b6d4;flex-shrink:0"></span>
         <div style="font-size:13px;font-weight:700;color:#22d3ee">Web Search — Tavily + Perplexity</div>
-        <span class="badge badge-yellow" style="margin-left:auto">Planned — Sprint 9</span>
+        <span class="badge badge-green" style="margin-left:auto">Tavily Live ✅</span>
       </div>
-      <div style="font-size:12px;color:#64748b;margin-bottom:8px">KAI has no live web awareness (knowledge cutoff mid-2025). Two-tier solution:</div>
-      <div style="font-size:11px;color:#94a3b8"><strong>Tavily:</strong> ~$0.01/search, no subscription → automated flows, morning brief enrichment</div>
-      <div style="font-size:11px;color:#94a3b8;margin-top:4px"><strong>Perplexity API:</strong> $20/month → on-demand deep research sessions</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px">KAI has web awareness via Tavily (live). Two-tier solution:</div>
+      <div style="font-size:11px;color:#94a3b8"><strong>Tavily:</strong> ~$0.01/search, live — web_search KAI tool active</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:4px"><strong>Perplexity API:</strong> $20/month → on-demand deep research sessions (planned)</div>
+    </div>
+    <div style="margin-top:12px;background:#6366f108;border:1px solid #6366f130;border-radius:10px;padding:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="width:8px;height:8px;border-radius:50%;background:#6366f1;flex-shrink:0"></span>
+        <div style="font-size:13px;font-weight:700;color:#a5b4fc">LiteLLM — Unified Model Router (Sprint 18)</div>
+        <span class="badge badge-yellow" style="margin-left:auto">Planned Sprint 18</span>
+      </div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px">Self-hosted proxy. Routes calls across Claude/GPT-4o/Gemini/100+ models. Per-advisor model defaults in config. Provider independence: swap model without code changes.</div>
+      <div style="font-size:11px;color:#94a3b8"><strong>Key rules:</strong> Model IDs in config (not hardcoded) · LangGraph unified tool schemas · Pure text system prompts · No provider-specific SDK calls in persona logic</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:4px"><strong>Visibility:</strong> LiteLLM dashboard for per-advisor cost + latency tracking</div>
     </div>
   </div>
 
-  <div class="card" style="margin-bottom:16px;border-color:#6366f130">
-    <div class="card-title">Complexity Routing — Planned Sprint 9</div>
-    <p style="margin-bottom:12px;font-size:13px;color:#94a3b8">Route by task complexity, not just by advisor. Reduces cost for simple tasks while preserving quality where it matters.</p>
+  <div class="card" style="margin-bottom:16px;border-color:#10b98140">
+    <div class="card-title">Complexity Routing — <span style="color:#34d399">Live ✅</span></div>
+    <p style="margin-bottom:12px;font-size:13px;color:#94a3b8">Route by task complexity, not just by advisor. Reduces cost for simple tasks while preserving quality where it matters. Live since Sprint 13. Sprint 15: signal precision improved — conditional deep signals (word-count gated), simple signals checked before conditional deep, word threshold raised to 8. 12/12 test cases passing.</p>
     <table>
       <tr><th>Task Type</th><th>Model</th><th>Reason</th></tr>
       <tr><td>Quick capture / simple ack</td><td><span class="badge badge-yellow">Local Ollama</span></td><td>Zero cost, instant — no cloud needed</td></tr>
@@ -748,7 +966,7 @@
       <tr><td>n8n workflow trigger</td><td><span class="badge badge-purple">Anthropic</span></td><td>claude-sonnet-4-6</td><td>Via KAI tool — Anthropic turn</td></tr>
       <tr><td>Ember chat (personal)</td><td><span class="badge badge-yellow">Ollama</span></td><td>qwen2.5:3b</td><td>Privacy-first — emotional data local</td></tr>
       <tr><td>Doc chat (health)</td><td><span class="badge badge-yellow">Ollama</span></td><td>qwen2.5:3b</td><td>Privacy-first — health data local</td></tr>
-      <tr><td>Beats, Sky, Roads, Coach, Biz</td><td><span class="badge badge-purple">Anthropic</span></td><td>claude-sonnet-4-6</td><td>Domain quality + nuance</td></tr>
+      <tr><td>Beats, Sky, Roads, Coach</td><td><span class="badge badge-purple">Anthropic</span></td><td>claude-sonnet-4-6</td><td>Domain quality + nuance</td></tr>
     </table>
   </div>
 
@@ -759,7 +977,7 @@
       <tr><td>KAI (Chief) + tools</td><td>Anthropic</td><td>claude-sonnet-4-6</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker API</td></tr>
       <tr><td>Ember chat</td><td>Ollama</td><td>qwen2.5:3b</td><td>$0</td><td>$0</td><td style="color:#10b981">100% local</td></tr>
       <tr><td>Doc chat</td><td>Ollama</td><td>qwen2.5:3b</td><td>$0</td><td>$0</td><td style="color:#10b981">100% local</td></tr>
-      <tr><td>Beats, Sky, Roads, Coach, Biz</td><td>Anthropic</td><td>claude-sonnet-4-6</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker</td></tr>
+      <tr><td>Beats, Sky, Roads, Coach</td><td>Anthropic</td><td>claude-sonnet-4-6</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker</td></tr>
       <tr><td>Specialist consultation</td><td>Anthropic</td><td>claude-sonnet-4-6</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker</td></tr>
       <tr><td>Simple tasks (planned)</td><td>Anthropic</td><td>haiku-4-5</td><td>$0.80/1M</td><td>$4/1M</td><td style="color:#10b981">On-worker</td></tr>
     </table>
@@ -772,6 +990,26 @@
   <div class="card" style="margin-bottom:16px;border-color:#10b98140">
     <div class="card-title">Privacy Architecture</div>
     <p>KAI is designed with a privacy-first, local-first architecture for sensitive data. Personal health, emotional, and financial data stays on the worker whenever possible.</p>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;border-color:#ef444440">
+    <div class="card-title" style="color:#f87171">Fort Knox — Ember &amp; Doc (Sprint 20 · GATED)</div>
+    <div style="font-size:13px;color:#94a3b8;margin-bottom:12px;line-height:1.7">Sprint 20 is gated on Leo's explicit sign-off of the full privacy design. <strong style="color:#f87171">No build before design is approved.</strong></div>
+    <div class="grid grid-2">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:8px">Fort Knox Components</div>
+        <div class="privacy-row"><span class="badge badge-red" style="flex-shrink:0">Isolation</span><span style="font-size:12px;color:#94a3b8">Ember + Doc in separate Docker containers with encrypted volumes</span></div>
+        <div class="privacy-row"><span class="badge badge-red" style="flex-shrink:0">CAST.md</span><span style="font-size:12px;color:#94a3b8">Anonymization layer strips/replaces PII before any API call</span></div>
+        <div class="privacy-row"><span class="badge badge-red" style="flex-shrink:0">Tailscale-only</span><span style="font-size:12px;color:#94a3b8">No Cloudflare tunnel endpoint for Ember or Doc — private network only</span></div>
+        <div class="privacy-row"><span class="badge badge-red" style="flex-shrink:0">Vault sep.</span><span style="font-size:12px;color:#94a3b8">~/vault/ember/ and ~/vault/doc/ never sync with KAI vault — no crossover</span></div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:8px">Wellness Signal Bus (KAI ↔ Ember/Doc)</div>
+        <div class="privacy-row"><span class="badge badge-yellow" style="flex-shrink:0">Signals only</span><span style="font-size:12px;color:#94a3b8">KAI receives signals (stress_level=high, focus_ok=true) — never raw health data</span></div>
+        <div class="privacy-row"><span class="badge badge-yellow" style="flex-shrink:0">KAI → Ember</span><span style="font-size:12px;color:#94a3b8">KAI can send: heavy_week=true (from calendar load). Ember adjusts tone.</span></div>
+        <div class="privacy-row"><span class="badge badge-yellow" style="flex-shrink:0">Design first</span><span style="font-size:12px;color:#94a3b8">Full architecture doc in vault/00_System/FORT_KNOX_ARCHITECTURE.md before build</span></div>
+      </div>
+    </div>
   </div>
 
   <div class="grid grid-2" style="margin-bottom:16px">
@@ -820,6 +1058,8 @@
       <tr><td>Email content</td><td>Not stored — fetched on request</td><td style="color:#fbbf24">Yes — Google</td><td style="color:#fbbf24">Google</td></tr>
       <tr><td>Slack messages</td><td>vault history + Slack servers</td><td style="color:#fbbf24">Yes — Slack</td><td style="color:#fbbf24">Slack</td></tr>
       <tr><td>Projects/tasks</td><td>vault + Todoist</td><td style="color:#fbbf24">Yes — Todoist</td><td style="color:#fbbf24">Todoist</td></tr>
+      <tr><td>Vault sync (Syncthing)</td><td>~/vault/ → iCloud/BRAIN/KAI-SYSTEM/</td><td style="color:#fbbf24">Yes — iCloud</td><td style="color:#fbbf24">Apple iCloud</td></tr>
+      <tr><td>Oura health data</td><td>Not stored — fetched live each morning</td><td style="color:#fbbf24">Yes — Oura API</td><td style="color:#fbbf24">Oura Health</td></tr>
     </table>
   </div>
 </div>
@@ -867,110 +1107,159 @@
 <div id="panel-roadmap" class="panel">
   <div class="grid grid-2" style="margin-bottom:16px">
     <div>
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#34d399;margin-bottom:10px">✅ Complete</div>
-      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 1-2</strong> — Visual redesign, ChatWidget, vault-backed workflows, KAI tool-use loop, JARVIS DNA</div>
-      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 3</strong> — Harmony editor, Project Profile, Today widgets</div>
-      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 4</strong> — 13 KAI tools, Google Calendar via n8n, token tracking, email routing</div>
-      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 5</strong> — Sky + Roads, 6 Slack accounts, project channels, advisor identity overrides</div>
-      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 6</strong> — Knowledge layer: session summaries, decisions vault, Knowledge page</div>
-      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 7</strong> — Gmail read + draft, n8n trigger tool, 10 specialist personas, multi-model architecture, Ollama container live</div>
-      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 7.5</strong> — Performance &amp; Models page: all-models catalog, health+speed per model, function routing map, benchmark runner, hourly/daily/weekly/monthly usage. Chat model dot indicator. qwen2.5:3b replaces llama3.2 (3x faster on CPU).</div>
-      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 8</strong> — Telegram integration (@Kai_sonicink_bot, long polling). Morning brief at 7AM. Slack T2 approval gate (✅/❌ reaction). T2 queue API. iOS Parking Lot shortcut confirmed. KEYSTONE.md + contacts registry + v1 project templates. Full project setup pipeline (vault + Slack channel in one command). 30 KAI tools total.</div>
-      <div class="card" style="border-color:#10b98140"><strong style="color:#34d399">Strategy Session 2026-04-19</strong> — Drop OpenAI (move Biz to Anthropic). Architecture: route by task type not advisor. Add web search (Tavily + Perplexity). Local-first hardware plan (Mac Mini M4). 7 system layers identified: Interface, AI Council, Knowledge, Action, Visualization, Learning/Teaching, Security, Data. CREATE AI project scoped. Beehiiv + Ayrshare selected for email + social.</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#34d399;margin-bottom:10px">✅ Complete — Sprints 1–15</div>
+      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprints 1–8</strong> — Foundation: visual redesign, tool-use loop, JARVIS DNA, 6 Slack advisor accounts, Gmail/Calendar via n8n, Telegram, Oura, T2 approval gate, KEYSTONE.md, 30 tools, project pipeline.</div>
+      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprints 9–12</strong> — Connections + Optimization: Tavily web search live, complexity routing live, ICS calendar feeds, morning brief timezone fix, Plane CE deployed (warm boot law), Syncthing vault ↔ iCloud, GitHub clean history.</div>
+      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 13</strong> — System Audit: 21 containers mapped, 44 tools documented, KAI-SYSTEM.md produced, architecture.html baseline, LSE Law established.</div>
+      <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 14</strong> — CHIEF Accountability: datetime injected into every prompt, CHIEF.md reporting rules (no premature claims), n8n/ollama healthchecks fixed, 5 n8n workflows built.</div>
+      <div class="card" style="border-color:#10b98140"><strong style="color:#34d399">Sprint 15</strong> — Memory + Routing + Morning Brief: cross-session memory injection live, complexity routing 12/12 passing, morning brief fixes (date, ICS, weather). <strong style="color:#fbbf24">MASTER_PLAN_v2 locked. All sprints 16–21 in Plane.</strong></div>
     </div>
+
     <div>
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#fbbf24;margin-bottom:10px">🔜 Planned</div>
-      <div class="card" style="margin-bottom:8px;border-color:#f59e0b40">
-        <strong style="color:#fbbf24">Sprint 9A — Connections</strong>
-        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:2">
-          <li>Complexity routing: Haiku/Sonnet/Opus by task type</li>
-          <li>Drop OpenAI from model_config.json → Anthropic-only cloud</li>
-          <li>Tavily web search tool</li>
-          <li>Google Contacts + Drive re-auth (People API + Drive API)</li>
-          <li>O365 calendar read-only (Revolt + Penn State)</li>
-          <li><strong>Siri Shortcut:</strong> "Hey Siri, ask KAI" → POST /council/kai/chat → Speak Text response. Multiple shortcuts: Ask KAI, Add to Parking Lot, Morning Status.</li>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#fbbf24;margin-bottom:10px">🔜 Active &amp; Planned</div>
+
+      <div class="card" style="margin-bottom:8px;border-color:#6366f140">
+        <strong style="color:#6366f1">Sprint 15 — Active (Accuracy + Stability)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>KAI-76 · Tailscale install (worker, Mac, iPhone)</li>
+          <li>KAI-77 · Webhook redeploy endpoint /api/admin/redeploy/{service}</li>
+          <li>KAI-78 · iOS Shortcut voice input (Wispr → council API → Speak Text)</li>
+          <li>KAI-79 · Wispr Flow desktop workflow documented</li>
+          <li>KAI-80 · Accuracy self-check block — 8 remaining personas</li>
+          <li>KAI-5c76 · JARVIS Style Guide + accuracy protocol in KAI persona</li>
+          <li>KAI-44d5 · Prompt caching on KEYSTONE.md</li>
+          <li>KAI-390a · list_tasks + complete_task tools</li>
+          <li>KAI-f2cc · Family calendar fix</li>
         </ul>
       </div>
+
       <div class="card" style="margin-bottom:8px;border-color:#f59e0b40">
-        <strong style="color:#fbbf24">Sprint 9B — Optimization</strong>
-        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:2">
-          <li>WordPress integration (content publishing)</li>
-          <li>Oura API (personal access token, health data to Doc)</li>
-          <li>T2 auto-execute on approval (Slack invite fires on ✅)</li>
-          <li>Mobile mode: iOS Shortcut sets mode=mobile → shorter responses</li>
-          <li>KEYSTONE compact split (300-token always-loaded version)</li>
+        <strong style="color:#fbbf24">Sprint 16 — KAI + Beats Persona Rebuild</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>KAI-81 · KAI full persona rewrite (JARVIS style)</li>
+          <li>KAI-82 · Morning brief JARVIS format redesign</li>
+          <li>KAI-83 · Beats persona rewrite (Rick Beato mentor)</li>
+          <li>KAI-84 · Morning brief parallel execution</li>
         </ul>
       </div>
+
       <div class="card" style="margin-bottom:8px;border-color:#f59e0b40">
-        <strong style="color:#fbbf24">Sprint 10 — Knowledge Brain + Voice Layer</strong>
-        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:2">
-          <li>Qdrant vector DB (local, semantic search across vault)</li>
-          <li>Embed all vault content + conversation history</li>
-          <li>KAI can semantically search: "what did I decide about X last month?"</li>
-          <li>Automated vault backup to iCloud</li>
-          <li><strong>Full voice layer:</strong> whisper.cpp (local STT) + OpenAI TTS or Kokoro (local TTS)</li>
-          <li>Web dashboard: mic button → speak → KAI responds in audio</li>
-          <li>iOS: Shortcut triggers full voice round-trip</li>
+        <strong style="color:#fbbf24">Sprint 17 — Full Council Rebuild + Trust Infrastructure</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>KAI-85 · Sky, Roads, Creative, Dev, Ember, Doc, Coach persona rewrites</li>
+          <li>KAI-86 · Persona drift detection (weekly probe)</li>
+          <li>KAI-87 · Trust incident log</li>
+          <li>KAI-88 · Golden test suite Phase 1 (50 tests)</li>
+          <li>KAI-89 · Agent tool allowlists per persona</li>
         </ul>
       </div>
+
+      <div class="card" style="margin-bottom:8px;border-color:#6366f140">
+        <strong style="color:#a5b4fc">Sprint 18 — LangGraph + LiteLLM + MCP (Architecture Foundation)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>KAI-683f · LangGraph migration (execute_tool refactor — first item, blocks rest)</li>
+          <li>KAI-90 · KAI MCP server</li>
+          <li>KAI-91 · LiteLLM unified model router</li>
+          <li>KAI-a270 · code-server (remote dev)</li>
+          <li>KAI-92 · Übersicht HUD widget</li>
+        </ul>
+        <div style="margin-top:8px;font-size:11px;color:#64748b">Pre-req: Sprint 17 complete. Provider independence: model IDs in config, not hardcoded.</div>
+      </div>
+
       <div class="card" style="margin-bottom:8px;border-color:#f59e0b40">
-        <strong style="color:#fbbf24">Sprint 11 — CREATE AI</strong>
-        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:2">
-          <li>Content creation platform — reusable across all brands</li>
-          <li>Podcast pipeline: audio → transcript → script → ElevenLabs → SoundCloud</li>
-          <li>Blog pipeline: brief → draft → WordPress publish</li>
-          <li>Social distribution: Ayrshare API → all platforms</li>
-          <li>First implementation: LaunchBox podcast + blog</li>
+        <strong style="color:#fbbf24">Sprint 19 — Knowledge Infrastructure + Automation</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>KAI-78ab · Watchdog automated checks</li>
+          <li>KAI-93 · Rate limiting + cost protection</li>
+          <li>KAI-94 · Golden test suite automated (weekly)</li>
+          <li>KAI-95 · Qdrant vector memory (per-advisor namespaces)</li>
+          <li>KAI-96 · Knowledge ingestion pipeline (YouTube + PDF + Markdown)</li>
+          <li>KAI-97 · Initial ingestion: Beato (Beats), gear manuals (Roads), Studio 71 (Sky)</li>
+          <li>KAI-98 · n8n expansion (5 workflows)</li>
+          <li>KAI-99 · Lightweight privacy mode routing</li>
         </ul>
       </div>
-      <div class="card" style="border-color:#f59e0b40">
-        <strong style="color:#fbbf24">Sprint 12+ — Proactive KAI</strong>
-        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:2">
-          <li>KAI initiates — not just responds</li>
-          <li>"You haven't podcasted this month — want me to get on it?"</li>
-          <li>Cross-advisor briefings (advisors work as a team)</li>
-          <li>Accountability loops (commitment tracking, weekly review)</li>
-          <li>Learning layer (AI landscape monitoring — surfaces new tools)</li>
-          <li>Security layer (Wazuh + UniFi integration)</li>
-          <li>Beehiiv email marketing integration</li>
-          <li>Shopify integration (summer 2026)</li>
+
+      <div class="card" style="margin-bottom:8px;border-color:#ef444440">
+        <strong style="color:#f87171">Sprint 20 — Fort Knox + Gear Knowledge (GATED)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>KAI-100 · Fort Knox design doc — <strong style="color:#f87171">Leo sign-off required before any build</strong></li>
+          <li>KAI-101 · Ember isolated container + CAST.md anonymization</li>
+          <li>KAI-102 · Doc isolated container + Tailscale-only</li>
+          <li>KAI-103 · KAI ↔ Ember/Doc wellness signal bus</li>
+          <li>KAI-104 · Sky + Roads gear knowledge base (SQLite)</li>
+          <li>KAI-105 · Gear vault + manual library in Qdrant</li>
+          <li>KAI-106 · Gear tools (LangGraph nodes)</li>
+          <li>KAI-107 · Sky + Roads persona gear grounding</li>
+        </ul>
+      </div>
+
+      <div class="card" style="border-color:#6366f140">
+        <strong style="color:#a5b4fc">Sprint 21 — Autonomy Tier 1 + Sub-Agent Architecture</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>KAI-108 · T1 email send (governed)</li>
+          <li>KAI-109 · T1 calendar create (governed)</li>
+          <li>KAI-110 · Redis event bus + proactive notifications</li>
+          <li>KAI-111 · Sub-agent morning brief (LangGraph parallel)</li>
+          <li>KAI-112 · Deep Research mode</li>
         </ul>
       </div>
     </div>
   </div>
+
   <div class="card">
-    <div class="card-title">Architectural Decisions — Locked In</div>
+    <div class="card-title">Architectural Decisions — Locked In (MASTER_PLAN_v2)</div>
     <div class="grid grid-2">
       <div>
         <div class="flow-step">
           <div class="flow-num" style="background:#10b981">1</div>
-          <div class="flow-text"><div class="flow-label">Anthropic-only cloud</div><div class="flow-desc">OpenAI dropped. Unified billing, better quality, simpler stack. Biz advisor moves to claude-sonnet-4-6.</div></div>
+          <div class="flow-text"><div class="flow-label">Anthropic-first cloud</div><div class="flow-desc">OpenAI dropped. Unified billing. Biz advisor retired — analytical capability is KAI workflow.</div></div>
         </div>
         <div class="flow-step">
           <div class="flow-num" style="background:#6366f1">2</div>
-          <div class="flow-text"><div class="flow-label">Route by task type, not advisor</div><div class="flow-desc">Haiku for simple, Sonnet for work, Opus for decisions. Complexity classifier on council API.</div></div>
+          <div class="flow-text"><div class="flow-label">Route by task type, not advisor</div><div class="flow-desc">Haiku for simple, Sonnet for work, Opus for deep decisions. Complexity classifier live.</div></div>
         </div>
         <div class="flow-step">
           <div class="flow-num" style="background:#ec4899">3</div>
-          <div class="flow-text"><div class="flow-label">Local-first for privacy advisors</div><div class="flow-desc">Ember + Doc always local. Mac Mini M4 is the hardware upgrade path for better local models.</div></div>
+          <div class="flow-text"><div class="flow-label">Local-first for privacy advisors</div><div class="flow-desc">Ember + Doc on Ollama now. Fort Knox (Sprint 20): container isolation + CAST.md + Tailscale-only.</div></div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num" style="background:#f59e0b">4</div>
+          <div class="flow-text"><div class="flow-label">LangGraph in Sprint 18 — not before</div><div class="flow-desc">Sprints 15–17 (accuracy/stability/tone) are independent of orchestration. LangGraph = execute_tool monolith refactor. Same work — do together.</div></div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num" style="background:#3b82f6">5</div>
+          <div class="flow-text"><div class="flow-label">LiteLLM unified model router (Sprint 18)</div><div class="flow-desc">Self-hosted proxy. Per-advisor model defaults. Provider independence: model IDs in config, not hardcoded. Dashboard for cost/latency visibility.</div></div>
+        </div>
+        <div class="flow-step" style="margin-bottom:0">
+          <div class="flow-num" style="background:#8b5cf6">6</div>
+          <div class="flow-text"><div class="flow-label">Two-layer data model</div><div class="flow-desc">SQLite (structured facts: gear inventory, health data, exact queries) + Qdrant (unstructured: manuals, transcripts, semantic search). Never raw file search.</div></div>
         </div>
       </div>
       <div>
         <div class="flow-step">
-          <div class="flow-num" style="background:#f59e0b">4</div>
-          <div class="flow-text"><div class="flow-label">Web search as a layer</div><div class="flow-desc">Tavily for automated flows ($0.01/search). Perplexity for on-demand deep research ($20/month).</div></div>
+          <div class="flow-num" style="background:#06b6d4">7</div>
+          <div class="flow-text"><div class="flow-label">Per-advisor Qdrant namespaces</div><div class="flow-desc">beats_knowledge, roads_knowledge, sky_knowledge, doc_knowledge, ember_knowledge, coach_knowledge. Separate collections, separate ingestion pipelines.</div></div>
         </div>
         <div class="flow-step">
-          <div class="flow-num" style="background:#3b82f6">5</div>
-          <div class="flow-text"><div class="flow-label">Gray-area query depth</div><div class="flow-desc">Three modes: Fetch (just do it), Understand First (ask 1–2 questions), Process (multi-step workflow). Life is lived in the gray — KAI must understand the question, not just look for keywords.</div></div>
+          <div class="flow-num" style="background:#10b981">8</div>
+          <div class="flow-text"><div class="flow-label">Knowledge ingestion pipeline</div><div class="flow-desc">ingest.py --advisor --source [youtube|pdf|markdown]. YouTube transcript API → chunk → embed → Qdrant. Not raw file search.</div></div>
         </div>
         <div class="flow-step">
-          <div class="flow-num" style="background:#8b5cf6">6</div>
-          <div class="flow-text"><div class="flow-label">Slack bidirectional logging</div><div class="flow-desc">Leo's messages in Slack aren't captured in vault history — only AI replies. Full bidirectional logging is a future improvement for complete records.</div></div>
+          <div class="flow-num" style="background:#64748b">9</div>
+          <div class="flow-text"><div class="flow-label">NotebookLM: Leo's tool, not KAI infra</div><div class="flow-desc">No API. Leo synthesizes content in NotebookLM, exports to Obsidian vault, KAI ingests via pipeline. Separate concerns.</div></div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num" style="background:#ef4444">10</div>
+          <div class="flow-text"><div class="flow-label">Fort Knox gated on Leo sign-off</div><div class="flow-desc">Sprint 20 Ember + Doc privacy architecture must be designed, documented, and Leo signs off before any build begins. No exceptions.</div></div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num" style="background:#6366f1">11</div>
+          <div class="flow-text"><div class="flow-label">Council vs Functions rule</div><div class="flow-desc">Council = DM-able personas with relationships. Functions = roles under a director. SideKick configurable per council member. Priority: Sky→Roads→Ember→Beats→Coach.</div></div>
         </div>
         <div class="flow-step" style="margin-bottom:0">
-          <div class="flow-num" style="background:#6366f1">7</div>
-          <div class="flow-text"><div class="flow-label">Voice stack: whisper.cpp + OpenAI TTS</div><div class="flow-desc">STT: local whisper.cpp (free, API quality). TTS: OpenAI TTS API (~$0.01/response) or Kokoro local (free). Wispr Flow covers quality dictation at any screen today at zero build cost. Siri Shortcut covers hands-free. Full two-way audio is Sprint 10.</div></div>
+          <div class="flow-num" style="background:#f59e0b">12</div>
+          <div class="flow-text"><div class="flow-label">ElevenLabs TTS deferred</div><div class="flow-desc">Audio amplifies what's underneath. Build only after Sprints 15–17 prove accuracy and tone are solid. iOS Shortcut + Wispr Flow cover voice input today.</div></div>
         </div>
       </div>
     </div>
@@ -978,7 +1267,6 @@
 </div>
 
 </div><!-- /content -->
-
 <script>
 function show(tab) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'))

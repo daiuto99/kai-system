@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from datetime import datetime as _dt2, date as _d2
+from datetime import datetime as _dt2, date as _d2, timedelta as _td2
 from pathlib import Path
 import httpx
 from council_config import WORKER_URL, VAULT_PATH, ADVISOR_AVATARS, _slack_token
@@ -139,6 +139,13 @@ def execute_tool(tool_name: str, tool_input: dict, advisor: str = "kai") -> dict
                 return r.json()
 
             # Tasks
+            elif tool_name == "list_tasks":
+                r = client.get(f"{WORKER_URL}/tasks")
+                return r.json()
+            elif tool_name == "complete_task":
+                task_id = tool_input["task_id"]
+                r = client.post(f"{WORKER_URL}/tasks/{task_id}/complete")
+                return r.json()
             elif tool_name == "create_task":
                 r = client.post(f"{WORKER_URL}/tasks", json=tool_input)
                 return r.json()
@@ -173,7 +180,7 @@ def execute_tool(tool_name: str, tool_input: dict, advisor: str = "kai") -> dict
                 if not token:
                     return {"error": "Slack token not configured"}
                 adv = tool_input.get("advisor", "kai")
-                channel = tool_input.get("channel", "ops")
+                channel = tool_input.get("channel", "kai")
                 if not channel.startswith("#"):
                     channel = f"#{channel}"
                 payload = {
@@ -234,8 +241,24 @@ def execute_tool(tool_name: str, tool_input: dict, advisor: str = "kai") -> dict
                                    json={"days": days}, timeout=15)
                     if r.status_code == 200:
                         for ev in r.json():
-                            ev["source"] = "Google"
-                            gcal_events.append(ev)
+                            start = ev.get("start", {})
+                            start_str = start.get("dateTime", start.get("date", "")) if isinstance(start, dict) else str(start)
+                            end = ev.get("end", {})
+                            end_str = end.get("dateTime", end.get("date", "")) if isinstance(end, dict) else str(end)
+                            _day = ""
+                            try:
+                                from zoneinfo import ZoneInfo as _ZI2
+                                _dt_parsed = _dt2.fromisoformat(start_str[:10])
+                                _day = _dt_parsed.strftime("%A")
+                            except Exception:
+                                pass
+                            gcal_events.append({
+                                "start": start_str[:16],
+                                "end": end_str[:16],
+                                "summary": ev.get("summary", ""),
+                                "source": "Google",
+                                "day_name": _day,
+                            })
                 except Exception:
                     pass
                 # ICS feeds (Revolt + PSU O365)
@@ -244,14 +267,21 @@ def execute_tool(tool_name: str, tool_input: dict, advisor: str = "kai") -> dict
                     r2 = client.get(f"{WORKER_URL}/calendar/ics", params={"days": days}, timeout=15)
                     if r2.status_code == 200:
                         for ev in r2.json().get("events", []):
-                            summary = ev.get("summary", "").strip()
+                            summary = ev.get("title", ev.get("summary", "")).strip()
                             if summary:
+                                _iday = ""
+                                try:
+                                    _idt_parsed = _dt2.fromisoformat(str(ev.get("start", ""))[:10])
+                                    _iday = _idt_parsed.strftime("%A")
+                                except Exception:
+                                    pass
                                 ics_events.append({
                                     "start": str(ev.get("start", ""))[:16],
                                     "end": str(ev.get("end", ""))[:16],
                                     "summary": summary,
                                     "calendar": ev.get("calendar", "ICS"),
                                     "source": "ICS",
+                                    "day_name": _iday,
                                 })
                 except Exception:
                     pass
@@ -263,7 +293,7 @@ def execute_tool(tool_name: str, tool_input: dict, advisor: str = "kai") -> dict
 
             # Knowledge
             elif tool_name == "save_session":
-                ch = tool_input.get("channel", "chief")
+                ch = tool_input.get("channel", "kai")
                 return _write_session_summary(
                     channel=ch,
                     title=tool_input["title"],
@@ -273,7 +303,7 @@ def execute_tool(tool_name: str, tool_input: dict, advisor: str = "kai") -> dict
                     context_note=tool_input.get("context", ""),
                 )
             elif tool_name == "log_decision":
-                ch = tool_input.get("channel", "chief")
+                ch = tool_input.get("channel", "kai")
                 return _write_decision(
                     channel=ch,
                     decision=tool_input["decision"],

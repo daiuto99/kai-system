@@ -1,5 +1,28 @@
 # KAI — State of the Union
-**Last updated: 2026-04-20 | v1.2.0**
+**Last updated: 2026-04-26 | v2.0.0**
+
+---
+
+## SESSION BRIEF
+Sprint 17 (Tailscale) up next. Sprint 15+16 complete 2026-04-26.
+
+Sprint 15+16 delivered:
+- Prompt caching live (cache_control on background_context)
+- list_tasks + complete_task tools deployed
+- Webhook redeploy endpoint live (/admin/redeploy/{service})
+- Family calendar bug fixed (n8n includes all Google-enabled calendars)
+- JARVIS Style Guide + Accuracy Protocol added to all 9 personas
+- iOS Shortcut + Wispr Flow voice setup docs written to vault
+- KAI persona: Chief to KAI, Trusted Confidant framing, JARVIS style
+- Beats persona: Rick Beato model, lead-with-hook principle
+- Morning brief: JARVIS format + parallel context fetching (concurrent.futures)
+
+Sprint 17: Tailscale security perimeter — replace Cloudflare Tunnel, all services behind Tailscale ACLs.
+Known issues: None active.
+
+---
+
+**Last updated: 2026-04-26 | v2.0.0**
 
 ---
 
@@ -219,6 +242,17 @@ Telegram @Kai_sonicink_bot (long polling in scheduler). Morning brief 7am Slack 
 
 ### ✅ Strategy Session (2026-04-19)
 Architecture decisions locked: Drop OpenAI as LLM (unified Anthropic billing). Route by task complexity not advisor (Haiku/Sonnet/Opus). Add Tavily + Perplexity for web awareness. Local-first hardware plan (Mac Mini M4 as Ollama server). 8 system layers defined (Interface, AI Council, Knowledge, Action, Visualization, Learning/Teaching, Security, Data). CREATE AI project scoped (podcast + blog pipeline, reusable across brands). Beehiiv + Ayrshare selected for email marketing + social scheduling. Voice stack decided: Wispr Flow now, Siri Shortcut Sprint 9A, full voice layer Sprint 10. Architecture HTML updated to v1.1.0.
+
+### ✅ Session 2026-04-25 — Integrations + Parking Lot + Date Fix
+- [x] Google Calendar OAuth re-authorized (fixed N8N_EDITOR_BASE_URL in docker-compose)
+- [x] Scheduler Slack alert: posts to #kai-system when calendar fetch fails silently
+- [x] calendarName propagated through n8n workflow (run-once-for-all with pairedItem index)
+- [x] Band calendar removed from ALLOWED set; iCloud family calendar registered as ICS feed
+- [x] Parking Lot full backend rewrite: URL resolution, OG metadata, HTML entity fix, article summarization, tags, backfill endpoint
+- [x] Parking Lot UI overhaul: compact 2-column grid, OG thumbnails, Ask KAI action, type filter, delete
+- [x] Permanent date/day-of-week fix: 14-day date map injected into every system prompt; day_name field decorated on every calendar event
+- [x] DevOps Watchdog Plane issue: added Tier 3 (hallucination/accuracy checking)
+- [x] Plane issues filed: KAI-54 (morning brief tone), family calendar bug, DevOps Watchdog, Security Watchdog, Dispatch arch discussion
 
 ### 🔜 Sprint 9A — Connections (in progress)
 - [x] Drop OpenAI from model_config.json → Anthropic-only cloud
