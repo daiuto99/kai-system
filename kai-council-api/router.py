@@ -11,7 +11,7 @@ from history import _append_history
 from insights import extract_and_strip_insights, append_insights_to_vault
 from knowledge_layer import _auto_summarize
 from execute_tool import execute_tool
-from providers import get_anthropic_client, _call_ollama, _call_openai
+from providers import get_anthropic_client, _call_ollama, _call_openai, _call_litellm
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -267,20 +267,20 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
             total_output_tokens = response.usage.output_tokens
             raw_reply = next((b.text for b in response.content if hasattr(b, "text")), "")
 
-    elif provider == "openai":
+    elif provider in ("openai", "litellm", "gemini"):
         try:
-            raw_reply, total_input_tokens, total_output_tokens = _call_openai(
+            raw_reply, total_input_tokens, total_output_tokens = _call_litellm(
                 model, system_prompt, messages
             )
         except Exception as oai_err:
-            logger.exception("openai fallback: %s", oai_err)
+            logger.exception("litellm fallback: %s", oai_err)
             fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-6")
             actual_provider = "anthropic"
             actual_model = fallback_model
             client = get_anthropic_client()
             response = client.messages.create(
                 model=fallback_model, max_tokens=2048,
-                system=system_prompt + f"\n\n[Note: OpenAI unavailable ({oai_err}), using Anthropic fallback]",
+                system=system_prompt + f"\n\n[Note: LiteLLM unavailable ({oai_err}), using Anthropic fallback]",
                 messages=messages,
             )
             total_input_tokens  = response.usage.input_tokens

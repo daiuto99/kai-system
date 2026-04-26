@@ -1,24 +1,21 @@
 # KAI — State of the Union
-**Last updated: 2026-04-26 | v2.0.0**
+**Last updated: 2026-04-26 | v2.1.0**
 
 ---
 
 ## SESSION BRIEF
-Sprint 17 (Tailscale) up next. Sprint 15+16 complete 2026-04-26.
+Sprint 18 complete 2026-04-26. Sprint 19 up next.
 
-Sprint 15+16 delivered:
-- Prompt caching live (cache_control on background_context)
-- list_tasks + complete_task tools deployed
-- Webhook redeploy endpoint live (/admin/redeploy/{service})
-- Family calendar bug fixed (n8n includes all Google-enabled calendars)
-- JARVIS Style Guide + Accuracy Protocol added to all 9 personas
-- iOS Shortcut + Wispr Flow voice setup docs written to vault
-- KAI persona: Chief to KAI, Trusted Confidant framing, JARVIS style
-- Beats persona: Rick Beato model, lead-with-hook principle
-- Morning brief: JARVIS format + parallel context fetching (concurrent.futures)
+Sprint 18 delivered:
+- execute_tool.py refactored: 500-line if/elif → dispatch registry pattern (TOOL_REGISTRY)
+- LiteLLM proxy live at port 4000 (OpenAI routing, Gemini slot ready)
+- router.py + providers.py: _call_litellm routes openai/litellm/gemini providers
+- code-server live at 100.78.94.80:8443 (Tailscale only, VS Code in browser)
+- All containers healthy: kai-council-api, kai-litellm, kai-code-server
 
-Sprint 17: Tailscale security perimeter — replace Cloudflare Tunnel, all services behind Tailscale ACLs.
-Known issues: None active.
+Sprint 19: iOS Shortcut (before west coast trip), Gemini key drop-in, OpenAI billing fix.
+Known issues: OpenAI key quota exceeded (billing action needed). Gemini key pending.
+Tailscale: 100.78.94.80:3001 (dashboard), :8443 (code-server), :4000 (LiteLLM).
 
 ---
 

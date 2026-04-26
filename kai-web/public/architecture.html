@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.0.0 · MASTER_PLAN_v2 locked · Sprint 15 active · 9 council members · KAI-76–112 in Plane · 2026-04-26</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.1.0 · MASTER_PLAN_v2 locked · Sprint 19 active · 9 council members · Tailscale live · LiteLLM live · 2026-04-26</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -1107,67 +1107,69 @@
 <div id="panel-roadmap" class="panel">
   <div class="grid grid-2" style="margin-bottom:16px">
     <div>
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#34d399;margin-bottom:10px">✅ Complete — Sprints 1–15</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#34d399;margin-bottom:10px">✅ Complete — Sprints 1–17</div>
       <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprints 1–8</strong> — Foundation: visual redesign, tool-use loop, JARVIS DNA, 6 Slack advisor accounts, Gmail/Calendar via n8n, Telegram, Oura, T2 approval gate, KEYSTONE.md, 30 tools, project pipeline.</div>
       <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprints 9–12</strong> — Connections + Optimization: Tavily web search live, complexity routing live, ICS calendar feeds, morning brief timezone fix, Plane CE deployed (warm boot law), Syncthing vault ↔ iCloud, GitHub clean history.</div>
       <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 13</strong> — System Audit: 21 containers mapped, 44 tools documented, KAI-SYSTEM.md produced, architecture.html baseline, LSE Law established.</div>
       <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 14</strong> — CHIEF Accountability: datetime injected into every prompt, CHIEF.md reporting rules (no premature claims), n8n/ollama healthchecks fixed, 5 n8n workflows built.</div>
-      <div class="card" style="border-color:#10b98140"><strong style="color:#34d399">Sprint 15</strong> — Memory + Routing + Morning Brief: cross-session memory injection live, complexity routing 12/12 passing, morning brief fixes (date, ICS, weather). <strong style="color:#fbbf24">MASTER_PLAN_v2 locked. All sprints 16–21 in Plane.</strong></div>
+      <div class="card" style="border-color:#10b98140"><strong style="color:#34d399">Sprint 15</strong> — Accuracy + Stability: prompt caching live (cache_control on background_context), list_tasks + complete_task tools, webhook redeploy endpoint (/admin/redeploy), family calendar fix, JARVIS Style Guide, accuracy protocol on all 9 personas, iOS Shortcut + Wispr Flow voice setup. <strong style="color:#fbbf24">MASTER_PLAN_v2 locked.</strong></div>
+      <div class="card" style="border-color:#10b98140"><strong style="color:#34d399">Sprint 16</strong> — Council Voice: KAI persona rewritten (Chief→KAI, Trusted Confidant framing, JARVIS style), Beats persona updated (Rick Beato model), morning brief JARVIS format + parallel context fetching (concurrent.futures, 5 sources).</div>
+      <div class="card" style="border-color:#10b98140"><strong style="color:#34d399">Sprint 17</strong> — Tailscale Security Perimeter: Tailscale Docker container (network_mode:host), Cloudflare Tunnel restricted to webhook-only (/api/github/webhook), dashboard moved to Tailscale 100.78.94.80:3001.</div>
+      <div class="card" style="border-color:#10b98140"><strong style="color:#34d399">Sprint 18</strong> — Multi-Model Infrastructure: execute_tool.py dispatch registry (18 handlers, 50+ tools, TOOL_REGISTRY), LiteLLM proxy on :4000 (OpenAI/Gemini routing), code-server on :8443 (VS Code in browser, Tailscale-only).</div>
     </div>
 
     <div>
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#fbbf24;margin-bottom:10px">🔜 Active &amp; Planned</div>
 
-      <div class="card" style="margin-bottom:8px;border-color:#6366f140">
-        <strong style="color:#6366f1">Sprint 15 — Active (Accuracy + Stability)</strong>
+      <div class="card" style="margin-bottom:8px;border-color:#10b98140">
+        <strong style="color:#34d399">Sprint 15 ✅ — Accuracy + Stability (Done)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>KAI-77 · Webhook redeploy endpoint ✅</li>
+          <li>KAI-78 · iOS Shortcut voice input ✅</li>
+          <li>KAI-79 · Wispr Flow desktop workflow documented ✅</li>
+          <li>KAI-80 · Accuracy self-check block — all 9 personas ✅</li>
+          <li>KAI-5c76 · JARVIS Style Guide + accuracy protocol ✅</li>
+          <li>KAI-44d5 · Prompt caching on background_context ✅</li>
+          <li>KAI-390a · list_tasks + complete_task tools ✅</li>
+          <li>KAI-f2cc · Family calendar fix ✅</li>
+          <li>KAI-76 · Tailscale → moved to Sprint 17</li>
+        </ul>
+      </div>
+
+      <div class="card" style="margin-bottom:8px;border-color:#10b98140">
+        <strong style="color:#34d399">Sprint 16 ✅ — Council Voice (Done)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>KAI-81 · KAI full persona rewrite — Chief→KAI, Trusted Confidant, JARVIS style ✅</li>
+          <li>KAI-82 · Morning brief JARVIS format redesign ✅</li>
+          <li>KAI-83 · Beats persona rewrite — Rick Beato mentor model ✅</li>
+          <li>KAI-84 · Morning brief parallel execution (concurrent.futures) ✅</li>
+        </ul>
+      </div>
+
+      <div class="card" style="margin-bottom:8px;border-color:#10b98140">
+        <strong style="color:#34d399">Sprint 17 ✅ — Tailscale Security Perimeter (Done)</strong>
         <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
           <li>KAI-76 · Tailscale install (worker, Mac, iPhone)</li>
-          <li>KAI-77 · Webhook redeploy endpoint /api/admin/redeploy/{service}</li>
-          <li>KAI-78 · iOS Shortcut voice input (Wispr → council API → Speak Text)</li>
-          <li>KAI-79 · Wispr Flow desktop workflow documented</li>
-          <li>KAI-80 · Accuracy self-check block — 8 remaining personas</li>
-          <li>KAI-5c76 · JARVIS Style Guide + accuracy protocol in KAI persona</li>
-          <li>KAI-44d5 · Prompt caching on KEYSTONE.md</li>
-          <li>KAI-390a · list_tasks + complete_task tools</li>
-          <li>KAI-f2cc · Family calendar fix</li>
+          <li>Replace Cloudflare Tunnel with Tailscale + nginx</li>
+          <li>All services behind Tailscale ACLs</li>
+          <li>Persona rewrites deferred → Sprint 18</li>
         </ul>
       </div>
 
-      <div class="card" style="margin-bottom:8px;border-color:#f59e0b40">
-        <strong style="color:#fbbf24">Sprint 16 — KAI + Beats Persona Rebuild</strong>
+      <div class="card" style="margin-bottom:8px;border-color:#10b98140">
+        <strong style="color:#34d399">Sprint 18 ✅ — Multi-Model Infrastructure (Done)</strong>
         <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
-          <li>KAI-81 · KAI full persona rewrite (JARVIS style)</li>
-          <li>KAI-82 · Morning brief JARVIS format redesign</li>
-          <li>KAI-83 · Beats persona rewrite (Rick Beato mentor)</li>
-          <li>KAI-84 · Morning brief parallel execution</li>
+          <li>KAI-683f · execute_tool dispatch registry — 18 handlers, TOOL_REGISTRY, 10-line dispatcher ✅</li>
+          <li>KAI-5b44 · LiteLLM proxy (:4000) — OpenAI routing live, Gemini slot ready ✅</li>
+          <li>KAI-a270 · code-server (:8443, Tailscale-only) — VS Code in browser ✅</li>
+          <li>KAI-90 · KAI MCP server → Sprint 19</li>
+          <li>KAI-92 · Übersicht HUD → Sprint 19</li>
         </ul>
-      </div>
-
-      <div class="card" style="margin-bottom:8px;border-color:#f59e0b40">
-        <strong style="color:#fbbf24">Sprint 17 — Full Council Rebuild + Trust Infrastructure</strong>
-        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
-          <li>KAI-85 · Sky, Roads, Creative, Dev, Ember, Doc, Coach persona rewrites</li>
-          <li>KAI-86 · Persona drift detection (weekly probe)</li>
-          <li>KAI-87 · Trust incident log</li>
-          <li>KAI-88 · Golden test suite Phase 1 (50 tests)</li>
-          <li>KAI-89 · Agent tool allowlists per persona</li>
-        </ul>
+        <div style="margin-top:8px;font-size:11px;color:#64748b">OpenAI key needs billing top-up. Gemini key pending.</div>
       </div>
 
       <div class="card" style="margin-bottom:8px;border-color:#6366f140">
-        <strong style="color:#a5b4fc">Sprint 18 — LangGraph + LiteLLM + MCP (Architecture Foundation)</strong>
-        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
-          <li>KAI-683f · LangGraph migration (execute_tool refactor — first item, blocks rest)</li>
-          <li>KAI-90 · KAI MCP server</li>
-          <li>KAI-91 · LiteLLM unified model router</li>
-          <li>KAI-a270 · code-server (remote dev)</li>
-          <li>KAI-92 · Übersicht HUD widget</li>
-        </ul>
-        <div style="margin-top:8px;font-size:11px;color:#64748b">Pre-req: Sprint 17 complete. Provider independence: model IDs in config, not hardcoded.</div>
-      </div>
-
-      <div class="card" style="margin-bottom:8px;border-color:#f59e0b40">
-        <strong style="color:#fbbf24">Sprint 19 — Knowledge Infrastructure + Automation</strong>
+        <strong style="color:#6366f1">Sprint 19 — Active (iOS Shortcut + Knowledge + Automation)</strong>
         <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
           <li>KAI-78ab · Watchdog automated checks</li>
           <li>KAI-93 · Rate limiting + cost protection</li>

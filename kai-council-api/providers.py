@@ -70,6 +70,35 @@ def _call_openai(model: str, system: str, messages: list, max_tokens: int = 2048
     return reply, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
 
 
+
+def _call_litellm(model: str, system: str, messages: list, max_tokens: int = 2048) -> tuple:
+    """Route non-Anthropic models through LiteLLM proxy. Returns (reply, input_tokens, output_tokens)."""
+    master_key_path = Path("/run/secrets/litellm_master_key")
+    master_key = master_key_path.read_text().strip() if master_key_path.exists() else os.environ.get("LITELLM_MASTER_KEY", "")
+
+    oai_msgs = []
+    if system:
+        oai_msgs.append({"role": "system", "content": system})
+    for m in messages:
+        if isinstance(m["content"], str):
+            oai_msgs.append({"role": m["role"], "content": m["content"]})
+
+    headers = {"Content-Type": "application/json"}
+    if master_key:
+        headers["Authorization"] = f"Bearer {master_key}"
+
+    with httpx.Client(timeout=60) as hc:
+        r = hc.post("http://kai-litellm:4000/v1/chat/completions",
+            headers=headers,
+            json={"model": model, "messages": oai_msgs, "max_tokens": max_tokens},
+        )
+    if r.status_code != 200:
+        raise RuntimeError(f"LiteLLM {r.status_code}: {r.text[:300]}")
+    data = r.json()
+    reply = data["choices"][0]["message"]["content"]
+    usage = data.get("usage", {})
+    return reply, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
+
 def _warmup_ollama(model: str = "llama3.2"):
     try:
         with httpx.Client(timeout=5) as hc:
