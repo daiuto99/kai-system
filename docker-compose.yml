@@ -79,6 +79,7 @@ services:
     restart: unless-stopped
     ports:
       - "3001:80"
+      - "8080:8080"
     depends_on:
       kai-worker-api:
         condition: service_healthy
@@ -177,10 +178,31 @@ services:
       retries: 5
       start_period: 60s
 
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: kai-tailscale
+    hostname: kai-worker
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - tailscale-data:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+      - /home/leo/kai-system/secrets:/secrets:ro
+    environment:
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_HOSTNAME=kai-worker
+      - TS_AUTHKEY=tskey-auth-k8EF5yZNxZ11CNTRL-jQ3ufRWS64ZGDdCbeyP64ZRhNuMTL5u94
+    restart: unless-stopped
+
 volumes:
   n8n_data:
   habitsync_data:
   ollama_data:
+  tailscale-data:
 
 secrets:
   anthropic_api_key:
