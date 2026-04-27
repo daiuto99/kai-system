@@ -1,227 +1,25 @@
 # KAI — State of the Union
-**Last updated: 2026-04-26 | v2.1.0**
+**Last updated: 2026-04-27 | v2.5.0**
 
 ---
 
 ## SESSION BRIEF
-Sprint 18 complete 2026-04-26. Sprint 19 up next.
+Sprint 20 complete 2026-04-27. The Team page redesigned, DevOps added, project file ingestion built.
 
-Sprint 18 delivered:
-- execute_tool.py refactored: 500-line if/elif → dispatch registry pattern (TOOL_REGISTRY)
-- LiteLLM proxy live at port 4000 (OpenAI routing, Gemini slot ready)
-- router.py + providers.py: _call_litellm routes openai/litellm/gemini providers
-- code-server live at 100.78.94.80:8443 (Tailscale only, VS Code in browser)
-- All containers healthy: kai-council-api, kai-litellm, kai-code-server
+Sprint 20 delivered:
+- Advisors page: photo-forward portrait cards, square aspect-ratio, row-drop detail panels
+- KAI hero card: navy background matched to avatar graphic, logo centered at 80%
+- DevOps: avatar, ADVISOR_META, HAS_ORG — fully integrated across dashboard and showcase
+- Showcase: DevOps added to card grid and relationship map
+- Project file ingestion: Slack file_shared events to vault to Qdrant via worker API
+- Project setup: Gmail draft invites for external collaborators via n8n
+- Watchdog: _check_with_retry() suppresses transient 502/503 spam
+- Commit: 68dfbb5
 
-Sprint 19: iOS Shortcut (before west coast trip), Gemini key drop-in, OpenAI billing fix.
-Known issues: OpenAI key quota exceeded (billing action needed). Gemini key pending.
+Next: JARVIS audit (Plane 97e88d6a, urgent), n8n expansion (5 workflows), knowledge population.
+Known issues: OpenAI key needs billing credits. Gemini key pending.
 Tailscale: 100.78.94.80:3001 (dashboard), :8443 (code-server), :4000 (LiteLLM).
 
----
-
-**Last updated: 2026-04-26 | v2.0.0**
-
----
-
-## What Is KAI?
-
-KAI is a personal AI chief of staff system — a JARVIS-style life OS for Leo's life and businesses. It is not a chatbot. It is an always-on command center that:
-
-- Maintains a unified view of projects, tasks, habits, health, and schedule
-- Houses a council of 8 specialized AI advisors (+ 10 specialist personas) each with a defined domain and persona
-- Executes internal operations autonomously and routes external actions through a tiered approval flow
-- Loads a permanent KEYSTONE.md into every advisor every session — eliminating repeated context questions
-- Surfaces everything through a custom dashboard (`kai.sonicink.space`), Slack, Telegram, and iOS Shortcut
-
-The design philosophy is JARVIS DNA: KAI never says "I can't." The answer is always the path — what's blocking, what we'd need, how to build it. KAI understands the gray area — queries route by depth (Fetch / Understand First / Process), not just by advisor.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Web frontend | React + Vite, nginx, dark theme (Encore design language) |
-| Worker API | FastAPI (Python), Docker |
-| Council AI API | FastAPI (Python), Anthropic SDK, Docker |
-| Slack integration | slack-bolt (Python), Socket Mode, Docker — T2 reaction gate live |
-| Automation engine | n8n 2.16.0, Docker |
-| Scheduler | Python — morning brief 7am + Telegram long polling |
-| Tunnel | Cloudflare Tunnel (cloudflared) |
-| Email routing | Cloudflare Email Routing (inbound) + Resend.com (outbound) |
-| Habits sync | HabitSync (Docker, jofoerster/habitsync) |
-| Infrastructure | Ubuntu 22.04 Linux worker, Docker Compose v5.1.2 |
-| AI models | Anthropic-only cloud (claude-sonnet-4-6) + Ollama local (qwen2.5:3b) |
-| Local AI | Ollama — runs on worker, zero cost, fully private — Doc + Ember |
-| Model config | Per-advisor, live-changeable via dashboard Models page or KAI chat |
-| Voice input (today) | Wispr Flow — system-wide dictation, works on all KAI surfaces |
-
----
-
-## What Runs Where
-
-### Linux Worker — `192.168.68.30`
-
-| Container | Port | Purpose | Status |
-|---|---|---|---|
-| `kai-worker-api` | 8001 | All data APIs — vault, projects, tasks, habits, harmony, calendar, email, contacts, templates, T2 queue, Telegram handler | ✅ Healthy |
-| `kai-council-api` | 8002 | AI conversation engine — routes messages to advisors, 30-tool agentic loop, KEYSTONE context | ✅ Healthy |
-| `kai-slack-bot` | — | Slack Socket Mode — advisor identity overrides, T2 ✅/❌ reaction gate | ✅ Live |
-| `kai-web` | 3001→80 | React dashboard — nginx, proxies /api/ → worker, /council/ → council | ✅ Live |
-| `kai-n8n` | 5678 | n8n — Google Calendar + Gmail OAuth + webhooks | ✅ Live |
-| `kai-ollama` | 11434 | Ollama local AI — qwen2.5:3b for Doc + Ember (privacy-first) | ✅ Active |
-| `kai-habitsync` | 6842 | Todoist → local habits sync | ✅ Live |
-| `kai-scheduler` | — | Morning brief 7am Slack DM + Telegram long polling | ✅ Live |
-| `cloudflare-tunnel` | — | Routes public domains → containers | ✅ Live |
-
-### Public Endpoints
-| URL | Routes to |
-|---|---|
-| `kai.sonicink.space` | kai-web:80 (nginx basic auth) |
-| `n8n.sonicink.space` | kai-n8n:5678 |
-| `habits.sonicink.space` | kai-habitsync:6842 |
-
----
-
-## AI Models — Anthropic-First, Local for Privacy
-
-OpenAI has been dropped in favor of a unified Anthropic cloud stack. Cleaner billing, better quality, less complexity.
-
-| Advisor | Provider | Model | Reason |
-|---|---|---|---|
-| KAI (chief) | Anthropic | claude-sonnet-4-6 | Tool-use loop — must stay Anthropic |
-| Ember | Ollama local | qwen2.5:3b | Privacy-first — personal/emotional data never leaves worker |
-| Doc | Ollama local | qwen2.5:3b | Privacy-first — health data never leaves worker |
-| Beats, Sky, Roads, Coach | Anthropic | claude-sonnet-4-6 | Domain depth |
-| Biz | Anthropic | claude-sonnet-4-6 | Unified billing — OpenAI dropped |
-
-**Complexity routing (Sprint 9A — in progress):**
-- Haiku 4.5 → simple tasks, quick acks, standard chat
-- Sonnet 4.6 → standard work, content creation, strategy
-- Opus 4.6 → deep decisions (sparingly)
-- Local Ollama → always for Ember/Doc (privacy), and for zero-cost captures
-
-**Web search (Sprint 9A — in progress):**
-- Tavily (~$0.01/search) → automated flows, morning brief enrichment
-- Perplexity API ($20/month) → on-demand deep research
-
-**Voice stack (Sprint 9A → Sprint 10):**
-- STT: whisper.cpp local (free, identical to OpenAI API quality) — Sprint 10
-- TTS: OpenAI TTS API (~$0.01/response) or Kokoro local (free) — Sprint 10
-- Siri Shortcut (hands-free → KAI → Speak Text) — Sprint 9A
-- Wispr Flow (system-wide dictation, works on all surfaces today) — no build needed
-
----
-
-## The Vault
-
-The vault (`~/vault/` on the worker, Docker volume mount) is the single source of truth for all persistent data. Never version-controlled — survives all container rebuilds.
-
-```
-vault/
-  00_System/
-    KEYSTONE.md             — permanent truth doc: Leo's life, tools, businesses. Loaded by every advisor every session.
-    projects.json           — project list + status
-    checkin.json            — daily intention
-    ui_settings.json        — UI config (working-on, calendar URLs)
-    workflows.json          — dashboard command pill buttons
-    business_profile.md     — Leo's full business/life context (injected into every advisor)
-    token_usage.json        — daily + all-time token spend tracking
-    contacts.json           — contacts registry (name/alias/email/slack_id lookup)
-    t2_queue.json           — Slack T2 approval queue (pending actions)
-    model_config.json       — per-advisor model assignments (live-changeable)
-    model_benchmarks.json   — Ollama benchmark results
-    n8n_workflows.json      — n8n webhook registry
-    habits.json             — local habits data (synced from Todoist)
-    harmony.json            — harmony domain scores
-    templates/v1/           — versioned project templates (STATUS, BRIEF, DECISIONS, NOTES)
-  20_Projects/              — per-project vault directories (created by setup_project tool)
-  40_Harmony/               — harmony domain definitions
-  50_ParkingLot/            — captured items (.md files)
-  60_Council/
-    chief/CHIEF.md          — KAI persona (JARVIS DNA)
-    ember/EMBER.md          — Ember persona
-    beats/BEATS.md          — Beats persona
-    doc/DOC.md              — Doc persona
-    coach/COACH.md          — Coach persona
-    biz/BIZ.md              — Biz persona
-    sky/SKY.md              — Sky persona (Studio Assistant)
-    roads/ROADS.md          — Roads persona (Gear Guru / Roadie)
-    specialists/            — 10 specialist persona .md files
-    _history/               — conversation logs (.jsonl per channel)
-    sessions/               — session summaries (auto-generated after 10+ exchanges)
-    decisions/              — decision logs
-```
-
----
-
-## KEYSTONE.md — Permanent Context
-
-`vault/00_System/KEYSTONE.md` is loaded into every advisor's system prompt alongside `business_profile.md` on every session. It contains:
-
-- **Confirmed Facts** — things that must never be asked again (Apple Music not Spotify, Oura not Whoop, Shopify coming summer 2026, etc.)
-- **Who Leo Is** — identity, values, work style
-- **Businesses** — Encore, LaunchBox, Soul Collective, Revolt Group, Penn State role
-- **Confirmed Tech Stack** — every tool Leo actually uses
-- **How Leo Works** — communication preferences, decision style, gray-area query depth behavior
-- **What KAI Owns** — which tools KAI has access to
-- **Gaps to Fill** — marked ❓, the only valid reason to ask Leo a question already in scope
-
-**Rule:** If it's in KEYSTONE and not marked ❓, never ask again. When Leo provides new information, update KEYSTONE immediately.
-
----
-
-## KAI Tools (30 tools)
-
-KAI's agentic loop has access to 30 tools:
-
-| Category | Tools |
-|---|---|
-| Workflows | save_workflow, list_workflows, delete_workflow |
-| Tasks & Projects | create_task, create_project, update_project, list_projects, setup_project |
-| Vault | write_to_vault, read_vault |
-| Slack | send_slack_message, create_slack_channel, invite_to_slack_channel |
-| Contacts | lookup_contact, add_contact |
-| Templates | list_templates |
-| Calendar | get_calendar, create_event |
-| Email | read_email, draft_email |
-| n8n | trigger_n8n_workflow, list_n8n_workflows, register_n8n_workflow |
-| Knowledge | save_session, log_decision |
-| Specialists | list_specialists, consult_specialist |
-| T2 / Approval | request_t2_approval (planned Sprint 9A) |
-| Mission | start_mission, complete_mission, log_action |
-| Web Search | web_search (planned Sprint 9A — Tavily) |
-
----
-
-## Communication Channels
-
-| Channel | Status | Best For |
-|---|---|---|
-| Web Dashboard (kai.sonicink.space) | ✅ Live | Visual context, data, model config, all advisor chat |
-| Slack DMs (6 advisor accounts) | ✅ Live | Mobile, notifications, personal advisors |
-| Slack project channels | ✅ Live | Team brainstorming, project ops |
-| Telegram @Kai_sonicink_bot | ✅ Live | On-the-go quick messages, mobile capture |
-| iOS Shortcut → Parking Lot | ✅ Live | Quick capture from anywhere |
-| Morning Brief (7am Slack DM) | ✅ Live | Calendar + tasks + projects + intention → KAI summary |
-| Wispr Flow | ✅ Works today | Quality voice dictation at any KAI surface — no build needed |
-| Siri Shortcut | 🔜 Sprint 9A | Hands-free "Hey Siri, ask KAI" → spoken response |
-| Full voice layer (2-way audio) | 🔜 Sprint 10 | whisper.cpp STT + OpenAI TTS / Kokoro local |
-| Email (Gmail via n8n) | ✅ Live | Read + draft — never sends autonomously |
-
----
-
-## Governance — Tier Model
-
-| Tier | Gate | Examples |
-|---|---|---|
-| T1 — Autonomous | None | Vault writes, task creation, Slack posts, internal ops, read-only fetching |
-| T2 — Slack ✅ Reaction | Reaction approval | External comms, adding humans, anything that costs money, creating channels |
-| T3 — Typed Confirmation | Explicit typed approval | Sending email, permanent deletion, financial access |
-
-T2 queue is live: `vault/00_System/t2_queue.json`. ✅ reaction = approve, ❌ = reject.
-
----
 
 ## Sprint History
 
