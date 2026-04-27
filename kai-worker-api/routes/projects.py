@@ -18,6 +18,8 @@ router = APIRouter()
 PROJECTS_FILE = VAULT_PATH / "00_System" / "projects.json"
 PROJECTS_DIR  = VAULT_PATH / "20_Projects"
 TEMPLATES_PATH = VAULT_PATH / "00_System" / "templates"
+KAI_PROJECTS_FILE = VAULT_PATH / "00_System" / "kai_projects.json"
+N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
 
 
 def _parse_status_md(path: Path) -> dict:
@@ -76,6 +78,43 @@ def _contacts_load() -> list:
         return json.loads(contacts_file.read_text())
     return []
 
+
+
+
+def _write_project_registry(channel_id: str, channel_name: str, project_id: str, project_name: str, members: list):
+    registry = {}
+    if KAI_PROJECTS_FILE.exists():
+        try:
+            registry = json.loads(KAI_PROJECTS_FILE.read_text())
+        except Exception:
+            pass
+    registry[channel_id] = {
+        "channel_name": channel_name,
+        "project_id": project_id,
+        "project_name": project_name,
+        "created_at": _cdt.now().isoformat(),
+        "members": members,
+    }
+    KAI_PROJECTS_FILE.write_text(json.dumps(registry, indent=2))
+
+
+def _n8n_draft_email(to: str, subject: str, body: str) -> dict:
+    if not N8N_REGISTRY_FILE.exists():
+        return {"error": "n8n registry not found"}
+    try:
+        registry = json.loads(N8N_REGISTRY_FILE.read_text())
+    except Exception:
+        return {"error": "n8n registry unreadable"}
+    entry = registry.get("gmail-draft")
+    if not entry:
+        return {"error": "gmail-draft workflow not registered"}
+    webhook_url = entry["webhook_url"] if isinstance(entry, dict) else entry
+    try:
+        import httpx as _n8nhx
+        r = _n8nhx.post(webhook_url, json={"to": to, "subject": subject, "body": body}, timeout=30)
+        return {"ok": r.status_code == 200, "status": r.status_code}
+    except Exception as e:
+        return {"error": str(e)}
 
 @router.get("/projects")
 def get_projects_v2():
@@ -210,6 +249,8 @@ class ProjectSetupRequest(BaseModel):
     create_slack_channel: bool = True
     slack_channel_name: str = ""
     invite_contacts: list = []
+    external_invites: list = []
+    file_request_message: str = ""
     url: str = ""
 
 
@@ -326,6 +367,37 @@ def setup_project(req: ProjectSetupRequest):
             except Exception as e:
                 logger.exception("setup_project t2_queue: %s", e)
                 results["errors"].append(f"t2_queue: {e}")
+
+    # Gmail draft invitations for external (non-Slack) collaborators
+    if req.external_invites:
+        gmail_sent = []
+        gmail_errors = []
+        for invite in req.external_invites:
+            email = invite if isinstance(invite, str) else invite.get("email")
+            name = "" if isinstance(invite, str) else invite.get("name", "")
+            if not email:
+                continue
+            greeting = f"Hi {name}," if name else "Hi,"
+            file_note = f"\n\n{req.file_request_message}" if req.file_request_message else ""
+            body_text = (
+                f"{greeting}\n\nYou've been invited to collaborate on *{req.name}*."
+                f"\n\nPlease join the #{req.slack_channel_name or req.id} Slack channel "
+                f"where you can drop files and communicate with the team.{file_note}"
+                f"\n\n— KAI on behalf of Leo"
+            )
+            draft_result = _n8n_draft_email(
+                to=email,
+                subject=f"Invitation: {req.name} project",
+                body=body_text,
+            )
+            if draft_result.get("ok"):
+                gmail_sent.append(email)
+            else:
+                gmail_errors.append({"email": email, "error": draft_result.get("error", "unknown")})
+        if gmail_sent:
+            results["steps"].append({"step": "gmail_drafts", "status": "done", "sent_to": gmail_sent})
+        if gmail_errors:
+            results["errors"].extend([f"gmail_draft({e['email']}): {e['error']}" for e in gmail_errors])
 
     results["ok"] = len(results["errors"]) == 0
     return results
