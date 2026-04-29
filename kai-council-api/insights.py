@@ -15,6 +15,31 @@ INSIGHT_PATTERN = re.compile(
 )
 
 
+def strip_markdown(text: str) -> str:
+    """Remove markdown and emojis — all council output is plain prose."""
+    _EMOJI = re.compile(
+        r"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF"
+        r"\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF"
+        r"\U00002700-\U000027BF\U0001F900-\U0001F9FF"
+        r"\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF"
+        r"\U00002600-\U000026FF]+", re.UNICODE)
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\*{3}(.+?)\*{3}", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"\*{2}(.+?)\*{2}", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"\*(.+?)\*", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"_{2}(.+?)_{2}", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"_(.+?)_", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"`(.+?)`", r"\1", text)
+    text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^>\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)
+    text = _EMOJI.sub("", text)
+    text = re.sub(r" +", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def extract_and_strip_insights(text: str) -> tuple:
     """Extract [INSIGHT:...] tags from text, return (clean_text, insights_list)."""
     insights = []

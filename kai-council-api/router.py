@@ -4,7 +4,7 @@ import re
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 import httpx
-from council_config import ADVISOR_CHANNELS, WORKER_URL, _track_usage
+from council_config import ADVISOR_CHANNELS, WORKER_URL, _track_usage, _check_rate_limit
 from complexity import _classify_complexity, _get_advisor_config
 from persona import load_persona
 from history import _append_history
@@ -24,6 +24,7 @@ class MessageRequest(BaseModel):
     history: list = []
     thread_ts: str = ""
     attachments: list = []  # [{type, media_type, data (base64), filename}]
+    privacy_mode: bool = False
 
 
 class ContextUpdateRequest(BaseModel):
@@ -59,6 +60,12 @@ KAI_TOOLS = [
     {"name": "list_tasks", "description": "List Leo's tasks from Todoist — today's tasks and inbox. Use this before answering any question about what's on his plate, what's due, or how many tasks exist.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "complete_task", "description": "Mark a Todoist task as complete by its task ID.", "input_schema": {"type": "object", "properties": {"task_id": {"type": "string", "description": "The Todoist task ID to mark complete"}}, "required": ["task_id"]}},
     {"name": "create_task", "description": "Create a task in Todoist.", "input_schema": {"type": "object", "properties": {"content": {"type": "string"}, "due_date": {"type": "string"}, "priority": {"type": "integer"}, "description": {"type": "string"}}, "required": ["content"]}},
+    {"name": "update_task", "description": "Update an existing Todoist task — change its content, due date, or priority. Pass due_date as empty string to clear it.", "input_schema": {"type": "object", "properties": {"task_id": {"type": "string"}, "content": {"type": "string"}, "due_date": {"type": "string", "description": "ISO date YYYY-MM-DD or empty string to clear"}, "priority": {"type": "integer", "description": "1=urgent 2=high 3=medium 4=normal"}}, "required": ["task_id"]}},
+    {"name": "delete_task", "description": "Permanently delete a Todoist task by its ID.", "input_schema": {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]}},
+    {"name": "reschedule_task", "description": "Move a Todoist task to today or a specific date.", "input_schema": {"type": "object", "properties": {"task_id": {"type": "string"}, "due_date": {"type": "string", "description": "ISO date YYYY-MM-DD"}, "move_to_today": {"type": "boolean"}}, "required": ["task_id"]}},
+    {"name": "list_todoist_projects", "description": "List all Todoist projects.", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "create_todoist_project", "description": "Create a new project in Todoist.", "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+    {"name": "delete_todoist_project", "description": "Delete a Todoist project by ID. Use list_todoist_projects first to get the ID.", "input_schema": {"type": "object", "properties": {"project_id": {"type": "string"}}, "required": ["project_id"]}},
     {"name": "create_project", "description": "Create a new project in KAI.", "input_schema": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "description": {"type": "string"}, "status": {"type": "string", "enum": ["green","yellow","red"]}, "next": {"type": "string"}, "advisor": {"type": "string"}}, "required": ["id", "name", "description", "status"]}},
     {"name": "update_project", "description": "Update a project's status, next action, or milestone.", "input_schema": {"type": "object", "properties": {"id": {"type": "string"}, "status": {"type": "string"}, "next": {"type": "string"}, "milestone": {"type": "string"}, "milestone_pct": {"type": "integer"}}, "required": ["id"]}},
     {"name": "list_projects", "description": "List all current projects with their status.", "input_schema": {"type": "object", "properties": {}}},
@@ -72,6 +79,9 @@ KAI_TOOLS = [
     {"name": "create_event", "description": "Create a Google Calendar event.", "input_schema": {"type": "object", "properties": {"title": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"}, "description": {"type": "string"}, "location": {"type": "string"}, "calendar_id": {"type": "string"}}, "required": ["title", "start", "end"]}},
     {"name": "save_session", "description": "Save a structured summary of the current conversation session.", "input_schema": {"type": "object", "properties": {"title": {"type": "string"}, "topics": {"type": "array", "items": {"type": "string"}}, "decisions": {"type": "array", "items": {"type": "string"}}, "actions": {"type": "array", "items": {"type": "string"}}, "context": {"type": "string"}, "channel": {"type": "string"}}, "required": ["title", "topics"]}},
     {"name": "log_decision", "description": "Log a key decision to the decisions vault.", "input_schema": {"type": "object", "properties": {"decision": {"type": "string"}, "context": {"type": "string"}, "outcome": {"type": "string"}, "channel": {"type": "string"}}, "required": ["decision", "context"]}},
+    {"name": "ingest_knowledge", "description": "Ingest files from a knowledge folder into an advisor's memory. Use when Leo says he added notes, a new document, or wants to update what an advisor knows. Defaults to the current advisor's folder.", "input_schema": {"type": "object", "properties": {"advisor": {"type": "string", "description": "Which advisor collection to update (beats, sky, roads, ember, doc, kai, etc.)"}, "path": {"type": "string", "description": "Optional specific file or folder path to ingest. Defaults to ~/vault/60_Council/<advisor>/knowledge"}}, "required": []}},
+    {"name": "list_knowledge", "description": "List all advisor knowledge collections and how many items are in each.", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "clear_knowledge", "description": "Clear all vectors from an advisor knowledge collection. Use only when explicitly asked to wipe and rebuild.", "input_schema": {"type": "object", "properties": {"advisor": {"type": "string"}}, "required": ["advisor"]}},
     {"name": "trigger_n8n_workflow", "description": "Trigger an n8n workflow by name.", "input_schema": {"type": "object", "properties": {"workflow": {"type": "string"}, "payload": {"type": "object"}}, "required": ["workflow"]}},
     {"name": "list_n8n_workflows", "description": "List all registered n8n workflows KAI can trigger.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "register_n8n_workflow", "description": "Register a new n8n workflow webhook URL.", "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "webhook_url": {"type": "string"}, "description": {"type": "string"}}, "required": ["name", "webhook_url"]}},
@@ -79,7 +89,7 @@ KAI_TOOLS = [
     {"name": "consult_specialist", "description": "Consult a specialist persona for expert input.", "input_schema": {"type": "object", "properties": {"specialist": {"type": "string"}, "question": {"type": "string"}, "context": {"type": "string"}}, "required": ["specialist", "question"]}},
     {"name": "read_email", "description": "Read recent emails from Gmail.", "input_schema": {"type": "object", "properties": {"max_results": {"type": "integer"}, "query": {"type": "string"}}}},
     {"name": "draft_email", "description": "Create an email draft in Gmail.", "input_schema": {"type": "object", "properties": {"to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}}, "required": ["to", "subject", "body"]}},
-    {"name": "setup_project", "description": "Full project creation pipeline.", "input_schema": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "description": {"type": "string"}, "advisor": {"type": "string"}, "status": {"type": "string"}, "next": {"type": "string"}, "template_version": {"type": "string"}, "create_slack_channel": {"type": "boolean"}, "slack_channel_name": {"type": "string"}, "invite_contacts": {"type": "array", "items": {"type": "string"}}}, "required": ["id", "name"]}},
+    {"name": "setup_project", "description": "Full project creation pipeline: creates vault folder, Slack channel, Gmail drafts for external invitees. BEHAVIOR: (1) For any person mentioned, call lookup_contact first, then lookup_google_contact if not found — never ask Leo for an email you can resolve. (2) Default file upload location is Slack unless Leo says otherwise. (3) If both lookups return nothing, use whatever info Leo provided and proceed. Never ask for clarification — act and report.", "input_schema": {"type": "object", "properties": {"id": {"type": "string", "description": "short slug, e.g. project-x"}, "name": {"type": "string"}, "description": {"type": "string"}, "advisor": {"type": "string"}, "status": {"type": "string", "enum": ["green","yellow","red"]}, "next": {"type": "string"}, "create_slack_channel": {"type": "boolean", "default": True}, "slack_channel_name": {"type": "string"}, "invite_contacts": {"type": "array", "items": {"type": "string"}, "description": "Internal contacts by name or ID"}, "external_invites": {"type": "array", "items": {"type": "object", "properties": {"email": {"type": "string"}, "name": {"type": "string"}}, "required": ["email"]}, "description": "External collaborators — Gmail drafts sent to each"}, "file_request_message": {"type": "string", "description": "Message to include in invite and Slack welcome about file uploads. Default: drop files in the Slack channel."}}, "required": ["id", "name"]}},
     {"name": "create_slack_channel", "description": "Create a new Slack channel.", "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "private": {"type": "boolean"}}, "required": ["name"]}},
     {"name": "invite_to_slack_channel", "description": "Invite people to a Slack channel (Tier 2).", "input_schema": {"type": "object", "properties": {"channel": {"type": "string"}, "emails": {"type": "array", "items": {"type": "string"}}, "contact_names": {"type": "array", "items": {"type": "string"}}}, "required": ["channel"]}},
     {"name": "lookup_contact", "description": "Look up a person in the contacts registry.", "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
@@ -98,6 +108,45 @@ KAI_TOOLS = [
     {"name": "list_templates", "description": "List available project template versions.", "input_schema": {"type": "object", "properties": {}}},
 ]
 
+
+
+def _query_qdrant(query: str, advisor: str, top_k: int = 3) -> str:
+    """Embed query and search advisor Qdrant collection. Returns formatted context or empty string."""
+    try:
+        with httpx.Client(timeout=10) as hc:
+            r = hc.get(f"http://kai-qdrant:6333/collections/{advisor}")
+            if r.status_code != 200:
+                return ""
+            count = r.json().get("result", {}).get("points_count", 0)
+            if not count:
+                return ""
+            er = hc.post("http://kai-ollama:11434/api/embed",
+                json={"model": "nomic-embed-text", "input": query})
+            if er.status_code != 200:
+                return ""
+            vec = er.json().get("embeddings", [[]])[0]
+            if not vec:
+                return ""
+            sr = hc.post(f"http://kai-qdrant:6333/collections/{advisor}/points/search",
+                json={"vector": vec, "limit": top_k, "with_payload": True})
+            if sr.status_code != 200:
+                return ""
+            hits = sr.json().get("result", [])
+            if not hits:
+                return ""
+            parts = []
+            for h in hits:
+                score = h.get("score", 0)
+                if score < 0.5:
+                    continue
+                payload = h.get("payload", {})
+                title = payload.get("title", "")
+                text = payload.get("text", "")
+                parts.append("[" + title + "]\n" + text)
+            return "\n\n---\n\n".join(parts)
+    except Exception as e:
+        logger.warning("_query_qdrant failed: %s", e)
+        return ""
 
 def _handle_auto_capture(message: str, advisor: str) -> dict | None:
     """Returns CouncilResponse dict if auto-captured, else None."""
@@ -190,7 +239,17 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     if auto:
         return auto
 
+    # Rate limit check
+    rl = _check_rate_limit(advisor)
+    if rl["blocked"]:
+        return {"advisor": advisor, "channel": channel, "reply": rl["reason"],
+                "insights_logged": 0, "input_tokens": 0, "output_tokens": 0,
+                "provider": "rate-limit", "model": "rate-limit"}
+
     system_prompt = load_persona(advisor, channel)
+    qdrant_ctx = _query_qdrant(req.message, advisor, top_k=3)
+    if qdrant_ctx:
+        system_prompt += f"\n\n<knowledge_context>\n{qdrant_ctx}\n</knowledge_context>"
     messages = req.history[-10:]
     if req.attachments:
         import base64 as _b64
@@ -218,6 +277,10 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     total_output_tokens = 0
     raw_reply = ""
 
+    # Privacy mode: ember/doc always local, or explicit flag
+    PRIVACY_ADVISORS = {"ember", "doc"}
+    _force_privacy = advisor in PRIVACY_ADVISORS or req.privacy_mode
+
     # Determine provider/model with complexity routing
     complexity = _classify_complexity(req.message)
     if advisor == "kai":
@@ -235,6 +298,9 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
                 adv_cfg = dict(adv_cfg, model="claude-opus-4-6")
             elif complexity == "simple":
                 adv_cfg = dict(adv_cfg, model="claude-haiku-4-5-20251001")
+
+    if _force_privacy:
+        adv_cfg = {"provider": "ollama", "model": "qwen2.5:3b"}
 
     provider = adv_cfg.get("provider", "anthropic")
     model    = adv_cfg.get("model", "claude-sonnet-4-6")
@@ -254,6 +320,11 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
             )
         except Exception as ollama_err:
             logger.exception("ollama fallback: %s", ollama_err)
+            if _force_privacy:
+                return {"advisor": advisor, "channel": channel,
+                        "reply": "Privacy mode is active for this advisor — local model is required but currently unavailable. Please try again shortly.",
+                        "insights_logged": 0, "input_tokens": 0, "output_tokens": 0,
+                        "provider": "privacy-error", "model": model}
             fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-6")
             actual_provider = "anthropic"
             actual_model = fallback_model
@@ -299,6 +370,8 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
 
     # Log conversation history
     _append_history(channel, "user", req.message)
+    from insights import strip_markdown
+    clean_reply = strip_markdown(clean_reply)
     _append_history(channel, "assistant", clean_reply)
 
     # Track token usage
@@ -345,3 +418,22 @@ def get_context(advisor: str):
     if not context_file.exists():
         raise HTTPException(status_code=404, detail=f"Context not found for: {advisor}")
     return {"advisor": advisor, "content": context_file.read_text(encoding="utf-8")}
+
+
+@router.post("/council/ingest")
+def ingest_file_endpoint(body: dict):
+    """Called by worker API after saving a file to vault — runs ingest.py on the path."""
+    import subprocess, os
+    path = body.get("path")
+    advisor = body.get("advisor", "kai")
+    if not path:
+        raise HTTPException(status_code=400, detail="path required")
+    env = {**os.environ, "QDRANT_URL": "http://kai-qdrant:6333", "OLLAMA_URL": "http://kai-ollama:11434"}
+    result = subprocess.run(
+        ["python3", "/app/ingest.py", path, "--advisor", advisor],
+        capture_output=True, text=True, timeout=300, env=env
+    )
+    if result.returncode != 0:
+        return {"ok": False, "error": result.stderr[:500]}
+    lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
+    return {"ok": True, "advisor": advisor, "path": path, "summary": lines[-1] if lines else "done"}

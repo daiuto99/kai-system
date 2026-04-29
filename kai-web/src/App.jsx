@@ -11,6 +11,7 @@ import Settings from './pages/Settings'
 import Habits from './pages/Habits'
 import Knowledge from './pages/Knowledge'
 import Performance from './pages/Performance'
+import PlaneTasks from './pages/PlaneTasks'
 import Advisors from './pages/Advisors'
 import Wiki from './pages/Wiki'
 
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/more" element={<More />} />
         <Route path="/knowledge" element={<Knowledge />} />
         <Route path="/models" element={<Performance />} />
+        <Route path="/plane" element={<PlaneTasks />} />
         <Route path="/advisors" element={<Advisors />} />
         <Route path="/wiki" element={<Wiki />} />
       </Routes>

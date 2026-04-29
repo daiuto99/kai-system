@@ -36,6 +36,7 @@ export const ADVISORS = [
     role:    'Health & longevity',
     emoji:   '💊',
     color:   '#10B981',
+    avatar:  '/avatar-doc.png',
     intro:   'Longevity, optimization, everyday wellness.',
   },
   {
@@ -45,16 +46,8 @@ export const ADVISORS = [
     role:    'Performance & fitness',
     emoji:   '💪',
     color:   '#EAB308',
+    avatar:  '/avatar-coach.png',
     intro:   'Training, nutrition, mental performance.',
-  },
-  {
-    id:      'biz',
-    channel: 'biz',
-    name:    'Biz',
-    role:    'Business & strategy',
-    emoji:   '📊',
-    color:   '#A855F7',
-    intro:   'Strategy, finance, business decisions.',
   },
   {
     id:      'sky',

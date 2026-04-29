@@ -146,8 +146,40 @@ def get_projects_v2():
             "milestone_pct": status_data.get("milestone_pct", None),
             "updated":       str(status_data.get("updated", "")),
             "next":          status_data.get("next",         project.get("next", "")),
+            "type":          status_data.get("type",         project.get("type", "active")),
+            "pinned":        status_data.get("pinned",       project.get("pinned", False)),
         }
         result.append(entry)
+
+    # Auto-scan vault/20_Projects/ideas/ for projects not in projects.json
+    ideas_dir = PROJECTS_DIR / "ideas"
+    existing_ids = {r["id"] for r in result}
+    if ideas_dir.exists():
+        for folder in sorted(ideas_dir.iterdir()):
+            if not folder.is_dir():
+                continue
+            pid = folder.name.lower().replace(" ", "-").replace("_", "-")
+            if pid in existing_ids:
+                continue
+            status_data = {}
+            status_path = folder / "STATUS.md"
+            if status_path.exists():
+                status_data = _parse_status_md(status_path)
+            result.append({
+                "id":            pid,
+                "name":          status_data.get("name", folder.name),
+                "description":   status_data.get("description", ""),
+                "advisor":       status_data.get("advisor", "kai"),
+                "url":           status_data.get("url", ""),
+                "status":        status_data.get("status", "yellow"),
+                "version":       status_data.get("version", None),
+                "milestone":     status_data.get("milestone", ""),
+                "milestone_pct": status_data.get("milestone_pct", None),
+                "updated":       str(status_data.get("updated", "")),
+                "next":          status_data.get("next", ""),
+                "type":          status_data.get("type", "idea"),
+                "pinned":        status_data.get("pinned", False),
+            })
 
     return {"projects": result}
 
@@ -252,6 +284,7 @@ class ProjectSetupRequest(BaseModel):
     external_invites: list = []
     file_request_message: str = ""
     url: str = ""
+    plane_project: str = ""
 
 
 @router.post("/projects/setup")
@@ -285,6 +318,28 @@ def setup_project(req: ProjectSetupRequest):
     }
     proj_dir = VAULT_PATH / "20_Projects" / req.id
     proj_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write canonical STATUS.md (always, overwrite if format is wrong)
+    status_md = proj_dir / "STATUS.md"
+    if not status_md.exists():
+        status_content = f"""---
+name: {req.name}
+status: {req.status}
+type: active
+version: 0.1.0
+milestone: Phase 1 - Kickoff
+milestone_pct: 0
+updated: {today}
+next: {req.next or 'Define scope and goals'}
+pinned: false
+---
+"""
+        status_md.write_text(status_content)
+        results["steps"].append({{"step": "STATUS.md", "status": "done", "path": str(status_md)}})
+
+    # Warn if no Plane project code provided
+    if not req.plane_project:
+        results["steps"].append({{"step": "plane_project", "status": "warning", "note": "No plane_project code provided — create a Plane project and update STATUS.md"}})
 
     tpl_dir = TEMPLATES_PATH / req.template_version
     files_created = []

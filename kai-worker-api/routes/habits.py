@@ -1,7 +1,9 @@
 import logging
 from datetime import date as _d
 from fastapi import APIRouter, HTTPException
-from services.habitsync import get_habits as hs_get_habits, log_habit, unlog_habit
+import json, os
+from pydantic import BaseModel
+from services.habitsync import get_habits as hs_get_habits, log_habit, unlog_habit, create_habit as hs_create_habit
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,4 +36,47 @@ def uncomplete_habit(habit_id: str):
         return {"ok": True, "habit_id": habit_id, **result}
     except Exception as e:
         logger.exception("uncomplete_habit error: %s", e)
+        raise HTTPException(500, str(e))
+
+ICONS_PATH = "/vault/00_System/habit_icons.json"
+
+
+class HabitCreate(BaseModel):
+    name: str
+
+
+class IconsUpdate(BaseModel):
+    icons: dict
+
+
+@router.post("/habits")
+def create_habit_endpoint(body: HabitCreate):
+    try:
+        habit = hs_create_habit(body.name.strip())
+        return habit
+    except Exception as e:
+        logger.exception("create_habit error: %s", e)
+        raise HTTPException(500, str(e))
+
+
+@router.get("/habits/icons")
+def get_habit_icons():
+    try:
+        if os.path.exists(ICONS_PATH):
+            with open(ICONS_PATH) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+@router.put("/habits/icons")
+def put_habit_icons(body: IconsUpdate):
+    try:
+        os.makedirs(os.path.dirname(ICONS_PATH), exist_ok=True)
+        with open(ICONS_PATH, "w") as f:
+            json.dump(body.icons, f)
+        return {"ok": True}
+    except Exception as e:
+        logger.exception("put_habit_icons error: %s", e)
         raise HTTPException(500, str(e))

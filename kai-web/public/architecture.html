@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.1.0 · MASTER_PLAN_v2 locked · Sprint 19 active · 9 council members · Tailscale live · LiteLLM live · 2026-04-26</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.5.0 · MASTER_PLAN_v2 locked · Sprints 22/23/24 complete 2026-04-28 (Lot Inventory redesign, Tasks kanban DnD, KAI task tools, session close fix) · Next: untriaged nudge or top nav icons</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -270,7 +270,7 @@
         <span class="layer-item" style="background:#f59e0b20;color:#fbbf24">50_ParkingLot/</span>
         <span class="layer-item" style="background:#f59e0b20;color:#fbbf24">40_Harmony/</span>
         <span class="layer-item" style="background:#f59e0b20;color:#fbbf24">20_Projects/ (with v1 templates)</span>
-        <span class="layer-item" style="background:#f59e0b18;color:#64748b">Qdrant vector DB (planned)</span>
+        <span class="layer-item" style="background:#f59e0b18;color:#64748b">Qdrant vector DB ✅ (live Sprint 19b)</span>
       </div>
     </div>
     <div class="arrow">↓</div>
@@ -337,7 +337,7 @@
     <div class="sys-layer-icon">📚</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#fbbf24">Knowledge Layer</div>
-      <div class="sys-layer-desc">The "brain" — persistent memory that makes KAI smarter over time. Sprint 15: cross-session memory injection is live. Every conversation loads the last 2 session summaries + a rolling context.md into the system prompt. context.md auto-updates after every save_session call. Knowledge is now read back, not just written. Next: Qdrant vector DB for semantic search across all vault content.</div>
+      <div class="sys-layer-desc">The "brain" — persistent memory that makes KAI smarter over time. Sprint 15: cross-session memory injection is live. Every conversation loads the last 2 session summaries + a rolling context.md into the system prompt. context.md auto-updates after every save_session call. Knowledge is now read back, not just written. Qdrant vector DB live Sprint 19b. 9 collections, nomic-embed-text embeddings, knowledge context injected into council prompts. n8n expansion live ✅ Sprint 20 (KAI-98: 5 workflows — Calendar, Gmail, Morning Brief, Parking Lot, Slack). Knowledge base active ✅ Sprint 19c. Next: populate vault/60_Council/&lt;advisor&gt;/knowledge/ (KAI-97 ongoing).</div>
       <div class="sys-layer-status">
         <span class="badge badge-green">Vault (markdown) ✅</span>
         <span class="badge badge-green">Session summaries ✅</span>
@@ -345,8 +345,8 @@
         <span class="badge badge-green">KEYSTONE.md ✅</span>
         <span class="badge badge-green">Cross-session memory injection ✅ Sprint 15</span>
         <span class="badge badge-green">context.md auto-update ✅ Sprint 15</span>
-        <span class="badge badge-yellow">Qdrant vector DB — future</span>
-        <span class="badge badge-yellow">Semantic search — future</span>
+        <span class="badge badge-green">Qdrant vector DB ✅ Sprint 19b</span>
+        <span class="badge badge-green">Semantic search ✅ Sprint 19b</span>
       </div>
     </div>
   </div>
@@ -421,7 +421,7 @@
         <span class="badge badge-green">Architecture doc ✅</span>
         <span class="badge badge-green">KAI-SYSTEM.md ✅</span>
         <span class="badge badge-yellow">Encryption at rest — future</span>
-        <span class="badge badge-yellow">Qdrant vector DB — future</span>
+        <span class="badge badge-green">Qdrant vector DB ✅ Sprint 19b</span>
       </div>
     </div>
   </div>
@@ -920,7 +920,7 @@
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <span style="width:8px;height:8px;border-radius:50%;background:#6366f1;flex-shrink:0"></span>
         <div style="font-size:13px;font-weight:700;color:#a5b4fc">LiteLLM — Unified Model Router (Sprint 18)</div>
-        <span class="badge badge-yellow" style="margin-left:auto">Planned Sprint 18</span>
+        <span class="badge badge-green" style="margin-left:auto">Live ✅ Sprint 18</span>
       </div>
       <div style="font-size:12px;color:#64748b;margin-bottom:8px">Self-hosted proxy. Routes calls across Claude/GPT-4o/Gemini/100+ models. Per-advisor model defaults in config. Provider independence: swap model without code changes.</div>
       <div style="font-size:11px;color:#94a3b8"><strong>Key rules:</strong> Model IDs in config (not hardcoded) · LangGraph unified tool schemas · Pure text system prompts · No provider-specific SDK calls in persona logic</div>
@@ -1103,6 +1103,32 @@
   </div>
 </div>
 
+  <div class="card">
+    <div class="card-title">LSE Session Model — Claude Code Permission Architecture</div>
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">Three-layer session boundary. Sessions are context-isolated by directory. Cross-layer access is prohibited.</p>
+    <div class="tier" style="background:#6366f108;border-color:#6366f140">
+      <div class="tier-num" style="color:#a5b4fc">KAI</div>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#a5b4fc">Root Session (sonicink/)</div>
+        <div style="font-size:13px;color:#94a3b8;margin-top:4px">27 explicit Bash allows (ssh, git, python3, find, grep, curl, etc). SSH to worker. Full 9-step session close. auto_close.py at 95% context.</div>
+      </div>
+    </div>
+    <div class="tier" style="background:#10b98108;border-color:#10b98140">
+      <div class="tier-num" style="color:#34d399">PROJ</div>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#34d399">Project Session (sonicink/&lt;project&gt;/)</div>
+        <div style="font-size:13px;color:#94a3b8;margin-top:4px">Project-scoped toolchain only (no SSH to worker). Lightweight 4-step close via project_close.py: STATUS.md + vault session + git commit + Plane.</div>
+      </div>
+    </div>
+    <div class="tier" style="background:#ef444408;border-color:#ef444440">
+      <div class="tier-num" style="color:#f87171">LAW</div>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#f87171">Boundaries</div>
+        <div style="font-size:13px;color:#94a3b8;margin-top:4px">bypassPermissions = permanently removed. Bash(*) = never again. Project sessions never run KAI 9-step close. KAI session never runs from a project directory.</div>
+      </div>
+    </div>
+  </div>
+
 <!-- ROADMAP -->
 <div id="panel-roadmap" class="panel">
   <div class="grid grid-2" style="margin-bottom:16px">
@@ -1165,20 +1191,25 @@
           <li>KAI-90 · KAI MCP server → Sprint 19</li>
           <li>KAI-92 · Übersicht HUD → Sprint 19</li>
         </ul>
-        <div style="margin-top:8px;font-size:11px;color:#64748b">OpenAI key needs billing top-up. Gemini key pending.</div>
+        <div style="margin-top:8px;font-size:11px;color:#64748b">Gemini key pending.</div>
       </div>
 
       <div class="card" style="margin-bottom:8px;border-color:#6366f140">
-        <strong style="color:#6366f1">Sprint 19 — Active (iOS Shortcut + Knowledge + Automation)</strong>
+        <strong style="color:#34d399">Sprint 19 ✅ — Security, Observability &amp; Intelligence Layer (Done)</strong>
         <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
-          <li>KAI-78ab · Watchdog automated checks</li>
-          <li>KAI-93 · Rate limiting + cost protection</li>
-          <li>KAI-94 · Golden test suite automated (weekly)</li>
-          <li>KAI-95 · Qdrant vector memory (per-advisor namespaces)</li>
-          <li>KAI-96 · Knowledge ingestion pipeline (YouTube + PDF + Markdown)</li>
-          <li>KAI-97 · Initial ingestion: Beato (Beats), gear manuals (Roads), Studio 71 (Sky)</li>
-          <li>KAI-98 · n8n expansion (5 workflows)</li>
-          <li>KAI-99 · Lightweight privacy mode routing</li>
+          <li>iOS Shortcut build guide ✅</li>
+          <li>Full council rewrite — all 9 personas on JARVIS style ✅</li>
+          <li>Telegram PDF/file attachments ✅</li>
+          <li>KAI-63 · Watchdog functional health checks — kai-scheduler, every 30 min ✅</li>
+          <li>KAI-64 · Security watchdog — secret rotation, call spike, audit log ✅</li>
+          <li>KAI-93 · Rate limiting: $5/day + 50 calls/hr, Slack alert ✅</li>
+          <li>KAI-99 · Privacy routing: ember/doc → ollama/qwen2.5:3b, no cloud fallback ✅</li>
+          <li>KAI-95 · Qdrant vector memory — 9 collections live ✅</li>
+          <li>KAI-96 · Knowledge ingestion pipeline (ingest.py) ✅</li>
+          <li>KAI-98 · n8n expansion (5 workflows) ✅</li>
+          <li>KAI-90 · KAI MCP server — port 8003, 4 tools, JSON-RPC 2.0 ✅</li>
+          <li>KAI-92 · Übersicht HUD widget — second screen, /api/status endpoint ✅</li>
+          <li>KAI-97 · Full vault ingestion — Leo populating (ongoing)</li>
         </ul>
       </div>
 
@@ -1196,15 +1227,83 @@
         </ul>
       </div>
 
-      <div class="card" style="border-color:#6366f140">
-        <strong style="color:#a5b4fc">Sprint 21 — Autonomy Tier 1 + Sub-Agent Architecture</strong>
+      <div class="card" style="border-color:#10b98140;background:#10b98108">
+        <strong style="color:#6ee7b7">✅ Sprint 21 — JARVIS Audit + Persona Overhaul (complete 2026-04-28)</strong>
         <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
-          <li>KAI-108 · T1 email send (governed)</li>
-          <li>KAI-109 · T1 calendar create (governed)</li>
-          <li>KAI-110 · Redis event bus + proactive notifications</li>
-          <li>KAI-111 · Sub-agent morning brief (LangGraph parallel)</li>
-          <li>KAI-112 · Deep Research mode</li>
+          <li>KAI-148 · Context bug fix — frontend now sends history to backend</li>
+          <li>VOICE GOVERNANCE block added to all 11 persona files</li>
+          <li>JARVIS_STYLE_GUIDE.md v2.0 — injected via persona.py at every inference</li>
+          <li>Dev.md + Creative.md — full persona rewrites (board-level advisors)</li>
+          <li>Biz advisor fully removed (vault, advisors.js, style guide, KAI.md)</li>
+          <li>strip_markdown() wired into router.py — all replies stripped post-generation</li>
+          <li>build_context() — synthesis layer rewrite (14-day calendar, Oura 7-day trend, task framing)</li>
+          <li>Brief prompts — coffee patio / lunch walk / wine scene rewrites</li>
+          <li>Session context % widget — Stop hook → worker API → Today.jsx greeting line</li>
+          <li>KAI-149 (ONGOING) — JARVIS quality check as perpetual Plane task</li>
         </ul>
+      </div>
+
+      <div class="card" style="border-color:#6366f140">
+        <strong style="color:#6ee7b7">✅ Sprint 22 — Lot Inventory Redesign (complete 2026-04-28)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>Lot Inventory full redesign — 3-col triage board (New/Active/Later), intent + why_saved fields, review mode, filter bar</li><li>ParkingLot.jsx — 639 line rewrite, PATCH endpoint extended, status migration</li><li>Today page TasksWidget — DnD + 3-col (Today/Week/Backlog)</li>
+        </ul>
+
+      <div class="card" style="border-color:#10b98140;background:#10b98108">
+        <strong style="color:#6ee7b7">✅ Sprint 23 — Tasks Kanban + Drag-and-Drop (complete 2026-04-28)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>Tasks.jsx — full rebuild as 3-col kanban (Today / This Week / Backlog) with native HTML5 DnD</li>
+          <li>Today.jsx TasksWidget — replaced with matching DnD 3-col board</li>
+          <li>AddTask inline per column, complete + delete buttons on every card</li>
+          <li>moveTask() + optimistic state update on drop</li>
+        </ul>
+      </div>
+
+      <div class="card" style="border-color:#10b98140;background:#10b98108">
+        <strong style="color:#6ee7b7">✅ Sprint 24 — KAI Task + Project Tools (complete 2026-04-28)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>update_task, delete_task, reschedule_task tools in council API</li>
+          <li>list_todoist_projects, create_todoist_project, delete_todoist_project tools</li>
+          <li>Worker API: GET/POST/DELETE /tasks/projects endpoints</li>
+          <li>execute_tool.py + router.py updated — 6 new tools, 50 total</li>
+        </ul>
+      </div>
+
+      <div class="card" style="margin-bottom:8px;border-color:#10b98140">
+        <strong style="color:#34d399">Encore V1.1 — Startup Crash Fixes (complete 2026-04-28)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>Fixed ANR: CredentialManager.create() blocking main thread on startup — changed to lazy init in AuthRepositoryImpl</li>
+          <li>Fixed FATAL EXCEPTION: pullSongFromCloud() uncaught UNIQUE constraint (songs.user_id, title, artist) — try-catch added to all songDao.update() call sites</li>
+          <li>DB migration 9->10: deduplication removes older duplicate song rows</li>
+          <li>App stable on device. V1.1 all tracks complete. Smoke test + Track 6.1/6.2 backend proxy remain.</li>
+        </ul>
+      </div>
+
+      <div class="card" style="margin-bottom:8px;border-color:#10b98140;background:#10b98108">
+        <strong style="color:#6ee7b7">✅ Governance Rewrite — Claude Code Permission Model + LSE Session Architecture (complete 2026-04-28)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>Root cause: Bash(*) blanket allow + bypassPermissions = zero governance; Stop hook inherited by all subdirectory sessions</li>
+          <li>sonicink/.claude/settings.json — Bash(*) replaced with 27 explicit command allows. bypassPermissions permanently removed.</li>
+          <li>encore-native/.claude/settings.json — New file. Android toolchain only (Gradle, ADB, git). No SSH to worker.</li>
+          <li>scripts/check_context.py — Context-aware router: KAI root → full 9-step close, project subdir → 4-step project close, other → no-op</li>
+          <li>scripts/project_close.py — New. Lightweight 4-step project session close (STATUS.md + vault session + git commit + Plane)</li>
+          <li>CLAUDE.md full rewrite: same rules, zero contradictions, Project Model section added</li>
+          <li>worker routes/projects.py — setup_project: plane_project field + canonical STATUS.md written on setup</li>
+          <li>Rollback at .claude/ROLLBACK/2026-04-28/ with restore commands</li>
+        </ul>
+      </div>
+      
+      <div class="card" style="border-color:#10b98140">
+        <strong style="color:#6ee7b7">&#x2705; Sprint 25 — UI Polish Complete (2026-04-29)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>TopNav: icon-only buttons (34x34) with title tooltips — all 9 nav links + Capture + Architecture</li>
+          <li>Habits: + Add button + AddHabitModal — POST /api/habits proxies to HabitSync</li>
+          <li>Habits: icon persistence moved from localStorage to vault (/vault/00_System/habit_icons.json) via GET/PUT /api/habits/icons</li>
+          <li>Today: LotNudge widget — amber strip when untriaged Lot items exist, navigates to /parking-lot</li>
+          <li>Worker API: new endpoints — POST /habits, GET /habits/icons, PUT /habits/icons</li>
+          <li>Claude Code: Bash(docker *) + Bash(scp *) added to allow list; variable-assignment command pattern fixed</li>
+        </ul>
+      </div>
       </div>
     </div>
   </div>

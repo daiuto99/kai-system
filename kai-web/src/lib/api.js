@@ -27,6 +27,21 @@ async function post(url, body) {
   return r.json()
 }
 
+async function patch(url, body) {
+  const r = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error(`${r.status} ${url}`)
+  return r.json()
+}
+async function del(url) {
+  const r = await fetch(url, { method: 'DELETE' })
+  if (!r.ok) throw new Error(`${r.status} ${url}`)
+  return r.json()
+}
+
 export const api = {
   // Health
   health: () => get(`${BASE}/health`),
@@ -42,17 +57,22 @@ export const api = {
     post(`${BASE}/parking-lot/${slug}/route`, { advisor }),
   archiveCapture: (slug) =>
     post(`${BASE}/parking-lot/${slug}/archive`, {}),
+  deleteCapture: (slug) =>
+    del(`${BASE}/parking-lot/${slug}`),
   quickCapture: (text) =>
     post(`${BASE}/parking-lot/quick`, { text }),
+  enrichAll: () =>
+    post(`${BASE}/parking-lot/enrich-all`, {}),
+  patchCapture: (slug, data) =>
+    patch(`${BASE}/parking-lot/${slug}`, data),
 
   // Focus / Today
   getFocusBrief: () => get(`${BASE}/focus/today`),
   getTodayFocus: () => get(`${BASE}/focus/today`),
-  getTodayFocus: () => get(`${BASE}/focus/today`),
 
   // Council — chat
-  sendMessage: (message, channel = 'kai') =>
-    post(`${COUNCIL}/message`, { message, channel }),
+  sendMessage: (message, channel = 'kai', history = []) =>
+    post(`${COUNCIL}/message`, { message, channel, history }),
 
   // Council — history
   getChannelHistory: (channel, limit = 80) =>

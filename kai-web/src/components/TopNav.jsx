@@ -2,14 +2,15 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 
 const NAV_ITEMS = [
-  { to: '/today',      label: 'Today',       icon: <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
-  { to: '/harmony',    label: 'Harmony',     icon: <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg> },
-  { to: '/tasks',      label: 'Tasks',       icon: <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg> },
-  { to: '/habits',     label: 'Habits',      icon: <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
-  { to: '/knowledge',  label: 'Knowledge',   icon: <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg> },
-  { to: '/wiki',       label: 'Wiki',        icon: <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
-  { to: '/advisors',   label: 'Advisors',    icon: <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
-  { to: '/models',     label: 'Performance', icon: <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" /></svg> },
+  { to: '/today',      label: 'Today',       icon: <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
+  { to: '/harmony',    label: 'Harmony',     icon: <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg> },
+  { to: '/tasks',      label: 'Tasks',       icon: <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg> },
+  { to: '/habits',     label: 'Habits',      icon: <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
+  { to: '/knowledge',  label: 'Knowledge',   icon: <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg> },
+  { to: '/wiki',       label: 'Wiki',        icon: <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
+  { to: '/advisors',   label: 'Advisors',    icon: <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
+  { to: '/plane',      label: 'Plane',       icon: <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg> },
+  { to: '/models',     label: 'Performance', icon: <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" /></svg> },
 ]
 
 function ThemeToggle() {
@@ -42,6 +43,32 @@ function ThemeToggle() {
   )
 }
 
+function IconBtn({ onClick, title, href, children, accentOnHover }) {
+  const hoverAccent = accentOnHover || 'var(--accent)'
+  const base = {
+    width: 34, height: 34, borderRadius: 8, border: '1px solid var(--border)',
+    background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', color: 'var(--text-secondary)', transition: 'all 0.2s', flexShrink: 0,
+    textDecoration: 'none',
+  }
+  const enter = e => {
+    e.currentTarget.style.background = 'var(--hover-bg)'
+    e.currentTarget.style.color = hoverAccent
+    e.currentTarget.style.borderColor = hoverAccent
+  }
+  const leave = e => {
+    e.currentTarget.style.background = 'transparent'
+    e.currentTarget.style.color = 'var(--text-secondary)'
+    e.currentTarget.style.borderColor = 'var(--border)'
+  }
+  if (href) return (
+    <a href={href} target="_blank" rel="noopener" title={title} style={base} onMouseEnter={enter} onMouseLeave={leave}>{children}</a>
+  )
+  return (
+    <button onClick={onClick} title={title} style={{ ...base, fontFamily: 'inherit' }} onMouseEnter={enter} onMouseLeave={leave}>{children}</button>
+  )
+}
+
 export default function TopNav({ onCapture }) {
   return (
     <nav style={{
@@ -54,48 +81,33 @@ export default function TopNav({ onCapture }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
         <img src="/icon-192.png" alt="KAI" style={{ width: 28, height: 28, borderRadius: 0, background: 'none' }} />
         <div style={{ width: 1, height: 20, background: 'var(--border)', flexShrink: 0 }} />
-        <div style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
-        {NAV_ITEMS.map(({ to, label, icon }) => (
-          <NavLink key={to + label} to={to} style={({ isActive }) => ({
-            display: 'flex', alignItems: 'center', gap: 5,
-            padding: '7px 14px', borderRadius: 8, textDecoration: 'none',
-            fontSize: 13, fontWeight: 500, transition: 'all 0.2s',
-            background: isActive ? 'linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%)' : 'transparent',
-            color: isActive ? '#ffffff' : 'var(--text-secondary)',
-            boxShadow: isActive ? '0 2px 8px rgba(240,120,32,0.25)' : 'none',
-          })}>
-            {icon}{label}
-          </NavLink>
-        ))}
+        <div style={{ display: 'flex', gap: 2, overflowX: 'auto' }}>
+          {NAV_ITEMS.map(({ to, label, icon }) => (
+            <NavLink key={to} to={to} title={label} style={({ isActive }) => ({
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 34, height: 34, borderRadius: 8, textDecoration: 'none',
+              transition: 'all 0.2s',
+              background: isActive ? 'linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%)' : 'transparent',
+              color: isActive ? '#ffffff' : 'var(--text-secondary)',
+              boxShadow: isActive ? '0 2px 8px rgba(240,120,32,0.25)' : 'none',
+              flexShrink: 0,
+            })}>
+              {icon}
+            </NavLink>
+          ))}
         </div>
       </div>
 
-      {/* Right — Capture + Theme + Settings */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button onClick={onCapture} style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border)',
-          background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500,
-          cursor: 'pointer', transition: 'all 0.2s', fontFamily: 'inherit',
-        }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover-bg)'; e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
-        >
-          <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
-          Capture
-        </button>
-        <a href="/architecture.html" target="_blank" rel="noopener" title="KAI Architecture Reference" style={{
-          width: 34, height: 34, borderRadius: 8, border: '1px solid var(--border)',
-          background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', color: 'var(--text-secondary)', transition: 'all 0.2s', textDecoration: 'none', flexShrink: 0,
-        }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover-bg)'; e.currentTarget.style.color = '#6366f1'; e.currentTarget.style.borderColor = '#6366f1' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border)' }}
-        >
+      {/* Right — Capture + Architecture + Theme + Settings */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <IconBtn onClick={onCapture} title="Capture">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
+        </IconBtn>
+        <IconBtn href="/architecture.html" title="KAI Architecture" accentOnHover="#6366f1">
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>
-        </a>
+        </IconBtn>
         <ThemeToggle />
-        <NavLink to="/settings" style={({ isActive }) => ({
+        <NavLink to="/settings" title="Settings" style={({ isActive }) => ({
           width: 34, height: 34, borderRadius: 8,
           background: isActive ? 'linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%)' : 'transparent',
           display: 'flex', alignItems: 'center', justifyContent: 'center',

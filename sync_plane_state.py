@@ -121,7 +121,31 @@ def print_sops():
         print("  (none)")
     print("===================")
 
+
+def reconcile_state_of_union():
+    import glob, os, re as _re
+    session_dir = Path("/home/leo/vault/60_Council/sessions/kai")
+    sou_path = Path("/home/leo/vault/70_Knowledge/System/StateOfTheUnion.md")
+    if not session_dir.exists() or not sou_path.exists():
+        return
+    sessions = sorted(session_dir.glob("*.md"), key=os.path.getmtime, reverse=True)
+    if not sessions:
+        return
+    latest = sessions[0].read_text(errors="replace")
+    title_match = _re.search(r"\*\*Title:\*\*\s*(.+)", latest)
+    vault_title = title_match.group(1).strip() if title_match else ""
+    sou_text = sou_path.read_text()
+    brief_match = _re.search(r"## SESSION BRIEF\n(.+)", sou_text)
+    brief_line = brief_match.group(1).strip() if brief_match else ""
+    sprint_in_vault = _re.search(r"Sprint\s+(\d+)", vault_title)
+    sprint_next_in_brief = _re.search(r"Sprint\s+(\d+)[^.]*next", brief_line, _re.IGNORECASE)
+    if sprint_in_vault and sprint_next_in_brief and sprint_in_vault.group(1) == sprint_next_in_brief.group(1):
+        print(f"[RECONCILED] StateOfTheUnion.md SESSION BRIEF stale — vault confirms Sprint {sprint_in_vault.group(1)} complete. Brief said: {brief_line}")
+    else:
+        print(f"[STATE OK] Brief and vault consistent.")
+
 def warmboot():
+    reconcile_state_of_union()
     projects = get_projects()
     print(f"\n=== KAI FACTORY WARMBOOT — {WS} | {len(projects)} projects ===")
     for p in projects:

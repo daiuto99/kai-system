@@ -9,7 +9,7 @@ import {
   Music, Palette, Mic, Camera, Pen, Mountain,
   Shield, Crown, Award, TreePine, Leaf, Coffee,
   Gem, Rocket, Bike, Wind, Flower, Eye, Anchor, Map, Flag, Clock,
-  Check, X,
+  Check, X, Plus,
 } from 'lucide-react'
 
 const _ICON_MAP = {
@@ -104,13 +104,88 @@ function IconPicker({ current, onSelect, onClose }) {
   )
 }
 
+function AddHabitModal({ onAdd, onClose }) {
+  const [name, setName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function submit(e) {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) return
+    setSaving(true)
+    setErr('')
+    try {
+      const r = await fetch('/api/habits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      })
+      if (!r.ok) throw new Error(await r.text())
+      const habit = await r.json()
+      onAdd(habit)
+    } catch (e) {
+      setErr('Failed to create habit. Try again.')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 200,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+    }} onClick={onClose}>
+      <div style={{
+        background: 'var(--bg-card)', borderRadius: 16, padding: '24px',
+        border: '1px solid var(--border)', width: 360,
+        boxShadow: '0 24px 48px rgba(0,0,0,0.4)',
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Add Habit</span>
+          <button onClick={onClose} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={16} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <input
+            autoFocus
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="Habit name…"
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              padding: '10px 14px', borderRadius: 8,
+              border: '1px solid var(--border)', background: 'var(--bg-elevated)',
+              color: 'var(--text-primary)', fontSize: 14,
+              fontFamily: 'inherit', outline: 'none',
+              marginBottom: err ? 8 : 16,
+            }}
+          />
+          {err && <p style={{ fontSize: 12, color: '#ef4444', margin: '0 0 14px' }}>{err}</p>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={{
+              padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)',
+              background: 'transparent', color: 'var(--text-secondary)', fontSize: 13,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}>Cancel</button>
+            <button type="submit" disabled={saving || !name.trim()} style={{
+              padding: '8px 16px', borderRadius: 8, border: 'none',
+              background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 600,
+              cursor: saving ? 'wait' : 'pointer', fontFamily: 'inherit',
+              opacity: (!name.trim() || saving) ? 0.6 : 1,
+            }}>{saving ? 'Adding…' : 'Add'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function Habits() {
   const [habits,    setHabits]    = useState([])
   const [loading,   setLoading]   = useState(true)
-  const [icons,     setIcons]     = useState(() => {
-    try { return JSON.parse(localStorage.getItem('kai-habit-icons') || '{}') } catch { return {} }
-  })
-  const [pickerFor, setPickerFor] = useState(null) // habit id
+  const [icons,     setIcons]     = useState({})
+  const [pickerFor, setPickerFor] = useState(null)
+  const [showAdd,   setShowAdd]   = useState(false)
   const today = new Date().toISOString().slice(0, 10)
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
@@ -122,6 +197,12 @@ export default function Habits() {
     fetch('/api/habits').then(r => r.json())
       .then(d => setHabits(d.habits || d || []))
       .catch(() => {}).finally(() => setLoading(false))
+
+    fetch('/api/habits/icons').then(r => r.json())
+      .then(d => setIcons(d || {}))
+      .catch(() => {
+        try { setIcons(JSON.parse(localStorage.getItem('kai-habit-icons') || '{}')) } catch {}
+      })
   }, [])
 
   function toggle(h) {
@@ -139,8 +220,19 @@ export default function Habits() {
   function assignIcon(habitId, iconName) {
     const updated = { ...icons, [habitId]: iconName }
     setIcons(updated)
-    localStorage.setItem('kai-habit-icons', JSON.stringify(updated))
     setPickerFor(null)
+    fetch('/api/habits/icons', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ icons: updated }),
+    }).catch(() => {
+      localStorage.setItem('kai-habit-icons', JSON.stringify(updated))
+    })
+  }
+
+  function handleAdd(habit) {
+    setHabits(prev => [...prev, habit])
+    setShowAdd(false)
   }
 
   function getIconName(h) { return icons[h.id] || null }
@@ -167,6 +259,12 @@ export default function Habits() {
           onClose={() => setPickerFor(null)}
         />
       )}
+      {showAdd && (
+        <AddHabitModal
+          onAdd={handleAdd}
+          onClose={() => setShowAdd(false)}
+        />
+      )}
 
       <div style={{ maxWidth: 680, margin: '0 auto', padding: '28px 20px' }}>
 
@@ -180,16 +278,32 @@ export default function Habits() {
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
-          {total > 0 && (
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 28, fontWeight: 300, color: doneCount === total ? '#22c55e' : 'var(--text-primary)', letterSpacing: '-0.03em' }}>
-                {doneCount}<span style={{ fontSize: 16, color: 'var(--text-muted)', fontWeight: 300 }}>/{total}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            {total > 0 && (
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 28, fontWeight: 300, color: doneCount === total ? '#22c55e' : 'var(--text-primary)', letterSpacing: '-0.03em' }}>
+                  {doneCount}<span style={{ fontSize: 16, color: 'var(--text-muted)', fontWeight: 300 }}>/{total}</span>
+                </div>
+                <div style={{ height: 3, width: 80, background: 'var(--border)', borderRadius: 2, marginTop: 6 }}>
+                  <div style={{ height: '100%', width: `${pct}%`, background: pct === 100 ? '#22c55e' : 'var(--accent)', borderRadius: 2, transition: 'width 0.4s ease' }} />
+                </div>
               </div>
-              <div style={{ height: 3, width: 80, background: 'var(--border)', borderRadius: 2, marginTop: 6 }}>
-                <div style={{ height: '100%', width: `${pct}%`, background: pct === 100 ? '#22c55e' : 'var(--accent)', borderRadius: 2, transition: 'width 0.4s ease' }} />
-              </div>
-            </div>
-          )}
+            )}
+            <button
+              onClick={() => setShowAdd(true)}
+              title="Add habit"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 34, height: 34, borderRadius: 8,
+                border: '1px solid var(--border)', background: 'transparent',
+                color: 'var(--text-secondary)', cursor: 'pointer', transition: 'all 0.2s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover-bg)'; e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
+            >
+              <Plus size={16} />
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -197,14 +311,25 @@ export default function Habits() {
         ) : habits.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
             <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>No habits yet.</p>
-            <p style={{ fontSize: 13, color: 'var(--text-subtle)' }}>Add habits at <strong>habits.sonicink.space</strong></p>
+            <button
+              onClick={() => setShowAdd(true)}
+              style={{
+                marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '9px 18px', borderRadius: 8, border: '1px solid var(--border)',
+                background: 'transparent', color: 'var(--text-secondary)', fontSize: 13,
+                cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
+            >
+              <Plus size={13} /> Add your first habit
+            </button>
           </div>
         ) : (
           Object.entries(groups).map(([groupName, groupHabits]) => {
             const groupDone = groupHabits.filter(h => h.completions?.includes(today)).length
             return (
               <div key={groupName} style={{ marginBottom: 32 }}>
-                {/* Group header */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                   <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
                     {groupName}
@@ -212,7 +337,6 @@ export default function Habits() {
                   <span style={{ fontSize: 10, color: 'var(--text-subtle)' }}>{groupDone}/{groupHabits.length}</span>
                 </div>
 
-                {/* Column headers */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 6, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
                   <div style={{ width: 34, flexShrink: 0 }} />
                   <span style={{ flex: 1, fontSize: 9, fontWeight: 600, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Habit</span>
@@ -220,7 +344,6 @@ export default function Habits() {
                   <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.07em', width: 80, textAlign: 'right' }}>Week</span>
                 </div>
 
-                {/* Habits */}
                 {groupHabits.map((h, idx) => {
                   const isDone    = h.completions?.includes(today)
                   const weekCount = weekDays.filter(d => h.completions?.includes(d)).length
@@ -234,7 +357,6 @@ export default function Habits() {
                       padding: '8px 0',
                       borderBottom: idx < groupHabits.length - 1 ? '1px solid var(--border)' : 'none',
                     }}>
-                      {/* Icon tile — click to toggle, long-press / right-click to assign icon */}
                       <button
                         onClick={() => toggle(h)}
                         onContextMenu={e => { e.preventDefault(); setPickerFor(h.id) }}
@@ -257,7 +379,6 @@ export default function Habits() {
                         }
                       </button>
 
-                      {/* Name */}
                       <span style={{
                         flex: 1, fontSize: 13, fontWeight: 500,
                         color: isDone ? 'var(--text-muted)' : 'var(--text-primary)',
@@ -267,7 +388,6 @@ export default function Habits() {
                         {h.displayName || h.name}
                       </span>
 
-                      {/* Today */}
                       <div style={{ width: 36, display: 'flex', justifyContent: 'center' }}>
                         <div style={{
                           width: 20, height: 20, borderRadius: '50%',
@@ -280,7 +400,6 @@ export default function Habits() {
                         </div>
                       </div>
 
-                      {/* Week */}
                       <div style={{ width: 80, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
                         <span style={{ fontSize: 10, color: weekPct >= 70 ? '#22c55e' : weekPct >= 40 ? 'var(--accent)' : 'var(--text-muted)', fontWeight: 600 }}>
                           {weekCount}/7

@@ -142,6 +142,21 @@ def _h_tasks(client, tool_name, ti, advisor):
         return client.post(f"{WORKER_URL}/tasks/{ti['task_id']}/complete").json()
     if tool_name == "create_task":
         return client.post(f"{WORKER_URL}/tasks", json=ti).json()
+    if tool_name == "update_task":
+        task_id = ti.pop("task_id")
+        return client.patch(f"{WORKER_URL}/tasks/{task_id}", json=ti).json()
+    if tool_name == "delete_task":
+        return client.delete(f"{WORKER_URL}/tasks/{ti['task_id']}").json()
+    if tool_name == "reschedule_task":
+        task_id = ti.pop("task_id")
+        payload = {"due_date": ti.get("due_date", ""), "move_to_today": ti.get("move_to_today", False)}
+        return client.patch(f"{WORKER_URL}/tasks/{task_id}", json=payload).json()
+    if tool_name == "list_todoist_projects":
+        return client.get(f"{WORKER_URL}/tasks/projects").json()
+    if tool_name == "create_todoist_project":
+        return client.post(f"{WORKER_URL}/tasks/projects", json=ti).json()
+    if tool_name == "delete_todoist_project":
+        return client.delete(f"{WORKER_URL}/tasks/projects/{ti['project_id']}").json()
 
 
 def _h_projects(client, tool_name, ti, advisor):
@@ -330,6 +345,37 @@ def _h_knowledge(client, tool_name, ti, advisor):
             outcome=ti.get("outcome", ""),
         )
 
+
+
+def _h_ingest(client, tool_name, ti, advisor):
+    import subprocess, shlex
+    if tool_name == "ingest_knowledge":
+        target = ti.get("path", f"/vault/60_Council/{ti.get('advisor', advisor)}/knowledge")
+        target_advisor = ti.get("advisor", advisor)
+        env = {**__import__("os").environ, "QDRANT_URL": "http://kai-qdrant:6333", "OLLAMA_URL": "http://kai-ollama:11434"}
+        result = subprocess.run(
+            ["python3", "/app/ingest.py", target, "--advisor", target_advisor],
+            capture_output=True, text=True, timeout=300, env=env
+        )
+        if result.returncode != 0:
+            return {"error": result.stderr[:500]}
+        lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
+        return {"status": "ok", "summary": lines[-1] if lines else "done", "output": result.stdout.strip()}
+    if tool_name == "list_knowledge":
+        env = {**__import__("os").environ, "QDRANT_URL": "http://kai-qdrant:6333", "OLLAMA_URL": "http://kai-ollama:11434"}
+        result = subprocess.run(
+            ["python3", "/app/ingest.py", "--list"],
+            capture_output=True, text=True, timeout=30, env=env
+        )
+        return {"status": "ok", "output": result.stdout.strip()}
+    if tool_name == "clear_knowledge":
+        target_advisor = ti.get("advisor", advisor)
+        env = {**__import__("os").environ, "QDRANT_URL": "http://kai-qdrant:6333", "OLLAMA_URL": "http://kai-ollama:11434"}
+        result = subprocess.run(
+            ["python3", "/app/ingest.py", "--clear", target_advisor],
+            capture_output=True, text=True, timeout=30, env=env
+        )
+        return {"status": "ok", "output": result.stdout.strip()}
 
 def _h_n8n(client, tool_name, ti, advisor):
     if tool_name == "trigger_n8n_workflow":
@@ -603,6 +649,12 @@ TOOL_REGISTRY = {
     "list_tasks": _h_tasks,
     "complete_task": _h_tasks,
     "create_task": _h_tasks,
+    "update_task": _h_tasks,
+    "delete_task": _h_tasks,
+    "reschedule_task": _h_tasks,
+    "list_todoist_projects": _h_tasks,
+    "create_todoist_project": _h_tasks,
+    "delete_todoist_project": _h_tasks,
     # Projects
     "create_project": _h_projects,
     "update_project": _h_projects,
@@ -626,6 +678,9 @@ TOOL_REGISTRY = {
     # Knowledge
     "save_session": _h_knowledge,
     "log_decision": _h_knowledge,
+    "ingest_knowledge": _h_ingest,
+    "list_knowledge": _h_ingest,
+    "clear_knowledge": _h_ingest,
     # n8n
     "trigger_n8n_workflow": _h_n8n,
     "list_n8n_workflows": _h_n8n,

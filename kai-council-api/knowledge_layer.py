@@ -35,6 +35,19 @@ def _write_session_summary(channel: str, title: str, topics: list, decisions: li
         lines += ["## Context for Next Session", "", context_note, ""]
 
     filepath.write_text("\n".join(lines), encoding="utf-8")
+
+    # Update context.md with rolling next-session state (KAI-28/30)
+    if context_note:
+        advisor_dir = COUNCIL_PATH / channel
+        advisor_dir.mkdir(parents=True, exist_ok=True)
+        context_file = advisor_dir / "context.md"
+        context_file.write_text(
+            "# KAI — Session Context\n\n"
+            f"_Last updated: {ts.strftime('%Y-%m-%d %H:%M')} UTC — {title}_\n\n"
+            f"{context_note}\n",
+            encoding="utf-8"
+        )
+
     return {"ok": True, "path": f"60_Council/sessions/{channel}/{filename}", "title": title}
 
 

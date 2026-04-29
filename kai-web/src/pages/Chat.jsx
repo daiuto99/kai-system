@@ -43,6 +43,16 @@ export default function Chat() {
       .finally(() => setLoadingHistory(false))
   }, [advisor.channel])
 
+  // Pre-fill from Parking Lot "Ask KAI" action
+  useEffect(() => {
+    const prefill = sessionStorage.getItem('kai:prefill')
+    if (prefill) {
+      sessionStorage.removeItem('kai:prefill')
+      setInput(prefill)
+      setTimeout(() => inputRef.current?.focus(), 100)
+    }
+  }, [])
+
   // Scroll to bottom when messages change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })

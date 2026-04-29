@@ -112,3 +112,16 @@ def shape_task(t: dict) -> dict:
         "labels":      t.get("labels", []),
         "url":         t.get("url", ""),
     }
+
+
+def get_todoist_projects() -> list:
+    data = _get("/projects")
+    return data.get("results", [])
+
+
+def create_todoist_project(name: str) -> dict:
+    return _post("/projects", {"name": name})
+
+
+def delete_todoist_project(project_id: str) -> bool:
+    return _delete(f"/projects/{project_id}")

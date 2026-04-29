@@ -98,3 +98,30 @@ def unlog_habit(habit_uuid: str) -> dict:
         )
         r.raise_for_status()
         return {"date": date.today().isoformat(), "value": 0.0}
+
+
+
+
+
+def create_habit(name: str) -> dict:
+    """Create a new habit in HabitSync."""
+    headers = _auth_header()
+    with httpx.Client(timeout=10) as client:
+        r = client.post(
+            f"{HABITSYNC_URL}/api/habit",
+            json={"name": name},
+            headers=headers,
+        )
+        r.raise_for_status()
+        h = r.json()
+        uuid = h.get("uuid") or h.get("id")
+        emoji, display_name = _extract_emoji(h.get("name", ""))
+        return {
+            "id": uuid,
+            "name": h.get("name", ""),
+            "displayName": display_name or h.get("name", ""),
+            "emoji": emoji,
+            "color": h.get("color", 0),
+            "group": h.get("group", ""),
+            "completions": [],
+        }

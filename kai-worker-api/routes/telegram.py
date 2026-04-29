@@ -41,6 +41,18 @@ class TelegramUpdate(BaseModel):
     callback_query: dict | None = None
 
 
+def _tg_download_file(file_id: str) -> tuple[bytes, str]:
+    """Download a Telegram file. Returns (bytes, mime_type)."""
+    token = _tg_token()
+    r = _tghttpx.get(f"{TELEGRAM_API}/bot{token}/getFile", params={"file_id": file_id}, timeout=10)
+    file_path = r.json()["result"]["file_path"]
+    data = _tghttpx.get(f"{TELEGRAM_API}/file/bot{token}/{file_path}", timeout=30)
+    ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+    mime = {"pdf": "application/pdf", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "png": "image/png", "gif": "image/gif", "webp": "image/webp"}.get(ext, "application/octet-stream")
+    return data.content, mime
+
+
 @router.post("/telegram/webhook")
 async def telegram_webhook(
     request: Request,
@@ -56,23 +68,70 @@ async def telegram_webhook(
         return {"ok": True}
 
     chat_id = msg.get("chat", {}).get("id")
-    text = msg.get("text", "").strip()
+    text = (msg.get("text") or msg.get("caption") or "").strip()
     username = msg.get("from", {}).get("username", "unknown")
 
-    if not text or not chat_id:
+    if not chat_id:
         return {"ok": True}
 
     if text == "/start":
         _tg_send(chat_id, "*KAI online.* Send me a message and I'll respond.")
         return {"ok": True}
 
-    logger.info("Telegram msg from @%s (%s): %s", username, chat_id, text[:60])
+    # Detect file attachments
+    attachments = []
+    doc = msg.get("document")
+    photos = msg.get("photo")
+
+    if doc:
+        file_id = doc.get("file_id")
+        filename = doc.get("file_name", "file")
+        try:
+            import base64
+            file_bytes, mime = _tg_download_file(file_id)
+            if mime in ("application/pdf", "image/jpeg", "image/png", "image/gif", "image/webp"):
+                attachments.append({
+                    "type": "document" if mime == "application/pdf" else "image",
+                    "media_type": mime,
+                    "data": base64.standard_b64encode(file_bytes).decode(),
+                    "filename": filename,
+                })
+                if not text:
+                    text = f"[File attached: {filename}]"
+        except Exception as e:
+            logger.exception("Telegram file download error: %s", e)
+            text = text or f"[File: {filename} — could not download]"
+
+    elif photos:
+        largest = max(photos, key=lambda p: p.get("file_size", 0))
+        try:
+            import base64
+            file_bytes, mime = _tg_download_file(largest["file_id"])
+            attachments.append({
+                "type": "image",
+                "media_type": mime or "image/jpeg",
+                "data": base64.standard_b64encode(file_bytes).decode(),
+                "filename": "photo.jpg",
+            })
+            if not text:
+                text = "[Photo attached]"
+        except Exception as e:
+            logger.exception("Telegram photo download error: %s", e)
+            text = text or "[Photo — could not download]"
+
+    if not text and not attachments:
+        return {"ok": True}
+
+    logger.info("Telegram msg from @%s (%s): %s attach=%d", username, chat_id, text[:60], len(attachments))
 
     try:
+        payload = {"channel": "kai", "message": text, "user_id": f"telegram:{username}"}
+        if attachments:
+            payload["attachments"] = attachments
         r = _tghttpx.post(
             "http://kai-council-api:8002/message",
-            json={"channel": "chief", "message": text, "user_id": f"telegram:{username}"},
-            timeout=90,
+            json=payload,
+            timeout=120,
         )
         r.raise_for_status()
         data = r.json()

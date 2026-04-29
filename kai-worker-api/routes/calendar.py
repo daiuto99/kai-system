@@ -45,79 +45,68 @@ def _save_ics_feeds(feeds: dict):
 
 
 def _parse_ics(ics_text: str, days: int = 7) -> list:
-    unfolded = []
-    for raw in ics_text.splitlines():
-        if raw and raw[0] in (" ", "\t") and unfolded:
-            unfolded[-1] += raw[1:]
-        else:
-            unfolded.append(raw)
-
-    TZ_OFFSETS = {
-        "Eastern Standard Time": -5, "Eastern Daylight Time": -4,
-        "Central Standard Time": -6, "Mountain Standard Time": -7,
-        "Pacific Standard Time": -8,
-    }
-
-    def _parse_dt(prop: str, val: str):
-        offset_h = 0
-        tzid_match = re.search(r"TZID=([^:]+)", prop)
-        if tzid_match:
-            tzname = tzid_match.group(1)
-            offset_h = TZ_OFFSETS.get(tzname, 0)
-        if val.endswith("Z"):
-            val = val[:-1] + "+00:00"
-        try:
-            if "T" in val:
-                naive = _dt.strptime(val[:15], "%Y%m%dT%H%M%S")
-                return (naive - _td(hours=offset_h)).replace(tzinfo=_tz.utc), False
-            else:
-                return _dt.strptime(val[:8], "%Y%m%d").replace(tzinfo=_tz.utc), True
-        except Exception:
-            return None, False
+    try:
+        from icalendar import Calendar
+        import recurring_ical_events
+    except ImportError:
+        logger.error("icalendar/recurring_ical_events not installed")
+        return []
 
     now = _dt.now(_tz.utc)
-    cutoff = now + _td(days=days)
-    events, current, in_event = [], {}, False
+    end = now + _td(days=days)
 
-    for line in unfolded:
-        if line == "BEGIN:VEVENT":
-            in_event, current = True, {}
-        elif line == "END:VEVENT" and in_event:
-            in_event = False
-            start = current.get("start")
-            if start and now <= start <= cutoff:
-                events.append(current)
-        elif in_event:
-            if ":" not in line:
-                continue
-            prop, _, val = line.partition(":")
-            prop_name = prop.split(";")[0].upper()
-            if prop_name == "SUMMARY":
-                current["title"] = val.replace("\\,", ",").replace("\\n", " ").strip()
-            elif prop_name == "DTSTART":
-                dt, all_day = _parse_dt(prop, val)
-                if dt:
-                    current["start"] = dt
-                    current["all_day"] = all_day
-            elif prop_name == "DTEND":
-                dt, _ = _parse_dt(prop, val)
-                if dt:
-                    current["end"] = dt.isoformat()
-            elif prop_name == "LOCATION":
-                current["location"] = val.replace("\\,", ",").strip()
-            elif prop_name == "DESCRIPTION":
-                current["preview"] = val.replace("\\n", " ")[:120].strip()
-            elif prop_name == "ORGANIZER":
-                m = re.search(r"CN=([^;:]+)", prop + ":" + val)
-                if m:
-                    current["organizer"] = m.group(1)
+    try:
+        cal = Calendar.from_ical(ics_text)
+    except Exception as e:
+        logger.exception("ics parse error: %s", e)
+        return []
 
-    events.sort(key=lambda e: e.get("start", now))
-    for e in events:
-        if isinstance(e.get("start"), _dt):
-            e["start"] = e["start"].isoformat()
+    try:
+        occurrences = recurring_ical_events.of(cal).between(now, end)
+    except Exception as e:
+        logger.exception("ics recurring expand error: %s", e)
+        return []
+
+    events = []
+    for component in occurrences:
+        if component.name != "VEVENT":
+            continue
+        dtstart = component.get("DTSTART")
+        if not dtstart:
+            continue
+        start_raw = dtstart.dt
+        all_day = not hasattr(start_raw, "hour")
+        if all_day:
+            start_dt = _dt(start_raw.year, start_raw.month, start_raw.day, tzinfo=_tz.utc)
+        else:
+            start_dt = start_raw.astimezone(_tz.utc) if start_raw.tzinfo else start_raw.replace(tzinfo=_tz.utc)
+
+        event = {"title": str(component.get("SUMMARY", "")).strip(), "start": start_dt.isoformat(), "all_day": all_day}
+
+        dtend = component.get("DTEND")
+        if dtend:
+            end_raw = dtend.dt
+            if hasattr(end_raw, "hour"):
+                event["end"] = (end_raw.astimezone(_tz.utc) if end_raw.tzinfo else end_raw.replace(tzinfo=_tz.utc)).isoformat()
+            else:
+                event["end"] = _dt(end_raw.year, end_raw.month, end_raw.day, tzinfo=_tz.utc).isoformat()
+
+        loc = str(component.get("LOCATION", "")).strip()
+        if loc:
+            event["location"] = loc
+        desc = str(component.get("DESCRIPTION", ""))[:120].strip()
+        if desc:
+            event["preview"] = desc
+        org = component.get("ORGANIZER")
+        if org and hasattr(org, "params"):
+            cn = org.params.get("CN", "")
+            if cn:
+                event["organizer"] = str(cn)
+
+        events.append(event)
+
+    events.sort(key=lambda e: e.get("start", ""))
     return events
-
 
 @router.get("/calendar/auth-url")
 def gcal_auth_url():

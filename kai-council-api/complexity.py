@@ -33,12 +33,17 @@ def _get_advisor_config(advisor: str) -> dict:
 def _classify_complexity(message: str) -> str:
     """Classify message complexity: simple | standard | deep."""
     msg = message.lower().strip()
+    word_count = len(msg.split())
 
+    # Unambiguous deep signals — phrases that only appear in genuinely heavy requests
     DEEP_SIGNALS = [
         "major decision", "life decision", "deep analysis", "strategy session",
-        "really important", "most important", "change my life", "should i",
+        "really important", "most important", "change my life",
         "weigh the options", "pros and cons", "comprehensive", "thorough analysis",
     ]
+    # Conditional deep — only deep when the message has real substance behind it
+    DEEP_CONDITIONAL = ["should i", "help me decide", "what would you recommend"]
+
     SIMPLE_SIGNALS = [
         "add task", "add to", "parking lot",
         "capture this", "make a note", "note that",
@@ -48,11 +53,19 @@ def _classify_complexity(message: str) -> str:
     if any(s in msg for s in DEEP_SIGNALS):
         return "deep"
 
+    # Simple signals checked before conditional deep — "should i add this to parking lot" = simple
+    if any(s in msg for s in SIMPLE_SIGNALS):
+        return "simple"
+
+    if any(s in msg for s in DEEP_CONDITIONAL):
+        if word_count > 7:
+            return "deep"
+        return "standard"  # fragment like "help me decide" — not simple, not deep yet
+
     if any(s in msg for s in TOOL_SIGNALS):
         return "standard"
 
-    word_count = len(msg.split())
-    if word_count <= 6 or any(s in msg for s in SIMPLE_SIGNALS):
+    if word_count <= 8:
         return "simple"
 
     return "standard"

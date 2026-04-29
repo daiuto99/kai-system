@@ -3,7 +3,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from services.todoist import (
     get_inbox, get_today, create_task, update_task,
-    complete_task as todoist_complete, delete_task, shape_task, move_to_today
+    complete_task as todoist_complete, delete_task, shape_task, move_to_today,
+    get_todoist_projects, create_todoist_project, delete_todoist_project
 )
 
 logger = logging.getLogger(__name__)
@@ -76,3 +77,22 @@ def api_complete_task(task_id: str):
 def api_delete_task(task_id: str):
     ok = delete_task(task_id)
     return {"ok": ok}
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str
+
+
+@router.get("/tasks/projects")
+def list_projects():
+    return {"projects": [{"id": p["id"], "name": p["name"]} for p in get_todoist_projects()]}
+
+
+@router.post("/tasks/projects")
+def api_create_project(req: ProjectCreateRequest):
+    return create_todoist_project(req.name)
+
+
+@router.delete("/tasks/projects/{project_id}")
+def api_delete_project(project_id: str):
+    return {"ok": delete_todoist_project(project_id)}

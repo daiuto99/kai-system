@@ -1,6 +1,6 @@
 """
 Focus brief generator — pulls Todoist tasks, builds Top 3 / Next 5 brief,
-posts to #kai-focus in Slack, and writes to chief/context.md for morning check-in.
+posts to #kai-focus in Slack, and writes to kai/context.md for morning check-in.
 """
 from pathlib import Path
 from datetime import date
@@ -46,9 +46,9 @@ def get_todoist_tasks() -> dict:
     return {"today": today_tasks, "overdue": overdue_tasks}
 
 
-def load_chief_close_notes(vault_path: Path) -> str:
-    """Load yesterday's close notes from chief context."""
-    context_file = vault_path / "60_Council" / "chief" / "context.md"
+def load_kai_close_notes(vault_path: Path) -> str:
+    """Load yesterday's close notes from kai context."""
+    context_file = vault_path / "60_Council" / "kai" / "context.md"
     if not context_file.exists():
         return ""
     content = context_file.read_text(encoding="utf-8")
@@ -124,9 +124,9 @@ def post_to_slack(brief: str, channel_id: str) -> None:
             raise RuntimeError(f"Slack error: {data.get('error')}")
 
 
-def write_to_chief_context(brief: str, vault_path: Path) -> None:
-    """Write today's brief to chief context so morning check-in starts informed."""
-    context_file = vault_path / "60_Council" / "chief" / "context.md"
+def write_to_kai_context(brief: str, vault_path: Path) -> None:
+    """Write today's brief to kai context so morning check-in starts informed."""
+    context_file = vault_path / "60_Council" / "kai" / "context.md"
     existing = context_file.read_text(encoding="utf-8") if context_file.exists() else ""
 
     today = date.today().isoformat()
@@ -143,10 +143,10 @@ def write_to_chief_context(brief: str, vault_path: Path) -> None:
 def run_focus_brief(kai_focus_channel_id: str, vault_path: Path = Path("/vault")) -> dict:
     """Full pipeline: fetch tasks → build brief → post to Slack → write to vault."""
     tasks = get_todoist_tasks()
-    close_notes = load_chief_close_notes(vault_path)
+    close_notes = load_kai_close_notes(vault_path)
     brief = build_focus_brief(tasks, close_notes)
     post_to_slack(brief, kai_focus_channel_id)
-    write_to_chief_context(brief, vault_path)
+    write_to_kai_context(brief, vault_path)
     return {
         "status": "ok",
         "tasks_today": len(tasks["today"]),

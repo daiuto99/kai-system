@@ -6,16 +6,20 @@ import socket
 from datetime import datetime as _datetime
 from pathlib import Path
 from urllib.parse import urlparse
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from config import VAULT_PATH
-from parking_lot import capture as pl_capture
+from parking_lot import capture as pl_capture, enrich_text, write_capture_card, load_secret
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 LOT_DIR  = VAULT_PATH / "50_ParkingLot"
 ARCH_DIR = LOT_DIR / "archived"
+
+ADVISORS = ["kai", "beats", "creative", "dev", "sky", "roads"]
+
+EDITABLE_FIELDS = {"title", "status", "intent", "why_saved", "project", "next_action"}
 
 
 def _is_safe_url(url: str) -> bool:
@@ -46,10 +50,16 @@ def _parse_card(path: Path) -> dict:
             content_lines.append(line)
 
     content = "\n".join(content_lines)
-    title = meta.get("title", "")
+
+    fm_title = meta.get("title", "")
+    body_title = ""
     for line in content_lines:
         if line.startswith("# "):
-            title = line[2:].strip(); break
+            body_title = line[2:].strip(); break
+    is_url_title = fm_title.startswith("http") or fm_title.startswith("share.")
+    title = (fm_title if fm_title and not is_url_title else None) or \
+            (body_title if body_title and not body_title.startswith("http") else None) or \
+            fm_title or body_title or path.stem
 
     summary = ""
     past = False
@@ -58,15 +68,32 @@ def _parse_card(path: Path) -> dict:
         if past and line.strip() and not line.startswith("#"):
             summary = line.strip(); break
 
-    urls = re.findall(r"<(https?://[^>]+)>", content) or re.findall(r"https?://\S+", content)
+    url = meta.get("url", "")
+    if not url:
+        urls = re.findall(r"<(https?://[^>]+)>", content) or re.findall(r"https?://\S+", content)
+        url = urls[0] if urls else ""
+
+    raw_tags = meta.get("tags", "")
+    tags = [t.strip() for t in raw_tags.split(",") if t.strip()] if raw_tags else []
+
+    raw_status = meta.get("status", "new")
+    status = "new" if raw_status == "captured" else raw_status
+
     return {
-        "slug":    path.stem,
-        "title":   title or path.stem,
-        "type":    meta.get("type", "item"),
-        "date":    meta.get("date", ""),
-        "status":  meta.get("status", "captured"),
-        "summary": summary,
-        "url":     urls[0] if urls else "",
+        "slug":      path.stem,
+        "title":     title or path.stem,
+        "type":      meta.get("type", "item"),
+        "date":      meta.get("date", ""),
+        "status":    status,
+        "summary":   summary,
+        "url":       url,
+        "image":     meta.get("image", ""),
+        "tags":      tags,
+        "enriched":  bool(meta.get("image") or meta.get("tags")),
+        "intent":    meta.get("intent", ""),
+        "why_saved": meta.get("why_saved", ""),
+        "project":   meta.get("project", ""),
+        "source":    meta.get("source", ""),
     }
 
 
@@ -92,31 +119,101 @@ def parking_lot_capture(req: ParkingLotRequest):
 
 
 @router.post("/parking-lot/quick")
-def parking_lot_quick(req: QuickCaptureRequest):
-    """Quick capture from web UI — no Slack context needed."""
+def parking_lot_quick(req: QuickCaptureRequest, background_tasks: BackgroundTasks):
     slug = _datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     LOT_DIR.mkdir(parents=True, exist_ok=True)
+
     urls = re.findall(r"https?://\S+", req.text)
-    item_type = "link" if urls else "note"
-    content = f"""---
-title: {req.text[:60]}
+    raw_url = urls[0].rstrip(">).,") if urls else ""
+    item_type = "link" if raw_url else "note"
+    stub = f"""---
+title: {req.text[:80]}
 date: {_datetime.utcnow().strftime("%Y-%m-%d")}
 type: {item_type}
-status: captured
+status: new
 source: web
+url: {raw_url}
+image:
+tags:
+intent:
+why_saved:
+project:
 ---
 
-# {req.text[:60]}
+# {req.text[:80]}
 
 {req.text}
 """
-    (LOT_DIR / f"{slug}.md").write_text(content, encoding="utf-8")
+    path = LOT_DIR / f"{slug}.md"
+    path.write_text(stub, encoding="utf-8")
+
+    background_tasks.add_task(_enrich_item, path, req.text)
     return {"ok": True, "slug": slug}
+
+
+def _enrich_item(path: Path, original_text: str):
+    try:
+        api_key = load_secret("anthropic_api_key")
+        classification, og, real_url = enrich_text(original_text, api_key)
+
+        tags_str = ", ".join(classification.get("tags", []))
+        text = path.read_text()
+
+        def fm_set(key, value):
+            nonlocal text
+            pattern = rf"^{key}:.*$"
+            replacement = f"{key}: {value}"
+            if re.search(pattern, text, re.MULTILINE):
+                text = re.sub(pattern, replacement, text, flags=re.MULTILINE)
+            else:
+                text = text.replace("---\n\n#", f"{key}: {value}\n---\n\n#", 1)
+
+        fm_set("title", classification["title"][:80])
+        fm_set("type", classification["type"])
+        fm_set("url", real_url or "")
+        fm_set("image", og.get("og_image", ""))
+        fm_set("tags", tags_str)
+
+        lines = text.splitlines()
+        new_lines = []
+        past_title = False
+        summary_replaced = False
+        for line in lines:
+            if not past_title and line.startswith("# "):
+                past_title = True
+                new_lines.append(line)
+                continue
+            if past_title and not summary_replaced and line.strip() and not line.startswith("#"):
+                new_lines.append(classification["summary"])
+                summary_replaced = True
+                continue
+            new_lines.append(line)
+        text = "\n".join(new_lines)
+
+        path.write_text(text, encoding="utf-8")
+        logger.info("enriched: %s", path.name)
+    except Exception as e:
+        logger.exception("enrich_item failed for %s: %s", path.name, e)
+
+
+@router.post("/parking-lot/enrich-all")
+def parking_lot_enrich_all(background_tasks: BackgroundTasks):
+    LOT_DIR.mkdir(parents=True, exist_ok=True)
+    queued = 0
+    for f in LOT_DIR.glob("*.md"):
+        try:
+            card = _parse_card(f)
+            if not card.get("enriched"):
+                original_text = card.get("url") or card.get("title") or f.stem
+                background_tasks.add_task(_enrich_item, f, original_text)
+                queued += 1
+        except Exception:
+            pass
+    return {"ok": True, "queued": queued}
 
 
 @router.get("/parking-lot/og")
 def parking_lot_og_image(url: str):
-    """Fetch OG image URL for a given URL (for Lot thumbnails)."""
     import httpx
     if not _is_safe_url(url):
         raise HTTPException(400, "URL not allowed")
@@ -154,22 +251,33 @@ def parking_lot_list():
 
 @router.patch("/parking-lot/{slug}")
 def parking_lot_edit(slug: str, body: dict):
-    """Edit a lot item's title."""
     path = LOT_DIR / f"{slug}.md"
     if not path.exists():
         raise HTTPException(404, "Not found")
     text = path.read_text()
-    new_title = body.get("title", "").strip()
-    if new_title:
-        if re.search(r'^title:', text, re.MULTILINE):
-            text = re.sub(r'^title:.*$', f'title: {new_title}', text, flags=re.MULTILINE)
-        path.write_text(text)
+    for key, raw in body.items():
+        if key not in EDITABLE_FIELDS:
+            continue
+        value = str(raw).strip()
+        pattern = rf"^{re.escape(key)}:.*$"
+        if re.search(pattern, text, re.MULTILINE):
+            text = re.sub(pattern, f"{key}: {value}", text, flags=re.MULTILINE)
+        else:
+            lines = text.splitlines()
+            fm_end = None
+            for i, line in enumerate(lines):
+                if i > 0 and line.strip() == "---":
+                    fm_end = i
+                    break
+            if fm_end is not None:
+                lines.insert(fm_end, f"{key}: {value}")
+                text = "\n".join(lines)
+    path.write_text(text)
     return {"ok": True}
 
 
 @router.delete("/parking-lot/{slug}")
 def parking_lot_delete(slug: str):
-    """Permanently delete a lot item."""
     path = LOT_DIR / f"{slug}.md"
     if path.exists():
         path.unlink()

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Activity, Brain, HeartHandshake, Briefcase, Compass,
   Dumbbell, Stethoscope, HeartPulse, Heart, Smile,
@@ -10,6 +11,8 @@ import {
   Shield, Crown, Award, TreePine, Leaf, Coffee,
   Gem, Rocket, Bike, Wind, Flower, Eye, Anchor, Map, Flag, Clock,
   Plus, Trash2, X as XIcon, Check, Send as SendIcon, Pin, PinOff, ExternalLink,
+  ListTodo, Inbox, Archive,
+  FileText, ShoppingBag, Video, Link2, UtensilsCrossed, ChevronDown, RefreshCw,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { ADVISORS, getAdvisor } from '../lib/advisors'
@@ -27,25 +30,6 @@ function fmtTime(ts) {
   if (!ts) return ''
   return new Date(parseFloat(ts) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
-
-function weatherEmoji(theme) {
-  const m = { clear: '☀️', clouds: '☁️', rain: '🌧️', drizzle: '🌦️', thunderstorm: '⛈️', snow: '❄️', mist: '🌫️', fog: '🌫️', haze: '🌫️' }
-  return m[(theme || '').toLowerCase()] || '🌤️'
-}
-
-// ── Section header ─────────────────────────────────────────────────────────
-
-function SectionHeader({ title, action }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-      <span className="section-title">{title}</span>
-      {action}
-    </div>
-  )
-}
-
-// ── Projects ───────────────────────────────────────────────────────────────
-
 
 const _ICON_MAP = {
   Activity, Brain, HeartHandshake, Briefcase, Compass,
@@ -69,6 +53,8 @@ function loadGroupConfig(defaults) {
   } catch { return defaults }
 }
 
+// ── Projects ───────────────────────────────────────────────────────────────
+
 const SDOT  = { green: '#10b981', yellow: '#f59e0b', red: '#ef4444' }
 const STEXT = { green: '#059669', yellow: '#d97706', red: '#dc2626' }
 const SBG   = { green: 'rgba(16,185,129,0.08)', yellow: 'rgba(245,158,11,0.08)', red: 'rgba(239,68,68,0.08)' }
@@ -87,7 +73,6 @@ function ProjectProfile({ project, onClose, onPin }) {
   const sbg = SBG[project.status]   || 'rgba(156,163,175,0.08)'
   return (
     <div style={{ position: 'fixed', right: 0, top: 0, bottom: 0, width: 360, background: 'var(--bg-card)', borderLeft: '1px solid var(--border)', zIndex: 200, display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 32px rgba(0,0,0,0.3)' }}>
-      {/* Header */}
       <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -100,7 +85,7 @@ function ProjectProfile({ project, onClose, onPin }) {
               style={{ all: 'unset', cursor: 'pointer', padding: 6, borderRadius: 7, color: project.pinned ? 'var(--accent)' : 'var(--text-muted)', background: project.pinned ? 'var(--accent-bg)' : 'transparent', transition: 'all 0.15s' }}>
               {project.pinned ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
-            <button onClick={onClose} style={{ all: 'unset', cursor: 'pointer', padding: 6, borderRadius: 7, color: 'var(--text-muted)', transition: 'all 0.15s' }}
+            <button onClick={onClose} style={{ all: 'unset', cursor: 'pointer', padding: 6, borderRadius: 7, color: 'var(--text-muted)' }}
               onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
               onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
             ><XIcon size={16} /></button>
@@ -108,59 +93,33 @@ function ProjectProfile({ project, onClose, onPin }) {
         </div>
         <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 5, background: sbg, color: stc, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{project.status}</span>
       </div>
-      {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {project.description && (
-          <div>
-            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>About</div>
-            <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{project.description}</p>
-          </div>
-        )}
-        {project.milestone && (
-          <div>
-            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Current Milestone</div>
-            <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', margin: '0 0 8px' }}>{project.milestone}</p>
-            {project.milestone_pct != null && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${project.milestone_pct}%`, background: sc, borderRadius: 2, transition: 'width 0.5s ease' }} />
-                </div>
-                <span style={{ fontSize: 11, fontWeight: 600, color: sc, flexShrink: 0 }}>{project.milestone_pct}%</span>
-              </div>
-            )}
-          </div>
-        )}
-        {project.next && (
-          <div>
-            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Next Action</div>
-            <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0, borderLeft: '2px solid var(--accent)', paddingLeft: 10 }}>{project.next}</p>
-          </div>
-        )}
-        {project.advisor && (
-          <div>
-            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Advisor</div>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', textTransform: 'capitalize' }}>{project.advisor}</span>
-          </div>
-        )}
-        {project.url && (
-          <a href={project.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>
-            <ExternalLink size={12} /> {project.url}
-          </a>
-        )}
+        {project.description && <div><div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>About</div><p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{project.description}</p></div>}
+        {project.milestone && <div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Milestone</div>
+          <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', margin: '0 0 8px' }}>{project.milestone}</p>
+          {project.milestone_pct != null && <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ flex: 1, height: 4, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}><div style={{ height: '100%', width: `${project.milestone_pct}%`, background: sc, borderRadius: 2 }} /></div><span style={{ fontSize: 11, fontWeight: 600, color: sc }}>{project.milestone_pct}%</span></div>}
+        </div>}
+        {project.next && <div><div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Next</div><p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0, borderLeft: '2px solid var(--accent)', paddingLeft: 10 }}>{project.next}</p></div>}
+        {project.advisor && <div><div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Advisor</div><span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', textTransform: 'capitalize' }}>{project.advisor}</span></div>}
+        {project.url && <a href={project.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}><ExternalLink size={12} /> {project.url}</a>}
       </div>
     </div>
   )
 }
 
+const TYPE_TABS  = ['all', 'active', 'live', 'idea', 'parked']
+const TYPE_COLOR = { active: '#3882F6', live: '#10b981', idea: '#a855f7', parked: '#9ca3af' }
+const TYPE_LABEL = { active: 'Active', live: 'Live', idea: 'Idea', parked: 'Parked', all: 'All' }
+
 function ProjectsWidget() {
   const [projects,  setProjects]  = useState([])
-  const [projectsError, setProjectsError] = useState(false)
   const [selected,  setSelected]  = useState(null)
+  const [activeTab, setActiveTab] = useState('all')
 
-  function load() {
-    fetch('/api/projects').then(r => r.json()).then(d => setProjects(d.projects || [])).catch(() => setProjectsError(true))
-  }
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    fetch('/api/projects').then(r => r.json()).then(d => setProjects(d.projects || [])).catch(() => {})
+  }, [])
 
   function togglePin(p) {
     const next = !p.pinned
@@ -169,139 +128,88 @@ function ProjectsWidget() {
     fetch(`/api/projects/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: next }) }).catch(() => {})
   }
 
-  const visible = [...projects]
-    .sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1
-      if (!a.pinned && b.pinned) return 1
-      return (b.updated || '').localeCompare(a.updated || '')
-    })
-    .slice(0, 6)
+  const [projPage, setProjPage] = useState(0)
+  const PAGE_SIZE = 5
+
+  const sorted = [...projects].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1
+    if (!a.pinned && b.pinned) return 1
+    return (b.updated || '').localeCompare(a.updated || '')
+  })
+  const filtered = activeTab === 'all' ? sorted : sorted.filter(p => (p.type || 'active') === activeTab)
+  const pages    = Math.ceil(filtered.length / PAGE_SIZE)
+  const visible  = filtered.slice(projPage * PAGE_SIZE, (projPage + 1) * PAGE_SIZE)
+  const stale30  = p => p.updated && Math.floor((Date.now() - new Date(p.updated)) / 86400000) >= 30
+
+  useEffect(() => { setProjPage(0) }, [activeTab])
 
   return (
     <>
-      {selected && (
-        <ProjectProfile project={selected} onClose={() => setSelected(null)} onPin={p => { togglePin(p) }} />
-      )}
-      <div className="kai-inner" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <SectionHeader title={
-          <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+      {selected && <ProjectProfile project={selected} onClose={() => setSelected(null)} onPin={p => togglePin(p)} />}
+      <div className="kai-inner" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexShrink: 0 }}>
+          <span className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             Projects
             {projects.length > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', background: 'var(--bg-muted)', borderRadius: 10, padding: '2px 7px' }}>{projects.length}</span>}
           </span>
-        } />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, overflow: 'hidden' }}>
+        </div>
+        {/* type tabs */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexShrink: 0, overflowX: 'auto' }} className="no-scrollbar">
+          {TYPE_TABS.map(t => {
+            const count  = t === 'all' ? projects.length : projects.filter(p => (p.type || 'active') === t).length
+            const color  = TYPE_COLOR[t] || 'var(--text-muted)'
+            const active = activeTab === t
+            return (
+              <button key={t} onClick={() => setActiveTab(t)} style={{ all: 'unset', cursor: 'pointer', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', padding: '3px 9px', borderRadius: 20, flexShrink: 0, border: `1px solid ${active ? color + '60' : 'var(--border)'}`, background: active ? color + '15' : 'transparent', color: active ? color : 'var(--text-muted)', transition: 'all 0.15s' }}>
+                {TYPE_LABEL[t]} {count > 0 && <span style={{ opacity: 0.7 }}>· {count}</span>}
+              </button>
+            )
+          })}
+        </div>
+        {/* list — 5 per page, dot pagination */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
           {visible.map(p => {
             const sc  = SDOT[p.status]  || '#9ca3af'
-            const stc = STEXT[p.status] || '#6b7280'
-            const sbg = SBG[p.status]   || 'rgba(156,163,175,0.08)'
-            const ago = daysAgo(p.updated)
             const pct = p.milestone_pct ?? null
+            const ago = daysAgo(p.updated)
             const isSelected = selected?.id === p.id
+            const typeColor = TYPE_COLOR[p.type] || TYPE_COLOR.active
             return (
               <div key={p.id} onClick={() => setSelected(isSelected ? null : p)}
-                style={{ padding: '6px 11px', borderRadius: 10, border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`, background: isSelected ? 'var(--accent-bg)' : 'var(--bg-card)', cursor: 'pointer', transition: 'all 0.15s', position: 'relative' }}
+                style={{ padding: '7px 11px', borderRadius: 10, border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`, background: isSelected ? 'var(--accent-bg)' : 'var(--bg-card)', cursor: 'pointer', transition: 'all 0.15s', flexShrink: 0 }}
                 onMouseEnter={e => { if (!isSelected) { e.currentTarget.style.background = 'var(--hover-bg)'; e.currentTarget.style.borderColor = 'var(--accent)' } }}
                 onMouseLeave={e => { if (!isSelected) { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.borderColor = 'var(--border)' } }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                   {p.pinned && <Pin size={9} color="var(--accent)" strokeWidth={2.5} style={{ flexShrink: 0 }} />}
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: sc, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</span>
-                  {p.milestone && <>
-                    <span style={{ fontSize: 11, color: '#d1d5db' }}>|</span>
-                    <span style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.milestone}</span>
-                  </>}
-                  {p.version && <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>v{p.version}</span>}
-                  <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4, flexShrink: 0, background: sbg, color: stc, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{p.status}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                  {p.type && <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 4, flexShrink: 0, background: typeColor + '18', color: typeColor, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{p.type}</span>}
+                  {stale30(p) && <span style={{ fontSize: 8, color: '#f59e0b', fontWeight: 700, flexShrink: 0 }}>STALE</span>}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 10, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.next}</span>
-                  {pct !== null && <>
-                    <div style={{ width: 40, height: 2, borderRadius: 1, background: '#e8ecf1', overflow: 'hidden', flexShrink: 0 }}>
-                      <div style={{ height: '100%', width: `${pct}%`, background: sc }} />
-                    </div>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: sc, flexShrink: 0 }}>{pct}%</span>
-                  </>}
+                  <span style={{ fontSize: 10, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.milestone || p.next}</span>
+                  {pct !== null && <><div style={{ width: 36, height: 2, borderRadius: 1, background: '#e8ecf1', overflow: 'hidden', flexShrink: 0 }}><div style={{ height: '100%', width: `${pct}%`, background: sc }} /></div><span style={{ fontSize: 10, fontWeight: 600, color: sc, flexShrink: 0 }}>{pct}%</span></>}
                   {ago && <span style={{ fontSize: 10, color: 'var(--text-subtle)', flexShrink: 0 }}>{ago}</span>}
                 </div>
               </div>
             )
           })}
+          {filtered.length === 0 && <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0', margin: 0 }}>No {activeTab === 'all' ? '' : activeTab} projects.</p>}
         </div>
+        {pages > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 5, paddingTop: 10, flexShrink: 0 }}>
+            {Array.from({ length: pages }).map((_, i) => (
+              <button key={i} onClick={() => setProjPage(i)} style={{ all: 'unset', cursor: 'pointer', width: i === projPage ? 14 : 5, height: 5, borderRadius: 3, background: i === projPage ? 'var(--accent)' : 'var(--border)', transition: 'all 0.2s' }} />
+            ))}
+          </div>
+        )}
       </div>
     </>
   )
 }
 
-// ── Harmony + Weather + Quote + Intention ──────────────────────────────────
-
-const HARMONY_GROUPS = [
-  { name: 'Body',          ids: ['health-fitness', 'quality-of-life'] },
-  { name: 'Mind',          ids: ['intellectual-life', 'emotional-life', 'character', 'spiritual-life'] },
-  { name: 'Relationships', ids: ['love-relationship', 'parenting', 'social-life'] },
-  { name: 'Work & Money',  ids: ['career', 'financial-life'] },
-  { name: 'Life',          ids: ['life-vision', 'passion-sex'] },
-]
-
-const HCOL = { green: '#10b981', yellow: '#f59e0b', red: '#ef4444', gray: '#d1d5db' }
-
-function domainStatus(aspects) {
-  const vals = Object.values(aspects || {}).map(a => a.status || 'green')
-  if (vals.includes('red'))    return 'red'
-  if (vals.includes('yellow')) return 'yellow'
-  return 'green'
-}
-
-function HarmonyRings({ domains }) {
-  const r    = 26
-  const sw   = 5
-  const size = r * 2 + sw + 2
-  const circ = 2 * Math.PI * r
-
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', flex: 1, padding: '6px 0 2px' }}>
-      {HARMONY_GROUPS.map(g => {
-        const statuses = g.ids.map(id => {
-          const d = domains.find(x => x.id === id)
-          return d ? domainStatus(d.aspects) : null
-        }).filter(Boolean)
-
-        const greenCount = statuses.filter(s => s === 'green').length
-        const pct        = statuses.length ? greenCount / statuses.length : 0
-        const overall    = statuses.includes('red') ? 'red'
-          : statuses.includes('yellow') ? 'yellow'
-          : statuses.length ? 'green' : 'gray'
-        const color = HCOL[overall]
-        const cx = size / 2, cy = size / 2
-        const offset = circ * (1 - pct)
-
-        return (
-          <div key={g.name} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-            <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-              {/* track */}
-              <circle cx={cx} cy={cy} r={r} fill="none"
-                stroke="rgba(255,255,255,0.07)" strokeWidth={sw} />
-              {/* progress */}
-              <circle cx={cx} cy={cy} r={r} fill="none"
-                stroke={color} strokeWidth={sw}
-                strokeDasharray={circ}
-                strokeDashoffset={offset}
-                strokeLinecap="round"
-                style={{ transition: 'stroke-dashoffset 0.7s ease, stroke 0.3s' }}
-              />
-            </svg>
-            <span style={{
-              fontSize: 9, fontWeight: 500,
-              color: 'var(--text-muted)',
-              letterSpacing: '0.03em', textAlign: 'center',
-              lineHeight: 1.2, maxWidth: 52,
-            }}>{g.name}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
+// ── Harmony + Habits (combined) ─────────────────────────────────────────────
 
 const _DEFAULT_BAR_GROUPS = [
   { name: 'Life',          ids: ['life-vision', 'passion-sex'],                                           color: '#10b981', icon: 'Compass' },
@@ -311,488 +219,564 @@ const _DEFAULT_BAR_GROUPS = [
   { name: 'Relationships', ids: ['love-relationship', 'parenting', 'social-life'],                        color: '#ec4899', icon: 'HeartHandshake' },
 ]
 
-function HarmonyWidget() {
+function domainStatus(aspects) {
+  const vals = Object.values(aspects || {}).map(a => a.status || 'green')
+  if (vals.includes('red'))    return 'red'
+  if (vals.includes('yellow')) return 'yellow'
+  return 'green'
+}
+
+const HABIT_COLORS = ['#e53935','#e64a19','#f57c00','#f9a825','#fdd835','#c0ca33','#7cb342','#2e7d32','#00695c','#00838f','#0277bd','#1565c0','#283593','#4527a0','#6a1b9a','#ad1457','#880e4f','#4e342e','#546e7a','#37474f']
+
+function HarmonyHabitsWidget() {
   const [domains, setDomains] = useState([])
-  const [tooltip, setTooltip] = useState(null)
+  const [habits,  setHabits]  = useState([])
+  const today = new Date().toISOString().slice(0, 10)
   const BAR_GROUPS = loadGroupConfig(_DEFAULT_BAR_GROUPS)
 
   useEffect(() => {
     fetch('/api/harmony').then(r => r.json()).then(d => setDomains(d.domains || [])).catch(() => {})
-  }, [])
-
-  const SC = { green: '#10b981', yellow: '#f59e0b', red: '#ef4444' }
-
-  function handleEnter(e, g) {
-    const rect = e.currentTarget.getBoundingClientRect()
-    setTooltip({ group: g, x: rect.right + 10, y: rect.top + rect.height / 2 })
-  }
-
-  return (
-    <div style={{ flex: 1, background: 'var(--bg-surface)', borderRadius: 16, border: '1px solid var(--border)', padding: '14px 14px 10px', display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexShrink: 0 }}>
-        <span className="section-title">Harmony</span>
-        {domains.length > 0 && (() => {
-          const allStats = BAR_GROUPS.flatMap(g => g.ids.map(id => domains.find(x => x.id === id)).filter(Boolean).map(d => domainStatus(d.aspects)))
-          const aligned = allStats.filter(s => s === 'green').length
-          return <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600 }}>{aligned}/{allStats.length} aligned</span>
-        })()}
-      </div>
-
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7, minHeight: 0, justifyContent: 'space-between' }}>
-        {BAR_GROUPS.map(g => {
-          const stats = g.ids.map(id => {
-            const d = domains.find(x => x.id === id)
-            return d ? domainStatus(d.aspects) : null
-          }).filter(Boolean)
-          const green = stats.filter(s => s === 'green').length
-          const pct   = stats.length ? Math.round((green / stats.length) * 100) : 0
-
-          return (
-            <div key={g.name}
-              onMouseEnter={e => handleEnter(e, g.name)}
-              onMouseLeave={() => setTooltip(null)}
-              style={{ flex: 1, position: 'relative', borderRadius: 8, overflow: 'hidden', background: g.color + '18', cursor: 'default' }}
-            >
-              <div style={{
-                position: 'absolute', top: 0, left: 0, bottom: 0,
-                width: `${pct}%`,
-                background: `linear-gradient(to right, ${g.color}, ${g.color}cc)`,
-                borderRadius: 8, transition: 'width 0.9s cubic-bezier(.4,0,.2,1)',
-              }} />
-              <div style={{
-                position: 'absolute', inset: 0, zIndex: 1,
-                display: 'flex', alignItems: 'center',
-                padding: '0 12px', gap: 7, pointerEvents: 'none',
-              }}>
-                <LucideIcon name={g.icon} size={13} color={pct > 30 ? 'rgba(255,255,255,0.85)' : g.color} />
-                <span style={{
-                  fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', flex: 1,
-                  color: pct > 30 ? 'rgba(255,255,255,0.92)' : g.color + 'cc', transition: 'color 0.3s',
-                }}>{g.name}</span>
-                <span style={{
-                  fontSize: 10, fontWeight: 600,
-                  color: pct > 85 ? 'rgba(255,255,255,0.7)' : g.color + '99', transition: 'color 0.3s',
-                }}>{pct}%</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* fixed tooltip — escapes all overflow:hidden parents */}
-      {tooltip && (() => {
-        const g = BAR_GROUPS.find(x => x.name === tooltip.group)
-        if (!g) return null
-        const groupDomains = g.ids.map(id => domains.find(x => x.id === id)).filter(Boolean)
-        return (
-          <div style={{
-            position: 'fixed', left: tooltip.x, top: tooltip.y,
-            transform: 'translateY(-50%)',
-            background: 'var(--bg-card)', border: '1px solid var(--border)',
-            borderRadius: 10, padding: '10px 12px',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-            zIndex: 9999, minWidth: 160, pointerEvents: 'none',
-          }}>
-            <div style={{ fontSize: 9, fontWeight: 700, color: g.color, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 7 }}>{g.name}</div>
-            {groupDomains.map(d => (
-              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 0' }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: SC[domainStatus(d.aspects)], flexShrink: 0 }} />
-                <span style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{d.icon} {d.name}</span>
-              </div>
-            ))}
-          </div>
-        )
-      })()}
-    </div>
-  )
-}
-
-
-// ── Intention ────────────────────────────────────────────────────────────────────────────
-
-const SLEEP_OPTIONS = ['great', 'good', 'ok', 'rough', 'terrible']
-
-function IntentionSection() {
-  const [intent,       setIntent]       = useState('')
-  const [sleepQuality, setSleepQuality] = useState('')
-  const [restfulness,  setRestfulness]  = useState('')
-  const [editing,      setEditing]      = useState(false)
-  const [saved,        setSaved]        = useState(false)
-  const ref = useRef(null)
-
-  useEffect(() => {
-    fetch('/api/checkin').then(r => r.json()).then(d => {
-      if (d.date === new Date().toISOString().slice(0, 10)) {
-        setIntent(d.intent || '')
-        setSleepQuality(d.sleep_quality || '')
-        setRestfulness(d.restfulness || '')
-      }
-    }).catch(() => {})
-  }, [])
-
-  useEffect(() => { if (editing) ref.current?.focus() }, [editing])
-
-  function save(overrides = {}) {
-    setEditing(false)
-    const payload = { intent, sleep_quality: sleepQuality, restfulness, ...overrides }
-    fetch('/api/checkin', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }).then(() => { setSaved(true); setTimeout(() => setSaved(false), 1500) })
-  }
-
-  const sleepColor = { great: '#10b981', good: '#34d399', ok: '#f59e0b', rough: '#f97316', terrible: '#ef4444' }
-
-  return (
-    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 7, flex: 1, minHeight: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>Morning Check-in</span>
-        {saved && <span style={{ fontSize: 10, color: '#10b981' }}>Saved ✓</span>}
-      </div>
-
-      <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sleep</div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {SLEEP_OPTIONS.map(opt => {
-            const active = sleepQuality === opt
-            const next = active ? '' : opt
-            return (
-              <button key={opt} onClick={() => { setSleepQuality(next); save({ sleep_quality: next }) }}
-                style={{ padding: '2px 8px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600,
-                  background: active ? (sleepColor[opt] || 'var(--accent)') : 'var(--bg-elevated)',
-                  color: active ? '#fff' : 'var(--text-secondary)', transition: 'all 0.15s' }}>
-                {opt}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>How rested?</div>
-        <input value={restfulness} onChange={e => setRestfulness(e.target.value)}
-          onBlur={() => save()} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
-          placeholder="e.g. sharp, a bit foggy, exhausted…"
-          style={{ width: '100%', boxSizing: 'border-box', fontSize: 11, color: 'var(--text-primary)',
-            background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6,
-            padding: '4px 8px', outline: 'none', fontFamily: 'inherit' }} />
-      </div>
-
-      <div style={{ cursor: editing ? 'default' : 'text' }} onClick={() => { if (!editing) setEditing(true) }}>
-        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Intention</div>
-        {editing ? (
-          <textarea ref={ref} value={intent} onChange={e => setIntent(e.target.value)}
-            onBlur={() => save()} onKeyDown={e => { if (e.key === 'Escape') save() }}
-            placeholder="What is your intention for today?"
-            style={{ width: '100%', fontSize: 11, color: 'var(--text-primary)', lineHeight: 1.5,
-              background: 'transparent', border: 'none', outline: 'none', resize: 'none',
-              fontFamily: 'inherit', minHeight: 36 }} />
-        ) : (
-          <p style={{ fontSize: 11, margin: 0, lineHeight: 1.5, fontStyle: 'italic',
-            color: intent ? '#4b5563' : '#c4c9d4', borderLeft: '2px solid var(--accent-bg)', paddingLeft: 8 }}>
-            {intent || 'Set your intention for today…'}
-          </p>
-        )}
-      </div>
-    </div>
-  )
-}
-// ── Habits (icon grid) ─────────────────────────────────────────────────────
-
-function HabitsWidget() {
-  const [habits,    setHabits]    = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [editMode,  setEditMode]  = useState(false)
-  const [editingId, setEditingId] = useState(null)
-  const [editVal,   setEditVal]   = useState('')
-  const [icons, setIcons] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('kai-habit-icons') || '{}') } catch { return {} }
-  })
-  const today = new Date().toISOString().slice(0, 10)
-
-  const HCOLOR = [
-    '#e53935','#e64a19','#f57c00','#f9a825','#fdd835',
-    '#c0ca33','#7cb342','#2e7d32','#00695c','#00838f',
-    '#0277bd','#1565c0','#283593','#4527a0','#6a1b9a',
-    '#ad1457','#880e4f','#4e342e','#546e7a','#37474f',
-  ]
-  const habitColor = idx => HCOLOR[idx % HCOLOR.length] || 'var(--accent)'
-
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - (6 - i))
-    return d.toISOString().slice(0, 10)
-  })
-
-  useEffect(() => {
-    fetch('/api/habits').then(r => r.json())
-      .then(d => setHabits(d.habits || d || []))
-      .catch(() => {}).finally(() => setLoading(false))
+    fetch('/api/habits').then(r => r.json()).then(d => setHabits(d.habits || d || [])).catch(() => {})
   }, [])
 
   function toggle(h) {
     const done = h.completions?.includes(today)
     fetch(`/api/habits/${h.id}/complete`, { method: done ? 'DELETE' : 'POST' })
-      .then(r => r.json())
       .then(() => setHabits(prev => prev.map(x => x.id === h.id
-        ? { ...x, completions: done
-            ? x.completions.filter(c => c !== today)
-            : [...(x.completions || []), today] }
+        ? { ...x, completions: done ? x.completions.filter(c => c !== today) : [...(x.completions || []), today] }
         : x)))
       .catch(() => {})
   }
 
-  function getIcon(h) { return icons[h.id] || h.emoji || (h.displayName || h.name || '?')[0] }
-
-  function openEdit(h) {
-    setEditingId(h.id)
-    setEditVal(icons[h.id] || h.emoji || '')
-  }
-
-  function saveIcon(id) {
-    const v = editVal.trim()
-    const updated = v
-      ? { ...icons, [id]: v }
-      : (() => { const c = { ...icons }; delete c[id]; return c })()
-    setIcons(updated)
-    localStorage.setItem('kai-habit-icons', JSON.stringify(updated))
-    setEditingId(null)
-  }
-
-  const doneCount = habits.filter(h => h.completions?.includes(today)).length
-  const total     = habits.length
-  const pct       = total ? Math.round((doneCount / total) * 100) : 0
+  const doneCount = habits.slice(0, 6).filter(h => h.completions?.includes(today)).length
 
   return (
-    <div className="kai-card" style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, flex: 1, overflow: 'hidden' }}>
-      {/* header */}
+    <div style={{ flex: 1, background: 'var(--bg-surface)', borderRadius: 16, border: '1px solid var(--border)', padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden' }}>
+      {/* Harmony */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <span className="section-title">Harmony</span>
+        {domains.length > 0 && (() => {
+          const allStats = BAR_GROUPS.flatMap(g => g.ids.map(id => domains.find(x => x.id === id)).filter(Boolean).map(d => domainStatus(d.aspects)))
+          const aligned = allStats.filter(s => s === 'green').length
+          return <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600 }}>{aligned}/{allStats.length}</span>
+        })()}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flexShrink: 0 }}>
+        {BAR_GROUPS.map(g => {
+          const stats = g.ids.map(id => { const d = domains.find(x => x.id === id); return d ? domainStatus(d.aspects) : null }).filter(Boolean)
+          const pct = stats.length ? Math.round((stats.filter(s => s === 'green').length / stats.length) * 100) : 0
+          return (
+            <div key={g.name} style={{ position: 'relative', borderRadius: 6, overflow: 'hidden', background: g.color + '18', height: 22 }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: `${pct}%`, background: `linear-gradient(to right, ${g.color}, ${g.color}cc)`, borderRadius: 6, transition: 'width 0.9s cubic-bezier(.4,0,.2,1)' }} />
+              <div style={{ position: 'absolute', inset: 0, zIndex: 1, display: 'flex', alignItems: 'center', padding: '0 9px', gap: 6, pointerEvents: 'none' }}>
+                <LucideIcon name={g.icon} size={10} color={pct > 30 ? 'rgba(255,255,255,0.85)' : g.color} />
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', flex: 1, color: pct > 30 ? 'rgba(255,255,255,0.9)' : g.color + 'cc' }}>{g.name}</span>
+                <span style={{ fontSize: 9, fontWeight: 600, color: pct > 85 ? 'rgba(255,255,255,0.7)' : g.color + '99' }}>{pct}%</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {/* Divider */}
+      <div style={{ height: 1, background: 'var(--border)', flexShrink: 0 }} />
+      {/* Habits */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <span className="section-title">Habits</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 54, height: 3, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${pct}%`, borderRadius: 2, background: pct === 100 ? '#22c55e' : 'var(--accent)', transition: 'width 0.4s ease' }} />
-          </div>
-          <span style={{ fontSize: 10, color: 'var(--text-muted)', minWidth: 28 }}>{doneCount}/{total}</span>
-          <button onClick={() => { setEditMode(m => !m); setEditingId(null) }}
-            title={editMode ? 'Done' : 'Assign icons'}
-            style={{ all: 'unset', cursor: 'pointer', fontSize: 12, color: editMode ? 'var(--accent)' : 'var(--text-muted)', padding: '2px 4px' }}>✏</button>
-        </div>
+        {habits.length > 0 && <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600 }}>{doneCount}/{Math.min(habits.length, 6)}</span>}
       </div>
-
-      {/* column headers */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, paddingRight: 2 }}>
-        <div style={{ width: 32, flexShrink: 0 }} />
-        <span style={{ flex: 1, fontSize: 9, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Habit</span>
-        <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', width: 30, textAlign: 'center' }}>Today</span>
-        <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', width: 68, textAlign: 'right' }}>Week</span>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gridTemplateRows: 'repeat(2, 1fr)', gap: 6, flex: 1, minHeight: 0 }}>
+        {Array.from({ length: 6 }).map((_, i) => {
+          const h = habits[i]
+          if (!h) return (
+            <div key={`empty-${i}`} style={{ borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-muted)', border: '1.5px dashed var(--border)' }}>
+              <Plus size={13} color="var(--text-muted)" />
+            </div>
+          )
+          const done  = h.completions?.includes(today)
+          const color = done ? '#22c55e' : (HABIT_COLORS[h.color ?? 0] || '#6366f1')
+          const emoji = h.emoji || (h.displayName || h.name || '?')[0]
+          return (
+            <button key={h.id} onClick={() => toggle(h)} style={{ all: 'unset', cursor: 'pointer', borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, background: done ? '#22c55e15' : color + '15', border: `1.5px solid ${done ? '#22c55e50' : color + '40'}`, transition: 'all 0.2s' }}>
+              <span style={{ fontSize: 18, lineHeight: 1 }}>{done ? '✓' : emoji}</span>
+              <span style={{ fontSize: 7, fontWeight: 700, color: done ? '#22c55e' : color, letterSpacing: '0.04em', textAlign: 'center', lineHeight: 1.2, maxWidth: '92%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(h.displayName || h.name || '').toUpperCase()}</span>
+            </button>
+          )
+        })}
       </div>
-
-      {loading ? (
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 11 }}>Loading…</div>
-      ) : (
-        <div style={{ overflowY: 'auto', flex: 1 }}>
-          {habits.map((h, idx) => {
-            const isDone   = h.completions?.includes(today)
-            const weekCount = weekDays.filter(d => h.completions?.includes(d)).length
-            const weekPct  = Math.round((weekCount / 7) * 100)
-            const accent   = habitColor(h.color ?? 0)
-            const isEditing = editingId === h.id
-
-            return (
-              <div key={h.id} style={{ position: 'relative' }}>
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '6px 0',
-                  borderBottom: idx < habits.length - 1 ? '1px solid var(--border)' : 'none',
-                }}>
-                  {/* icon */}
-                  <button
-                    onClick={() => editMode ? openEdit(h) : toggle(h)}
-                    title={h.displayName || h.name}
-                    style={{
-                      all: 'unset', cursor: 'pointer', flexShrink: 0,
-                      width: 32, height: 32, borderRadius: 8,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: isDone ? '#22c55e' : accent + '22',
-                      border: `1.5px solid ${isDone ? '#22c55e' : accent + '55'}`,
-                      fontSize: isDone ? 13 : 16, color: isDone ? '#fff' : accent,
-                      transition: 'all 0.2s',
-                      outline: editMode && !isDone ? `1px dashed ${accent}88` : 'none',
-                      outlineOffset: 2,
-                    }}
-                  >
-                    {isDone ? '✓' : getIcon(h)}
-                  </button>
-
-                  {/* name */}
-                  <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {h.displayName || h.name}
-                  </span>
-
-                  {/* today */}
-                  <span style={{ width: 30, textAlign: 'center', fontSize: 13, color: isDone ? '#22c55e' : 'var(--text-muted)', flexShrink: 0 }}>
-                    {isDone ? '✓' : '○'}
-                  </span>
-
-                  {/* week */}
-                  <div style={{ width: 68, display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, justifyContent: 'flex-end' }}>
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)', width: 24, textAlign: 'right' }}>{weekPct}%</span>
-                    <div style={{ width: 36, height: 3, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
-                      <div style={{ width: `${weekPct}%`, height: '100%', background: weekPct === 100 ? '#22c55e' : 'var(--accent)', borderRadius: 2, transition: 'width 0.4s ease' }} />
-                    </div>
-                  </div>
-                </div>
-
-                {/* inline emoji editor */}
-                {isEditing && (
-                  <div style={{
-                    position: 'absolute', top: '100%', left: 0, zIndex: 50,
-                    background: 'var(--bg-card)', border: '1px solid var(--border)',
-                    borderRadius: 8, padding: '6px 10px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}>
-                    <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') saveIcon(h.id); if (e.key === 'Escape') setEditingId(null) }}
-                      placeholder="emoji" style={{ all: 'unset', fontSize: 20, width: 36, textAlign: 'center', color: 'var(--text-primary)' }} />
-                    <button onClick={() => saveIcon(h.id)} style={{ all: 'unset', cursor: 'pointer', fontSize: 11, color: '#22c55e', fontWeight: 700 }}>✓</button>
-                    <button onClick={() => setEditingId(null)} style={{ all: 'unset', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)' }}>✕</button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
     </div>
   )
 }
 
-// ── Today's Plan ───────────────────────────────────────────────────────────
+// ── Tasks 3-Column ──────────────────────────────────────────────────────────
 
 const PRIORITY_COLOR = { 1: '#ef4444', 2: '#f97316', 3: '#f59e0b', 4: '#9ca3af' }
-const PRIORITY_LABEL = { 1: 'Critical', 2: 'Important', 3: 'Normal', 4: 'Defer' }
-const PRIORITY_NEXT  = { 1: 2, 2: 3, 3: 4, 4: 1 }
+const TODAY_DATE = new Date().toISOString().slice(0, 10)
 
-function TaskRow({ task, onDone, onPriorityChange }) {
-  const [priority, setPriority] = useState(task.priority || 4)
-  const [hover,    setHover]    = useState(false)
-  const [gone,     setGone]     = useState(false)
-
-  function cyclePriority(e) {
-    e.stopPropagation()
-    const next = PRIORITY_NEXT[priority]
-    setPriority(next)
-    fetch(`/api/tasks/${task.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ priority: next }) })
-      .then(() => onPriorityChange && onPriorityChange(task.id, next))
-  }
-
+function TaskCard({ task, colId, onDone, onMove }) {
+  const [gone, setGone] = useState(false)
+  const ref = React.useRef(null)
   if (gone) return null
+  const pc = PRIORITY_COLOR[task.priority || 4]
+
+  function onDragStart(e) {
+    e.dataTransfer.setData('taskId', task.id)
+    e.dataTransfer.setData('fromCol', colId)
+    e.dataTransfer.effectAllowed = 'move'
+    setTimeout(() => { if (ref.current) ref.current.style.opacity = '0.4' }, 0)
+  }
+  function onDragEnd() { if (ref.current) ref.current.style.opacity = '1' }
+
   return (
-    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8, background: 'var(--bg-card)', border: `1px solid ${hover ? '#d1d5db' : '#e8ecf1'}`, transition: 'border-color 0.15s' }}
+    <div ref={ref} draggable onDragStart={onDragStart} onDragEnd={onDragEnd}
+      style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '5px 8px', borderRadius: 7, background: 'var(--bg-card)', border: '1px solid var(--border)', transition: 'border-color 0.15s', flexShrink: 0, cursor: 'grab', userSelect: 'none' }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = pc + '50' }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
     >
-      <div onClick={cyclePriority} title={`${PRIORITY_LABEL[priority]} — click to change`} style={{
-        width: 14, height: 14, borderRadius: '50%', flexShrink: 0, cursor: 'pointer',
-        border: `1.5px solid ${PRIORITY_COLOR[priority]}`,
-        background: priority < 4 ? PRIORITY_COLOR[priority] + '25' : 'transparent',
-      }} />
-      <span style={{ flex: 1, fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.4 }}>{task.content}</span>
-      <div style={{ display: 'flex', gap: 4, opacity: hover ? 1 : 0, transition: 'opacity 0.15s', flexShrink: 0 }}>
-        <button onClick={e => { e.stopPropagation(); setGone(true); fetch(`/api/tasks/${task.id}/complete`, { method: 'POST' }).then(() => onDone(task.id)) }}
-          style={{ width: 24, height: 24, borderRadius: 6, border: '1px solid var(--border)', background: '#f9fafb', cursor: 'pointer', fontSize: 12, color: '#10b981', fontWeight: 700, padding: 0 }}>✓</button>
-        <button onClick={e => { e.stopPropagation(); setGone(true); fetch(`/api/tasks/${task.id}`, { method: 'DELETE' }).then(() => onDone(task.id)) }}
-          style={{ width: 24, height: 24, borderRadius: 6, border: '1px solid var(--border)', background: '#f9fafb', cursor: 'pointer', fontSize: 11, color: '#ef4444', fontWeight: 700, padding: 0 }}>✕</button>
-      </div>
+      <div style={{ width: 5, height: 5, borderRadius: '50%', background: pc, flexShrink: 0, marginTop: 4 }} />
+      <span style={{ flex: 1, fontSize: 11, color: 'var(--text-primary)', lineHeight: 1.4 }}>{task.content}</span>
+      <button onClick={() => { setGone(true); fetch('/api/tasks/' + task.id + '/complete', { method: 'POST' }).then(() => onDone(task.id)).catch(() => {}) }}
+        style={{ all: 'unset', cursor: 'pointer', fontSize: 11, color: '#10b981', flexShrink: 0, padding: '0 2px', lineHeight: 1 }}>✓</button>
     </div>
   )
 }
 
-function TodayPlayWidget() {
-  const [today,   setToday]   = useState([])
-  const [inbox,   setInbox]   = useState([])
+const _TASK_TODAY = new Date().toISOString().slice(0, 10)
+const _TASK_IN7   = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+function taskBucket(t) {
+  if (!t.due) return 'backlog'
+  if (t.due <= _TASK_TODAY) return 'today'
+  if (t.due <= _TASK_IN7)  return 'week'
+  return 'backlog'
+}
+async function moveTaskWidget(id, toCol) {
+  let body = {}
+  if (toCol === 'today')   body = { move_to_today: true }
+  if (toCol === 'week')    body = { due_date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10) }
+  if (toCol === 'backlog') body = { due_date: '' }
+  await fetch('/api/tasks/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+}
+
+function TasksWidget() {
+  const [tasks,   setTasks]   = useState([])
   const [loading, setLoading] = useState(true)
-  const [tab,     setTab]     = useState('today')
+  const navigate = useNavigate()
 
   useEffect(() => {
-    fetch('/api/tasks').then(r => r.json()).then(d => { setToday(d.today || []); setInbox(d.inbox || []) })
-      .catch(() => {}).finally(() => setLoading(false))
+    fetch('/api/tasks').then(r => r.json()).then(d => {
+      const all  = [...(d.today || []), ...(d.inbox || [])]
+      const seen = new Set()
+      setTasks(all.filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true }))
+    }).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
-  const handleDone = id => { setToday(p => p.filter(t => t.id !== id)); setInbox(p => p.filter(t => t.id !== id)) }
-  const handlePriorityChange = (id, pri) => {
-    setToday(p => p.map(t => t.id === id ? { ...t, priority: pri } : t))
-    setInbox(p => p.map(t => t.id === id ? { ...t, priority: pri } : t))
+  const handleDone = id => setTasks(p => p.filter(t => t.id !== id))
+  async function handleMove(id, toCol) {
+    await moveTaskWidget(id, toCol)
+    setTasks(prev => prev.map(t => {
+      if (t.id !== id) return t
+      if (toCol === 'today')   return { ...t, due: _TASK_TODAY }
+      if (toCol === 'week')    return { ...t, due: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10) }
+      if (toCol === 'backlog') return { ...t, due: null }
+      return t
+    }))
   }
 
-  const tasks = (tab === 'today' ? today : inbox).slice(0, 5)
-  const sections = (() => {
-    const groups = {}; tasks.forEach(t => { const p = t.priority || 4; (groups[p] = groups[p] || []).push(t) })
-    return [1,2,3,4].filter(p => groups[p]?.length).map(p => ({ priority: p, tasks: groups[p] }))
-  })()
+  const todayTs   = tasks.filter(t => taskBucket(t) === 'today').sort((a,b) => (a.priority||4)-(b.priority||4))
+  const weekTs    = tasks.filter(t => taskBucket(t) === 'week')
+  const backlogTs = tasks.filter(t => taskBucket(t) === 'backlog').sort((a,b) => (a.priority||4)-(b.priority||4))
+
+  function Col({ id, title, color, items }) {
+    const [over, setOver] = useState(false)
+    const borderVal = over ? ('1px dashed ' + color + '50') : '1px solid transparent'
+    const bgVal = over ? (color + '08') : 'transparent'
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden', borderRadius: 8, border: borderVal, background: bgVal, transition: 'all 0.15s', padding: 3 }}
+        onDragOver={e => { e.preventDefault(); setOver(true) }}
+        onDragLeave={() => setOver(false)}
+        onDrop={e => { e.preventDefault(); setOver(false); const tid = e.dataTransfer.getData('taskId'); const from = e.dataTransfer.getData('fromCol'); if (tid && from !== id) handleMove(tid, id) }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, flexShrink: 0 }}>
+          <div style={{ width: 5, height: 5, borderRadius: '50%', background: color, flexShrink: 0 }} />
+          <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color }}>{title}</span>
+          <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg-muted)', borderRadius: 8, padding: '1px 5px', flexShrink: 0 }}>{items.length}</span>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {items.length === 0
+            ? <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0', margin: 0 }}>{over ? 'Drop' : '—'}</p>
+            : items.map(t => <TaskCard key={t.id} task={t} colId={id} onDone={handleDone} onMove={handleMove} />)}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="kai-inner" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexShrink: 0 }}>
-        <span className="section-title">Today</span>
-        <div style={{ display: 'flex', background: 'var(--bg-muted)', borderRadius: 7, padding: 2, gap: 2 }}>
-          {[['today', `Today${today.length ? ` (${today.length})` : ''}`], ['inbox', `Inbox${inbox.length ? ` (${inbox.length})` : ''}`]].map(([key, label]) => (
-            <button key={key} onClick={() => setTab(key)} style={{
-              fontSize: 10, fontWeight: 600, padding: '3px 9px', borderRadius: 5, border: 'none', fontFamily: 'inherit', cursor: 'pointer',
-              background: tab === key ? '#ffffff' : 'transparent', color: tab === key ? '#1f2937' : '#9ca3af',
-              boxShadow: tab === key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s',
-            }}>{label}</button>
-          ))}
-        </div>
+        <span className="section-title">Tasks</span>
+        <button onClick={() => navigate('/tasks')} title="Go to Tasks"
+          style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, borderRadius: 6, display: 'flex', transition: 'color 0.15s' }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)' }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}
+        ><ListTodo size={14} /></button>
       </div>
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {loading ? <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Loading…</p>
-          : tasks.length === 0 ? <p style={{ fontSize: 13, color: 'var(--text-tertiary)', textAlign: 'center', padding: '20px 0' }}>{tab === 'today' ? 'Nothing scheduled.' : 'Inbox clear.'}</p>
-          : sections.map(({ priority, tasks: ts }) => (
-            <div key={priority} style={{ marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: PRIORITY_COLOR[priority], flexShrink: 0 }} />
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: PRIORITY_COLOR[priority] }}>{PRIORITY_LABEL[priority]}</span>
-                <div style={{ flex: 1, height: 1, background: PRIORITY_COLOR[priority] + '30' }} />
-                <span style={{ fontSize: 9, color: 'var(--text-subtle)' }}>{ts.length}</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {ts.map(t => <TaskRow key={t.id} task={t} onDone={handleDone} onPriorityChange={handlePriorityChange} />)}
-              </div>
-            </div>
-          ))
-        }
-      </div>
-      {!loading && (today.length > 0 || inbox.length > 0) && (
-        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #f3f4f6', flexShrink: 0 }}>
-          <span style={{ fontSize: 10, color: 'var(--text-subtle)' }}>{today.length} today · {inbox.length} inbox</span>
+      {loading ? <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-muted)', fontSize: 12 }}>Loading…</div> : (
+        <div style={{ flex: 1, display: 'flex', gap: 8, overflow: 'hidden' }}>
+          <Col id="today"   title="Today"     color="#6366f1" items={todayTs} />
+          <div style={{ width: 1, background: 'var(--border)', flexShrink: 0 }} />
+          <Col id="week"    title="This Week"  color="#10b981" items={weekTs} />
+          <div style={{ width: 1, background: 'var(--border)', flexShrink: 0 }} />
+          <Col id="backlog" title="Backlog"    color="#f59e0b" items={backlogTs} />
         </div>
       )}
     </div>
   )
 }
 
-// ── Chat ───────────────────────────────────────────────────────────────────
+// ── Advisor Tab Card ─────────────────────────────────────────────────────────
 
-function AdvisorAvatar({ advisor, size, isActive }) {
-  const GRADS = { kai: ['#1e3a5f','#2d5a8e'], ember: ['#7f1d1d','#be123c'], beats: ['#431407','#9a3412'], doc: ['#064e3b','#059669'], coach: ['#713f12','#d97706'], biz: ['#3b0764','#7c3aed'] }
-  const [from, to] = GRADS[advisor.id] || ['#374151','#6b7280']
+const COUNCIL_ADVISORS = ADVISORS.filter(a => a.id !== 'biz')
+
+function AdvisorTabCard({ advisor, isActive, onClick }) {
+  const [imgErr, setImgErr] = useState(false)
   return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', fontSize: size * 0.4,
-      background: advisor.avatar ? 'transparent' : `linear-gradient(135deg, ${from} 0%, ${to} 100%)`,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      boxShadow: isActive ? `0 0 0 2px #fff, 0 0 0 3.5px ${advisor.color}` : '0 1px 4px rgba(0,0,0,0.18)',
-      transition: 'all 0.2s',
-    }}>
-      {advisor.avatar ? <img src={advisor.avatar} alt={advisor.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : advisor.emoji}
+    <button onClick={onClick} style={{
+      all: 'unset', cursor: 'pointer',
+      width: isActive ? 104 : 52, flexShrink: 0,
+      display: 'flex', flexDirection: 'column',
+      position: 'relative', overflow: 'hidden',
+      borderRadius: 10,
+      border: `1px solid ${isActive ? advisor.color + '70' : 'rgba(255,255,255,0.05)'}`,
+      background: isActive ? advisor.color + '20' : 'transparent',
+      transition: 'all 0.15s',
+      opacity: isActive ? 1 : 0.5,
+    }}
+      onMouseEnter={e => { if (!isActive) { e.currentTarget.style.opacity = '0.8'; e.currentTarget.style.borderColor = advisor.color + '40' } }}
+      onMouseLeave={e => { if (!isActive) { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)' } }}
+    >
+      {/* Color accent top bar */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: advisor.color, opacity: isActive ? 1 : 0.5, zIndex: 2 }} />
+      {/* Full-height photo fill */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: advisor.color + '18', minHeight: 0 }}>
+        {advisor.avatar && !imgErr
+          ? <img src={advisor.avatar} alt={advisor.name} onError={() => setImgErr(true)}
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top' }} />
+          : <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>{advisor.emoji}</div>
+        }
+        {/* Name overlay */}
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '14px 3px 4px', background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)', zIndex: 1 }}>
+          <span style={{ fontSize: 8, fontWeight: 700, color: '#fff', textAlign: 'center', display: 'block', letterSpacing: '0.06em', textTransform: 'uppercase', opacity: isActive ? 1 : 0.8 }}>{advisor.name}</span>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+// ── Session Context Line (below greeting) ────────────────────────────────────
+
+function SessionContextLine() {
+  const [ctx, setCtx] = useState(null)
+  useEffect(() => {
+    function load() { fetch('/api/session-context').then(r => r.json()).then(setCtx).catch(() => {}) }
+    load()
+    const t = setInterval(load, 30000)
+    return () => clearInterval(t)
+  }, [])
+  if (!ctx || !ctx.resets_iso) return null
+  const pct = ctx.pct || 0
+  const color = pct >= 80 ? '#ef4444' : pct >= 60 ? '#f59e0b' : 'var(--text-muted)'
+  const resetsIn = (() => {
+    const diff = Math.max(0, new Date(ctx.resets_iso) - Date.now())
+    const h = Math.floor(diff / 3600000)
+    const m = Math.floor((diff % 3600000) / 60000)
+    if (h > 0) return `${h}h ${m}m`
+    return `${m}m`
+  })()
+  return (
+    <span style={{ fontSize: 11, color, letterSpacing: '-0.01em' }}>
+      {pct.toFixed(0)}% of session · resets in {resetsIn}
+    </span>
+  )
+}
+
+// ── Inline Token Badge (for greeting row) ────────────────────────────────────
+
+function TokenBadge() {
+  const [data, setData] = useState(null)
+  useEffect(() => {
+    function load() { fetch('/api/token-usage').then(r => r.json()).then(setData).catch(() => {}) }
+    load()
+    const t = setInterval(load, 60000)
+    return () => clearInterval(t)
+  }, [])
+  if (!data) return null
+  const todayStr   = new Date().toISOString().slice(0, 10)
+  const todayEntry = (data.days || []).find(d => d.date === todayStr) || { cost_usd: 0, calls: 0 }
+  const dailyCap   = data.daily_cap_usd || 5
+  const pct        = Math.min(Math.round(((todayEntry.cost_usd || 0) / dailyCap) * 100), 100)
+  const barColor   = pct > 80 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#10b981'
+  const fmtCost    = c => c < 0.01 ? '<$0.01' : `$${c.toFixed(2)}`
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtCost(todayEntry.cost_usd || 0)} today</span>
+      <div style={{ width: 40, height: 3, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: barColor, borderRadius: 2 }} />
+      </div>
+      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{pct}% daily</span>
+      <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>· {todayEntry.calls} calls</span>
     </div>
   )
 }
 
+// ── Parking Lot tile grid ───────────────────────────────────────────────────
+
+const LOT_TYPE_META = {
+  article:  { label: 'Articles',  color: '#f97316', bg: '#f9731615', icon: FileText },
+  idea:     { label: 'Ideas',     color: '#a855f7', bg: '#a855f715', icon: Lightbulb },
+  product:  { label: 'Products',  color: '#3b82f6', bg: '#3b82f615', icon: ShoppingBag },
+  recipe:   { label: 'Recipes',   color: '#10b981', bg: '#10b98115', icon: UtensilsCrossed },
+  note:     { label: 'Notes',     color: '#94a3b8', bg: '#94a3b815', icon: FileText },
+  link:     { label: 'Links',     color: '#06b6d4', bg: '#06b6d415', icon: Link2 },
+  music:    { label: 'Music',     color: '#ec4899', bg: '#ec489915', icon: Music },
+  video:    { label: 'Videos',    color: '#ef4444', bg: '#ef444415', icon: Video },
+  item:     { label: 'Items',     color: '#64748b', bg: '#64748b15', icon: BookOpen },
+}
+const LOT_ADVISORS = ['kai', 'beats', 'creative', 'dev', 'sky', 'roads']
+const LOT_PAGE_SIZE = 10
+
+function lotMeta(type) { return LOT_TYPE_META[type] || LOT_TYPE_META.item }
+
+function LotTile({ item, onRoute, onArchive, onDelete }) {
+  const [showOverlay, setShowOverlay] = useState(false)
+  const [showRoute,   setShowRoute]   = useState(false)
+  const [imgFailed,   setImgFailed]   = useState(false)
+  const routeRef = useRef(null)
+  const m = lotMeta(item.type)
+  const Icon = m.icon
+  const hasUrl = item.url?.startsWith('http')
+
+  useEffect(() => {
+    if (!showRoute) return
+    function h(e) { if (routeRef.current && !routeRef.current.contains(e.target)) setShowRoute(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [showRoute])
+
+  return (
+    <div
+      style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)', border: '1px solid var(--border)', cursor: hasUrl ? 'pointer' : 'default', transition: 'border-color 0.15s, transform 0.15s', aspectRatio: '4/3' }}
+      onMouseEnter={e => { setShowOverlay(true); e.currentTarget.style.borderColor = m.color + '50'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+      onMouseLeave={e => { setShowOverlay(false); e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'translateY(0)' }}
+      onClick={() => hasUrl && window.open(item.url, '_blank', 'noreferrer')}
+    >
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: m.color, zIndex: 2 }} />
+      {item.image && !imgFailed ? (
+        <img src={item.image} alt="" onError={() => setImgFailed(true)}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+      ) : (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: m.bg }}>
+          <Icon size={28} color={m.color} strokeWidth={1.5} />
+        </div>
+      )}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '8px 10px 8px', background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)', display: 'flex', flexDirection: 'column', gap: 3, zIndex: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: m.color, background: m.bg, border: `1px solid ${m.color}40`, borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
+            {lotMeta(item.type).label.slice(0, -1)}
+          </span>
+          {item.date && <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>{item.date}</span>}
+        </div>
+        <p style={{ fontSize: 10, fontWeight: 600, color: '#fff', margin: 0, lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.title}</p>
+      </div>
+      {showOverlay && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'linear-gradient(to bottom, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.95) 100%)', padding: '12px 10px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}
+          onClick={e => e.stopPropagation()}
+        >
+          <p style={{ fontSize: 11, fontWeight: 600, color: '#fff', margin: 0, lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.title}</p>
+          {item.summary && <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', margin: 0, lineHeight: 1.5, flex: 1, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical' }}>{item.summary}</p>}
+          {!item.summary && <div style={{ flex: 1 }} />}
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 'auto' }}>
+            <div ref={routeRef} style={{ position: 'relative' }}>
+              <button onClick={e => { e.stopPropagation(); setShowRoute(v => !v) }}
+                style={{ all: 'unset', cursor: 'pointer', fontSize: 9, fontWeight: 600, padding: '3px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                Route <ChevronDown size={8} />
+              </button>
+              {showRoute && (
+                <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: 6, minWidth: 110, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 50 }}>
+                  {LOT_ADVISORS.map(a => (
+                    <button key={a} onClick={() => { onRoute(item.slug, a); setShowRoute(false) }}
+                      style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%', textAlign: 'left', fontSize: 10, padding: '4px 8px', borderRadius: 5, color: 'var(--text-secondary)', transition: 'background 0.1s', textTransform: 'capitalize' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-elevated)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >{a}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={() => onArchive(item.slug)}
+              style={{ all: 'unset', cursor: 'pointer', padding: '3px 6px', borderRadius: 5, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.5)' }}>
+              <Archive size={10} />
+            </button>
+            <button onClick={() => onDelete(item.slug)}
+              style={{ all: 'unset', cursor: 'pointer', padding: '3px 6px', borderRadius: 5, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5' }}>
+              <Trash2 size={10} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LotTypeSection({ type, items, onRoute, onArchive, onDelete }) {
+  const [page, setPage] = useState(1)
+  const m = lotMeta(type)
+  const visible = items.slice(0, page * LOT_PAGE_SIZE)
+  const hasMore = items.length > visible.length
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <div style={{ width: 3, height: 14, borderRadius: 2, background: m.color, flexShrink: 0 }} />
+        <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: m.color }}>{m.label}</span>
+        <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--text-muted)', background: 'var(--bg-muted)', borderRadius: 10, padding: '1px 7px' }}>{items.length}</span>
+        <div style={{ flex: 1, height: 1, background: m.color + '25' }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
+        {visible.map(item => <LotTile key={item.slug} item={item} onRoute={onRoute} onArchive={onArchive} onDelete={onDelete} />)}
+      </div>
+      {hasMore && (
+        <button onClick={() => setPage(p => p + 1)} style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%', textAlign: 'center', marginTop: 8, padding: '7px 0', fontSize: 10, fontWeight: 600, color: m.color, border: `1px solid ${m.color}30`, borderRadius: 7, background: m.bg }}>
+          Load more · {items.length - visible.length} remaining
+        </button>
+      )}
+    </div>
+  )
+}
+
+function LotWidget() {
+  const [items,       setItems]       = useState([])
+  const [captureText, setCaptureText] = useState('')
+  const [capturing,   setCapturing]   = useState(false)
+  const [activeTab,   setActiveTab]   = useState('recent')
+  const navigate = useNavigate()
+
+  async function fetchLot() {
+    try {
+      const d = await api.getParkingLot(); setItems(d.items || [])
+    } catch {}
+  }
+  useEffect(() => { fetchLot(); const t = setInterval(fetchLot, 30000); return () => clearInterval(t) }, [])
+
+  async function handleCapture(e) {
+    e.preventDefault()
+    if (!captureText.trim()) return
+    setCapturing(true)
+    try { await api.quickCapture(captureText.trim()); setCaptureText(''); setTimeout(fetchLot, 1200) }
+    catch {} finally { setCapturing(false) }
+  }
+
+  async function handleRoute(slug, advisor) {
+    try { await api.routeCapture(slug, advisor); setItems(prev => prev.filter(i => i.slug !== slug)) } catch {}
+  }
+  async function handleArchive(slug) {
+    try { await api.archiveCapture(slug); setItems(prev => prev.filter(i => i.slug !== slug)) } catch {}
+  }
+  async function handleDelete(slug) {
+    try { await api.deleteCapture(slug); setItems(prev => prev.filter(i => i.slug !== slug)) } catch {}
+  }
+
+  const TYPE_ORDER = ['article', 'idea', 'link', 'product', 'music', 'video', 'recipe', 'note', 'item']
+  const grouped = {}
+  ;[...items].sort((a, b) => (b.date || '').localeCompare(a.date || '')).forEach(item => {
+    const t = item.type || 'item'
+    if (!grouped[t]) grouped[t] = []
+    grouped[t].push(item)
+  })
+  const orderedTypes = [...TYPE_ORDER.filter(t => grouped[t]), ...Object.keys(grouped).filter(t => !TYPE_ORDER.includes(t))]
+
+  return (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 18px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+          <Inbox size={14} color="var(--text-muted)" strokeWidth={1.75} />
+          Parking Lot
+          <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{items.length} items</span>
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={fetchLot} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
+            onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+          ><RefreshCw size={12} /></button>
+          <a href="/parking-lot" style={{ fontSize: 11, color: 'var(--text-muted)', textDecoration: 'none' }}
+            onMouseEnter={e => e.currentTarget.style.color = 'var(--accent)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}>View all →</a>
+        </div>
+      </div>
+      <form onSubmit={handleCapture} style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <input type="text" value={captureText} onChange={e => setCaptureText(e.target.value)} placeholder="Drop a link, idea, or anything worth saving…"
+          style={{ flex: 1, fontSize: 12, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-surface)', color: 'var(--text-primary)', outline: 'none', fontFamily: 'inherit', transition: 'border-color 0.15s' }}
+          onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.5)'}
+          onBlur={e => e.target.style.borderColor = 'var(--border)'}
+        />
+        <button type="submit" disabled={capturing || !captureText.trim()}
+          style={{ padding: '8px 16px', borderRadius: 10, background: capturing || !captureText.trim() ? 'var(--border)' : '#6366f1', color: '#fff', fontSize: 12, fontWeight: 600, border: 'none', cursor: capturing || !captureText.trim() ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, transition: 'background 0.15s', flexShrink: 0 }}>
+          <SendIcon size={12} />{capturing ? 'Saving…' : 'Capture'}
+        </button>
+      </form>
+      {items.length === 0
+        ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 12 }}>The lot is empty.</div>
+        : <>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+              {/* Recent tab */}
+              {(() => {
+                const isActive = activeTab === 'recent'
+                return (
+                  <button onClick={() => setActiveTab('recent')}
+                    style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', padding: '5px 12px', borderRadius: 20, border: `1px solid ${isActive ? '#6366f160' : 'var(--border)'}`, background: isActive ? '#6366f115' : 'transparent', color: isActive ? '#a5b4fc' : 'var(--text-muted)', transition: 'all 0.15s' }}
+                    onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = '#6366f140'; e.currentTarget.style.color = '#a5b4fc' } }}
+                    onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)' } }}
+                  >
+                    <Clock size={10} strokeWidth={2} />Recent <span style={{ opacity: 0.6 }}>· {Math.min(items.length, 10)}</span>
+                  </button>
+                )
+              })()}
+              {/* Type tabs */}
+              {orderedTypes.map(t => {
+                const m = lotMeta(t)
+                const Icon = m.icon
+                const isActive = activeTab === t
+                return (
+                  <button key={t} onClick={() => setActiveTab(t)}
+                    style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', padding: '5px 12px', borderRadius: 20, border: `1px solid ${isActive ? m.color + '60' : 'var(--border)'}`, background: isActive ? m.color + '15' : 'transparent', color: isActive ? m.color : 'var(--text-muted)', transition: 'all 0.15s' }}
+                    onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = m.color + '40'; e.currentTarget.style.color = m.color } }}
+                    onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)' } }}
+                  >
+                    <Icon size={10} strokeWidth={2} />{m.label} <span style={{ opacity: 0.6 }}>· {grouped[t].length}</span>
+                  </button>
+                )
+              })}
+            </div>
+            {activeTab === 'recent'
+              ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
+                  {[...items].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 10).map(item => (
+                    <LotTile key={item.slug} item={item} onRoute={handleRoute} onArchive={handleArchive} onDelete={handleDelete} />
+                  ))}
+                </div>
+              : grouped[activeTab]
+                ? <LotTypeSection type={activeTab} items={grouped[activeTab]} onRoute={handleRoute} onArchive={handleArchive} onDelete={handleDelete} />
+                : null
+            }
+          </>
+      }
+    </div>
+  )
+}
+
+// ── Chat Widget ────────────────────────────────────────────────────────────
+
 const DEFAULT_FUNCTIONS = [
-  { id: 'gm',         label: 'Good Morning',  prompt: "Good morning KAI — let\'s do my morning check-in. What should I focus on today?",          send: true  },
-  { id: 'gn',         label: 'Good Night',    prompt: "Good night KAI — quick recap. What did I accomplish today and what should I prioritize tomorrow?", send: true  },
-  { id: 'research',   label: 'Research',      prompt: 'Research: ',     send: false },
-  { id: 'brainstorm', label: 'Brainstorm',    prompt: 'Brainstorm: ',   send: false },
+  { id: 'gm',         label: 'Good Morning',  prompt: "Good morning KAI — let's do my morning check-in. What should I focus on today?", send: true },
+  { id: 'gn',         label: 'Good Night',    prompt: "Good night KAI — quick recap. What did I accomplish today and what should I prioritize tomorrow?", send: true },
+  { id: 'research',   label: 'Research',      prompt: 'Research: ',   send: false },
+  { id: 'brainstorm', label: 'Brainstorm',    prompt: 'Brainstorm: ', send: false },
 ]
 
 function ChatWidget() {
@@ -802,7 +786,7 @@ function ChatWidget() {
   const [thinking, setThinking] = useState(false)
   const [functions,   setFunctions]   = useState(DEFAULT_FUNCTIONS)
   const [showFuncEd,  setShowFuncEd]  = useState(false)
-  const [editingFunc, setEditingFunc] = useState(null) // null = new, else func obj
+  const [editingFunc, setEditingFunc] = useState(null)
   const [funcLabel,   setFuncLabel]   = useState('')
   const [funcPrompt,  setFuncPrompt]  = useState('')
   const [funcSend,    setFuncSend]    = useState(false)
@@ -815,78 +799,44 @@ function ChatWidget() {
   }, [advisor.channel])
 
   function fetchWorkflows() {
-    fetch('/api/workflows').then(r => r.json())
-      .then(d => { if (d.workflows?.length) setFunctions(d.workflows) })
-      .catch(() => {})
+    fetch('/api/workflows').then(r => r.json()).then(d => { if (d.workflows?.length) setFunctions(d.workflows) }).catch(() => {})
   }
   useEffect(() => { fetchWorkflows() }, [])
-
   useEffect(() => {
-    fetch('/council/models/config')
-      .then(r => r.json())
-      .then(d => setModelCfg(d.advisors || {}))
-      .catch(() => {})
+    fetch('/council/models/config').then(r => r.json()).then(d => setModelCfg(d.advisors || {})).catch(() => {})
   }, [])
-
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, thinking])
 
   async function send(overrideText) {
     const text = (overrideText ?? input).trim()
     if (!text || thinking) return
     setInput('')
+    const history = messages.map(m => ({ role: m.role, content: m.content }))
     setMessages(p => [...p, { role: 'user', content: text, ts: String(Date.now() / 1000) }])
     setThinking(true)
     try {
-      const d = await api.sendMessage(text, advisor.channel)
+      const d = await api.sendMessage(text, advisor.channel, history)
       setMessages(p => [...p, { role: 'assistant', content: d.reply || d.message || '', ts: String(Date.now() / 1000), provider: d.provider, model: d.model }])
     } catch {
       setMessages(p => [...p, { role: 'assistant', content: 'Something went wrong.', error: true, ts: String(Date.now() / 1000) }])
     } finally { setThinking(false); inputRef.current?.focus(); fetchWorkflows() }
   }
 
-  function fireFunction(fn) {
-    if (fn.send) {
-      send(fn.prompt)
-    } else {
-      setInput(fn.prompt)
-      inputRef.current?.focus()
-    }
-  }
-
-  function saveFunctions(updated) {
-    setFunctions(updated)
-  }
-  async function saveWorkflowToAPI(entry) {
-    await fetch('/api/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) }).catch(() => {})
-    fetchWorkflows()
-  }
-  async function deleteWorkflowFromAPI(id) {
-    await fetch(`/api/workflows/${id}`, { method: 'DELETE' }).catch(() => {})
-    fetchWorkflows()
-  }
-
-  function openNewFunc() {
-    setEditingFunc(null); setFuncLabel(''); setFuncPrompt(''); setFuncSend(false); setShowFuncEd(true)
-  }
-  function openEditFunc(fn) {
-    setEditingFunc(fn); setFuncLabel(fn.label); setFuncPrompt(fn.prompt); setFuncSend(fn.send); setShowFuncEd(true)
-  }
+  function fireFunction(fn) { if (fn.send) { send(fn.prompt) } else { setInput(fn.prompt); inputRef.current?.focus() } }
+  async function saveWorkflowToAPI(entry) { await fetch('/api/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) }).catch(() => {}); fetchWorkflows() }
+  async function deleteWorkflowFromAPI(id) { await fetch(`/api/workflows/${id}`, { method: 'DELETE' }).catch(() => {}); fetchWorkflows() }
+  function openNewFunc()    { setEditingFunc(null); setFuncLabel(''); setFuncPrompt(''); setFuncSend(false); setShowFuncEd(true) }
+  function openEditFunc(fn) { setEditingFunc(fn); setFuncLabel(fn.label); setFuncPrompt(fn.prompt); setFuncSend(fn.send); setShowFuncEd(true) }
   function saveFunc() {
     if (!funcLabel.trim() || !funcPrompt.trim()) return
-    const entry = { id: editingFunc?.id || funcLabel.trim().toLowerCase().replace(/\s+/g, '-'), label: funcLabel.trim(), prompt: funcPrompt.trim(), send: funcSend }
-    saveWorkflowToAPI(entry)
+    saveWorkflowToAPI({ id: editingFunc?.id || funcLabel.trim().toLowerCase().replace(/\s+/g, '-'), label: funcLabel.trim(), prompt: funcPrompt.trim(), send: funcSend })
     setShowFuncEd(false)
   }
-  function deleteFunc(id) {
-    deleteWorkflowFromAPI(id)
-    setShowFuncEd(false)
-  }
-  function resetFunctions() {
-    DEFAULT_FUNCTIONS.forEach(f => saveWorkflowToAPI(f))
-  }
+  function deleteFunc(id) { deleteWorkflowFromAPI(id); setShowFuncEd(false) }
+  function resetFunctions() { DEFAULT_FUNCTIONS.forEach(f => saveWorkflowToAPI(f)) }
 
   return (
-    <div style={{ background: 'var(--bg-card)', borderRadius: 20, boxShadow: '0 4px 20px rgba(0,0,0,0.06)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}>
+    <div style={{ background: 'var(--bg-card)', borderRadius: 20, border: `1px solid ${advisor.color}50`, display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}>
       {/* Function editor modal */}
       {showFuncEd && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={() => setShowFuncEd(false)}>
@@ -896,54 +846,33 @@ function ChatWidget() {
               <button onClick={() => setShowFuncEd(false)} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-muted)' }}><XIcon size={16} /></button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Button label</label>
-                <input value={funcLabel} onChange={e => setFuncLabel(e.target.value)} placeholder="Good Morning" style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} autoFocus />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Prompt</label>
-                <textarea value={funcPrompt} onChange={e => setFuncPrompt(e.target.value)} placeholder="Good morning KAI — let's do my check-in..." rows={3} style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 12, fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
-              </div>
+              <div><label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Label</label>
+                <input value={funcLabel} onChange={e => setFuncLabel(e.target.value)} placeholder="Good Morning" style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} autoFocus /></div>
+              <div><label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Prompt</label>
+                <textarea value={funcPrompt} onChange={e => setFuncPrompt(e.target.value)} rows={3} style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 12, fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} /></div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)' }}>
-                <input type="checkbox" checked={funcSend} onChange={e => setFuncSend(e.target.checked)} style={{ accentColor: 'var(--accent)', width: 14, height: 14 }} />
-                Send immediately (don't pre-fill)
+                <input type="checkbox" checked={funcSend} onChange={e => setFuncSend(e.target.checked)} style={{ accentColor: 'var(--accent)', width: 14, height: 14 }} /> Send immediately
               </label>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18, gap: 8 }}>
-              {editingFunc ? (
-                <button onClick={() => deleteFunc(editingFunc.id)} style={{ all: 'unset', cursor: 'pointer', fontSize: 12, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid #ef444433' }}>
-                  <Trash2 size={13} /> Delete
-                </button>
-              ) : (
-                <button onClick={resetFunctions} style={{ all: 'unset', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)', padding: '8px 10px' }}>Reset defaults</button>
-              )}
-              <button onClick={saveFunc} disabled={!funcLabel.trim() || !funcPrompt.trim()} style={{ all: 'unset', cursor: funcLabel.trim() && funcPrompt.trim() ? 'pointer' : 'default', fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 9, background: funcLabel.trim() && funcPrompt.trim() ? 'var(--accent)' : 'var(--border)', color: '#fff', transition: 'all 0.15s' }}>
-                Save
-              </button>
+              {editingFunc ? <button onClick={() => deleteFunc(editingFunc.id)} style={{ all: 'unset', cursor: 'pointer', fontSize: 12, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid #ef444433' }}><Trash2 size={13} /> Delete</button>
+                : <button onClick={resetFunctions} style={{ all: 'unset', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)', padding: '8px 10px' }}>Reset defaults</button>}
+              <button onClick={saveFunc} disabled={!funcLabel.trim() || !funcPrompt.trim()} style={{ all: 'unset', cursor: 'pointer', fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 9, background: funcLabel.trim() && funcPrompt.trim() ? 'var(--accent)' : 'var(--border)', color: '#fff', transition: 'all 0.15s' }}>Save</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Advisor tabs */}
-      <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', padding: '10px 16px', background: `linear-gradient(to right, ${advisor.color}08 0%, transparent 60%)`, display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto' }} className="no-scrollbar">
-        {ADVISORS.map(a => {
-          const active = advisor.id === a.id
-          return (
-            <button key={a.id} onClick={() => setAdvisor(a)} title={a.name} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 10, opacity: active ? 1 : 0.4, flexShrink: 0, transition: 'opacity 0.15s' }}
-              onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.opacity = '0.4' }}
-            >
-              <AdvisorAvatar advisor={a} size={active ? 38 : 30} isActive={active} />
-              <span style={{ fontSize: 9, fontWeight: active ? 700 : 400, color: active ? advisor.color : 'var(--text-muted)', whiteSpace: 'nowrap', letterSpacing: '0.04em' }}>{a.name}</span>
-            </button>
-          )
-        })}
-        <button onClick={() => { setMessages([]); api.clearHistory(advisor.channel).catch(() => {}) }} title="Clear chat"
-          style={{ marginLeft: 'auto', flexShrink: 0, alignSelf: 'center', all: 'unset', cursor: 'pointer', color: 'var(--text-subtle)', padding: '6px', borderRadius: 8, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}
-          onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-subtle)'}
-        ><XIcon size={15} /></button>
+      {/* Advisor branded tabs — full height photo fill */}
+      <div style={{
+        flexShrink: 0, borderBottom: '1px solid var(--border)',
+        background: `linear-gradient(to right, ${advisor.color}12 0%, transparent 70%)`,
+        display: 'flex', alignItems: 'stretch', gap: 4,
+        overflowX: 'auto', padding: '6px 10px', height: 92,
+      }} className="no-scrollbar">
+        {COUNCIL_ADVISORS.map(a => (
+          <AdvisorTabCard key={a.id} advisor={a} isActive={advisor.id === a.id} onClick={() => setAdvisor(a)} />
+        ))}
       </div>
 
       {/* Model indicator */}
@@ -951,380 +880,174 @@ function ChatWidget() {
         const acfg = modelCfg[advisor.channel] || {}
         const prov = acfg.provider || 'anthropic'
         const mdl  = acfg.model || '—'
-        const color = prov === 'anthropic' ? '#6366f1' : prov === 'ollama' ? '#f59e0b' : prov === 'openai' ? '#10a37f' : '#6b7280'
-        const provLabel = prov === 'anthropic' ? 'Anthropic' : prov === 'ollama' ? 'Local' : prov === 'openai' ? 'OpenAI' : prov
+        const color = prov === 'anthropic' ? '#6366f1' : prov === 'ollama' ? '#f59e0b' : '#10a37f'
+        const provLabel = prov === 'anthropic' ? 'Anthropic' : prov === 'ollama' ? 'Local' : 'OpenAI'
         return (
-          <div style={{
-            flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
-            padding: '5px 16px', borderBottom: '1px solid var(--border)',
-            background: color + '08',
-          }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
-            <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-secondary)', fontWeight: 600 }}>{mdl}</span>
-            <span style={{ fontSize: 10, color: 'var(--text-subtle)' }}>·</span>
-            <span style={{ fontSize: 10, color: color, fontWeight: 600, letterSpacing: '0.04em' }}>{provLabel}</span>
-            {prov === 'ollama' && acfg.fallback_provider === 'anthropic' && (
-              <span style={{ fontSize: 9, color: 'var(--text-subtle)', marginLeft: 4 }}>→ Anthropic fallback</span>
-            )}
+          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '5px 16px', borderBottom: '1px solid var(--border)', background: color + '08' }}>
+            <div style={{ width: 5, height: 5, borderRadius: '50%', background: color }} />
+            <span style={{ fontSize: 10, color, fontWeight: 600 }}>{provLabel}</span>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{mdl}</span>
           </div>
         )
       })()}
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--bg-surface)' }}>
+
+      {/* Messages — scrollable */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'scroll', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12, position: 'relative' }}>
+        {messages.length > 0 && (
+          <button onClick={() => { setMessages([]); api.clearHistory(advisor.channel).catch(() => {}) }} title="Clear chat"
+            style={{ position: 'absolute', top: 8, right: 10, all: 'unset', cursor: 'pointer', color: 'var(--text-subtle)', padding: 5, borderRadius: 6, display: 'flex', transition: 'color 0.15s', zIndex: 10 }}
+            onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-subtle)'}
+          ><XIcon size={13} /></button>
+        )}
         {messages.length === 0 && !thinking && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
-            <AdvisorAvatar advisor={advisor} size={52} isActive={false} />
-            <p style={{ fontSize: 13, textAlign: 'center', maxWidth: 220, lineHeight: 1.6, color: 'var(--text-tertiary)' }}>{advisor.intro}</p>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: 0.4 }}>
+            <div style={{ fontSize: 28 }}>{advisor.emoji}</div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', margin: 0, lineHeight: 1.5 }}>{advisor.intro}</p>
           </div>
         )}
-        {messages.map((msg, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 8 }}>
-            {msg.role !== 'user' && <AdvisorAvatar advisor={advisor} size={26} isActive={false} />}
-            <div style={{ maxWidth: '78%', padding: '9px 13px', borderRadius: msg.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px', fontSize: 13, lineHeight: 1.5, background: msg.role === 'user' ? advisor.color + '22' : 'var(--bg-card)', color: 'var(--text-primary)', border: msg.role === 'user' ? `1px solid ${advisor.color}44` : '1px solid var(--border)', position: 'relative' }}>
-              <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
-                {msg.content}
-                {msg.ts && <span style={{ fontSize: 10, opacity: 0.3, marginLeft: 8, whiteSpace: 'nowrap', verticalAlign: 'bottom' }}>{fmtTime(msg.ts)}</span>}
-         
-              {msg.role !== 'user' && msg.provider && (
-                <span title={msg.provider + '/' + msg.model} style={{
-                  position: 'absolute', bottom: 5, right: 7,
-                  width: 7, height: 7, borderRadius: '50%', display: 'inline-block',
-                  background: msg.provider === 'anthropic' ? '#6366f1' : msg.provider === 'ollama' ? '#f59e0b' : msg.provider === 'openai' ? '#10a37f' : '#6b7280',
-                  opacity: 0.8, cursor: 'default',
-                }} />
-              )}
-     </p>
-            
-              {msg.role !== 'user' && msg.provider && (
-                <span title={msg.provider + '/' + msg.model} style={{
-                  position: 'absolute', bottom: 5, right: 7,
-                  width: 7, height: 7, borderRadius: '50%', display: 'inline-block',
-                  background: msg.provider === 'anthropic' ? '#6366f1' : msg.provider === 'ollama' ? '#f59e0b' : msg.provider === 'openai' ? '#10a37f' : '#6b7280',
-                  opacity: 0.8, cursor: 'default',
-                }} />
-              )}
-
-              {msg.role !== 'user' && msg.provider && (
-                <span title={msg.provider + '/' + msg.model} style={{
-                  position: 'absolute', bottom: 5, right: 7,
-                  width: 7, height: 7, borderRadius: '50%', display: 'inline-block',
-                  background: msg.provider === 'anthropic' ? '#6366f1' : msg.provider === 'ollama' ? '#f59e0b' : msg.provider === 'openai' ? '#10a37f' : '#6b7280',
-                  opacity: 0.8, cursor: 'default',
-                }} />
-              )}
-</div>
-          </div>
-        ))}
+        {messages.map((m, i) => {
+          const isUser = m.role === 'user'
+          return (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', gap: 2 }}>
+              <div style={{ maxWidth: '84%', padding: '9px 13px', borderRadius: isUser ? '14px 14px 4px 14px' : '4px 14px 14px 14px', background: isUser ? advisor.color : 'var(--bg-elevated)', color: isUser ? '#fff' : 'var(--text-primary)', fontSize: 13, lineHeight: 1.55, border: isUser ? 'none' : '1px solid var(--border)', whiteSpace: 'pre-wrap' }}>{m.content}</div>
+              <span style={{ fontSize: 9, color: 'var(--text-subtle)', padding: '0 4px' }}>{fmtTime(m.ts)}</span>
+            </div>
+          )
+        })}
         {thinking && (
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-            <AdvisorAvatar advisor={advisor} size={26} isActive={false} />
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px 12px 12px 4px', padding: '10px 14px' }}>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {[0,150,300].map(d => <span key={d} style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-subtle)', display: 'inline-block', animation: `bounce 1s ${d}ms infinite` }} />)}
-              </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+            <div style={{ fontSize: 18 }}>{advisor.emoji}</div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[0,1,2].map(i => <div key={i} style={{ width: 5, height: 5, borderRadius: '50%', background: advisor.color, animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }} />)}
             </div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
 
-      {/* Functions bar */}
-      <div style={{ flexShrink: 0, borderTop: '1px solid var(--border)', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', background: 'var(--bg-surface)' }} className="no-scrollbar">
+      {/* Quick functions */}
+      <div style={{ flexShrink: 0, padding: '8px 12px 6px', borderTop: '1px solid var(--border)', display: 'flex', gap: 4, overflowX: 'auto', alignItems: 'center' }} className="no-scrollbar">
         {functions.map(fn => (
           <button key={fn.id} onClick={() => fireFunction(fn)} onContextMenu={e => { e.preventDefault(); openEditFunc(fn) }}
-            title={`${fn.prompt}${fn.send ? ' (sends immediately)' : ' (pre-fill)'}
-Right-click to edit`}
-            style={{ all: 'unset', cursor: 'pointer', flexShrink: 0, padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 600, letterSpacing: '0.02em',
-              background: `${advisor.color}18`, color: advisor.color, border: `1px solid ${advisor.color}33`, transition: 'all 0.15s', whiteSpace: 'nowrap',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = `${advisor.color}30`; e.currentTarget.style.borderColor = `${advisor.color}66` }}
-            onMouseLeave={e => { e.currentTarget.style.background = `${advisor.color}18`; e.currentTarget.style.borderColor = `${advisor.color}33` }}
+            style={{ all: 'unset', cursor: 'pointer', fontSize: 11, fontWeight: 500, padding: '5px 11px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0, transition: 'all 0.15s' }}
+            onMouseEnter={e => { e.currentTarget.style.background = advisor.color + '18'; e.currentTarget.style.borderColor = advisor.color + '50'; e.currentTarget.style.color = advisor.color }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-elevated)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
           >{fn.label}</button>
         ))}
-        <button onClick={openNewFunc} title="Add command"
-          style={{ all: 'unset', cursor: 'pointer', flexShrink: 0, width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-subtle)', border: '1px dashed var(--border)', transition: 'all 0.15s' }}
+        <button onClick={openNewFunc} title="New command" style={{ all: 'unset', cursor: 'pointer', flexShrink: 0, width: 24, height: 24, borderRadius: 12, border: '1px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', transition: 'all 0.15s' }}
           onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)' }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-subtle)' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)' }}
         ><Plus size={12} /></button>
       </div>
 
-      {/* Input row */}
-      <div style={{ flexShrink: 0, padding: '10px 14px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, background: 'var(--bg-card)' }}>
-        <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
+      {/* Input */}
+      <div style={{ flexShrink: 0, padding: '8px 12px 12px', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+        <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-          placeholder={`Message ${advisor.name}…`}
-          style={{ flex: 1, padding: '8px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', outline: 'none', transition: 'border-color 0.15s' }}
-          onFocus={e => e.target.style.borderColor = advisor.color}
+          placeholder={`Message ${advisor.name}…`} rows={1}
+          style={{ flex: 1, resize: 'none', padding: '9px 12px', borderRadius: 12, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', outline: 'none', maxHeight: 120, overflowY: 'auto', transition: 'border-color 0.15s', lineHeight: 1.5 }}
+          onFocus={e => e.target.style.borderColor = advisor.color + '60'}
           onBlur={e => e.target.style.borderColor = 'var(--border)'}
         />
         <button onClick={() => send()} disabled={!input.trim() || thinking}
-          style={{ padding: '8px 16px', borderRadius: 10, border: 'none', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.2s', cursor: input.trim() && !thinking ? 'pointer' : 'default',
-            background: input.trim() && !thinking ? advisor.color : 'var(--bg-elevated)',
-            color: input.trim() && !thinking ? '#fff' : 'var(--text-muted)',
-            display: 'flex', alignItems: 'center', gap: 6,
-          }}>
-          <SendIcon size={14} /> Send
+          style={{ all: 'unset', cursor: input.trim() && !thinking ? 'pointer' : 'default', width: 36, height: 36, borderRadius: 10, background: input.trim() && !thinking ? advisor.color : 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.15s' }}>
+          <SendIcon size={15} color="#fff" />
         </button>
       </div>
     </div>
   )
 }
 
-// ── The Lot ────────────────────────────────────────────────────────────────
 
-const LOT_CATS = [
-  { key: 'all',       label: 'All',     types: null },
-  { key: 'links',     label: 'Links',   types: ['link','product','url'] },
-  { key: 'notes',     label: 'Notes',   types: ['note','item','text'] },
-  { key: 'images',    label: 'Images',  types: ['image'] },
-  { key: 'ideas',     label: 'Ideas',   types: ['idea'] },
-  { key: 'videos',    label: 'Videos',  types: ['video'] },
-  { key: 'documents', label: 'Docs',    types: ['document','doc'] },
-]
+// ── Lot Nudge ──────────────────────────────────────────────────────────────
 
-const LOT_TYPE = {
-  link:     { label: 'Link',    from: '#1e3a8a', to: '#3b82f6' },
-  url:      { label: 'Link',    from: '#1e3a8a', to: '#3b82f6' },
-  product:  { label: 'Product', from: '#7c2d12', to: '#f97316' },
-  note:     { label: 'Note',    from: '#3b0764', to: '#7c3aed' },
-  item:     { label: 'Item',    from: '#3b0764', to: '#7c3aed' },
-  text:     { label: 'Text',    from: '#3b0764', to: '#7c3aed' },
-  image:    { label: 'Image',   from: '#831843', to: '#ec4899' },
-  idea:     { label: 'Idea',    from: '#78350f', to: '#d97706' },
-  video:    { label: 'Video',   from: '#064e3b', to: '#10b981' },
-  document: { label: 'Doc',     from: '#1e293b', to: '#64748b' },
-  doc:      { label: 'Doc',     from: '#1e293b', to: '#64748b' },
-}
-const LOT_DEFAULT = { label: 'Item', from: '#1f2937', to: '#4b5563' }
-
-function LotIcon({ type, size = 28 }) {
-  const P = {
-    link:     <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />,
-    url:      <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />,
-    product:  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />,
-    note:     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />,
-    text:     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />,
-    item:     <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />,
-    idea:     <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />,
-    image:    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />,
-    video:    <><path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15.91 11.672a.375.375 0 010 .656l-5.603 3.113a.375.375 0 01-.557-.328V8.887c0-.286.307-.466.557-.328l5.603 3.113z" /></>,
-    document: <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />,
-    doc:      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />,
-  }
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.92)" strokeWidth="1.5" style={{ display: 'block', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }}>
-      {P[type] || P.item}
-    </svg>
-  )
-}
-
-function LotCard({ item, onArchive, onDelete }) {
-  const [hover,   setHover]   = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [title,   setTitle]   = useState(item.title || item.slug)
-  const inputRef = useRef(null)
-  const cfg = LOT_TYPE[item.type] || LOT_DEFAULT
-  const isImgUrl = item.url && /\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(item.url)
-
-  useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
-
-  function saveTitle() {
-    setEditing(false)
-    fetch(`/api/parking-lot/${item.slug}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) }).catch(() => {})
-  }
-
-  return (
-    <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: `1px solid ${hover ? '#c4c9d4' : '#e8ecf1'}`, overflow: 'hidden', transition: 'all 0.15s', position: 'relative', boxShadow: hover ? '0 6px 20px rgba(0,0,0,0.12)' : '0 1px 4px rgba(0,0,0,0.05)' }}
-      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-    >
-      {/* Thumbnail */}
-      <div style={{
-        height: 80, position: 'relative', overflow: 'hidden',
-        background: `linear-gradient(135deg, ${cfg.from} 0%, ${cfg.to} 100%)`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        {isImgUrl
-          ? <img src={item.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <>
-              <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 50% 30%, rgba(255,255,255,0.18) 0%, transparent 65%)' }} />
-              <LotIcon type={item.type} size={28} />
-            </>
-        }
-        {hover && (
-          <div style={{ position: 'absolute', top: 5, right: 5, display: 'flex', gap: 3 }}>
-            {[
-              { label: '✏️', title: 'Edit',    fn: () => setEditing(true) },
-              { label: '📦', title: 'Archive', fn: () => onArchive(item.slug) },
-              { label: '✕',  title: 'Delete',  fn: () => onDelete(item.slug) },
-            ].map(({ label, title: t, fn }) => (
-              <button key={t} onClick={e => { e.stopPropagation(); fn() }} title={t} style={{ width: 24, height: 24, borderRadius: 6, border: 'none', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(6px)', cursor: 'pointer', fontSize: 11, color: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{label}</button>
-            ))}
-          </div>
-        )}
-        <div style={{ position: 'absolute', bottom: 5, left: 6, background: 'rgba(0,0,0,0.32)', backdropFilter: 'blur(6px)', borderRadius: 4, padding: '1px 6px', fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.88)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{cfg.label}</div>
-      </div>
-
-      {/* Title */}
-      <div style={{ padding: '8px 10px' }}>
-        {editing ? (
-          <input ref={inputRef} value={title} onChange={e => setTitle(e.target.value)}
-            onBlur={saveTitle} onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { setTitle(item.title); setEditing(false) } }}
-            style={{ width: '100%', fontSize: 11, fontWeight: 500, border: 'none', borderBottom: '1px solid #c2410c', outline: 'none', background: 'transparent', fontFamily: 'inherit', padding: '1px 0' }}
-          />
-        ) : (
-          <p style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3 }}>{title}</p>
-        )}
-        {item.date && <p style={{ fontSize: 9, color: 'var(--text-tertiary)', margin: '3px 0 0' }}>{new Date(item.date + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>}
-      </div>
-    </div>
-  )
-}
-
-function LotWidget() {
-  const [items,    setItems]    = useState([])
-  const [category, setCategory] = useState('all')
-
-  function fetchLot() {
-    fetch('/api/parking-lot/list').then(r => r.json()).then(d => setItems(d.items || [])).catch(() => {})
-  }
+function LotNudge() {
+  const [count, setCount] = useState(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
-    fetchLot()
-    const timer = setInterval(fetchLot, 30000)
-    return () => clearInterval(timer)
+    fetch('/api/parking-lot/list')
+      .then(r => r.json())
+      .then(d => setCount((d.items || []).filter(i => i.status === 'new').length))
+      .catch(() => setCount(0))
   }, [])
 
-  function archive(slug) { fetch(`/api/parking-lot/${slug}/archive`, { method: 'POST' }).then(() => setItems(p => p.filter(i => i.slug !== slug))).catch(() => {}) }
-  function del(slug)     { fetch(`/api/parking-lot/${slug}`, { method: 'DELETE' }).then(() => setItems(p => p.filter(i => i.slug !== slug))).catch(() => {}) }
-
-  const activeDef = LOT_CATS.find(c => c.key === category)
-  const filtered  = activeDef?.types ? items.filter(i => activeDef.types.includes(i.type || 'item')) : items
+  if (!count) return null
 
   return (
-    <div style={{ display: 'flex', background: 'var(--bg-card)', borderRadius: 20, overflow: 'hidden', border: '1px solid var(--border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', minHeight: 220 }}>
-      {/* Category sidebar — far left */}
-      <div style={{ width: 100, background: 'var(--bg-screen)', borderRight: '1px solid #e8ecf1', padding: '14px 8px', display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-tertiary)', paddingLeft: 8, marginBottom: 6 }}>The Lot</span>
-        {LOT_CATS.map(cat => {
-          const count = cat.types ? items.filter(i => cat.types.includes(i.type || 'item')).length : items.length
-          if (cat.key !== 'all' && count === 0) return null
-          const active = category === cat.key
-          return (
-            <button key={cat.key} onClick={() => setCategory(cat.key)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: active ? '#ffffff' : 'transparent', boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-surface)' }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
-            >
-              <span style={{ fontSize: 11, fontWeight: active ? 600 : 400, color: active ? '#1f2937' : '#6b7280' }}>{cat.label}</span>
-              <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{count}</span>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Items grid — center */}
-      <div style={{ flex: 1, padding: 14, overflowY: 'auto' }}>
-        {filtered.length === 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-tertiary)' }}>
-            <p style={{ fontSize: 13 }}>Nothing here</p>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
-            {filtered.map(item => <LotCard key={item.slug} item={item} onArchive={archive} onDelete={del} />)}
-          </div>
-        )}
-      </div>
-
-      {/* Drop zone — far right */}
-      <div style={{
-        width: 110, borderLeft: '1px solid #e8ecf1', padding: 12,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        gap: 8, cursor: 'default', flexShrink: 0, background: 'var(--bg-surface)', transition: 'all 0.2s',
+    <button
+      onClick={() => navigate('/parking-lot')}
+      style={{
+        all: 'unset', cursor: 'pointer', width: '100%', boxSizing: 'border-box',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 18px', borderRadius: 12,
+        background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)',
+        transition: 'all 0.2s',
       }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover-bg)'; e.currentTarget.style.borderColor = 'var(--accent)' }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-surface)'; e.currentTarget.style.borderColor = 'var(--border)' }}
-      >
-        <div style={{ width: 64, height: 64, borderRadius: 14, border: '2px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, transition: 'all 0.2s' }}>📥</div>
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textAlign: 'center', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Drop Zone</p>
-        <p style={{ margin: 0, fontSize: 10, color: 'var(--text-subtle)', textAlign: 'center', lineHeight: 1.4 }}>{items.length} items</p>
+      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.10)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)' }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.06)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.2)' }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Inbox size={14} color="#f59e0b" strokeWidth={1.75} />
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{count}</span>
+          {' '}untriaged item{count !== 1 ? 's' : ''} in the Parking Lot
+        </span>
       </div>
-    </div>
+      <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, flexShrink: 0 }}>Review →</span>
+    </button>
   )
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────
-
-
-// ── Token Usage Widget ────────────────────────────────────────────────────────
-function TokenUsageWidget() {
-  const [data, setData] = React.useState(null)
-
-  function fetchTokenUsage() {
-    fetch('/api/token-usage').then(r => r.json()).then(setData).catch(() => {})
-  }
-
-  React.useEffect(() => {
-    fetchTokenUsage()
-    const timer = setInterval(fetchTokenUsage, 60000)
-    return () => clearInterval(timer)
-  }, [])
-
-  if (!data) return null
-
-  const today = new Date().toISOString().slice(0, 10)
-  const todayEntry = (data.days || []).find(d => d.date === today) || { input: 0, output: 0, cost_usd: 0, calls: 0 }
-  const total = data.total || { input: 0, output: 0, cost_usd: 0, calls: 0 }
-
-  const fmt = n => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n
-  const fmtCost = c => c < 0.01 ? '<$0.01' : '$' + c.toFixed(2)
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '10px 16px', background: 'var(--bg-card)', borderRadius: 10, border: '1px solid var(--border)' }}>
-      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>Token Usage</span>
-      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-        <Stat label="Today calls" value={todayEntry.calls} />
-        <Stat label="Today tokens" value={fmt((todayEntry.input||0) + (todayEntry.output||0))} />
-        <Stat label="Today cost" value={fmtCost(todayEntry.cost_usd || 0)} accent />
-        <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
-        <Stat label="All-time calls" value={total.calls} />
-        <Stat label="All-time tokens" value={fmt((total.input||0) + (total.output||0))} />
-        <Stat label="All-time cost" value={fmtCost(total.cost_usd || 0)} />
-      </div>
-    </div>
-  )
-}
-
-function Stat({ label, value, accent }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-      <span style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>{label}</span>
-      <span style={{ fontSize: 13, fontWeight: 600, color: accent ? 'var(--accent)' : 'var(--text-primary)' }}>{value}</span>
-    </div>
-  )
-}
 
 export default function Today() {
   return (
     <div style={{ height: '100%', background: 'var(--bg-screen)', overflowY: 'auto' }}>
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div className="kai-card" style={{ padding: 20 }}>
-          <p style={{ fontSize: 21, fontWeight: 300, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: 14 }}>
-            {greeting()}, <strong style={{ fontWeight: 600 }}>Leo</strong>
-          </p>
-          <div className="hidden md:grid" style={{ gridTemplateColumns: '1.15fr 0.85fr 1.2fr', gridTemplateRows: '380px 360px', gap: 12 }}>
-            <div style={{ gridColumn: 1, gridRow: 1, display: 'flex', overflow: 'hidden' }}><ProjectsWidget /></div>
-            <div style={{ gridColumn: 2, gridRow: 1, display: 'flex', overflow: 'hidden' }}><HarmonyWidget /></div>
-            <div style={{ gridColumn: 3, gridRow: '1 / 3' }}><ChatWidget /></div>
-            <div style={{ gridColumn: 1, gridRow: 2, display: 'flex', overflow: 'hidden' }}><TodayPlayWidget /></div>
-            <div style={{ gridColumn: 2, gridRow: 2, display: 'flex', overflow: 'hidden' }}><HabitsWidget /></div>
+
+          {/* Greeting row with inline token badge */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div>
+              <p style={{ fontSize: 21, fontWeight: 300, color: 'var(--text-primary)', letterSpacing: '-0.02em', margin: 0 }}>
+                {greeting()}, <strong style={{ fontWeight: 600 }}>Leo</strong>
+              </p>
+              <SessionContextLine />
+            </div>
+            <TokenBadge />
           </div>
+
+          {/* Desktop grid:
+              col1/row1 = Projects (5 items, scroll)
+              col2/row1 = HarmonyHabits
+              col3/rows1+2 = Chat
+              col1+col2/row2 = Tasks (spans both) */}
+          <div className="hidden md:grid" style={{
+            gridTemplateColumns: '1.15fr 0.85fr 1.2fr',
+            gridTemplateRows: '420px 280px',
+            gap: 12,
+          }}>
+            <div style={{ gridColumn: 1, gridRow: 1, display: 'flex', overflow: 'hidden' }}><ProjectsWidget /></div>
+            <div style={{ gridColumn: 2, gridRow: 1, display: 'flex', overflow: 'hidden' }}><HarmonyHabitsWidget /></div>
+            <div style={{ gridColumn: 3, gridRow: '1 / 3', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}><ChatWidget /></div>
+            <div style={{ gridColumn: '1 / 3', gridRow: 2, display: 'flex', overflow: 'hidden' }}><TasksWidget /></div>
+          </div>
+
+          {/* Mobile stack */}
           <div className="md:hidden flex flex-col" style={{ gap: 12 }}>
             <div style={{ minHeight: 480, display: 'flex', flexDirection: 'column' }}><ChatWidget /></div>
-            <TodayPlayWidget />
+            <HarmonyHabitsWidget />
             <ProjectsWidget />
-            <HarmonyWidget />
-            <HabitsWidget />
+            <TasksWidget />
           </div>
         </div>
-        <TokenUsageWidget />
+
+        {/* Lot nudge — shows when untriaged items exist */}
+        <LotNudge />
+
+        {/* Parking Lot inline widget */}
         <LotWidget />
       </div>
       <style>{`@keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }`}</style>

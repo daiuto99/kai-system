@@ -8,8 +8,10 @@ import logging
 import threading
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 import httpx
+from watchdog import run_watchdog_checks
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [scheduler] %(message)s")
 log = logging.getLogger(__name__)
@@ -78,7 +80,8 @@ def slack_open_dm(token: str, user_id: str) -> str | None:
 # ── Morning Brief ──────────────────────────────────────────────────────────────
 
 def build_context() -> str:
-    parts = []
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    parts = [f"**TODAY IS:** {now_et.strftime('%A, %B %d, %Y')}"]
 
     # Calendar — Google (filtered: Leo's, Band, Family) + ICS (Revolt, PSU)
     try:
@@ -89,9 +92,19 @@ def build_context() -> str:
         try:
             r = httpx.post("http://kai-n8n:5678/webhook/kai-calendar-events",
                           json={"days": 1}, timeout=15)
-            gcal_events = r.json() if r.status_code == 200 else []
+            if r.status_code == 200 and r.content.strip():
+                gcal_events = r.json() if isinstance(r.json(), list) else []
+            else:
+                raise ValueError(f"empty or non-200 response: {r.status_code}")
         except Exception as e:
             log.warning(f"Google Calendar fetch: {e}")
+            try:
+                _tok = load_secret("slack_bot_token")
+                if _tok:
+                    slack_post(_tok, "#kai-system",
+                               f":warning: *Calendar integration down* — Google Calendar fetch failed during morning brief build.\n`{e}`\nAction needed: re-authorize Google Calendar credential in n8n (<https://n8n.sonicink.space|n8n.sonicink.space>)")
+            except Exception as _se:
+                log.warning(f"Failed to post calendar alert: {_se}")
 
         # ICS feeds (Revolt + PSU)
         try:
@@ -106,9 +119,9 @@ def build_context() -> str:
             start_str = start.get("dateTime", start.get("date", "")) if isinstance(start, dict) else str(start)
             all_events.append({"start": start_str[:16], "summary": ev.get("summary", ""), "source": "Google"})
         for ev in ics_events:
-            summary = ev.get("summary", "").strip()
-            if summary:  # skip empty events
-                all_events.append({"start": str(ev.get("start", ""))[:16], "summary": summary, "source": ev.get("calendar", "ICS")})
+            summary = ev.get("title", ev.get("summary", "")).strip()
+            if summary:
+                all_events.append({"start": str(ev.get("start", ""))[:16], "summary": summary, "source": ev.get("account", ev.get("calendar", "ICS"))})
 
         all_events.sort(key=lambda x: x["start"])
 
@@ -168,7 +181,7 @@ def build_context() -> str:
         pass
 
 
-    # Weather — wttr.in, no API key required
+    # Weather — wttr.in JSON format
     try:
         _loc = "Philadelphia,PA"
         try:
@@ -177,9 +190,20 @@ def build_context() -> str:
             _loc = _ui.get("weather_location", _loc)
         except Exception:
             pass
-        _wr = httpx.get(f"https://wttr.in/{_loc.replace(' ', '+')}?format=3", timeout=8)
+        _wr = httpx.get(f"https://wttr.in/{_loc.replace(' ', '+')}?format=j1", timeout=8)
         if _wr.status_code == 200:
-            parts.append(f"\n**WEATHER:** {_wr.text.strip()}")
+            _wd = _wr.json()
+            _cur = _wd["current_condition"][0]
+            _day = _wd["weather"][0]
+            _rain_pct = max(int(h.get("chanceofrain", 0)) for h in _day.get("hourly", [{}]))
+            _precip = sum(float(h.get("precipInches", 0)) for h in _day.get("hourly", []))
+            parts.append(
+                f"\n**WEATHER:**\n"
+                f"  {_cur['temp_F']}° {_cur['weatherDesc'][0]['value']}\n"
+                f"  Feels Like {_cur['FeelsLikeF']}°\n"
+                f"  High {_day['maxtempF']}° / Low {_day['mintempF']}°\n"
+                f"  Chance of Rain {_rain_pct}% — {round(_precip, 2)} in"
+            )
     except Exception as _we:
         log.warning(f"Weather fetch: {_we}")
 
@@ -252,7 +276,7 @@ def send_morning_brief():
     try:
         r = httpx.post(
             f"{COUNCIL_API}/message",
-            json={"channel": "chief", "message": prompt, "user_id": "scheduler"},
+            json={"channel": "kai", "message": prompt, "user_id": "scheduler"},
             timeout=90,
         )
         r.raise_for_status()
@@ -319,7 +343,7 @@ def telegram_poll_loop():
                 try:
                     resp = httpx.post(
                         f"{COUNCIL_API}/message",
-                        json={"channel": "chief", "message": text, "user_id": f"telegram:{username}"},
+                        json={"channel": "kai", "message": text, "user_id": f"telegram:{username}"},
                         timeout=90,
                     )
                     resp.raise_for_status()
@@ -348,6 +372,7 @@ def main():
     tg_thread = threading.Thread(target=telegram_poll_loop, daemon=True, name="telegram-poll")
     tg_thread.start()
 
+    _last_watchdog_minute = -1
     while True:
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
@@ -357,6 +382,13 @@ def main():
                 send_morning_brief()
             except Exception as e:
                 log.error(f"Morning brief error: {e}")
+        # Watchdog: run every 30 minutes at :00 and :30
+        if now.minute in (0, 30) and now.minute != _last_watchdog_minute:
+            _last_watchdog_minute = now.minute
+            try:
+                run_watchdog_checks()
+            except Exception as e:
+                log.error(f"Watchdog error: {e}")
         time.sleep(30)
 
 
