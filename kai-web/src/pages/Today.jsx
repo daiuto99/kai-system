@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Activity, Brain, HeartHandshake, Briefcase, Compass,
@@ -117,9 +117,17 @@ function ProjectsWidget() {
   const [selected,  setSelected]  = useState(null)
   const [activeTab, setActiveTab] = useState('all')
 
-  useEffect(() => {
+  const loadProjects = useCallback(() => {
     fetch('/api/projects').then(r => r.json()).then(d => setProjects(d.projects || [])).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    loadProjects()
+    const iv = setInterval(loadProjects, 30000)
+    const onVisibility = () => { if (document.visibilityState === 'visible') loadProjects() }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => { clearInterval(iv); document.removeEventListener('visibilitychange', onVisibility) }
+  }, [loadProjects])
 
   function togglePin(p) {
     const next = !p.pinned
@@ -228,16 +236,51 @@ function domainStatus(aspects) {
 
 const HABIT_COLORS = ['#e53935','#e64a19','#f57c00','#f9a825','#fdd835','#c0ca33','#7cb342','#2e7d32','#00695c','#00838f','#0277bd','#1565c0','#283593','#4527a0','#6a1b9a','#ad1457','#880e4f','#4e342e','#546e7a','#37474f']
 
+const HABIT_EMOJIS = [
+  // Music & Sound
+  '🎸','🎵','🎹','🎷','🎺','🎻','🥁','🎙️','🎤','🎧','🎼','🎬',
+  // Fitness & Body
+  '🏃','💪','🧘','🏋️','🚴','🤸','🏊','🧗','🫁','🫀','🏄','⛹️',
+  // Mind & Study
+  '📚','✍️','🧠','💻','🎯','📝','📖','🔬','🎓','📐','🧮','🏆',
+  // Food & Health
+  '🥗','💧','🛌','💊','🥦','🍎','☕','🫖','🥩','🌡️','🍵','🥑',
+  // Nature & Home
+  '🌅','🌿','🧹','🌞','🌙','🌱','🌊','🏡','🌸','🍃','🌻','🌈',
+  // Work & Creative
+  '🎨','🖌️','💰','📊','📈','🤝','🎖️','🧩','🛠️','💡','🔑','🚀',
+  // Misc & Symbols
+  '❤️','⭐','🙏','🧡','💛','💚','💙','💜','✅','🔥','⚡','🎲',
+]
+
 function HarmonyHabitsWidget() {
   const [domains, setDomains] = useState([])
   const [habits,  setHabits]  = useState([])
+  const [modal,   setModal]   = useState(null)
   const today = new Date().toISOString().slice(0, 10)
   const BAR_GROUPS = loadGroupConfig(_DEFAULT_BAR_GROUPS)
 
+  const loadHabits = () => fetch('/api/habits').then(r => r.json()).then(d => setHabits(d.habits || d || [])).catch(() => {})
+
   useEffect(() => {
     fetch('/api/harmony').then(r => r.json()).then(d => setDomains(d.domains || [])).catch(() => {})
-    fetch('/api/habits').then(r => r.json()).then(d => setHabits(d.habits || d || [])).catch(() => {})
+    loadHabits()
   }, [])
+
+  function openAdd() { setModal({ mode: 'add', id: null, emoji: '', name: '' }) }
+  function openEdit(h) { setModal({ mode: 'edit', id: h.id, emoji: h.emoji || '', name: h.displayName || '' }) }
+
+  async function saveModal() {
+    if (!modal.name.trim()) return
+    if (modal.mode === 'add') {
+      const fullName = modal.emoji ? modal.emoji + ' ' + modal.name.trim() : modal.name.trim()
+      await fetch('/api/habits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: fullName }) })
+    } else {
+      await fetch('/api/habits/' + modal.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emoji: modal.emoji, name: modal.name }) })
+    }
+    setModal(null)
+    loadHabits()
+  }
 
   function toggle(h) {
     const done = h.completions?.includes(today)
@@ -251,7 +294,7 @@ function HarmonyHabitsWidget() {
   const doneCount = habits.slice(0, 6).filter(h => h.completions?.includes(today)).length
 
   return (
-    <div style={{ flex: 1, background: 'var(--bg-surface)', borderRadius: 16, border: '1px solid var(--border)', padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden' }}>
+    <div style={{ flex: 1, background: 'var(--bg-surface)', borderRadius: 16, border: '1px solid var(--border)', padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden', position: 'relative' }}>
       {/* Harmony */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <span className="section-title">Harmony</span>
@@ -288,7 +331,9 @@ function HarmonyHabitsWidget() {
         {Array.from({ length: 6 }).map((_, i) => {
           const h = habits[i]
           if (!h) return (
-            <div key={`empty-${i}`} style={{ borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-muted)', border: '1.5px dashed var(--border)' }}>
+            <div key={`empty-${i}`} onClick={openAdd} style={{ borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-muted)', border: '1.5px dashed var(--border)', cursor: 'pointer' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}>
               <Plus size={13} color="var(--text-muted)" />
             </div>
           )
@@ -296,12 +341,35 @@ function HarmonyHabitsWidget() {
           const color = done ? '#22c55e' : (HABIT_COLORS[h.color ?? 0] || '#6366f1')
           const emoji = h.emoji || (h.displayName || h.name || '?')[0]
           return (
-            <button key={h.id} onClick={() => toggle(h)} style={{ all: 'unset', cursor: 'pointer', borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, background: done ? '#22c55e15' : color + '15', border: `1.5px solid ${done ? '#22c55e50' : color + '40'}`, transition: 'all 0.2s' }}>
-              <span style={{ fontSize: 18, lineHeight: 1 }}>{done ? '✓' : emoji}</span>
-              <span style={{ fontSize: 7, fontWeight: 700, color: done ? '#22c55e' : color, letterSpacing: '0.04em', textAlign: 'center', lineHeight: 1.2, maxWidth: '92%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(h.displayName || h.name || '').toUpperCase()}</span>
-            </button>
+            <div key={h.id} style={{ position: 'relative', borderRadius: 10, background: done ? '#22c55e15' : color + '15', border: `1.5px solid ${done ? '#22c55e50' : color + '40'}`, transition: 'all 0.2s' }}
+              onMouseEnter={e => { e.currentTarget.querySelector('.habit-edit-btn').style.opacity = '1' }}
+              onMouseLeave={e => { e.currentTarget.querySelector('.habit-edit-btn').style.opacity = '0' }}>
+              <button onClick={() => toggle(h)} style={{ all: 'unset', cursor: 'pointer', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, padding: '4px 2px' }}>
+                <span style={{ fontSize: 40, lineHeight: 1 }}>{done ? '✓' : emoji}</span>
+                <span style={{ fontSize: 7, fontWeight: 700, color: done ? '#22c55e' : color, letterSpacing: '0.04em', textAlign: 'center', lineHeight: 1.2, maxWidth: '92%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(h.displayName || h.name || '').toUpperCase()}</span>
+              </button>
+              <button className="habit-edit-btn" onClick={() => openEdit(h)} style={{ all: 'unset', position: 'absolute', top: 2, right: 2, opacity: 0, cursor: 'pointer', fontSize: 8, color: 'var(--text-muted)', lineHeight: 1, padding: 2, transition: 'opacity 0.15s' }}>✎</button>
+            </div>
           )
         })}
+        {modal && (
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', borderRadius: 16, zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 14, width: 280, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>{modal.mode === 'add' ? 'Add Habit' : 'Edit Habit'}</span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+                {HABIT_EMOJIS.map(e => (
+                  <button key={e} onClick={() => setModal(m => ({ ...m, emoji: e }))} style={{ all: 'unset', cursor: 'pointer', fontSize: 32, padding: 3, borderRadius: 6, background: modal.emoji === e ? 'var(--accent)' + '30' : 'transparent', border: modal.emoji === e ? '1px solid var(--accent)' : '1px solid transparent' }}>{e}</button>
+                ))}
+              </div>
+              <input value={modal.emoji} onChange={e => setModal(m => ({ ...m, emoji: e.target.value }))} placeholder="or type emoji" style={{ all: 'unset', fontSize: 18, textAlign: 'center', width: 40, border: '1px solid var(--border)', borderRadius: 6, padding: '2px 4px', color: 'var(--text-primary)' }} />
+              <input value={modal.name} onChange={e => setModal(m => ({ ...m, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && saveModal()} placeholder="Habit name" autoFocus style={{ all: 'unset', fontSize: 11, color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', background: 'var(--bg-muted)' }} />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={saveModal} style={{ all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center', fontSize: 11, fontWeight: 700, background: 'var(--accent)', color: '#fff', borderRadius: 6, padding: '4px 0' }}>Save</button>
+                <button onClick={() => setModal(null)} style={{ all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 0' }}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -357,42 +425,47 @@ async function moveTaskWidget(id, toCol) {
 }
 
 function TasksWidget() {
-  const [tasks,   setTasks]   = useState([])
+  const [todayTs,   setTodayTs]   = useState([])
+  const [weekTs,    setWeekTs]    = useState([])
+  const [backlogTs, setBacklogTs] = useState([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
-  useEffect(() => {
+  const loadTasks = useCallback(() => {
     fetch('/api/tasks').then(r => r.json()).then(d => {
-      const all  = [...(d.today || []), ...(d.inbox || [])]
-      const seen = new Set()
-      setTasks(all.filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true }))
+      setTodayTs(d.today || [])
+      setWeekTs(d.week || [])
+      setBacklogTs(d.backlog || [])
     }).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
-  const handleDone = id => setTasks(p => p.filter(t => t.id !== id))
+  useEffect(() => {
+    loadTasks()
+    const iv = setInterval(loadTasks, 60000)
+    const onVisibility = () => { if (document.visibilityState === 'visible') loadTasks() }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => { clearInterval(iv); document.removeEventListener('visibilitychange', onVisibility) }
+  }, [loadTasks])
+
+  const removeTask = id => {
+    setTodayTs(p => p.filter(t => t.id !== id))
+    setWeekTs(p => p.filter(t => t.id !== id))
+    setBacklogTs(p => p.filter(t => t.id !== id))
+  }
+  const handleDone = id => removeTask(id)
   async function handleMove(id, toCol) {
     await moveTaskWidget(id, toCol)
-    setTasks(prev => prev.map(t => {
-      if (t.id !== id) return t
-      if (toCol === 'today')   return { ...t, due: _TASK_TODAY }
-      if (toCol === 'week')    return { ...t, due: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10) }
-      if (toCol === 'backlog') return { ...t, due: null }
-      return t
-    }))
+    loadTasks()
   }
-
-  const todayTs   = tasks.filter(t => taskBucket(t) === 'today').sort((a,b) => (a.priority||4)-(b.priority||4))
-  const weekTs    = tasks.filter(t => taskBucket(t) === 'week')
-  const backlogTs = tasks.filter(t => taskBucket(t) === 'backlog').sort((a,b) => (a.priority||4)-(b.priority||4))
 
   function Col({ id, title, color, items }) {
     const [over, setOver] = useState(false)
-    const borderVal = over ? ('1px dashed ' + color + '50') : '1px solid transparent'
-    const bgVal = over ? (color + '08') : 'transparent'
+    const borderVal = over ? ('2px solid ' + color) : '1px solid transparent'
+    const bgVal = over ? (color + '22') : 'transparent'
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden', borderRadius: 8, border: borderVal, background: bgVal, transition: 'all 0.15s', padding: 3 }}
-        onDragOver={e => { e.preventDefault(); setOver(true) }}
-        onDragLeave={() => setOver(false)}
+        onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOver(true) }}
+        onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setOver(false) }}
         onDrop={e => { e.preventDefault(); setOver(false); const tid = e.dataTransfer.getData('taskId'); const from = e.dataTransfer.getData('fromCol'); if (tid && from !== id) handleMove(tid, id) }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, flexShrink: 0 }}>

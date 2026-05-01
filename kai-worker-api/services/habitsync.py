@@ -125,3 +125,23 @@ def create_habit(name: str) -> dict:
             "group": h.get("group", ""),
             "completions": [],
         }
+
+def update_habit(habit_uuid: str, emoji: str, name: str) -> dict:
+    full_name = (emoji + " " + name).strip() if emoji else name
+    headers = _auth_header()
+    with httpx.Client(timeout=10) as client:
+        r = client.put(
+            f"{HABITSYNC_URL}/api/habit/{habit_uuid}",
+            json={"name": full_name},
+            headers=headers,
+        )
+        r.raise_for_status()
+        h = r.json()
+        em, dn = _extract_emoji(h.get("name", ""))
+        return {
+            "id": habit_uuid,
+            "name": h.get("name", ""),
+            "displayName": dn or h.get("name", ""),
+            "emoji": em,
+            "color": h.get("color", 0),
+        }

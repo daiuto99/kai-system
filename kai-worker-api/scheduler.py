@@ -263,13 +263,14 @@ def send_morning_brief():
     context = build_context()
 
     prompt = (
-        "Good morning. Generate Leo's morning brief with these sections:\n\n"
-        "1. *HEALTH CHECK (Doc)* — Interpret the Oura sleep + readiness data in plain language. "
-        "What do the numbers mean for today's energy? Give one concrete recommendation "
-        "(e.g. recover, push hard, moderate day). Skip this section entirely if no Oura data.\n"
-        "2. *TODAY'S FOCUS* — What matters most from calendar + tasks + projects. Flag conflicts.\n"
-        "3. *ONE THING* — The single most important action for today.\n\n"
-        "Format for Slack (*bold*, bullets, emoji headers). Tight and direct — brief not novel.\n\n"
+        "Good morning. Deliver Leo's morning brief as tight narrative prose — "
+        "no headers, no bullets, no labels, no section titles. "
+        "Write it the way a sharp chief of staff would brief someone walking out the door. "
+        "Cover three things in order: (1) his health — what the Oura numbers mean for today's energy "
+        "and one concrete call (push, moderate, or recover); skip entirely if no Oura data. "
+        "(2) what actually matters today from his calendar, tasks, and projects — flag anything that conflicts or needs a decision. "
+        "(3) the single most important thing he should do first. "
+        "Four sentences max. No filler. No questions. No 'here is your brief'. Just start talking.\n\n"
         f"Today's data:\n{context}"
     )
 
@@ -286,9 +287,9 @@ def send_morning_brief():
         brief = f"*Morning Brief*\n{context}"
 
     # Try DM first, fall back to #kai channel
-    leo_id = slack_get_user_id(slack_token, "kai@sonicink.space")
+    leo_id = slack_get_user_id(slack_token, "leo@sette-uno.com")
     dm_ch = slack_open_dm(slack_token, leo_id) if leo_id else None
-    target = dm_ch or "kai"
+    target = dm_ch or "kai-system"
 
     slack_post(slack_token, target, f"*🌅 Morning Brief — {datetime.now().strftime('%A, %B %d')}*\n\n{brief}")
     log.info(f"Morning brief sent to {'DM' if dm_ch else '#kai'}")

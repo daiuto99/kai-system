@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.5.0 · MASTER_PLAN_v2 locked · Sprints 22/23/24 complete 2026-04-28 (Lot Inventory redesign, Tasks kanban DnD, KAI task tools, session close fix) · Next: untriaged nudge or top nav icons</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.6.1 · Sprint 25 complete 2026-04-29 (UI Polish: icon-nav, habit add, icon persistence, LotNudge) · Sprint B in progress (worker apt upgrade + auto-deploy at session close)</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -154,7 +154,7 @@
       <h3>Personal AI Chief of Staff</h3>
       <p>A JARVIS-style life OS for Leo's life and businesses. Always-on, context-aware, action-oriented. KAI never says "I can't" — only "here's the path."</p>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-        <span class="badge badge-purple">8 Advisors</span>
+        <span class="badge badge-purple">9 Advisors</span>
         <span class="badge badge-green">Live Dashboard</span>
         <span class="badge badge-blue">Slack Native</span>
         <span class="badge badge-yellow">Local AI</span>
@@ -237,7 +237,7 @@
         <span class="layer-item" style="background:#ec489920;color:#f472b6">KAI (Chief) — Anthropic Sonnet</span>
         <span class="layer-item" style="background:#ec489920;color:#f472b6">Ember — Ollama Local (privacy-first)</span>
         <span class="layer-item" style="background:#ec489920;color:#f472b6">Doc — Ollama Local (privacy-first)</span>
-        <span class="layer-item" style="background:#ec489920;color:#f472b6">Beats, Coach, Biz, Sky, Roads — Anthropic</span>
+        <span class="layer-item" style="background:#ec489920;color:#f472b6">Beats, Coach, Sky, Roads, Creative, Dev — Anthropic</span>
         <span class="layer-item" style="background:#ec489918;color:#64748b">Complexity routing: Haiku/Sonnet/Opus (planned)</span>
       </div>
     </div>
@@ -787,10 +787,10 @@
   <div class="grid grid-2" style="margin-bottom:20px">
     <div class="card">
       <div class="card-title">Slack — Project Channels</div>
-      <div class="container-row"><div class="container-name">#encore</div><span style="font-size:11px;color:#64748b">Biz advisor · Music platform</span></div>
-      <div class="container-row"><div class="container-name">#launchbox</div><span style="font-size:11px;color:#64748b">Biz advisor · Agency</span></div>
+      <div class="container-row"><div class="container-name">#encore</div><span style="font-size:11px;color:#64748b">Project channel · Music platform</span></div>
+      <div class="container-row"><div class="container-name">#launchbox</div><span style="font-size:11px;color:#64748b">Project channel · Agency</span></div>
       <div class="container-row"><div class="container-name">#soul-collective</div><span style="font-size:11px;color:#64748b">Ember advisor · Brand</span></div>
-      <div class="container-row"><div class="container-name">#revolt-group</div><span style="font-size:11px;color:#64748b">Biz advisor · Venue/events</span></div>
+      <div class="container-row"><div class="container-name">#revolt-group</div><span style="font-size:11px;color:#64748b">Project channel · Venue/events</span></div>
       <div class="container-row"><div class="container-name">#kai-system</div><span style="font-size:11px;color:#64748b">KAI advisor · System ops</span></div>
     </div>
     <div class="card">
@@ -1302,6 +1302,14 @@
           <li>Today: LotNudge widget — amber strip when untriaged Lot items exist, navigates to /parking-lot</li>
           <li>Worker API: new endpoints — POST /habits, GET /habits/icons, PUT /habits/icons</li>
           <li>Claude Code: Bash(docker *) + Bash(scp *) added to allow list; variable-assignment command pattern fixed</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:#6366f140;background:#6366f108">
+        <strong style="color:#a5b4fc">🔄 Sprint B — Worker Maintenance + Auto-Deploy (in progress)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>apt upgrade — worker package updates (pending: sudo access)</li>
+          <li>architecture.html full audit — all tabs synced against Plane + current state ✅</li>
+          <li>Auto-deploy architecture.html at session close — CLAUDE.md step 6 update pending</li>
         </ul>
       </div>
       </div>

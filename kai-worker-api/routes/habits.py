@@ -3,7 +3,7 @@ from datetime import date as _d
 from fastapi import APIRouter, HTTPException
 import json, os
 from pydantic import BaseModel
-from services.habitsync import get_habits as hs_get_habits, log_habit, unlog_habit, create_habit as hs_create_habit
+from services.habitsync import get_habits as hs_get_habits, log_habit, unlog_habit, create_habit as hs_create_habit, update_habit as hs_update_habit
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -79,4 +79,18 @@ def put_habit_icons(body: IconsUpdate):
         return {"ok": True}
     except Exception as e:
         logger.exception("put_habit_icons error: %s", e)
+        raise HTTPException(500, str(e))
+
+
+class HabitUpdate(BaseModel):
+    emoji: str = ""
+    name: str = ""
+
+@router.patch("/habits/{habit_id}")
+def update_habit_endpoint(habit_id: str, body: HabitUpdate):
+    try:
+        habit = hs_update_habit(habit_id, body.emoji.strip(), body.name.strip())
+        return habit
+    except Exception as e:
+        logger.exception("update_habit error: %s", e)
         raise HTTPException(500, str(e))

@@ -147,7 +147,7 @@ def get_projects_v2():
             "updated":       str(status_data.get("updated", "")),
             "next":          status_data.get("next",         project.get("next", "")),
             "type":          status_data.get("type",         project.get("type", "active")),
-            "pinned":        status_data.get("pinned",       project.get("pinned", False)),
+            "pinned":        project.get("pinned", False),
         }
         result.append(entry)
 
@@ -207,6 +207,18 @@ def patch_project(project_id: str, body: ProjectPatch):
             PROJECTS_FILE.write_text(json.dumps(projects, indent=2))
             return {"ok": True, "project": p}
     raise HTTPException(404, "project not found")
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: str):
+    if not PROJECTS_FILE.exists():
+        raise HTTPException(404, "projects file not found")
+    projects = json.loads(PROJECTS_FILE.read_text())
+    remaining = [p for p in projects if p["id"] != project_id]
+    if len(remaining) == len(projects):
+        raise HTTPException(404, "project not found")
+    PROJECTS_FILE.write_text(json.dumps(remaining, indent=2))
+    return {"ok": True}
 
 
 class ProjectCreate(BaseModel):

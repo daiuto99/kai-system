@@ -136,10 +136,15 @@ def _h_workflows(client, tool_name, ti, advisor):
 
 
 def _h_tasks(client, tool_name, ti, advisor):
+    if tool_name == "search_tasks":
+        return client.get(f"{WORKER_URL}/tasks/search", params={"q": ti.get("query", "")}).json()
     if tool_name == "list_tasks":
         return client.get(f"{WORKER_URL}/tasks").json()
     if tool_name == "complete_task":
-        return client.post(f"{WORKER_URL}/tasks/{ti['task_id']}/complete").json()
+        r = client.post(f"{WORKER_URL}/tasks/{ti['task_id']}/complete").json()
+        if r.get("ok"):
+            return {"ok": True, "status": "Task completed and removed from Todoist active list."}
+        return {"ok": False, "error": "Failed to complete task"}
     if tool_name == "create_task":
         return client.post(f"{WORKER_URL}/tasks", json=ti).json()
     if tool_name == "update_task":
@@ -167,6 +172,8 @@ def _h_projects(client, tool_name, ti, advisor):
         return client.patch(f"{WORKER_URL}/projects/{pid}", json=ti).json()
     if tool_name == "list_projects":
         return client.get(f"{WORKER_URL}/projects").json()
+    if tool_name == "delete_project":
+        return client.delete(f"{WORKER_URL}/projects/{ti['id']}").json()
     if tool_name == "setup_project":
         r = client.post(f"{WORKER_URL}/projects/setup", json=ti, timeout=30)
         return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
@@ -649,6 +656,7 @@ TOOL_REGISTRY = {
     "list_tasks": _h_tasks,
     "complete_task": _h_tasks,
     "create_task": _h_tasks,
+    "search_tasks": _h_tasks,
     "update_task": _h_tasks,
     "delete_task": _h_tasks,
     "reschedule_task": _h_tasks,
@@ -659,6 +667,7 @@ TOOL_REGISTRY = {
     "create_project": _h_projects,
     "update_project": _h_projects,
     "list_projects": _h_projects,
+    "delete_project": _h_projects,
     "setup_project": _h_projects,
     # Vault
     "write_to_vault": _h_vault,

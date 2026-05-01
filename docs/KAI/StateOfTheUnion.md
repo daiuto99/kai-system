@@ -1,10 +1,10 @@
 # KAI — State of the Union
-**Last updated: 2026-04-27 | v2.5.0**
+**Last updated: 2026-05-01 | v2.8.0**
 
 ---
 
 ## SESSION BRIEF
-Sprint 20 complete 2026-04-27. The Team page redesigned, DevOps added, project file ingestion built.
+Sprints B-F complete 2026-05-01. Bug fix marathon: KAI context loss fixed, task tools rebuilt (search/buckets), project management tools (pin/delete), morning brief JARVIS format, Slack DM routing fixed.
 
 Sprint 20 delivered:
 - Advisors page: photo-forward portrait cards, square aspect-ratio, row-drop detail panels

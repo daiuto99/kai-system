@@ -2,6 +2,8 @@ import json
 import logging
 import re
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+from zoneinfo import ZoneInfo
+_ET = ZoneInfo("America/New_York")
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from config import VAULT_PATH
@@ -54,6 +56,7 @@ def _parse_ics(ics_text: str, days: int = 7) -> list:
 
     now = _dt.now(_tz.utc)
     end = now + _td(days=days)
+    _local = _ET
 
     try:
         cal = Calendar.from_ical(ics_text)
@@ -79,7 +82,7 @@ def _parse_ics(ics_text: str, days: int = 7) -> list:
         if all_day:
             start_dt = _dt(start_raw.year, start_raw.month, start_raw.day, tzinfo=_tz.utc)
         else:
-            start_dt = start_raw.astimezone(_tz.utc) if start_raw.tzinfo else start_raw.replace(tzinfo=_tz.utc)
+            start_dt = (start_raw.astimezone(_local) if start_raw.tzinfo else start_raw.replace(tzinfo=_tz.utc).astimezone(_local))
 
         event = {"title": str(component.get("SUMMARY", "")).strip(), "start": start_dt.isoformat(), "all_day": all_day}
 
@@ -87,7 +90,7 @@ def _parse_ics(ics_text: str, days: int = 7) -> list:
         if dtend:
             end_raw = dtend.dt
             if hasattr(end_raw, "hour"):
-                event["end"] = (end_raw.astimezone(_tz.utc) if end_raw.tzinfo else end_raw.replace(tzinfo=_tz.utc)).isoformat()
+                event["end"] = (end_raw.astimezone(_local) if end_raw.tzinfo else end_raw.replace(tzinfo=_tz.utc).astimezone(_local)).isoformat()
             else:
                 event["end"] = _dt(end_raw.year, end_raw.month, end_raw.day, tzinfo=_tz.utc).isoformat()
 

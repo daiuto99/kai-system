@@ -37,22 +37,30 @@ def _delete(path: str) -> bool:
         return r.status_code in (200, 204)
 
 
-def get_inbox() -> list:
-    """Tasks with no due date or in the Inbox project."""
-    from datetime import date
-    today = date.today().isoformat()
-    data = _get("/tasks")
-    tasks = data.get("results", [])
-    return [t for t in tasks if not t.get("due")]
-
+def _all_tasks() -> list:
+    return _get("/tasks").get("results", [])
 
 def get_today() -> list:
     """Tasks due today or overdue."""
     from datetime import date
     today = date.today().isoformat()
-    data = _get("/tasks")
-    tasks = data.get("results", [])
-    return [t for t in tasks if t.get("due") and t["due"]["date"] <= today]
+    return [t for t in _all_tasks() if t.get("due") and t["due"]["date"] <= today]
+
+def get_week() -> list:
+    """Tasks due in the next 1-7 days (not today/overdue)."""
+    from datetime import date, timedelta
+    today = date.today().isoformat()
+    in7   = (date.today() + timedelta(days=7)).isoformat()
+    return [t for t in _all_tasks() if t.get("due") and today < t["due"]["date"] <= in7]
+
+def get_backlog() -> list:
+    """Tasks with no due date or due more than 7 days out."""
+    from datetime import date, timedelta
+    in7 = (date.today() + timedelta(days=7)).isoformat()
+    return [t for t in _all_tasks() if not t.get("due") or t["due"]["date"] > in7]
+
+def get_inbox() -> list:
+    return get_backlog()
 
 
 def create_task(content: str, due_date: str = None, priority: int = 4,
@@ -99,6 +107,13 @@ def reschedule_task(task_id: str, due_date: str) -> dict:
 def delete_task(task_id: str) -> bool:
     return _delete(f"/tasks/{task_id}")
 
+
+def search_tasks(query: str) -> list:
+    """Search all active tasks by keyword (case-insensitive)."""
+    data = _get("/tasks")
+    tasks = data.get("results", [])
+    q = query.lower()
+    return [shape_task(t) for t in tasks if q in t.get("content", "").lower()]
 
 def shape_task(t: dict) -> dict:
     """Normalize a Todoist task for the dashboard."""

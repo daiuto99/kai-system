@@ -1,0 +1,173 @@
+import shutil
+import subprocess
+import logging
+from pathlib import Path
+from fastapi import APIRouter
+from config import VAULT_PATH
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+THRESHOLDS = {"disk_pct": 80, "mem_pct": 85, "temp_c": 75, "apt_updates": 10}
+APT_STATUS_FILE = VAULT_PATH / "00_System" / "apt_status.txt"
+
+
+def _read_proc(path: str) -> str:
+    with open(path) as f:
+        return f.read()
+
+
+@router.get("/system/health")
+def system_health():
+    # Disk
+    disk = shutil.disk_usage("/")
+    disk_pct = round(disk.used / disk.total * 100, 1)
+
+    # Memory from /proc/meminfo
+    mem = {}
+    for line in _read_proc("/proc/meminfo").splitlines():
+        if ":" in line:
+            k, v = line.split(":", 1)
+            mem[k.strip()] = int(v.strip().split()[0])
+    mem_total_kb = mem.get("MemTotal", 1)
+    mem_avail_kb = mem.get("MemAvailable", 0)
+    mem_pct = round((mem_total_kb - mem_avail_kb) / mem_total_kb * 100, 1)
+
+    # Load average from /proc/loadavg
+    load_parts = _read_proc("/proc/loadavg").split()
+    load_1m = float(load_parts[0])
+
+    # Uptime from /proc/uptime
+    uptime_sec = int(float(_read_proc("/proc/uptime").split()[0]))
+    uptime_days = uptime_sec // 86400
+    uptime_h = (uptime_sec % 86400) // 3600
+    uptime_str = f"{uptime_days}d {uptime_h}h"
+
+    # CPU temperature
+    temp_c = None
+    try:
+        temp_raw = int(_read_proc("/sys/class/thermal/thermal_zone0/temp").strip())
+        temp_c = round(temp_raw / 1000, 1)
+    except Exception:
+        pass
+
+    # Apt updates — read from host-written vault file
+    apt_updates = None
+    try:
+        if APT_STATUS_FILE.exists():
+            lines = [l for l in APT_STATUS_FILE.read_text().splitlines() if l.strip() and "Listing..." not in l]
+            apt_updates = len(lines)
+    except Exception:
+        pass
+
+    # Threshold checks
+    alerts = []
+    if disk_pct >= THRESHOLDS["disk_pct"]:
+        alerts.append(f"disk {disk_pct}% (threshold {THRESHOLDS['disk_pct']}%)")
+    if mem_pct >= THRESHOLDS["mem_pct"]:
+        alerts.append(f"memory {mem_pct}% (threshold {THRESHOLDS['mem_pct']}%)")
+    if temp_c is not None and temp_c >= THRESHOLDS["temp_c"]:
+        alerts.append(f"temp {temp_c}°C (threshold {THRESHOLDS['temp_c']}°C)")
+    if apt_updates is not None and apt_updates >= THRESHOLDS["apt_updates"]:
+        alerts.append(f"{apt_updates} pending apt updates (threshold {THRESHOLDS['apt_updates']})")
+
+    return {
+        "disk_pct": disk_pct,
+        "disk_free_gb": round(disk.free / 1024 ** 3, 1),
+        "disk_total_gb": round(disk.total / 1024 ** 3, 1),
+        "mem_pct": mem_pct,
+        "mem_free_gb": round(mem_avail_kb / 1024 / 1024, 1),
+        "mem_total_gb": round(mem_total_kb / 1024 / 1024, 1),
+        "load_1m": load_1m,
+        "temp_c": temp_c,
+        "uptime": uptime_str,
+        "uptime_sec": uptime_sec,
+        "apt_updates": apt_updates,
+        "alerts": alerts,
+        "ok": len(alerts) == 0,
+        "thresholds": THRESHOLDS,
+    }
+
+
+# ── KAI ambient status (used by Übersicht HUD widget) ─────────────────────────
+
+def _parse_status_yaml(path):
+    """Parse key: value lines from a YAML-ish STATUS.md (ignoring comment lines)."""
+    result = {}
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("#") or not line or line == "---":
+                continue
+            if ":" in line:
+                k, _, v = line.partition(":")
+                result[k.strip()] = v.strip()
+    except Exception:
+        pass
+    return result
+
+
+def _last_session_title(sessions_dir):
+    try:
+        files = sorted(sessions_dir.glob("*.md"))
+        if not files:
+            return ""
+        content = files[-1].read_text()
+        for line in content.splitlines():
+            if line.startswith("**Title:**"):
+                return line.replace("**Title:**", "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+@router.get("/api/status")
+def kai_status():
+    kai_status_path = VAULT_PATH / "20_Projects" / "KAI" / "STATUS.md"
+    fields = _parse_status_yaml(kai_status_path)
+
+    today_count = 0
+    try:
+        from services.todoist import get_today
+        today_count = len(get_today())
+    except Exception:
+        pass
+
+    last_title = _last_session_title(VAULT_PATH / "60_Council" / "sessions" / "kai")
+
+    return {
+        "status": fields.get("status", "unknown"),
+        "version": fields.get("version", ""),
+        "milestone": fields.get("milestone", ""),
+        "milestone_pct": fields.get("milestone_pct", "0"),
+        "next_action": fields.get("next", ""),
+        "today_task_count": today_count,
+        "last_session_title": last_title,
+        "updated": fields.get("updated", ""),
+    }
+
+
+# ── Session context % (populated by Mac Stop hook check_context.py) ───────────
+
+_session_context: dict = {}
+
+
+from fastapi import Request as _Request
+from pydantic import BaseModel as _BaseModel
+
+class _SessionContextPayload(_BaseModel):
+    pct: float
+    session_start_iso: str
+    resets_iso: str
+
+
+@router.post('/session-context')
+def set_session_context(payload: _SessionContextPayload):
+    global _session_context
+    _session_context = payload.dict()
+    return {'ok': True}
+
+
+@router.get('/session-context')
+def get_session_context():
+    return _session_context or {'pct': 0.0, 'session_start_iso': None, 'resets_iso': None}

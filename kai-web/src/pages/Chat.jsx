@@ -67,8 +67,10 @@ export default function Chat() {
     setMessages(prev => [...prev, userMsg])
     setThinking(true)
 
+    const history = messages.map(m => ({ role: m.role, content: m.content }))
+
     try {
-      const data = await api.sendMessage(text, advisor.channel)
+      const data = await api.sendMessage(text, advisor.channel, history)
       const reply = data.reply || data.message || ''
       const assistantMsg = {
         role: 'assistant',

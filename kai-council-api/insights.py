@@ -23,6 +23,7 @@ def strip_markdown(text: str) -> str:
         r"\U00002700-\U000027BF\U0001F900-\U0001F9FF"
         r"\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF"
         r"\U00002600-\U000026FF]+", re.UNICODE)
+    text = re.sub(r"```[\w]*\n?", "", text)
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"\*{3}(.+?)\*{3}", r"\1", text, flags=re.DOTALL)
     text = re.sub(r"\*{2}(.+?)\*{2}", r"\1", text, flags=re.DOTALL)
