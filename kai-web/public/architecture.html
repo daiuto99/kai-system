@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.6.1 · Sprint 25 complete 2026-04-29 (UI Polish: icon-nav, habit add, icon persistence, LotNudge) · Sprint B in progress (worker apt upgrade + auto-deploy at session close)</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.9.0 · Sprints G/H/I complete 2026-05-01 — all 10 advisors active, calendar-aware location, Tavily live, Mac→Worker sync, trust incident log</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -321,9 +321,9 @@
     <div class="sys-layer-icon">🧠</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#f472b6">AI Council Layer</div>
-      <div class="sys-layer-desc">8 lead advisors + 10 specialist personas. Each advisor has a defined domain, model assignment, and access to KAI tools. KAI chief is the command center — all tool-use runs through the chief. Complexity routing (Haiku/Sonnet/Opus by task type) is live. 44 tools across council and worker.</div>
+      <div class="sys-layer-desc">10 lead advisors + 17 specialist personas. Each advisor has a defined domain, model assignment, and access to KAI tools. KAI chief is the command center — all tool-use runs through the chief. Complexity routing (Haiku/Sonnet/Opus by task type) is live. 44 tools across council and worker.</div>
       <div class="sys-layer-status">
-        <span class="badge badge-green">8 advisors live ✅</span>
+        <span class="badge badge-green">10 advisors live ✅</span>
         <span class="badge badge-green">10 specialists ✅</span>
         <span class="badge badge-green">44 KAI tools ✅</span>
         <span class="badge badge-green">KEYSTONE context ✅</span>
@@ -355,7 +355,7 @@
     <div class="sys-layer-icon">⚡</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#34d399">Action Layer</div>
-      <div class="sys-layer-desc">KAI does things, not just answers questions. Integrated tools let KAI create tasks, manage projects, send Slack messages, draft emails, create calendar events, trigger n8n workflows, manage contacts, and set up entire project spaces in one command. Oura health data live in morning brief. Tavily web search active. ICS calendar feeds (Revolt, PSU) merged. Future: content creation pipeline and proactive KAI-initiated actions.</div>
+      <div class="sys-layer-desc">KAI does things, not just answers questions. Integrated tools let KAI create tasks, manage projects, send Slack messages, draft emails, create calendar events, trigger n8n workflows, manage contacts, and set up entire project spaces in one command. Oura health data live in morning brief. Tavily web search active. ICS calendar feeds (Revolt, PSU) merged. Calendar-aware location: timezone auto-detected from calendar events every 30min. Future: content creation pipeline and proactive KAI-initiated actions.</div>
       <div class="sys-layer-status">
         <span class="badge badge-green">44 tools ✅</span>
         <span class="badge badge-green">Project setup pipeline ✅</span>
@@ -438,7 +438,7 @@
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8001</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-council-api</div><div class="container-meta">FastAPI · AI routing · Tool-use loop · 44 KAI tools · KEYSTONE context · Tavily</div></div>
+      <div><div class="container-name">kai-council-api</div><div class="container-meta">FastAPI · AI routing · Tool-use loop · 44 KAI tools · KEYSTONE context · Tavily · ethos routing (dev/creative/devops)</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8002</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
