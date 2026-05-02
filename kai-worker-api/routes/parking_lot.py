@@ -92,7 +92,8 @@ def _parse_card(path: Path) -> dict:
         "enriched":  bool(meta.get("image") or meta.get("tags")),
         "intent":    meta.get("intent", ""),
         "why_saved": meta.get("why_saved", ""),
-        "project":   meta.get("project", ""),
+        "project":     meta.get("project", ""),
+        "next_action": meta.get("next_action", ""),
         "source":    meta.get("source", ""),
     }
 

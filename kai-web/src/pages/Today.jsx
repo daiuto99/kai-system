@@ -770,7 +770,7 @@ function LotWidget() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
           <Inbox size={14} color="var(--text-muted)" strokeWidth={1.75} />
-          Parking Lot
+          Lot Inventory
           <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{items.length} items</span>
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1065,7 +1065,7 @@ function LotNudge() {
         <Inbox size={14} color="#f59e0b" strokeWidth={1.75} />
         <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
           <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{count}</span>
-          {' '}untriaged item{count !== 1 ? 's' : ''} in the Parking Lot
+          {' '}untriaged item{count !== 1 ? 's' : ''} in the Lot
         </span>
       </div>
       <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, flexShrink: 0 }}>Review →</span>

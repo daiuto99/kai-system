@@ -3,7 +3,7 @@ import { CheckSquare, Inbox, Sparkles, Activity, BookOpen, Users } from 'lucide-
 
 const ITEMS = [
   { to: '/tasks',       icon: CheckSquare, label: 'Tasks',       desc: 'Todoist queue'         },
-  { to: '/parking-lot', icon: Inbox,       label: 'Parking Lot', desc: 'Captured items'        },
+  { to: '/parking-lot', icon: Inbox,       label: 'Lot Inventory', desc: 'Captured items'        },
   { to: '/insights',    icon: Sparkles,    label: 'Insights',    desc: 'Ember observations'    },
   { to: '/harmony',     icon: Activity,    label: 'Harmony',     desc: 'Life domain balance'   },
   { to: '/wiki',        icon: BookOpen,    label: 'Wiki',        desc: 'Knowledge vault'       },
