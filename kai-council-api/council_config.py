@@ -26,7 +26,7 @@ ADVISOR_CHANNELS = {
     "roads": "roads",
     "creative": "creative",
     "dev": "dev",
-    "devops": "kai-system",
+    "devops": "devops",
 }
 
 ADVISOR_IDENTITIES = {
@@ -44,6 +44,7 @@ ADVISOR_IDENTITIES = {
     "sky":      {"username": "Sky",      "icon_url": "https://kai.sonicink.space/avatar-sky.png"},
     "roads":    {"username": "Roads",    "icon_url": "https://kai.sonicink.space/avatar-roads.png"},
     "ops":      {"username": "Ops",       "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "devops":   {"username": "DevOps",   "icon_url": "https://kai.sonicink.space/icon-192.png"},
 }
 
 # Backward-compat — execute_tool.py imports this
