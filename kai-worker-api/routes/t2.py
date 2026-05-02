@@ -29,11 +29,38 @@ def _slack_token() -> str:
     return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
 
 
+def _post_slack_thread(entry: dict, approved: bool):
+    slack_token = _slack_token()
+    if not slack_token or not entry.get("slack_channel_id") or not entry.get("slack_ts"):
+        return
+    try:
+        import httpx as _hx
+        status = "Approved — executing now" if approved else "Rejected"
+        _hx.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={"Authorization": f"Bearer {slack_token}"},
+            json={
+                "channel": entry["slack_channel_id"],
+                "thread_ts": entry["slack_ts"],
+                "text": status,
+            },
+            timeout=10,
+        )
+    except Exception as e:
+        logger.exception("T2 thread post error: %s", e)
+
+
 class T2ActionRequest(BaseModel):
     action: str
     detail: str = ""
     advisor: str = "kai"
     slack_channel: str = "kai"
+
+
+class T2RespondRequest(BaseModel):
+    action_id: str
+    approved: bool
+    user_id: str = ""
 
 
 @router.get("/t2/queue")
@@ -65,7 +92,7 @@ def create_t2_action(req: T2ActionRequest):
                 f"*Advisor:* {req.advisor.upper()}\n"
                 f"*Action:* {req.action}\n"
                 f"{('*Detail:* ' + req.detail) if req.detail else ''}\n\n"
-                f"React with to approve, to reject."
+                f"React with ✅ to approve, ❌ to reject."
             )
             r = _t2hx.post(
                 "https://slack.com/api/chat.postMessage",
@@ -83,6 +110,24 @@ def create_t2_action(req: T2ActionRequest):
     queue.append(entry)
     _t2_save(queue)
     return {"ok": True, "id": action_id, "entry": entry}
+
+
+@router.post("/t2/respond")
+def respond_t2_action(req: T2RespondRequest):
+    queue = _t2_load()
+    for entry in queue:
+        if entry["id"] != req.action_id:
+            continue
+        if entry["status"] != "pending":
+            return {"ok": False, "error": f"Action already {entry['status']}", "entry": entry}
+        entry["status"] = "approved" if req.approved else "rejected"
+        entry["responded_by"] = req.user_id
+        entry["responded_at"] = _dt.now().isoformat()
+        _t2_save(queue)
+        logger.info("T2 respond %s -> %s: %s", req.action_id, entry["status"], entry["action"])
+        _post_slack_thread(entry, req.approved)
+        return {"ok": True, "entry": entry}
+    raise HTTPException(404, f"T2 action {req.action_id} not found")
 
 
 @router.post("/t2/approve/{action_id}")

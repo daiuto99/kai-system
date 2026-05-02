@@ -158,6 +158,25 @@ def handle_reaction(event, say):
             timeout=15.0,
         )
         log.info(f"T2 {'approved' if approved else 'rejected'}: {action_id} → {r.status_code}")
+        if approved and r.status_code == 200:
+            entry = r.json().get("entry", {})
+            action_text = entry.get("action", "")
+            detail_text = entry.get("detail", "")
+            exec_msg = f"T2 action approved (id: {action_id}): {action_text}"
+            if detail_text:
+                exec_msg += f" — {detail_text}"
+            exec_msg += ". Execute it now using the appropriate tool and confirm completion."
+            exec_reply = call_council("kai", exec_msg, event.get("user", "leo"), f"t2-{action_id}")
+            try:
+                app.client.chat_postMessage(
+                    channel=channel_id,
+                    thread_ts=ts,
+                    text=exec_reply,
+                    username="KAI",
+                    icon_url="https://kai.sonicink.space/avatar-kai.png",
+                )
+            except Exception as post_err:
+                log.error(f"T2 exec reply post error: {post_err}")
     except Exception as e:
         log.error(f"T2 response error: {e}")
 

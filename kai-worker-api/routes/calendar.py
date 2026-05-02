@@ -151,12 +151,45 @@ def gcal_auth_code(req: GCalCodeRequest):
         raise HTTPException(500, str(e))
 
 
+def _gcal_via_n8n(days: int) -> dict:
+    try:
+        import httpx as _hx, json as _j
+        feeds_path = VAULT_PATH / "00_System" / "n8n_workflows.json"
+        reg = _j.loads(feeds_path.read_text()) if feeds_path.exists() else {}
+        entry = reg.get("kai-calendar-events")
+        if not entry:
+            return {"events": [], "error": "calendar not configured"}
+        url = entry["webhook_url"] if isinstance(entry, dict) else entry
+        r = _hx.post(url, json={"days": days}, timeout=30)
+        raw = r.json()
+        items = raw if isinstance(raw, list) else raw.get("events", [])
+        events = []
+        for e in items:
+            start_obj = e.get("start", {})
+            start = start_obj.get("dateTime", start_obj.get("date", "")) if isinstance(start_obj, dict) else str(start_obj)
+            end_obj = e.get("end", {})
+            end = end_obj.get("dateTime", end_obj.get("date", "")) if isinstance(end_obj, dict) else str(end_obj)
+            events.append({
+                "id": e.get("id", ""),
+                "title": e.get("summary", "(no title)"),
+                "start": start,
+                "end": end,
+                "location": e.get("location", ""),
+                "description": e.get("description", ""),
+                "calendar": e.get("calendarName", "primary"),
+            })
+        return {"events": events}
+    except Exception as ex:
+        logger.exception("_gcal_via_n8n: %s", ex)
+        return {"events": [], "error": str(ex)}
+
+
 @router.get("/calendar/events")
 def gcal_events(days: int = 7, calendar_id: str = "primary"):
     import datetime
     svc = _gcal_service()
     if not svc:
-        return {"events": [], "error": "calendar not configured"}
+        return _gcal_via_n8n(days)
     now = datetime.datetime.utcnow().isoformat() + "Z"
     end = (datetime.datetime.utcnow() + datetime.timedelta(days=days)).isoformat() + "Z"
     result = svc.events().list(
