@@ -1,23 +1,18 @@
 # KAI — State of the Union
-**Last updated: 2026-05-01 | v2.8.0**
+**Last updated: 2026-05-01 | v2.9.0**
 
 ---
 
 ## SESSION BRIEF
-Sprints B-F complete 2026-05-01. Bug fix marathon: KAI context loss fixed, task tools rebuilt (search/buckets), project management tools (pin/delete), morning brief JARVIS format, Slack DM routing fixed.
+Sprint marathon complete 2026-05-01. G/H/I done in one session. v2.9.0.
 
-Sprint 20 delivered:
-- Advisors page: photo-forward portrait cards, square aspect-ratio, row-drop detail panels
-- KAI hero card: navy background matched to avatar graphic, logo centered at 80%
-- DevOps: avatar, ADVISOR_META, HAS_ORG — fully integrated across dashboard and showcase
-- Showcase: DevOps added to card grid and relationship map
-- Project file ingestion: Slack file_shared events to vault to Qdrant via worker API
-- Project setup: Gmail draft invites for external collaborators via n8n
-- Watchdog: _check_with_retry() suppresses transient 502/503 spam
-- Commit: 68dfbb5
+Sprint G: Brief no-questions fix, habits icon library (24→84 emojis), git hygiene commit.
+Sprint H: Dev/Creative/DevOps all active (was spec_needed), ethos routing wired, specialists.json updated, devops channel fixed.
+Sprint I: Tavily web_search confirmed live, trust incident log seeded (INC-001/002), Mac→Worker rsync launchd (15min), project lifecycle tools confirmed built, devops in model_config.json.
+Calendar-aware location: scheduler detects travel events via Nominatim+TimeAPI, updates timezone automatically. Briefs fire at local time.
 
-Next: JARVIS audit (Plane 97e88d6a, urgent), n8n expansion (5 workflows), knowledge population.
-Known issues: OpenAI key needs billing credits. Gemini key pending.
+Next: Sprint J (T2 auto-execute, remote dev setup), Sprint K (Lot Inventory full build), KAI Showcase Phase 2.
+Known issues: Accuracy monitor ongoing — PHX/PHL hallucination logged INC-001.
 Tailscale: 100.78.94.80:3001 (dashboard), :8443 (code-server), :4000 (LiteLLM).
 
 
