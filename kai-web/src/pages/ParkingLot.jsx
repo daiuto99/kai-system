@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 import {
   Inbox, Send, RefreshCw, Sparkles,
   FileText, Lightbulb, ShoppingBag, Video, Link2, Music, BookOpen,
-  Archive, Trash2, ExternalLink, ChevronRight, X, ClipboardList,
+  Archive, Trash2, ExternalLink, ChevronRight, X, ClipboardList, CheckSquare,
 } from 'lucide-react'
 
 const TYPE_META = {
@@ -23,6 +23,18 @@ const STATUS_META = {
   active:   { label: 'Active',   color: '#10b981', bg: '#10b98118' },
   waiting:  { label: 'Waiting',  color: '#f59e0b', bg: '#f59e0b18' },
   archived: { label: 'Archived', color: '#6b7280', bg: '#6b728018' },
+}
+
+// What KAI does with each type when you hit the KAI button
+const TYPE_KAI_ACTION = {
+  article: { advisor: 'kai',     action: 'ingest',   label: 'Read & Brief' },
+  idea:    { advisor: 'kai',     action: 'evaluate', label: 'Evaluate'     },
+  product: { advisor: 'roads',   action: 'evaluate', label: 'Research'     },
+  note:    { advisor: 'kai',     action: 'evaluate', label: 'Process'      },
+  link:    { advisor: 'kai',     action: 'ingest',   label: 'Summarize'    },
+  music:   { advisor: 'beats',   action: 'ingest',   label: 'Brief Beats'  },
+  video:   { advisor: 'kai',     action: 'evaluate', label: 'Take Notes'   },
+  item:    { advisor: 'kai',     action: 'evaluate', label: 'Review'       },
 }
 
 const INTENTS = ['Read', 'Research', 'Implement', 'Buy', 'Compare', 'Reference', 'Follow Up', 'Decision Needed']
@@ -75,100 +87,203 @@ function IntentBadge({ intent }) {
   )
 }
 
+// ── Triage Modal ─────────────────────────────────────────────────────────────
+
+function TriageModal({ item, onClose, onDone, onDelete }) {
+  const [title,   setTitle]   = useState(item.title || '')
+  const [type,    setType]    = useState(item.type  || 'note')
+  const [notes,   setNotes]   = useState(item.why_saved || '')
+  const [busy,    setBusy]    = useState(false)
+  const hasUrl = item.url?.startsWith('http')
+  const kaiCfg = TYPE_KAI_ACTION[type] || TYPE_KAI_ACTION.item
+
+  async function act(action, advisor) {
+    setBusy(true)
+    try {
+      // Save any edits first
+      await api.patchCapture(item.slug, { title, type, why_saved: notes })
+      if (action === 'active' || action === 'later') {
+        await api.patchCapture(item.slug, { status: action === 'later' ? 'waiting' : 'active' })
+      } else {
+        await api.triageCapture(item.slug, action, advisor || kaiCfg.advisor, notes)
+      }
+      onDone(item.slug)
+      onClose()
+    } catch (e) {
+      console.error('Triage error:', e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const labelStyle = { fontSize: 11, fontWeight: 600, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }
+  const inputStyle = { width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontSize: 13, color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' }
+  const actionBtn  = (bg, border, color) => ({ all: 'unset', cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.5 : 1, fontSize: 12, fontWeight: 600, padding: '9px 16px', borderRadius: 8, background: bg, border: `1px solid ${border}`, color, display: 'inline-flex', alignItems: 'center', gap: 6 })
+
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()} style={{
+      position: 'fixed', inset: 0, background: '#00000080', zIndex: 1000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+    }}>
+      <div style={{
+        background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16,
+        padding: 28, width: '100%', maxWidth: 540, display: 'flex', flexDirection: 'column', gap: 20,
+        maxHeight: '90vh', overflowY: 'auto',
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Triage</span>
+          <button onClick={onClose} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-subtle)', padding: 4 }}><X size={16} /></button>
+        </div>
+
+        {/* Source link */}
+        {hasUrl ? (
+          <a href={item.url} target="_blank" rel="noreferrer" style={{
+            fontSize: 12, color: '#60a5fa', textDecoration: 'underline',
+            display: 'inline-flex', alignItems: 'center', gap: 5, wordBreak: 'break-all',
+          }}>
+            <ExternalLink size={12} style={{ flexShrink: 0 }} />
+            {item.url}
+          </a>
+        ) : (
+          <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontStyle: 'italic' }}>No link captured</span>
+        )}
+
+        {/* Type */}
+        <div>
+          <div style={labelStyle}>Type</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {Object.entries(TYPE_META).filter(([k]) => k !== 'item').map(([key, m]) => (
+              <button key={key} onClick={() => setType(key)} style={{
+                all: 'unset', cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                padding: '5px 11px', borderRadius: 6,
+                background: type === key ? m.color + '25' : 'var(--bg-elevated)',
+                border: `1px solid ${type === key ? m.color : 'var(--border)'}`,
+                color: type === key ? m.color : 'var(--text-subtle)',
+              }}>{m.label}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Title */}
+        <div>
+          <div style={labelStyle}>Title</div>
+          <input value={title} onChange={e => setTitle(e.target.value)} style={inputStyle} />
+        </div>
+
+        {/* Summary (read-only) */}
+        {item.summary && (
+          <div>
+            <div style={labelStyle}>KAI's Summary</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, padding: '10px 12px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border)' }}>
+              {item.summary}
+            </div>
+          </div>
+        )}
+
+        {/* Notes */}
+        <div>
+          <div style={labelStyle}>Notes / Context <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></div>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+            placeholder="Why did you save this? What do you want to do with it?"
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }} />
+        </div>
+
+        {/* Actions */}
+        <div>
+          <div style={labelStyle}>What do you want to do with this?</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={() => act('knowledge', kaiCfg.advisor)} style={actionBtn('#6366f120', '#6366f150', '#a5b4fc')} disabled={busy}>
+              <Sparkles size={13} /> KAI — {kaiCfg.label}
+            </button>
+            <button onClick={() => act('task')} style={actionBtn('#10b98120', '#10b98150', '#6ee7b7')} disabled={busy}>
+              <CheckSquare size={13} /> Create Task
+            </button>
+            <button onClick={() => act('active')} style={actionBtn('#10b98120', '#10b98150', '#6ee7b7')} disabled={busy}>
+              Active
+            </button>
+            <button onClick={() => act('later')} style={actionBtn('#f59e0b20', '#f59e0b50', '#fcd34d')} disabled={busy}>
+              Later
+            </button>
+            <button onClick={() => act('archive')} style={actionBtn('#ffffff10', '#ffffff25', '#9ca3af')} disabled={busy}>
+              <Archive size={13} /> Archive
+            </button>
+          </div>
+        </div>
+
+        {/* Delete */}
+        <button onClick={() => { onDelete(item.slug); onClose() }} style={{ all: 'unset', cursor: 'pointer', fontSize: 11, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 4, marginTop: -8 }}>
+          <Trash2 size={11} /> Delete
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Card ─────────────────────────────────────────────────────────────────────
 
-function LotCard({ item, onStatusChange, onDelete, onArchive, onAskKai, projects }) {
+function LotCard({ item, onOpenTriage, onStatusChange, onDelete, onArchive }) {
   const hasUrl = item.url?.startsWith('http')
   const m = typeMeta(item.type)
-  const Icon = m.icon
-
-  function actions() {
-    const base = []
-    if (hasUrl) base.push(
-      <button key="open" onClick={() => window.open(item.url, '_blank', 'noreferrer')}
-        style={btnStyle('#ffffff18', '#ffffff35', '#fff')}
-      ><ExternalLink size={11} /> Open</button>
-    )
-    base.push(
-      <button key="kai" onClick={() => onAskKai(item)}
-        style={btnStyle('#6366f118', '#6366f140', '#a5b4fc')}
-      ><Sparkles size={11} /> Ask KAI</button>
-    )
-    if (item.status !== 'active') base.push(
-      <button key="active" onClick={() => onStatusChange(item.slug, 'active')}
-        style={btnStyle('#10b98118', '#10b98140', '#6ee7b7')}
-      >Set Active</button>
-    )
-    if (item.status !== 'waiting') base.push(
-      <button key="later" onClick={() => onStatusChange(item.slug, 'waiting')}
-        style={btnStyle('#f59e0b18', '#f59e0b40', '#fcd34d')}
-      >Save for Later</button>
-    )
-    base.push(
-      <button key="arch" onClick={() => onArchive(item.slug)}
-        style={btnStyle('#ffffff10', '#ffffff25', '#9ca3af')}
-      ><Archive size={11} /></button>
-    )
-    base.push(
-      <button key="del" onClick={() => onDelete(item.slug)}
-        style={btnStyle('#ef444418', '#ef444440', '#fca5a5')}
-      ><Trash2 size={11} /></button>
-    )
-    return base
-  }
 
   const source = item.source && item.source !== 'web' ? item.source : (
     item.url ? (() => { try { return new URL(item.url).hostname.replace('www.', '') } catch { return '' } })() : ''
   )
 
+  const isNew = item.status === 'new'
+
   return (
-    <div style={{
-      background: 'var(--bg-card)', border: '1px solid var(--border)',
-      borderRadius: 12, padding: '14px 16px',
-      display: 'flex', flexDirection: 'column', gap: 10,
-      borderLeft: `3px solid ${m.color}`,
-    }}>
+    <div
+      onClick={() => isNew && onOpenTriage(item)}
+      style={{
+        background: 'var(--bg-card)', border: '1px solid var(--border)',
+        borderRadius: 12, padding: '14px 16px',
+        display: 'flex', flexDirection: 'column', gap: 10,
+        borderLeft: `3px solid ${m.color}`,
+        cursor: isNew ? 'pointer' : 'default',
+        transition: 'border-color 0.15s',
+      }}
+      onMouseEnter={e => { if (isNew) e.currentTarget.style.borderColor = m.color }}
+      onMouseLeave={e => { if (isNew) e.currentTarget.style.borderColor = 'var(--border)' }}
+    >
       {/* Row 1: type + status */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <TypeBadge type={item.type} />
-        <StatusPill status={item.status} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {isNew && <span style={{ fontSize: 9, color: 'var(--text-subtle)', fontStyle: 'italic' }}>click to triage</span>}
+          <StatusPill status={item.status} />
+        </div>
       </div>
 
-      {/* Row 2: title */}
+      {/* Title */}
       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.4 }}>
         {item.title}
       </div>
 
-      {/* Row 3: source + date */}
+      {/* Source + date */}
       {(source || item.date) && (
         <div style={{ fontSize: 11, color: 'var(--text-subtle)', display: 'flex', gap: 6 }}>
-          {source && <span style={{ textTransform: 'capitalize' }}>{source}</span>}
+          {source && <span>{source}</span>}
           {source && item.date && <span>·</span>}
           {item.date && <span>{item.date}</span>}
         </div>
       )}
 
-      {/* Row 4: why saved */}
-      <div style={{ fontSize: 12, color: item.why_saved ? 'var(--text-secondary)' : 'var(--text-subtle)', lineHeight: 1.5, fontStyle: item.why_saved ? 'normal' : 'italic' }}>
-        {item.why_saved || (item.summary || '—')}
+      {/* Summary */}
+      <div style={{ fontSize: 12, color: 'var(--text-subtle)', lineHeight: 1.5, fontStyle: 'italic' }}>
+        {item.why_saved || item.summary || '—'}
       </div>
 
-      {/* Row 5: intent + project */}
-      {(item.intent || item.project) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          {item.intent && <IntentBadge intent={item.intent} />}
-          {item.project && (
-            <span style={{ fontSize: 10, color: 'var(--text-subtle)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px' }}>
-              {item.project}
-            </span>
-          )}
+      {/* Non-new actions */}
+      {!isNew && (
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 2 }} onClick={e => e.stopPropagation()}>
+          {hasUrl && <button onClick={() => window.open(item.url, '_blank', 'noreferrer')} style={btnStyle('#ffffff18','#ffffff35','#fff')}><ExternalLink size={11} /> Open</button>}
+          {item.status !== 'active'  && <button onClick={() => onStatusChange(item.slug, 'active')}   style={btnStyle('#10b98118','#10b98140','#6ee7b7')}>Active</button>}
+          {item.status !== 'waiting' && <button onClick={() => onStatusChange(item.slug, 'waiting')}  style={btnStyle('#f59e0b18','#f59e0b40','#fcd34d')}>Later</button>}
+          <button onClick={() => onArchive(item.slug)} style={btnStyle('#ffffff10','#ffffff25','#9ca3af')}><Archive size={11} /></button>
+          <button onClick={() => onDelete(item.slug)}  style={btnStyle('#ef444418','#ef444440','#fca5a5')}><Trash2 size={11} /></button>
         </div>
       )}
-
-      {/* Row 6: actions */}
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 2 }}>
-        {actions()}
-      </div>
     </div>
   )
 }
@@ -184,7 +299,7 @@ function btnStyle(bg, border, color) {
 
 // ── Column ────────────────────────────────────────────────────────────────────
 
-function Column({ label, count, accent, items, onStatusChange, onDelete, onArchive, onAskKai, projects }) {
+function Column({ label, count, accent, items, onOpenTriage, onStatusChange, onDelete, onArchive }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       <div style={{
@@ -198,8 +313,8 @@ function Column({ label, count, accent, items, onStatusChange, onDelete, onArchi
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {items.map(item => (
           <LotCard key={item.slug} item={item}
-            onStatusChange={onStatusChange} onDelete={onDelete}
-            onArchive={onArchive} onAskKai={onAskKai} projects={projects} />
+            onOpenTriage={onOpenTriage}
+            onStatusChange={onStatusChange} onDelete={onDelete} onArchive={onArchive} />
         ))}
         {items.length === 0 && (
           <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-subtle)', fontStyle: 'italic' }}>Empty</div>
@@ -380,6 +495,7 @@ export default function ParkingLot() {
   const [typeFilter,   setTypeFilter]   = useState('all')
   const [intentFilter, setIntentFilter] = useState('all')
   const [reviewMode,   setReviewMode]   = useState(false)
+  const [triageItem,   setTriageItem]   = useState(null)
   const navigate = useNavigate()
 
   async function load() {
@@ -410,6 +526,10 @@ export default function ParkingLot() {
 
   async function handleArchive(slug) {
     try { await api.archiveCapture(slug); setItems(prev => prev.filter(i => i.slug !== slug)) } catch {}
+  }
+
+  function handleTriageDone(slug) {
+    setItems(prev => prev.filter(i => i.slug !== slug))
   }
 
   async function handleDelete(slug) {
@@ -605,8 +725,8 @@ export default function ParkingLot() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
           {visible.map(item => (
             <LotCard key={item.slug} item={item}
-              onStatusChange={handleStatusChange} onDelete={handleDelete}
-              onArchive={handleArchive} onAskKai={handleAskKai} />
+              onOpenTriage={setTriageItem}
+              onStatusChange={handleStatusChange} onDelete={handleDelete} onArchive={handleArchive} />
           ))}
           {visible.length === 0 && (
             <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '40px 0', color: 'var(--text-subtle)', fontSize: 13 }}>
@@ -616,22 +736,22 @@ export default function ParkingLot() {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, alignItems: 'start' }}>
-          <Column label="New / Untriaged" count={colNew.length}     accent="#6366f1" items={colNew}
-            onStatusChange={handleStatusChange} onDelete={handleDelete} onArchive={handleArchive} onAskKai={handleAskKai} />
-          <Column label="Active"          count={colActive.length}  accent="#10b981" items={colActive}
-            onStatusChange={handleStatusChange} onDelete={handleDelete} onArchive={handleArchive} onAskKai={handleAskKai} />
+          <Column label="New / Untriaged"   count={colNew.length}     accent="#6366f1" items={colNew}
+            onOpenTriage={setTriageItem} onStatusChange={handleStatusChange} onDelete={handleDelete} onArchive={handleArchive} />
+          <Column label="Active"            count={colActive.length}  accent="#10b981" items={colActive}
+            onOpenTriage={setTriageItem} onStatusChange={handleStatusChange} onDelete={handleDelete} onArchive={handleArchive} />
           <Column label="Later / Reference" count={colWaiting.length} accent="#f59e0b" items={colWaiting}
-            onStatusChange={handleStatusChange} onDelete={handleDelete} onArchive={handleArchive} onAskKai={handleAskKai} />
+            onOpenTriage={setTriageItem} onStatusChange={handleStatusChange} onDelete={handleDelete} onArchive={handleArchive} />
         </div>
       )}
 
-      {/* Review Mode */}
-      {reviewMode && (
-        <ReviewMode
-          items={newItems}
-          onSave={handleReviewSave}
-          onSkip={() => {}}
-          onClose={() => { setReviewMode(false); load() }}
+      {/* Triage Modal */}
+      {triageItem && (
+        <TriageModal
+          item={triageItem}
+          onClose={() => setTriageItem(null)}
+          onDone={handleTriageDone}
+          onDelete={handleDelete}
         />
       )}
     </div>

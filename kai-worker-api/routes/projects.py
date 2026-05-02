@@ -290,6 +290,7 @@ class ProjectSetupRequest(BaseModel):
     status: str = "yellow"
     next: str = ""
     template_version: str = "v1"
+    project_type: str = "active"  # "active" | "idea"
     create_slack_channel: bool = True
     slack_channel_name: str = ""
     invite_contacts: list = []
@@ -304,31 +305,36 @@ def setup_project(req: ProjectSetupRequest):
     results = {"project_id": req.id, "steps": [], "errors": []}
     today = _cdt.now().strftime("%Y-%m-%d")
 
-    try:
-        proj_file = VAULT_PATH / "00_System" / "projects.json"
-        projects = json.loads(proj_file.read_text()) if proj_file.exists() else []
-        existing = next((p for p in projects if p["id"] == req.id), None)
-        if existing:
-            results["steps"].append({"step": "projects.json", "status": "skipped", "note": "Already exists"})
-        else:
-            projects.append({
-                "id": req.id, "name": req.name, "status": req.status,
-                "next": req.next or "Define scope and goals",
-                "description": req.description, "url": req.url,
-                "advisor": req.advisor, "active": True,
-            })
-            proj_file.write_text(json.dumps(projects, indent=2))
-            results["steps"].append({"step": "projects.json", "status": "done"})
-    except Exception as e:
-        logger.exception("setup_project projects.json: %s", e)
-        results["errors"].append(f"projects.json: {e}")
+    is_idea = req.project_type == "idea"
+
+    if not is_idea:
+        try:
+            proj_file = VAULT_PATH / "00_System" / "projects.json"
+            projects = json.loads(proj_file.read_text()) if proj_file.exists() else []
+            existing = next((p for p in projects if p["id"] == req.id), None)
+            if existing:
+                results["steps"].append({"step": "projects.json", "status": "skipped", "note": "Already exists"})
+            else:
+                projects.append({
+                    "id": req.id, "name": req.name, "status": req.status,
+                    "next": req.next or "Define scope and goals",
+                    "description": req.description, "url": req.url,
+                    "advisor": req.advisor, "active": True,
+                })
+                proj_file.write_text(json.dumps(projects, indent=2))
+                results["steps"].append({"step": "projects.json", "status": "done"})
+        except Exception as e:
+            logger.exception("setup_project projects.json: %s", e)
+            results["errors"].append(f"projects.json: {e}")
+    else:
+        results["steps"].append({"step": "projects.json", "status": "skipped", "note": "Idea projects are auto-discovered — no registry entry needed"})
 
     slack_channel = req.slack_channel_name or req.id
     template_vars = {
         "PROJECT_NAME": req.name, "PROJECT_ID": req.id, "DATE": today,
         "ADVISOR": req.advisor, "SLACK_CHANNEL": slack_channel,
     }
-    proj_dir = VAULT_PATH / "20_Projects" / req.id
+    proj_dir = (VAULT_PATH / "20_Projects" / "ideas" / req.id) if is_idea else (VAULT_PATH / "20_Projects" / req.id)
     proj_dir.mkdir(parents=True, exist_ok=True)
 
     # Write canonical STATUS.md (always, overwrite if format is wrong)
@@ -337,7 +343,7 @@ def setup_project(req: ProjectSetupRequest):
         status_content = f"""---
 name: {req.name}
 status: {req.status}
-type: active
+type: {"idea" if is_idea else "active"}
 version: 0.1.0
 milestone: Phase 1 - Kickoff
 milestone_pct: 0
@@ -347,11 +353,11 @@ pinned: false
 ---
 """
         status_md.write_text(status_content)
-        results["steps"].append({{"step": "STATUS.md", "status": "done", "path": str(status_md)}})
+        results["steps"].append({"step": "STATUS.md", "status": "done", "path": str(status_md)})
 
     # Warn if no Plane project code provided
     if not req.plane_project:
-        results["steps"].append({{"step": "plane_project", "status": "warning", "note": "No plane_project code provided — create a Plane project and update STATUS.md"}})
+        results["steps"].append({"step": "plane_project", "status": "warning", "note": "No plane_project code provided — create a Plane project and update STATUS.md"})
 
     tpl_dir = TEMPLATES_PATH / req.template_version
     files_created = []
@@ -368,7 +374,7 @@ pinned: false
     })
 
     channel_id = None
-    if req.create_slack_channel:
+    if req.create_slack_channel and not is_idea:
         try:
             slack_result = _slack_api("conversations.create", {"name": slack_channel, "is_private": False})
             if slack_result.get("ok"):
@@ -465,6 +471,81 @@ pinned: false
             results["steps"].append({"step": "gmail_drafts", "status": "done", "sent_to": gmail_sent})
         if gmail_errors:
             results["errors"].extend([f"gmail_draft({e['email']}): {e['error']}" for e in gmail_errors])
+
+    results["ok"] = len(results["errors"]) == 0
+    return results
+
+
+@router.post("/projects/{project_id}/teardown")
+def teardown_project(project_id: str):
+    """Full project removal: projects.json, Slack channel archive, vault folder archive."""
+    results = {"project_id": project_id, "steps": [], "errors": []}
+
+    # 1. Remove from projects.json
+    try:
+        proj_file = VAULT_PATH / "00_System" / "projects.json"
+        if proj_file.exists():
+            projects = json.loads(proj_file.read_text())
+            remaining = [p for p in projects if p["id"] != project_id]
+            if len(remaining) < len(projects):
+                proj_file.write_text(json.dumps(remaining, indent=2))
+                results["steps"].append({"step": "projects.json", "status": "done", "note": "Removed"})
+            else:
+                results["steps"].append({"step": "projects.json", "status": "skipped", "note": "Not found in registry"})
+    except Exception as e:
+        logger.exception("teardown projects.json: %s", e)
+        results["errors"].append(f"projects.json: {e}")
+
+    # 2. Archive Slack channel — look up channel ID from kai_projects.json or Slack list
+    channel_id = None
+    try:
+        if KAI_PROJECTS_FILE.exists():
+            registry = json.loads(KAI_PROJECTS_FILE.read_text())
+            for cid, meta in registry.items():
+                if meta.get("project_id") == project_id:
+                    channel_id = cid
+                    break
+        if not channel_id:
+            ch_list = _slack_get("conversations.list", {"types": "public_channel,private_channel", "limit": 200})
+            for ch in ch_list.get("channels", []):
+                if ch["name"] == project_id or ch["name"] == project_id.replace("_", "-"):
+                    channel_id = ch["id"]
+                    break
+        if channel_id:
+            archive_result = _slack_api("conversations.archive", {"channel": channel_id})
+            if archive_result.get("ok") or archive_result.get("error") == "already_archived":
+                results["steps"].append({"step": "slack_channel", "status": "done", "note": f"Archived #{project_id}"})
+                if KAI_PROJECTS_FILE.exists():
+                    registry = json.loads(KAI_PROJECTS_FILE.read_text())
+                    registry.pop(channel_id, None)
+                    KAI_PROJECTS_FILE.write_text(json.dumps(registry, indent=2))
+            else:
+                results["errors"].append(f"slack_archive: {archive_result.get('error')}")
+        else:
+            results["steps"].append({"step": "slack_channel", "status": "skipped", "note": "No channel found"})
+    except Exception as e:
+        logger.exception("teardown slack: %s", e)
+        results["errors"].append(f"slack_channel: {e}")
+
+    # 3. Move vault folder to archived/
+    import shutil as _shutil
+    for candidate_dir in [
+        PROJECTS_DIR / project_id,
+        PROJECTS_DIR / "ideas" / project_id,
+    ]:
+        if candidate_dir.exists():
+            archived_dir = PROJECTS_DIR / "archived"
+            archived_dir.mkdir(parents=True, exist_ok=True)
+            dest = archived_dir / project_id
+            try:
+                _shutil.move(str(candidate_dir), str(dest))
+                results["steps"].append({"step": "vault_folder", "status": "done", "note": f"Moved to archived/{project_id}"})
+            except Exception as e:
+                logger.exception("teardown vault move: %s", e)
+                results["errors"].append(f"vault_folder: {e}")
+            break
+    else:
+        results["steps"].append({"step": "vault_folder", "status": "skipped", "note": "Folder not found"})
 
     results["ok"] = len(results["errors"]) == 0
     return results

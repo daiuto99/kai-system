@@ -170,6 +170,36 @@ def _ingest_file_background(vault_path: str, advisor: str, channel_id: str, file
         logger.exception("ingest_file_background failed for %s: %s", vault_path, e)
 
 
+def _handle_checkin_reply(thread_ts: str, channel_id: str, text: str):
+    """Called in background when a Slack message arrives — check if it's a check-in reply."""
+    import json as _json
+    pending_file = _VAULT / "00_System" / "checkin_pending.json"
+    if not pending_file.exists():
+        return
+    try:
+        pending = _json.loads(pending_file.read_text())
+    except Exception:
+        return
+    matched_type = None
+    for checkin_type, meta in pending.items():
+        if meta.get("ts") == thread_ts and meta.get("channel_id") == channel_id:
+            matched_type = checkin_type
+            break
+    if not matched_type:
+        return
+    logger.info("slack_events: check-in reply detected for %s", matched_type)
+    try:
+        r = _slhx.post(
+            "http://localhost:8001/checkin/slack-reply",
+            json={"checkin_type": matched_type, "text": text,
+                  "thread_ts": thread_ts, "channel_id": channel_id},
+            timeout=15,
+        )
+        logger.info("slack_events: checkin-reply result: %s", r.json())
+    except Exception as e:
+        logger.exception("slack_events: checkin-reply failed: %s", e)
+
+
 @router.post("/slack/events")
 async def slack_events(request: Request, background_tasks: BackgroundTasks):
     """Slack Events API receiver — handles file_shared events in KAI-managed channels."""
@@ -182,7 +212,19 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
     event = body.get("event", {})
     event_type = event.get("type")
 
-    # Only handle file_shared events
+    # Handle message events — check-in thread replies
+    if event_type == "message":
+        # Ignore bot messages and edits
+        if event.get("bot_id") or event.get("subtype") in ("bot_message", "message_changed", "message_deleted"):
+            return {"ok": True}
+        thread_ts = event.get("thread_ts")
+        channel_id = event.get("channel")
+        text = event.get("text", "").strip()
+        if thread_ts and channel_id and text:
+            background_tasks.add_task(_handle_checkin_reply, thread_ts, channel_id, text)
+        return {"ok": True}
+
+    # Only handle file_shared events (beyond message)
     if event_type != "file_shared":
         return {"ok": True}
 

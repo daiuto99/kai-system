@@ -758,12 +758,15 @@ def check_worker_health():
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
-_morning_sent:   str = ""
-_afternoon_sent: str = ""
-_evening_sent:   str = ""
-_health_sent:    str = ""
+_morning_sent:          str = ""
+_afternoon_sent:        str = ""
+_evening_sent:          str = ""
+_health_sent:           str = ""
+_morning_checkin_sent:  str = ""
+_evening_checkin_sent:  str = ""
 _last_watchdog_run: str = ""
 _last_security_run: str = ""
+_last_inbox_scan: str = ""
 
 
 # ── Calendar-aware location ────────────────────────────────────────────────────
@@ -837,8 +840,25 @@ def _update_location_from_calendar():
 
 
 
+def send_checkin(checkin_type: str):
+    """Post check-in questions to #kai-system and store the thread ts for reply detection."""
+    try:
+        r = httpx.post(
+            f"{WORKER_API}/checkin/send",
+            json={"checkin_type": checkin_type, "channel": "kai-system"},
+            timeout=20,
+        )
+        result = r.json() if r.status_code == 200 else {}
+        if result.get("ok"):
+            log.info("checkin sent to Slack: %s ts=%s", checkin_type, result.get("ts"))
+        else:
+            log.error("checkin send failed: %s", result)
+    except Exception as e:
+        log.error("checkin send error (%s): %s", checkin_type, e)
+
+
 def main():
-    global _morning_sent, _afternoon_sent, _evening_sent, _health_sent, _last_watchdog_run, _last_security_run
+    global _morning_sent, _afternoon_sent, _evening_sent, _health_sent, _last_watchdog_run, _last_security_run, _last_inbox_scan, _morning_checkin_sent, _evening_checkin_sent
     log.info("kai-scheduler started — briefs at 9:15/12:30/20:00 ET + Telegram polling")
 
     tg_thread = threading.Thread(target=telegram_poll_loop, daemon=True, name="telegram-poll")
@@ -861,6 +881,22 @@ def main():
                 check_worker_health()
             except Exception as e:
                 log.error(f"Health check error: {e}")
+
+        # Morning check-in questions — 7:00 AM
+        if now.hour == 7 and now.minute == 0 and _morning_checkin_sent != date_str:
+            _morning_checkin_sent = date_str
+            try:
+                send_checkin("morning")
+            except Exception as e:
+                log.error(f"Morning checkin error: {e}")
+
+        # Evening check-in questions — 9:00 PM
+        if now.hour == 21 and now.minute == 0 and _evening_checkin_sent != date_str:
+            _evening_checkin_sent = date_str
+            try:
+                send_checkin("evening")
+            except Exception as e:
+                log.error(f"Evening checkin error: {e}")
 
         if now.hour == 12 and now.minute == 30 and _afternoon_sent != date_str:
             _afternoon_sent = date_str
@@ -898,6 +934,17 @@ def main():
                 _update_location_from_calendar()
             except Exception as e:
                 log.error(f"Calendar location check error: {e}")
+
+
+        # Inbox watcher — every 60s
+        _inbox_key = now.strftime("%Y%m%d%H%M")
+        if _last_inbox_scan != _inbox_key:
+            _last_inbox_scan = _inbox_key
+            try:
+                with httpx.Client(timeout=15) as hc:
+                    hc.post(f"{WORKER_API}/inbox/scan")
+            except Exception as e:
+                log.error(f"Inbox scan error: {e}")
 
         time.sleep(30)
 

@@ -305,3 +305,145 @@ def parking_lot_archive(slug: str):
     ARCH_DIR.mkdir(parents=True, exist_ok=True)
     path.rename(ARCH_DIR / path.name)
     return {"ok": True}
+
+
+class TriageRequest(BaseModel):
+    action: str
+    advisor: str = "kai"
+    notes: str = ""
+
+
+@router.post("/parking-lot/{slug}/triage")
+def parking_lot_triage(slug: str, req: TriageRequest):
+    """Dispatch a lot item to its exit path."""
+    import httpx as _hx
+    path = LOT_DIR / f"{slug}.md"
+    if not path.exists():
+        raise HTTPException(404, "Not found")
+
+    item_text = path.read_text()
+    card = _parse_card(path)
+    title   = card.get("title") or slug
+    summary = card.get("summary") or ""
+    url     = card.get("url") or ""
+    tags    = card.get("tags") or []
+    context_note = req.notes or card.get("why_saved") or card.get("next_action") or ""
+
+    action = req.action.lower().strip()
+
+    if action == "task":
+        from services.todoist import create_task as _create_task
+        desc_parts = []
+        if summary: desc_parts.append(summary)
+        if url: desc_parts.append(url)
+        if context_note: desc_parts.append(context_note)
+        _create_task(title, description="\n".join(desc_parts))
+        # Mark item as triaged
+        _update_field(path, "status", "triaged")
+        _update_field(path, "next_action", "→ Todoist task created")
+        path.rename(ARCH_DIR / path.name)
+        return {"ok": True, "action": "task", "title": title}
+
+    elif action == "project":
+        # Write to inbox so KAI creates the project via the intake pipeline
+        _write_to_inbox(slug, title, summary, url, context_note, route="project", action="create_project")
+        path.rename(ARCH_DIR / path.name)
+        return {"ok": True, "action": "project", "title": title}
+
+    elif action == "knowledge":
+        advisor = req.advisor if req.advisor in {"doc","sky","roads","beats","creative","dev","kai"} else "kai"
+        _write_to_inbox(slug, title, summary, url, context_note, route=advisor, action="ingest")
+        path.rename(ARCH_DIR / path.name)
+        return {"ok": True, "action": "knowledge", "advisor": advisor, "title": title}
+
+    elif action == "archive":
+        ARCH_DIR.mkdir(parents=True, exist_ok=True)
+        path.rename(ARCH_DIR / path.name)
+        return {"ok": True, "action": "archive", "title": title}
+
+    elif action == "defer":
+        _update_field(path, "status", "waiting")
+        return {"ok": True, "action": "defer", "title": title}
+
+    else:
+        raise HTTPException(400, f"Unknown action: {action}")
+
+
+def _update_field(path, key, value):
+    text = path.read_text()
+    pattern = rf"^{re.escape(key)}:.*$"
+    if re.search(pattern, text, re.MULTILINE):
+        text = re.sub(pattern, f"{key}: {value}", text, flags=re.MULTILINE)
+    else:
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if i > 0 and line.strip() == "---":
+                lines.insert(i, f"{key}: {value}")
+                break
+        text = "\n".join(lines)
+    path.write_text(text)
+
+
+def _write_to_inbox(slug, title, summary, url, context_note, route, action):
+    inbox_dir = VAULT_PATH / "50_Inbox"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"lot-{slug}.md"
+    body_parts = [
+        f"# {title}",
+        "\n> IMPORTANT: The summary below was pre-captured at save time. Work from this content only. Do NOT attempt to fetch or visit the URL — it may be paywalled, require authentication, or block bots.",
+    ]
+    if summary: body_parts.append(f"\n## Captured Summary\n\n{summary}")
+    if url: body_parts.append(f"\nOriginal source (do not fetch): {url}")
+    if context_note: body_parts.append(f"\nLeo's notes: {context_note}")
+    content = (
+        f"---\nroute: {route}\naction: {action}\n"
+        f"context: From Parking Lot — {title}\n---\n\n"
+        + "\n".join(body_parts)
+    )
+    (inbox_dir / filename).write_text(content)
+
+@router.post("/parking-lot/resolve-urls")
+def parking_lot_resolve_urls(background_tasks: BackgroundTasks):
+    background_tasks.add_task(_resolve_existing_urls)
+    return {"status": "resolving in background"}
+
+
+def _resolve_existing_urls():
+    from parking_lot import resolve_url
+    import re as _re
+    updated = 0
+    for path in LOT_DIR.glob("*.md"):
+        text = path.read_text()
+        m = _re.search(r'^url:\s*(.+)$', text, _re.MULTILINE)
+        if not m:
+            continue
+        stored_url = m.group(1).strip()
+        if not stored_url or 'share.google' not in stored_url:
+            continue
+        resolved = resolve_url(stored_url)
+        if resolved != stored_url and 'share.google' not in resolved:
+            new_text = _re.sub(r'^url:\s*.+$', f'url: {resolved}', text, flags=_re.MULTILINE)
+            path.write_text(new_text)
+            logger.info("resolved %s -> %s", stored_url[:50], resolved[:60])
+            updated += 1
+    logger.info("resolve-urls: updated %d items", updated)
+
+
+@router.post("/parking-lot/reenrich-bad")
+def parking_lot_reenrich_bad(background_tasks: BackgroundTasks):
+    """Re-enrich items whose summary is empty or is a raw URL (failed first-pass enrichment)."""
+    LOT_DIR.mkdir(parents=True, exist_ok=True)
+    queued = 0
+    for f in LOT_DIR.glob("*.md"):
+        try:
+            card = _parse_card(f)
+            summary = (card.get("summary") or "").strip()
+            url = (card.get("url") or "").strip()
+            bad_summary = (not summary) or bool(re.match(r'^https?://', summary))
+            has_real_url = url and "share.google" not in url
+            if bad_summary and has_real_url:
+                background_tasks.add_task(_enrich_item, f, url)
+                queued += 1
+        except Exception:
+            pass
+    return {"ok": True, "queued": queued}

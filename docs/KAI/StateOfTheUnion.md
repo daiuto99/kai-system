@@ -1,17 +1,16 @@
 # KAI — State of the Union
-**Last updated: 2026-05-01 | v2.9.0**
+**Last updated: 2026-05-02 | v2.10.0**
 
 ---
 
 ## SESSION BRIEF
-Sprint marathon complete 2026-05-01. G/H/I done in one session. v2.9.0.
+Input Layer complete 2026-05-02. Commands + Wellbeing Check-in shipped. v2.10.0.
 
-Sprint G: Brief no-questions fix, habits icon library (24→84 emojis), git hygiene commit.
-Sprint H: Dev/Creative/DevOps all active (was spec_needed), ethos routing wired, specialists.json updated, devops channel fixed.
-Sprint I: Tavily web_search confirmed live, trust incident log seeded (INC-001/002), Mac→Worker rsync launchd (15min), project lifecycle tools confirmed built, devops in model_config.json.
-Calendar-aware location: scheduler detects travel events via Nominatim+TimeAPI, updates timezone automatically. Briefs fire at local time.
+Parking Lot cleanup: 15 items fixed (share.google URL headings → titles), reenrich-bad endpoint added.
+Commands: Create Project pill + modal (Live vs Idea toggle), full vault/Slack/dashboard setup. Teardown: removes from registry, archives Slack channel, moves vault folder to archived/.
+Wellbeing Check-in: 6 morning / 5 evening questions. Dashboard widget time-aware, collapses when done. Scheduler posts to #kai-system at 7 AM / 9 PM, thread replies auto-parsed into vault/90_Wellbeing/.
 
-Next: Sprint J (T2 auto-execute, remote dev setup), Sprint K (Lot Inventory full build), KAI Showcase Phase 2.
+Next: Wellbeing history trend view, Sprint J (T2 auto-execute), Sprint K (Lot Inventory full build).
 Known issues: Accuracy monitor ongoing — PHX/PHL hallucination logged INC-001.
 Tailscale: 100.78.94.80:3001 (dashboard), :8443 (code-server), :4000 (LiteLLM).
 

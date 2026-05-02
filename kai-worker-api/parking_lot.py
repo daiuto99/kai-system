@@ -37,7 +37,18 @@ def resolve_url(url: str) -> str:
             params = urllib.parse.parse_qs(parsed.query)
             url = params.get("q", params.get("url", [url]))[0]
 
-        # Follow redirects (handles share.google, t.co, bit.ly, etc.)
+        # share.google URLs require GET + redirect follow (HEAD returns 404 or loops)
+        if "share.google" in url:
+            with httpx.Client(timeout=10, follow_redirects=True,
+                              headers={"User-Agent": "Mozilla/5.0"}) as client:
+                r = client.get(url)
+                final = str(r.url)
+                # Only accept if it actually resolved to a different domain
+                if "share.google" not in final and "accounts.google" not in final:
+                    return final
+            return url  # couldn't resolve — keep as-is
+
+        # General redirect follow (t.co, bit.ly, etc.)
         with httpx.Client(timeout=10, follow_redirects=True,
                           headers={"User-Agent": "Mozilla/5.0"}) as client:
             r = client.head(url)

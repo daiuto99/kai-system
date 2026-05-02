@@ -36,6 +36,7 @@ async function patch(url, body) {
   if (!r.ok) throw new Error(`${r.status} ${url}`)
   return r.json()
 }
+
 async function del(url) {
   const r = await fetch(url, { method: 'DELETE' })
   if (!r.ok) throw new Error(`${r.status} ${url}`)
@@ -51,8 +52,10 @@ export const api = {
   updateAspectStatus: (domainId, aspect, status) =>
     put(`${BASE}/harmony/${domainId}/aspect/${aspect}`, { status }),
 
-  // Parking Lot
+  // Parking Lot / Lot Inventory
   getParkingLot: () => get(`${BASE}/parking-lot/list`),
+  triageCapture: (slug, action, advisor = 'kai', notes = '') =>
+    post(`${BASE}/parking-lot/${slug}/triage`, { action, advisor, notes }),
   routeCapture: (slug, advisor) =>
     post(`${BASE}/parking-lot/${slug}/route`, { advisor }),
   archiveCapture: (slug) =>
@@ -79,6 +82,14 @@ export const api = {
     get(`${COUNCIL}/history/${channel}?limit=${limit}`),
   clearHistory: (channel) =>
     fetch(`${COUNCIL}/history/${channel}`, { method: 'DELETE' }).then(r => r.json()),
+
+  // Projects
+  setupProject: (body) => post(`${BASE}/projects/setup`, body),
+
+  // Wellbeing check-in
+  getCheckin: () => get(`${BASE}/checkin`),
+  saveCheckin: (body) => post(`${BASE}/checkin`, body),
+  getCheckinHistory: (limit = 14) => get(`${BASE}/checkin/history?limit=${limit}`),
 
   // Insights
   getInsights: () => get(`${BASE}/insights`),

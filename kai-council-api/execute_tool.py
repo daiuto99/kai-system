@@ -177,6 +177,9 @@ def _h_projects(client, tool_name, ti, advisor):
     if tool_name == "setup_project":
         r = client.post(f"{WORKER_URL}/projects/setup", json=ti, timeout=30)
         return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
+    if tool_name == "teardown_project":
+        r = client.post(f"{WORKER_URL}/projects/{ti['id']}/teardown", timeout=30)
+        return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
 
 
 def _h_vault(client, tool_name, ti, advisor):

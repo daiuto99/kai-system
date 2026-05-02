@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.9.3 · 2026-05-02 — Calendar n8n fallback live, weather West Hollywood CA, T2 auto-execute shipped (KAI-188)</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.10.0 · 2026-05-02 — Input Layer: Commands + Wellbeing Check-in shipped (KAI-190)</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -1302,6 +1302,17 @@
           <li>Today: LotNudge widget — amber strip when untriaged Lot items exist, navigates to /parking-lot</li>
           <li>Worker API: new endpoints — POST /habits, GET /habits/icons, PUT /habits/icons</li>
           <li>Claude Code: Bash(docker *) + Bash(scp *) added to allow list; variable-assignment command pattern fixed</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:#10b98140;background:#10b98108">
+        <strong style="color:#6ee7b7">✅ Sprint 26 — Input Layer: Commands + Wellbeing Check-in (complete 2026-05-02)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>Parking Lot cleanup: 15 items fixed (share.google URL headings → titles), reenrich-bad endpoint added</li>
+          <li>Commands: Create Project pill + modal (Live vs Idea toggle). Live: vault + Slack + dashboard. Idea: vault/ideas/ only, auto-discovered.</li>
+          <li>Project Teardown: removes from projects.json, archives Slack channel, moves vault folder to archived/. teardown_project KAI tool wired.</li>
+          <li>Wellbeing Check-in: 6 morning / 5 evening questions. Dashboard widget time-aware, collapses to strip when done.</li>
+          <li>Scheduler: POST /checkin/send at 7 AM + 9 PM → #kai-system thread. Thread replies parsed via /slack/events → vault/90_Wellbeing/YYYY-MM-DD-{type}.md</li>
+          <li>KAI-190 marked Done in Plane.</li>
         </ul>
       </div>
       <div class="card" style="border-color:#6366f140;background:#6366f108">

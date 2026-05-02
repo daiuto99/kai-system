@@ -852,6 +852,20 @@ const DEFAULT_FUNCTIONS = [
   { id: 'brainstorm', label: 'Brainstorm',    prompt: 'Brainstorm: ', send: false },
 ]
 
+const SYSTEM_COMMANDS = [
+  {
+    id: 'create-project',
+    label: '+ New Project',
+    type: 'action',
+    action_type: 'create_project',
+    inputs: [
+      { key: 'name',        label: 'Project Name',   placeholder: 'Revolt Rebrand',    required: true },
+      { key: 'description', label: "What's it for?", placeholder: 'One-line summary…', required: false },
+    ],
+    extras: { project_type: 'active' },
+  },
+]
+
 function ChatWidget() {
   const [advisor,  setAdvisor]  = useState(getAdvisor('kai'))
   const [messages, setMessages] = useState([])
@@ -864,6 +878,7 @@ function ChatWidget() {
   const [funcPrompt,  setFuncPrompt]  = useState('')
   const [funcSend,    setFuncSend]    = useState(false)
   const [modelCfg, setModelCfg] = useState({})
+  const [actionModal, setActionModal] = useState(null)
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
 
@@ -895,7 +910,42 @@ function ChatWidget() {
     } finally { setThinking(false); inputRef.current?.focus(); fetchWorkflows() }
   }
 
-  function fireFunction(fn) { if (fn.send) { send(fn.prompt) } else { setInput(fn.prompt); inputRef.current?.focus() } }
+  function fireFunction(fn) {
+    if (fn.type === 'action') {
+      setActionModal({ cmd: fn, vals: Object.fromEntries(fn.inputs.map(i => [i.key, ''])), extras: { ...(fn.extras || {}) } })
+      return
+    }
+    if (fn.send) { send(fn.prompt) } else { setInput(fn.prompt); inputRef.current?.focus() }
+  }
+
+  async function runAction() {
+    const { cmd, vals, extras } = actionModal
+    setActionModal(null)
+    if (cmd.action_type === 'create_project') {
+      const name = vals.name?.trim()
+      if (!name) return
+      const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+      const isIdea = extras.project_type === 'idea'
+      setThinking(true)
+      try {
+        const result = await api.setupProject({
+          id, name,
+          description: vals.description?.trim() || '',
+          project_type: extras.project_type || 'active',
+          create_slack_channel: !isIdea,
+        })
+        const stepLines = (result.steps || []).map(s => {
+          const icon = s.status === 'done' ? '✓' : s.status === 'skipped' ? '↩' : '⚠'
+          return `${icon} ${s.step}${s.note ? ' — ' + s.note : ''}`
+        }).join('\n')
+        const errLines = result.errors?.length ? `\n\nErrors:\n${result.errors.join('\n')}` : ''
+        const label = isIdea ? 'Idea saved' : 'Project created'
+        setMessages(p => [...p, { role: 'assistant', content: `${label}: ${name}\n\n${stepLines}${errLines}`, ts: String(Date.now() / 1000) }])
+      } catch (e) {
+        setMessages(p => [...p, { role: 'assistant', content: `Failed to create project: ${e.message}`, error: true, ts: String(Date.now() / 1000) }])
+      } finally { setThinking(false) }
+    }
+  }
   async function saveWorkflowToAPI(entry) { await fetch('/api/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) }).catch(() => {}); fetchWorkflows() }
   async function deleteWorkflowFromAPI(id) { await fetch(`/api/workflows/${id}`, { method: 'DELETE' }).catch(() => {}); fetchWorkflows() }
   function openNewFunc()    { setEditingFunc(null); setFuncLabel(''); setFuncPrompt(''); setFuncSend(false); setShowFuncEd(true) }
@@ -931,6 +981,57 @@ function ChatWidget() {
               {editingFunc ? <button onClick={() => deleteFunc(editingFunc.id)} style={{ all: 'unset', cursor: 'pointer', fontSize: 12, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid #ef444433' }}><Trash2 size={13} /> Delete</button>
                 : <button onClick={resetFunctions} style={{ all: 'unset', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)', padding: '8px 10px' }}>Reset defaults</button>}
               <button onClick={saveFunc} disabled={!funcLabel.trim() || !funcPrompt.trim()} style={{ all: 'unset', cursor: 'pointer', fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 9, background: funcLabel.trim() && funcPrompt.trim() ? 'var(--accent)' : 'var(--border)', color: '#fff', transition: 'all 0.15s' }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Action command modal */}
+      {actionModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={() => setActionModal(null)}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 16, padding: '20px 22px', border: '1px solid var(--border)', width: 340, boxShadow: '0 24px 48px rgba(0,0,0,0.4)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{actionModal.cmd.label}</span>
+              <button onClick={() => setActionModal(null)} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-muted)' }}><XIcon size={16} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {actionModal.cmd.inputs.map((inp, idx) => (
+                <div key={inp.key}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>{inp.label}</label>
+                  <input
+                    autoFocus={idx === 0}
+                    value={actionModal.vals[inp.key]}
+                    onChange={e => setActionModal(m => ({ ...m, vals: { ...m.vals, [inp.key]: e.target.value } }))}
+                    onKeyDown={e => { if (e.key === 'Enter' && actionModal.vals[actionModal.cmd.inputs[0].key]?.trim()) runAction() }}
+                    placeholder={inp.placeholder}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
+                  />
+                </div>
+              ))}
+            </div>
+            {actionModal.extras?.project_type !== undefined && (
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Type</label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {['active', 'idea'].map(t => (
+                    <button key={t} onClick={() => setActionModal(m => ({ ...m, extras: { ...m.extras, project_type: t } }))}
+                      style={{ all: 'unset', cursor: 'pointer', fontSize: 12, fontWeight: 500, padding: '5px 14px', borderRadius: 20, border: `1px solid ${actionModal.extras.project_type === t ? 'var(--accent)' : 'var(--border)'}`, background: actionModal.extras.project_type === t ? 'var(--accent)' : 'var(--bg-elevated)', color: actionModal.extras.project_type === t ? '#fff' : 'var(--text-secondary)', transition: 'all 0.15s' }}>
+                      {t === 'active' ? 'Live Project' : 'Idea'}
+                    </button>
+                  ))}
+                </div>
+                <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                  {actionModal.extras.project_type === 'active' ? 'Appears on dashboard · Slack channel created' : 'Stored in ideas/ · No dashboard entry · No Slack'}
+                </p>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 18 }}>
+              <button
+                onClick={runAction}
+                disabled={!actionModal.vals[actionModal.cmd.inputs[0]?.key]?.trim()}
+                style={{ all: 'unset', cursor: actionModal.vals[actionModal.cmd.inputs[0]?.key]?.trim() ? 'pointer' : 'default', fontSize: 13, fontWeight: 600, padding: '8px 20px', borderRadius: 9, background: actionModal.vals[actionModal.cmd.inputs[0]?.key]?.trim() ? 'var(--accent)' : 'var(--border)', color: '#fff', transition: 'all 0.15s' }}>
+                Run
+              </button>
             </div>
           </div>
         </div>
@@ -1001,6 +1102,13 @@ function ChatWidget() {
 
       {/* Quick functions */}
       <div style={{ flexShrink: 0, padding: '8px 12px 6px', borderTop: '1px solid var(--border)', display: 'flex', gap: 4, overflowX: 'auto', alignItems: 'center' }} className="no-scrollbar">
+        {SYSTEM_COMMANDS.map(cmd => (
+          <button key={cmd.id} onClick={() => fireFunction(cmd)}
+            style={{ all: 'unset', cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: '5px 11px', borderRadius: 20, border: '1px solid var(--accent)40', background: 'var(--accent)10', color: 'var(--accent)', whiteSpace: 'nowrap', flexShrink: 0, transition: 'all 0.15s' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)22'; e.currentTarget.style.borderColor = 'var(--accent)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--accent)10'; e.currentTarget.style.borderColor = 'var(--accent)40' }}
+          >{cmd.label}</button>
+        ))}
         {functions.map(fn => (
           <button key={fn.id} onClick={() => fireFunction(fn)} onContextMenu={e => { e.preventDefault(); openEditFunc(fn) }}
             style={{ all: 'unset', cursor: 'pointer', fontSize: 11, fontWeight: 500, padding: '5px 11px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0, transition: 'all 0.15s' }}
@@ -1027,6 +1135,158 @@ function ChatWidget() {
           style={{ all: 'unset', cursor: input.trim() && !thinking ? 'pointer' : 'default', width: 36, height: 36, borderRadius: 10, background: input.trim() && !thinking ? advisor.color : 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.15s' }}>
           <SendIcon size={15} color="#fff" />
         </button>
+      </div>
+    </div>
+  )
+}
+
+
+// ── Wellbeing Check-in ─────────────────────────────────────────────────────
+
+const SCALE5_LABELS = ['', 'Terrible', 'Poor', 'Okay', 'Good', 'Great']
+const SCALE5_COLORS = ['', '#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e']
+
+const MORNING_QUESTIONS = [
+  { id: 'sleep',     type: 'scale5',      label: 'How did you sleep?' },
+  { id: 'gi',        type: 'yesno_notes', label: 'Any GI issues overnight?' },
+  { id: 'autonomic', type: 'yesno_notes', label: 'Any autonomic issues overnight?' },
+  { id: 'edible',    type: 'yesno',       label: 'Did you take an edible last night?' },
+  { id: 'intention', type: 'text',        label: "What's your intention for today?", placeholder: 'Focus, ship, rest…' },
+  { id: 'energy',    type: 'scale5',      label: 'Energy right now?' },
+]
+
+const EVENING_QUESTIONS = [
+  { id: 'day_rating', type: 'scale5',      label: 'How was your day overall?' },
+  { id: 'energy_end', type: 'scale5',      label: 'Energy at end of day?' },
+  { id: 'symptoms',   type: 'yesno_notes', label: 'Any notable symptoms today?' },
+  { id: 'wins',       type: 'text',        label: 'What went well today?', placeholder: 'Wins, progress, moments…' },
+  { id: 'tomorrow',   type: 'text',        label: "What's on your mind for tomorrow?", placeholder: 'Priorities, worries, intentions…' },
+]
+
+function QuestionInput({ q, value, onChange }) {
+  if (q.type === 'scale5') {
+    const v = value || null
+    return (
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {[1,2,3,4,5].map(n => (
+          <button key={n} onClick={() => onChange(v === n ? null : n)}
+            style={{ all: 'unset', cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20, border: `1px solid ${v === n ? SCALE5_COLORS[n] : 'var(--border)'}`, background: v === n ? SCALE5_COLORS[n] + '22' : 'transparent', color: v === n ? SCALE5_COLORS[n] : 'var(--text-muted)', transition: 'all 0.15s' }}>
+            {n} {SCALE5_LABELS[n]}
+          </button>
+        ))}
+      </div>
+    )
+  }
+  if (q.type === 'yesno' || q.type === 'yesno_notes') {
+    const yes = typeof value === 'object' ? value?.yes : value === true
+    const notes = typeof value === 'object' ? value?.notes || '' : ''
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[true, false].map(b => (
+            <button key={String(b)} onClick={() => onChange(q.type === 'yesno_notes' ? { yes: b, notes } : b)}
+              style={{ all: 'unset', cursor: 'pointer', fontSize: 12, fontWeight: 500, padding: '4px 14px', borderRadius: 20, border: `1px solid ${yes === b ? (b ? '#22c55e' : '#ef4444') : 'var(--border)'}`, background: yes === b ? (b ? '#22c55e22' : '#ef444422') : 'transparent', color: yes === b ? (b ? '#22c55e' : '#ef4444') : 'var(--text-muted)', transition: 'all 0.15s' }}>
+              {b ? 'Yes' : 'No'}
+            </button>
+          ))}
+        </div>
+        {q.type === 'yesno_notes' && yes && (
+          <input value={notes} onChange={e => onChange({ yes, notes: e.target.value })} placeholder="Brief notes…"
+            style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 12, fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+        )}
+      </div>
+    )
+  }
+  return (
+    <textarea value={value || ''} onChange={e => onChange(e.target.value)} placeholder={q.placeholder || ''} rows={2}
+      style={{ width: '100%', boxSizing: 'border-box', resize: 'none', padding: '7px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', outline: 'none', lineHeight: 1.5 }} />
+  )
+}
+
+function WellbeingWidget() {
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const isEvening = new Date().getHours() >= 17
+  const checkinType = isEvening ? 'evening' : 'morning'
+  const questions = isEvening ? EVENING_QUESTIONS : MORNING_QUESTIONS
+  const typeLabel = isEvening ? 'Evening' : 'Morning'
+  const typeEmoji = isEvening ? '🌙' : '🌅'
+
+  const [answers, setAnswers]   = useState({})
+  const [done,    setDone]      = useState(false)
+  const [editing, setEditing]   = useState(false)
+  const [saving,  setSaving]    = useState(false)
+  const [open,    setOpen]      = useState(false)
+
+  useEffect(() => {
+    api.getCheckin().then(d => {
+      if (d.date === todayStr && d[checkinType]) {
+        setDone(true)
+        setAnswers(d[checkinType])
+      }
+    }).catch(() => {})
+  }, [checkinType])
+
+  function setAnswer(id, val) { setAnswers(a => ({ ...a, [id]: val })) }
+
+  async function save() {
+    setSaving(true)
+    try {
+      await api.saveCheckin({ checkin_type: checkinType, answers })
+      setDone(true); setEditing(false); setOpen(false)
+    } catch { /* silent */ }
+    finally { setSaving(false) }
+  }
+
+  const hasAny = Object.values(answers).some(v => v !== null && v !== undefined && v !== '' && v !== false)
+
+  if (done && !editing) {
+    const intention = answers.intention || answers.wins || ''
+    const energy = answers.energy || answers.energy_end
+    const eColor = SCALE5_COLORS[energy] || 'var(--text-muted)'
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <span style={{ fontSize: 13 }}>{typeEmoji}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>{typeLabel} check-in:</span>
+        <span style={{ fontSize: 13, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {intention || 'done'}
+        </span>
+        {energy && <span style={{ fontSize: 11, fontWeight: 600, color: eColor, flexShrink: 0 }}>{SCALE5_LABELS[energy]} {energy}/5</span>}
+        <button onClick={() => { setEditing(true); setOpen(true) }}
+          style={{ all: 'unset', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)', flexShrink: 0 }}>Edit</button>
+      </div>
+    )
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px dashed var(--border)', width: '100%', boxSizing: 'border-box' }}>
+        <span style={{ fontSize: 13 }}>{typeEmoji}</span>
+        <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{typeLabel} check-in — tap to fill in</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>Start →</span>
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{typeEmoji} {typeLabel} Check-in</span>
+        <button onClick={() => { setOpen(false); setEditing(false) }} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-muted)' }}><XIcon size={14} /></button>
+      </div>
+      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {questions.map(q => (
+          <div key={q.id}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>{q.label}</label>
+            <QuestionInput q={q} value={answers[q.id]} onChange={v => setAnswer(q.id, v)} />
+          </div>
+        ))}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 4 }}>
+          <button onClick={save} disabled={saving || !hasAny}
+            style={{ all: 'unset', cursor: hasAny && !saving ? 'pointer' : 'default', fontSize: 13, fontWeight: 600, padding: '8px 22px', borderRadius: 9, background: hasAny ? '#22c55e' : 'var(--border)', color: '#fff', transition: 'all 0.15s' }}>
+            {saving ? 'Saving…' : 'Save check-in'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1091,6 +1351,8 @@ export default function Today() {
             </div>
             <TokenBadge />
           </div>
+
+          <WellbeingWidget />
 
           {/* Desktop grid:
               col1/row1 = Projects (5 items, scroll)
