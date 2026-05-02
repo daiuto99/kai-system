@@ -181,16 +181,20 @@ def build_context() -> str:
         pass
 
 
-    # Weather — wttr.in JSON format
+    # Weather — wttr.in JSON format (uses current_location.json coordinates)
     try:
         _loc = "Philadelphia,PA"
         try:
             import json as _json
-            _ui = _json.loads((VAULT_PATH / "00_System" / "ui_settings.json").read_text())
-            _loc = _ui.get("weather_location", _loc)
+            _loc_data = _json.loads((VAULT_PATH / "00_System" / "current_location.json").read_text())
+            if _loc_data.get("lat") and _loc_data.get("lon"):
+                _loc = f"{_loc_data['lat']},{_loc_data['lon']}"
+            else:
+                _ui = _json.loads((VAULT_PATH / "00_System" / "ui_settings.json").read_text())
+                _loc = _ui.get("weather_location", _loc)
         except Exception:
             pass
-        _wr = httpx.get(f"https://wttr.in/{_loc.replace(' ', '+')}?format=j1", timeout=8)
+        _wr = httpx.get(f"https://wttr.in/{_loc}?format=j1", timeout=8)
         if _wr.status_code == 200:
             _wd = _wr.json()
             _cur = _wd["current_condition"][0]
@@ -361,6 +365,91 @@ def telegram_poll_loop():
             time.sleep(5)
 
 
+# ── Calendar-aware location ─────────────────────────────────────────────���──────
+
+def _update_location_from_calendar():
+    """Check today's/tomorrow's calendar events for a location change and update current_location.json."""
+    try:
+        import json as _j
+        loc_file = VAULT_PATH / "00_System" / "current_location.json"
+        current_tz = "America/New_York"
+        current_city = ""
+        if loc_file.exists():
+            _cur = _j.loads(loc_file.read_text())
+            current_tz = _cur.get("timezone", current_tz)
+            current_city = _cur.get("city", "")
+
+        # Fetch Google Calendar events (today + tomorrow)
+        try:
+            r = httpx.post("http://kai-n8n:5678/webhook/kai-calendar-events",
+                           json={"days": 2}, timeout=15)
+            if r.status_code != 200 or not r.content.strip():
+                return
+            events = r.json() if isinstance(r.json(), list) else []
+        except Exception as e:
+            log.debug(f"Calendar location check: {e}")
+            return
+
+        # Find first event with a non-empty location field, sorted by start time
+        events_with_loc = []
+        for ev in events:
+            loc = (ev.get("location") or "").strip()
+            if not loc:
+                continue
+            start = ev.get("start", {})
+            start_str = start.get("dateTime", start.get("date", "")) if isinstance(start, dict) else str(start)
+            events_with_loc.append((start_str, loc))
+        events_with_loc.sort(key=lambda x: x[0])
+
+        if not events_with_loc:
+            return
+
+        target_loc = events_with_loc[0][1]
+
+        # Geocode via Nominatim
+        geo_r = httpx.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": target_loc, "format": "json", "limit": 1},
+            headers={"User-Agent": "KAI-Scheduler/1.0 (sonicink.space)"},
+            timeout=10,
+        )
+        if geo_r.status_code != 200 or not geo_r.json():
+            log.warning(f"Nominatim returned no result for: {target_loc}")
+            return
+        geo = geo_r.json()[0]
+        lat, lon = float(geo["lat"]), float(geo["lon"])
+
+        # Get timezone from coordinates
+        tz_r = httpx.get(
+            "https://timeapi.io/api/TimeZone/coordinate",
+            params={"latitude": lat, "longitude": lon},
+            timeout=10,
+        )
+        if tz_r.status_code != 200:
+            log.warning(f"TimeAPI failed for {lat},{lon}")
+            return
+        new_tz = tz_r.json().get("timeZone", "America/New_York")
+
+        if new_tz == current_tz:
+            return  # No timezone change — nothing to do
+
+        data = {
+            "lat": lat,
+            "lon": lon,
+            "accuracy": None,
+            "timezone": new_tz,
+            "city": target_loc,
+            "source": "calendar",
+            "updated": datetime.now(ZoneInfo(new_tz)).isoformat(),
+        }
+        loc_file.write_text(_j.dumps(data, indent=2))
+        log.info(f"Location updated from calendar: {target_loc} → tz={new_tz}")
+
+    except Exception as e:
+        log.warning(f"Calendar location update failed: {e}")
+
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 _brief_sent_date: str = ""
@@ -375,7 +464,13 @@ def main():
 
     _last_watchdog_minute = -1
     while True:
-        now = datetime.now()
+        try:
+            import json as _ljson
+            _ldata = _ljson.loads((VAULT_PATH / "00_System" / "current_location.json").read_text())
+            _leo_tz = ZoneInfo(_ldata.get("timezone", "America/New_York"))
+        except Exception:
+            _leo_tz = ZoneInfo("America/New_York")
+        now = datetime.now(_leo_tz)
         date_str = now.strftime("%Y-%m-%d")
         if now.hour == 7 and now.minute == 0 and _brief_sent_date != date_str:
             _brief_sent_date = date_str
@@ -390,6 +485,10 @@ def main():
                 run_watchdog_checks()
             except Exception as e:
                 log.error(f"Watchdog error: {e}")
+            try:
+                _update_location_from_calendar()
+            except Exception as e:
+                log.error(f"Calendar location check error: {e}")
         time.sleep(30)
 
 

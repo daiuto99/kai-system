@@ -47,7 +47,16 @@ WORKER_API    = "http://kai-worker-api:8001"
 COUNCIL_API   = "http://kai-council-api:8002"
 VAULT_PATH    = Path("/vault")
 BRIEF_CHAT_ID = -5172026335  # KAI Briefs Telegram group
-ET            = ZoneInfo("America/New_York")
+ET            = ZoneInfo("America/New_York")  # default; overridden dynamically in main loop
+
+def _leo_timezone() -> ZoneInfo:
+    """Return Leo's current timezone from current_location.json, falling back to ET."""
+    try:
+        import json as _j
+        d = _j.loads((VAULT_PATH / "00_System" / "current_location.json").read_text())
+        return ZoneInfo(d.get("timezone", "America/New_York"))
+    except Exception:
+        return ET
 
 
 def load_secret(name: str) -> str:
@@ -757,6 +766,77 @@ _last_watchdog_run: str = ""
 _last_security_run: str = ""
 
 
+# ── Calendar-aware location ────────────────────────────────────────────────────
+
+def _update_location_from_calendar():
+    """Check calendar events for location changes and update current_location.json."""
+    try:
+        import json as _j
+        loc_file = VAULT_PATH / "00_System" / "current_location.json"
+        current_tz = "America/New_York"
+        if loc_file.exists():
+            current_tz = _j.loads(loc_file.read_text()).get("timezone", current_tz)
+
+        # Fetch gcal events (today + tomorrow)
+        r = httpx.post("http://kai-n8n:5678/webhook/kai-calendar-events",
+                       json={"days": 2}, timeout=15)
+        if r.status_code != 200 or not r.content.strip():
+            return
+        events = r.json() if isinstance(r.json(), list) else []
+
+        # First event with a non-empty location, sorted by start
+        candidates = []
+        for ev in events:
+            loc = (ev.get("location") or "").strip()
+            if not loc:
+                continue
+            start = ev.get("start", {})
+            start_str = start.get("dateTime", start.get("date", "")) if isinstance(start, dict) else str(start)
+            candidates.append((start_str, loc))
+        candidates.sort(key=lambda x: x[0])
+        if not candidates:
+            return
+        target_loc = candidates[0][1]
+
+        # Geocode via Nominatim
+        geo_r = httpx.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": target_loc, "format": "json", "limit": 1},
+            headers={"User-Agent": "KAI-Scheduler/1.0 (sonicink.space)"},
+            timeout=10,
+        )
+        if geo_r.status_code != 200 or not geo_r.json():
+            return
+        geo = geo_r.json()[0]
+        lat, lon = float(geo["lat"]), float(geo["lon"])
+
+        # Get timezone
+        tz_r = httpx.get(
+            "https://timeapi.io/api/TimeZone/coordinate",
+            params={"latitude": lat, "longitude": lon},
+            timeout=10,
+        )
+        if tz_r.status_code != 200:
+            return
+        new_tz = tz_r.json().get("timeZone", "America/New_York")
+
+        if new_tz == current_tz:
+            return  # No change
+
+        data = {
+            "lat": lat, "lon": lon, "accuracy": None,
+            "timezone": new_tz, "city": target_loc,
+            "source": "calendar",
+            "updated": datetime.now(ZoneInfo(new_tz)).isoformat(),
+        }
+        loc_file.write_text(_j.dumps(data, indent=2))
+        log.info(f"Location auto-updated from calendar: {target_loc} → tz={new_tz}")
+
+    except Exception as e:
+        log.debug(f"Calendar location check: {e}")
+
+
+
 def main():
     global _morning_sent, _afternoon_sent, _evening_sent, _health_sent, _last_watchdog_run, _last_security_run
     log.info("kai-scheduler started — briefs at 9:15/12:30/20:00 ET + Telegram polling")
@@ -765,7 +845,7 @@ def main():
     tg_thread.start()
 
     while True:
-        now = datetime.now(ET)
+        now = datetime.now(_leo_timezone())
         date_str = now.strftime("%Y-%m-%d")
 
         if now.hour == 9 and now.minute == 15 and _morning_sent != date_str:
@@ -814,6 +894,10 @@ def main():
                 run_watchdog_checks()
             except Exception as e:
                 log.error(f"Watchdog error: {e}")
+            try:
+                _update_location_from_calendar()
+            except Exception as e:
+                log.error(f"Calendar location check error: {e}")
 
         time.sleep(30)
 
