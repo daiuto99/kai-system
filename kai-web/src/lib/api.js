@@ -46,6 +46,7 @@ async function del(url) {
 export const api = {
   // Health
   health: () => get(`${BASE}/health`),
+  getCloseStatus: () => get(`${BASE}/session/close-status`),
 
   // Harmony
   getHarmony: () => get(`${BASE}/harmony`),

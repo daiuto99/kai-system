@@ -1,3 +1,4 @@
+import json
 #!/usr/bin/env python3
 """
 sync_plane_state.py — KAI session warm-boot and issue sync tool.
@@ -145,20 +146,68 @@ def reconcile_state_of_union():
         print(f"[STATE OK] Brief and vault consistent.")
 
 def warmboot():
+    import datetime as _dt
+    TODAY = _dt.date.today().isoformat()
+
+    # 1. Read last close manifest
+    manifest_path = Path("/home/leo/vault/00_System/session_close_log.json")
+    print("\n=== LAST CLOSE MANIFEST ===")
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text())
+            m_date = manifest.get("date", "unknown")
+            m_title = manifest.get("session_title", "?")
+            m_steps = manifest.get("steps", [])
+            failed = [s["label"] for s in m_steps if s.get("status") == "fail"]
+            ok_count = sum(1 for s in m_steps if s.get("status") == "ok")
+            stale_tag = f" [STALE — was {m_date}]" if m_date != TODAY else " [TODAY]"
+            print(f"  Date:    {m_date}{stale_tag}")
+            print(f"  Session: {m_title}")
+            print(f"  Steps:   {ok_count}/{len(m_steps)} OK")
+            if failed:
+                print(f"  FAILED:  {', '.join(failed)}")
+                print("  !! Action required — these steps were not verified at close")
+            else:
+                print("  All close steps verified.")
+        except Exception as e:
+            print(f"  [WARN] Could not read manifest: {e}")
+    else:
+        print("  [WARN] No manifest found — first session or close engine not yet run")
+
+    # 2. Container health (HTTP checks)
+    print("\n=== CONTAINER HEALTH ===")
+    services = [
+        ("kai-worker-api",  "http://localhost:8001/health"),
+        ("kai-council-api", "http://localhost:8002/health"),
+        ("kai-mcp-api",     "http://localhost:8003/health"),
+        ("kai-litellm",     "http://localhost:4000/health/liveliness"),
+    ]
+    for name, url in services:
+        try:
+            with ur.urlopen(url, timeout=3) as r:
+                status = "UP" if r.status == 200 else f"HTTP {r.status}"
+        except Exception as ex:
+            status = f"DOWN ({type(ex).__name__})"
+        mark = "\u2713" if status == "UP" else "\u2717"
+        print(f"  {mark} {name:<20} {status}")
+
+    # 3. Reconcile SOTU
     reconcile_state_of_union()
+
+    # 4. Plane open issues
     projects = get_projects()
-    print(f"\n=== KAI FACTORY WARMBOOT — {WS} | {len(projects)} projects ===")
+    print(f"\n=== KAI FACTORY WARMBOOT \u2014 {WS} | {len(projects)} projects ===")
     for p in projects:
         state_map = get_state_map(p["id"])
         completed_groups = {"completed", "cancelled"}
         issues = get_issues(p["id"])
-        open_issues = [i for i in issues if state_map.get(i.get("state",""), {}).get("group") not in completed_groups]
+        open_issues = [i for i in issues if state_map.get(i.get("state", ""), {}).get("group") not in completed_groups]
         if open_issues:
-            print(f"\n[{p['identifier']}] {p['name']} — {len(open_issues)} open")
+            print(f"\n[{p['identifier']}] {p['name']} \u2014 {len(open_issues)} open")
             for i in open_issues:
                 s = state_map.get(i.get("state", ""), {})
                 state_name = s.get("name", "?")
-                print(f"  • [{state_name:11s}] {i['name'][:56]}")
+                print(f"  \u2022 [{state_name:11s}] {i['name'][:56]}")
                 print(f"    {i['id']}")
     print("\n=================================================")
     print_sops()

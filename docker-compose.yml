@@ -97,12 +97,7 @@ services:
     environment:
       - QDRANT__SERVICE__HTTP_PORT=6333
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
+      disable: true
   kai-code-server:
     image: codercom/code-server:latest
     container_name: kai-code-server
@@ -114,7 +109,7 @@ services:
       - /home/leo/kai-system:/home/coder/kai-system:rw
     environment:
       - PASSWORD=
-    entrypoint: ["/bin/sh", "-c", "export PASSWORD=$(cat /run/secrets/codeserver_password) && /usr/bin/entrypoint.sh --bind-addr 0.0.0.0:8080 /home/coder/kai-system"]
+    entrypoint: ["/bin/sh", "-c", "export PASSWORD=$(cat /run/secrets/codeserver_password) && export PATH=/home/coder/.nvm/versions/node/v20.20.2/bin:$PATH && /usr/bin/entrypoint.sh --bind-addr 0.0.0.0:8080 /home/coder"]
     secrets:
       - codeserver_password
 
@@ -131,7 +126,7 @@ services:
       - litellm_master_key
     entrypoint: ["/bin/sh", "-c", "export OPENAI_API_KEY=$(cat /run/secrets/openai_api_key) && export LITELLM_MASTER_KEY=$(cat /run/secrets/litellm_master_key) && litellm --config /app/config.yaml --port 4000 --num_workers 2"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4000/health/liveliness\", timeout=5)' 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -194,7 +189,7 @@ services:
       kai-worker-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8003/health\", timeout=5)' 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -264,6 +259,8 @@ services:
       - TS_HOSTNAME=kai-worker
       - TS_AUTHKEY=tskey-auth-k8EF5yZNxZ11CNTRL-jQ3ufRWS64ZGDdCbeyP64ZRhNuMTL5u94
     restart: unless-stopped
+
+
 
 volumes:
   qdrant-data:

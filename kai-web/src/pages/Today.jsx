@@ -1335,6 +1335,64 @@ function LotNudge() {
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
+
+// ── Close Status Widget ────────────────────────────────────────────────────
+
+function CloseStatusWidget() {
+  const [data, setData] = React.useState(null)
+  const [loading, setLoading] = React.useState(true)
+
+  useEffect(() => {
+    api.getCloseStatus()
+      .then(d => { setData(d); setLoading(false) })
+      .catch(() => { setData({ status: 'error', message: 'Could not reach worker' }); setLoading(false) })
+  }, [])
+
+  if (loading) return null
+
+  const today = new Date().toISOString().slice(0, 10)
+  const isToday = data?.date === today
+  const isOk = data?.status === 'ok' && isToday
+  const noManifest = data?.status === 'no_manifest'
+  const hasFailures = data?.failed?.length > 0
+  const isStale = data?.date && !isToday
+
+  if (isOk) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 6, fontSize: 11, color: '#10b981' }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+        Session closed · {data.steps_ok}/{data.steps_total} steps verified · {data.session_title}
+      </div>
+    )
+  }
+
+  const bg = noManifest ? 'rgba(156,163,175,0.08)' : 'rgba(245,158,11,0.08)'
+  const border = noManifest ? 'rgba(156,163,175,0.2)' : 'rgba(245,158,11,0.3)'
+  const color = noManifest ? '#9ca3af' : '#f59e0b'
+  const dot = noManifest ? '#9ca3af' : hasFailures ? '#ef4444' : '#f59e0b'
+
+  return (
+    <div style={{ padding: '8px 12px', background: bg, border: `1px solid ${border}`, borderRadius: 6, fontSize: 11, color }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: hasFailures ? 4 : 0 }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+        {noManifest
+          ? 'No close manifest — session has not been closed via engine'
+          : isStale
+            ? `Last close: ${data.date} (${data.steps_ok}/${data.steps_total} steps OK) — ${data.session_title}`
+            : `Close incomplete — ${data.steps_ok}/${data.steps_total} steps OK`
+        }
+      </div>
+      {hasFailures && (
+        <div style={{ marginLeft: 12, color: '#ef4444' }}>
+          {data.failed.map(f => (
+            <div key={f.name}>✗ {f.label}: {f.detail.slice(0, 80)}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Today() {
   return (
     <div style={{ height: '100%', background: 'var(--bg-screen)', overflowY: 'auto' }}>
@@ -1348,6 +1406,7 @@ export default function Today() {
                 {greeting()}, <strong style={{ fontWeight: 600 }}>Leo</strong>
               </p>
               <SessionContextLine />
+            <CloseStatusWidget />
             </div>
             <TokenBadge />
           </div>
