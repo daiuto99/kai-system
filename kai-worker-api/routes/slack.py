@@ -180,9 +180,13 @@ def _handle_checkin_reply(thread_ts: str, channel_id: str, text: str):
         pending = _json.loads(pending_file.read_text())
     except Exception:
         return
+    from datetime import datetime as _dt
+    today = _dt.utcnow().strftime("%Y-%m-%d")
     matched_type = None
     for checkin_type, meta in pending.items():
-        if meta.get("ts") == thread_ts and meta.get("channel_id") == channel_id:
+        ts_match = meta.get("ts") == thread_ts and meta.get("channel_id") == channel_id
+        date_match = meta.get("channel_id") == channel_id and meta.get("date") == today
+        if ts_match or date_match:
             matched_type = checkin_type
             break
     if not matched_type:

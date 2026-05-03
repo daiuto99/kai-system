@@ -8,7 +8,6 @@ const ADVISORS = [
   { id: 'ember', name: 'Ember', role: 'Emotional & personal',   color: 'text-rose-400'   },
   { id: 'doc',   name: 'Doc',   role: 'Health & science',       color: 'text-green-400'  },
   { id: 'coach', name: 'Coach', role: 'Performance & mindset',  color: 'text-yellow-400' },
-  { id: 'biz',   name: 'Biz',   role: 'Business & finance',     color: 'text-purple-400' },
 ]
 
 export default function Council() {

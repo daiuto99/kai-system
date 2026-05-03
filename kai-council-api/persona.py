@@ -40,6 +40,15 @@ def load_persona(advisor: str, channel: str = None) -> str:
 
     parts.append(persona_file.read_text(encoding="utf-8"))
 
+    # Always load org structure doc alongside Creative Director and Dev — gives them full team knowledge
+    org_file_map = {
+        "creative": advisor_dir / "CreativeOrg.md",
+        "dev": advisor_dir / "DevOrg.md",
+    }
+    org_file = org_file_map.get(advisor)
+    if org_file and org_file.exists():
+        parts.append('<organization_structure>\n' + org_file.read_text(encoding="utf-8") + '\n</organization_structure>')
+
     # Inject JARVIS communication standard — applies to all advisors
     style_guide = COUNCIL_PATH / "JARVIS_STYLE_GUIDE.md"
     if style_guide.exists():

@@ -22,7 +22,7 @@ PARKING_LOT_CHANNEL = "kai-parking-lot"
 KAI_SYSTEM_CHANNEL  = "kai-system"
 
 ADVISOR_NAMES = {
-    "kai", "beats", "ember", "doc", "coach", "biz",
+    "kai", "beats", "ember", "doc", "coach",
     "creative", "tech", "dev", "sky", "roads", "ops", "learning", "support",
 }
 
@@ -34,7 +34,6 @@ ADVISOR_IDENTITIES = {
     "beats":    {"username": "Beats",    "icon_url": "https://kai.sonicink.space/avatar-beats.png"},
     "doc":      {"username": "Doc",      "icon_url": "https://kai.sonicink.space/icon-192.png"},
     "coach":    {"username": "Coach",    "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "biz":      {"username": "Biz",      "icon_url": "https://kai.sonicink.space/icon-192.png"},
     "creative": {"username": "Creative", "icon_url": "https://kai.sonicink.space/icon-192.png"},
     "tech":     {"username": "Tech",     "icon_url": "https://kai.sonicink.space/icon-192.png"},
     "dev":      {"username": "Dev",      "icon_url": "https://kai.sonicink.space/icon-192.png"},
@@ -206,7 +205,7 @@ def handle_message(event, say):
         if not message:
             post_as_advisor(app.client, channel_id, "kai",
                 "Send me a message or use */advisor message* to reach a specific advisor.\n\n"
-                "Available: /beats /coach /biz /sky /roads /tech /dev /ops /creative /learning /support")
+                "Available: /beats /coach /sky /roads /tech /dev /ops /creative /learning /support")
             return
         log.info(f"DM from {user_id} → {advisor}: {message[:60]}")
         reply = call_council(advisor, message, user_id, ts)
@@ -229,6 +228,41 @@ def handle_message(event, say):
         return
 
     if ch_name == KAI_SYSTEM_CHANNEL:
+        if text:
+            text_lower = text.lower()
+            # Intake trigger
+            if any(kw in text_lower for kw in ["process examples", "process design", "process resources", "ingest examples", "review examples"]):
+                try:
+                    httpx.post(
+                        f"{WORKER_API}/intake/scan",
+                        json={"advisor": "creative", "channel_id": channel_id},
+                        timeout=15,
+                    )
+                except Exception as e:
+                    log.error(f"intake scan: {e}")
+                return
+            # Route to active intake if one is running
+            try:
+                r = httpx.get(f"{WORKER_API}/intake/active/creative", timeout=5)
+                if r.json().get("active"):
+                    httpx.post(
+                        f"{WORKER_API}/intake/reply/creative",
+                        json={"text": text, "channel_id": channel_id},
+                        timeout=30,
+                    )
+                    return
+            except Exception as e:
+                log.error(f"intake active check: {e}")
+            # Checkin dispatch
+            thread_ts = event.get("thread_ts") or event.get("ts", "")
+            try:
+                httpx.post(
+                    f"{WORKER_API}/slack/events",
+                    json={"event": {"type": "message", "thread_ts": thread_ts, "channel": channel_id, "text": text}},
+                    timeout=10,
+                )
+            except Exception as e:
+                log.error(f"checkin dispatch: {e}")
         return
 
     if ch_name not in COUNCIL_CHANNELS:

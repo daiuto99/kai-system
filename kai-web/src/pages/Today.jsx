@@ -507,7 +507,7 @@ function TasksWidget() {
 
 // ── Advisor Tab Card ─────────────────────────────────────────────────────────
 
-const COUNCIL_ADVISORS = ADVISORS.filter(a => a.id !== 'biz')
+const COUNCIL_ADVISORS = ADVISORS
 
 function AdvisorTabCard({ advisor, isActive, onClick }) {
   const [imgErr, setImgErr] = useState(false)

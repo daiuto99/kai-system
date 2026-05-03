@@ -141,7 +141,7 @@ def build_context() -> str:
     from datetime import date as _d2, timedelta as _td2
     import json as _json
 
-    now_et = datetime.now(ET)
+    now_local = datetime.now(_leo_timezone())
     today_str = now_et.strftime("%Y-%m-%d")
     today_date = _d2.today()
 
@@ -387,7 +387,7 @@ def build_context() -> str:
 
 
 def build_afternoon_context() -> str:
-    now_et = datetime.now(ET)
+    now_local = datetime.now(_leo_timezone())
     now_str = now_et.strftime("%Y-%m-%dT%H:%M")
     parts = [f"**AFTERNOON — {now_et.strftime('%A, %B %d, %I:%M %p ET')}**"]
 
@@ -428,7 +428,7 @@ def build_afternoon_context() -> str:
 
 
 def build_evening_context() -> str:
-    now_et = datetime.now(ET)
+    now_local = datetime.now(_leo_timezone())
     today_str = now_et.strftime("%Y-%m-%d")
     tomorrow_str = (_date.today() + _td(days=1)).isoformat()
     parts = [f"**EVENING — {now_et.strftime('%A, %B %d')}**"]
@@ -511,10 +511,10 @@ def send_morning_brief():
         log.error(f"Council API error (morning): {e}")
         brief = context
 
-    now_et = datetime.now(ET)
+    now_local = datetime.now(_leo_timezone())
     brief = strip_markdown(brief)
     tg_send(tg_token, BRIEF_CHAT_ID,
-            "Morning Brief — " + now_et.strftime("%A, %B %d") + chr(10)*2 + brief)
+            "Morning Brief — " + now_local.strftime("%A, %B %d") + chr(10)*2 + brief)
 
 
     log.info("Morning brief sent to Telegram KAI Briefs")
@@ -554,7 +554,7 @@ def send_afternoon_brief():
         log.error(f"Council API error (afternoon): {e}")
         brief = context
 
-    now_et = datetime.now(ET)
+    now_local = datetime.now(_leo_timezone())
     brief = strip_markdown(brief)
     tg_send(tg_token, BRIEF_CHAT_ID,
             "Afternoon Check-in — " + now_et.strftime("%I:%M %p") + chr(10)*2 + brief)
@@ -600,10 +600,10 @@ def send_evening_brief():
         log.error(f"Council API error (evening): {e}")
         brief = context
 
-    now_et = datetime.now(ET)
+    now_local = datetime.now(_leo_timezone())
     brief = strip_markdown(brief)
     tg_send(tg_token, BRIEF_CHAT_ID,
-            "Evening Brief — " + now_et.strftime("%A, %B %d") + chr(10)*2 + brief)
+            "Evening Brief — " + now_local.strftime("%A, %B %d") + chr(10)*2 + brief)
 
 
     log.info("Evening brief sent to Telegram KAI Briefs")
@@ -650,11 +650,11 @@ def telegram_poll_loop():
                 if text == "/start":
                     tg_send(token, chat_id,
                             "🤖 *KAI online.*\n\nSend a message or use an advisor prefix:\n"
-                            "/beats /coach /biz /sky /roads /tech /dev /ops")
+                            "/beats /coach /sky /roads /tech /dev /ops")
                     continue
                 advisor = "kai"
                 message = text
-                ADVISORS = {"kai", "beats", "coach", "biz", "sky", "roads", "tech", "dev",
+                ADVISORS = {"kai", "beats", "coach", "sky", "roads", "tech", "dev",
                             "ops", "creative", "learning", "support"}
                 PRIVATE_ADVISORS = {"ember", "doc"}
                 if text.startswith("/"):
@@ -859,7 +859,7 @@ def send_checkin(checkin_type: str):
 
 def main():
     global _morning_sent, _afternoon_sent, _evening_sent, _health_sent, _last_watchdog_run, _last_security_run, _last_inbox_scan, _morning_checkin_sent, _evening_checkin_sent
-    log.info("kai-scheduler started — briefs at 9:15/12:30/20:00 ET + Telegram polling")
+    log.info("kai-scheduler started — briefs at 8:30/12:30/20:00 local + Telegram polling")
 
     tg_thread = threading.Thread(target=telegram_poll_loop, daemon=True, name="telegram-poll")
     tg_thread.start()
@@ -868,7 +868,7 @@ def main():
         now = datetime.now(_leo_timezone())
         date_str = now.strftime("%Y-%m-%d")
 
-        if now.hour == 9 and now.minute == 15 and _morning_sent != date_str:
+        if now.hour == 8 and now.minute == 30 and _morning_sent != date_str:
             _morning_sent = date_str
             try:
                 send_morning_brief()

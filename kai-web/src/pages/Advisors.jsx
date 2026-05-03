@@ -10,7 +10,7 @@ const STATUS_BADGE = {
   active:      { label: 'Active',      bg: '#10b98118', color: '#34d399', border: '#10b98130' },
   spec_needed: { label: 'Spec Needed', bg: '#f59e0b18', color: '#fbbf24', border: '#f59e0b30' },
 }
-const MODEL_OPTIONS = ['claude-sonnet-4-6','claude-opus-4-7','claude-haiku-4-5-20251001','qwen2.5:3b']
+const MODEL_OPTIONS = ['claude-sonnet-4-6','claude-opus-4-6','claude-haiku-4-5-20251001','gpt-4o','gpt-4o-mini','qwen2.5:3b']
 
 const OrgIcon = ({ color }) => (
   <svg width="13" height="13" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
@@ -54,8 +54,268 @@ function Badge({ label, bg, color, border }) {
   )
 }
 
+const INTAKE_CATS = [
+  { id: 'web_design', label: 'Web Design' },
+  { id: 'ui_ux', label: 'UI / UX' },
+  { id: 'typography', label: 'Typography' },
+  { id: 'logo', label: 'Logo' },
+  { id: 'marketing', label: 'Marketing' },
+  { id: 'color_palette', label: 'Color Palette' },
+  { id: 'tone_voice',    label: 'Tone / Voice' },
+  { id: 'content_copy',  label: 'Content & Copy' },
+  { id: 'positioning',   label: 'Positioning' },
+]
+
+function IntakeIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+      <path d="M6 1v6M3.5 3.5L6 1l2.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <rect x="1.5" y="8.5" width="9" height="2" rx="0.5" fill="currentColor" opacity="0.7"/>
+    </svg>
+  )
+}
+
+function IntakeModal({ advisor, onClose }) {
+  const [files, setFiles] = React.useState(null)
+  const [selectedFile, setSelectedFile] = React.useState(null)
+  const [stage, setStage] = React.useState('idle')
+  const [verdict, setVerdict] = React.useState(null)
+  const [selCats, setSelCats] = React.useState([])
+  const [notes, setNotes] = React.useState('')
+  const [clarifyQ, setClarifyQ] = React.useState('')
+  const [clarifyIdx, setClarifyIdx] = React.useState(0)
+  const [clarifyTotal, setClarifyTotal] = React.useState(0)
+  const [clarifyAns, setClarifyAns] = React.useState('')
+  const [summary, setSummary] = React.useState(null)
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState('')
+
+  const color = advisor.color
+
+  React.useEffect(() => {
+    fetch(`${API}/intake/resources/${advisor.id}`)
+      .then(r => r.json())
+      .then(d => setFiles(d.files || []))
+      .catch(() => setFiles([]))
+  }, [advisor.id])
+
+  async function startFile(file) {
+    setSelectedFile(file)
+    setStage('q1')
+    setVerdict(null); setSelCats([]); setNotes(''); setSummary(null); setError('')
+    await fetch(`${API}/intake/start/${advisor.id}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name }),
+    })
+  }
+
+  async function sendReply(text) {
+    setLoading(true); setError('')
+    try {
+      const r = await fetch(`${API}/intake/reply/${advisor.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      const d = await r.json()
+      if (!d.ok && d.error) { setError(d.error); setLoading(false); return }
+      if (d.stage === 'q2') setStage('q2')
+      else if (d.stage === 'q3') setStage('q3')
+      else if (d.stage === 'clarifying') {
+        setClarifyQ(d.current_question); setClarifyIdx(d.question_index)
+        setClarifyTotal(d.question_total); setClarifyAns(''); setStage('clarifying')
+      } else if (d.stage === 'done') {
+        setSummary(d.summary); setStage('done')
+        fetch(`${API}/intake/resources/${advisor.id}`).then(r => r.json()).then(d => setFiles(d.files || []))
+      }
+    } catch(e) { setError('Network error') }
+    setLoading(false)
+  }
+
+  const stageNum = { idle:0, q1:1, q2:2, q3:3, clarifying:4, done:5 }
+  const stepLabels = ['File','Verdict','Category','Notes','Review','Done']
+
+  const ext = (f) => (f.ext || '').replace('.', '').toUpperCase()
+  const isImg = (f) => ['.png','.jpg','.jpeg','.gif','.webp'].includes(f.ext)
+  const toggleCat = (id) => setSelCats(s => s.includes(id) ? s.filter(x=>x!==id) : [...s, id])
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:1000, background:'rgba(0,0,0,0.72)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ width:'100%', maxWidth:760, maxHeight:'88vh', display:'flex', flexDirection:'column', background:'var(--bg-card)', borderRadius:18, border:'1px solid var(--border)', borderTop:'3px solid '+color, overflow:'hidden', boxShadow:'0 32px 80px rgba(0,0,0,0.6)' }}>
+
+        {/* Header */}
+        <div style={{ padding:'16px 22px 14px', display:'flex', alignItems:'center', gap:10, borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+          <div style={{ width:8, height:8, borderRadius:'50%', background:color, flexShrink:0 }}/>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:14, fontWeight:800, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>{advisor.name} — Knowledge Intake</div>
+            <div style={{ fontSize:11, color:'var(--text-tertiary)', marginTop:1 }}>Drop files into <code style={{ fontSize:10, background:'var(--bg-muted)', padding:'1px 4px', borderRadius:3 }}>~/vault/60_Council/{advisor.id}/resources/</code></div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-tertiary)', fontSize:20, lineHeight:1, padding:'2px 6px' }}>×</button>
+        </div>
+
+        {/* Step bar */}
+        <div style={{ display:'flex', alignItems:'center', padding:'14px 22px 10px', flexShrink:0 }}>
+          {stepLabels.map((lbl,i) => {
+            const cur = stageNum[stage] ?? 0
+            const done = i < cur, active = i === cur
+            return (
+              <React.Fragment key={lbl}>
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, minWidth:46 }}>
+                  <div style={{ width:24, height:24, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, background: done ? color : active ? color+'22' : 'var(--bg-muted)', border: active ? '2px solid '+color : done ? 'none' : '1px solid var(--border)', color: done ? '#fff' : active ? color : 'var(--text-subtle)', transition:'all 0.2s' }}>{done?'✓':i+1}</div>
+                  <div style={{ fontSize:8, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color: active ? color : done ? 'var(--text-secondary)' : 'var(--text-subtle)' }}>{lbl}</div>
+                </div>
+                {i < stepLabels.length-1 && <div style={{ flex:1, height:2, background: i<cur ? color : 'var(--border)', transition:'background 0.3s', marginBottom:16 }}/>}
+              </React.Fragment>
+            )
+          })}
+        </div>
+
+        {/* Body */}
+        <div style={{ flex:1, overflowY:'auto', display:'grid', gridTemplateColumns:'220px 1fr', gap:0, minHeight:0 }}>
+          {/* File list */}
+          <div style={{ borderRight:'1px solid var(--border)', padding:'16px 16px', overflowY:'auto' }}>
+            <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--text-subtle)', marginBottom:10 }}>Unprocessed</div>
+            {!files ? <div style={{ fontSize:12, color:'var(--text-tertiary)' }}>Loading…</div>
+            : files.length === 0 ? (
+              <div style={{ textAlign:'center', padding:'20px 10px' }}>
+                <div style={{ fontSize:20, opacity:0.3, marginBottom:8 }}>📁</div>
+                <div style={{ fontSize:11, color:'var(--text-tertiary)', lineHeight:1.5 }}>No files yet.</div>
+              </div>
+            ) : files.map(f => (
+              <div key={f.name} onClick={() => { if(stage==='idle'||stage==='done') startFile(f) }} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, border:'1.5px solid '+(selectedFile?.name===f.name&&stage!=='idle' ? color : 'var(--border)'), background: selectedFile?.name===f.name&&stage!=='idle' ? color+'10' : 'transparent', cursor:'pointer', marginBottom:6, transition:'all 0.15s' }}
+                onMouseEnter={e=>{ if(selectedFile?.name!==f.name) e.currentTarget.style.borderColor=color+'50' }}
+                onMouseLeave={e=>{ if(selectedFile?.name!==f.name) e.currentTarget.style.borderColor='var(--border)' }}
+              >
+                <div style={{ width:28, height:28, borderRadius:6, flexShrink:0, background: isImg(f) ? color+'20' : 'var(--bg-muted)', border:'1px solid '+(isImg(f)?color+'30':'var(--border)'), display:'flex', alignItems:'center', justifyContent:'center', fontSize:8, fontWeight:800, color: isImg(f)?color:'var(--text-tertiary)' }}>{ext(f)}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.name}</div>
+                  <div style={{ fontSize:10, color:'var(--text-tertiary)' }}>{Math.round(f.size/1024)}KB</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Wizard */}
+          <div style={{ padding:'22px 24px', overflowY:'auto' }}>
+            {stage === 'idle' && (
+              <div style={{ textAlign:'center', padding:'40px 0', color:'var(--text-tertiary)' }}>
+                <div style={{ fontSize:32, marginBottom:10, opacity:0.25 }}>◈</div>
+                <div style={{ fontSize:13, fontWeight:600, color:'var(--text-secondary)', marginBottom:6 }}>Select a file to begin</div>
+                <div style={{ fontSize:12, lineHeight:1.6 }}>{advisor.name} will ask a few questions, then store your preferences in the knowledge base.</div>
+              </div>
+            )}
+
+            {stage === 'q1' && (
+              <div>
+                <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:6 }}>Is this a reference or an avoid?</div>
+                <div style={{ fontSize:12, color:'var(--text-secondary)', marginBottom:20, lineHeight:1.6 }}>Reference = direction to follow. Avoid = what not to do.</div>
+                <div style={{ display:'flex', gap:10, marginBottom:24 }}>
+                  {[{v:'reference',l:'Reference',i:'↑',d:'Direction to follow'},{v:'avoid',l:'Avoid',i:'✕',d:'What not to do'}].map(opt=>(
+                    <div key={opt.v} onClick={()=>setVerdict(opt.v)} style={{ flex:1, padding:'16px 18px', borderRadius:10, cursor:'pointer', border:'2px solid '+(verdict===opt.v?color:'var(--border)'), background: verdict===opt.v?color+'12':'var(--bg-screen)', transition:'all 0.15s' }}
+                      onMouseEnter={e=>{ if(verdict!==opt.v) e.currentTarget.style.borderColor=color+'50' }}
+                      onMouseLeave={e=>{ if(verdict!==opt.v) e.currentTarget.style.borderColor='var(--border)' }}
+                    >
+                      <div style={{ fontSize:20, marginBottom:6, color: verdict===opt.v?color:'var(--text-tertiary)' }}>{opt.i}</div>
+                      <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)', marginBottom:2 }}>{opt.l}</div>
+                      <div style={{ fontSize:11, color:'var(--text-tertiary)' }}>{opt.d}</div>
+                    </div>
+                  ))}
+                </div>
+                <button disabled={!verdict||loading} onClick={()=>sendReply(verdict)} style={{ padding:'9px 22px', borderRadius:8, border:'none', fontFamily:'inherit', background:verdict?color:'var(--bg-muted)', color:verdict?'#fff':'var(--text-subtle)', fontSize:12, fontWeight:600, cursor:verdict?'pointer':'default' }}>Continue →</button>
+              </div>
+            )}
+
+            {stage === 'q2' && (
+              <div>
+                <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:6 }}>What category applies?</div>
+                <div style={{ fontSize:12, color:'var(--text-secondary)', marginBottom:18 }}>Pick all that apply.</div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:22 }}>
+                  {INTAKE_CATS.map(cat=>{
+                    const on=selCats.includes(cat.id)
+                    return (
+                      <div key={cat.id} onClick={()=>toggleCat(cat.id)} style={{ padding:'10px 12px', borderRadius:8, cursor:'pointer', border:'1.5px solid '+(on?color:'var(--border)'), background:on?color+'14':'var(--bg-screen)', display:'flex', alignItems:'center', gap:7, transition:'all 0.15s' }}
+                        onMouseEnter={e=>{ if(!on) e.currentTarget.style.borderColor=color+'50' }}
+                        onMouseLeave={e=>{ if(!on) e.currentTarget.style.borderColor='var(--border)' }}
+                      >
+                        <div style={{ width:12, height:12, borderRadius:3, flexShrink:0, border:'1.5px solid '+(on?color:'var(--border)'), background:on?color:'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          {on&&<div style={{ width:5, height:5, borderRadius:1, background:'#fff' }}/>}
+                        </div>
+                        <span style={{ fontSize:11, fontWeight:600, color:on?'var(--text-primary)':'var(--text-secondary)' }}>{cat.label}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+                <button disabled={!selCats.length||loading} onClick={()=>sendReply(selCats.join(','))} style={{ padding:'9px 22px', borderRadius:8, border:'none', fontFamily:'inherit', background:selCats.length?color:'var(--bg-muted)', color:selCats.length?'#fff':'var(--text-subtle)', fontSize:12, fontWeight:600, cursor:selCats.length?'pointer':'default' }}>Continue →</button>
+              </div>
+            )}
+
+            {stage === 'q3' && (
+              <div>
+                <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:6 }}>Walk me through it</div>
+                <div style={{ fontSize:12, color:'var(--text-secondary)', marginBottom:16, lineHeight:1.6 }}>What specifically do you like or not like? Elements, sections, specific decisions — be direct.</div>
+                <textarea value={notes} onChange={e=>setNotes(e.target.value)} autoFocus placeholder="e.g. Love the whitespace and type scale. The color palette is too saturated…"
+                  style={{ width:'100%', minHeight:110, background:'var(--bg-input)', color:'var(--text-primary)', border:'1px solid var(--border)', borderRadius:8, outline:'none', resize:'vertical', fontFamily:'inherit', fontSize:12, lineHeight:1.7, padding:'10px 12px', boxSizing:'border-box', marginBottom:18 }}
+                  onFocus={e=>e.target.style.borderColor=color} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
+                <button disabled={!notes.trim()||loading} onClick={()=>sendReply(notes)} style={{ padding:'9px 22px', borderRadius:8, border:'none', fontFamily:'inherit', background:notes.trim()?color:'var(--bg-muted)', color:notes.trim()?'#fff':'var(--text-subtle)', fontSize:12, fontWeight:600, cursor:notes.trim()?'pointer':'default' }}>{loading?`${advisor.name} is thinking…`:'Continue →'}</button>
+              </div>
+            )}
+
+            {stage === 'clarifying' && (
+              <div>
+                <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color, marginBottom:8 }}>{advisor.name} — Follow-up {clarifyIdx+1} of {clarifyTotal}</div>
+                <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:18, lineHeight:1.5 }}>{clarifyQ}</div>
+                <textarea value={clarifyAns} onChange={e=>setClarifyAns(e.target.value)} autoFocus placeholder="Your answer…"
+                  style={{ width:'100%', minHeight:90, background:'var(--bg-input)', color:'var(--text-primary)', border:'1px solid var(--border)', borderRadius:8, outline:'none', resize:'vertical', fontFamily:'inherit', fontSize:12, lineHeight:1.7, padding:'10px 12px', boxSizing:'border-box', marginBottom:18 }}
+                  onFocus={e=>e.target.style.borderColor=color} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
+                <button disabled={!clarifyAns.trim()||loading} onClick={()=>{ sendReply(clarifyAns) }} style={{ padding:'9px 22px', borderRadius:8, border:'none', fontFamily:'inherit', background:clarifyAns.trim()?color:'var(--bg-muted)', color:clarifyAns.trim()?'#fff':'var(--text-subtle)', fontSize:12, fontWeight:600, cursor:clarifyAns.trim()?'pointer':'default' }}>{loading?'Saving…': clarifyIdx<clarifyTotal-1?'Next →':'Finish'}</button>
+              </div>
+            )}
+
+            {stage === 'done' && summary && (
+              <div>
+                <div style={{ fontSize:20, marginBottom:6 }}>✓</div>
+                <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:4 }}>{summary.filename} saved</div>
+                <div style={{ fontSize:12, color:'var(--text-tertiary)', marginBottom:18 }}>
+                  Logged as <strong style={{ color }}>{summary.verdict}</strong> · {INTAKE_CATS.filter(c=>summary.categories?.includes(c.id)).map(c=>c.label).join(', ')||'general'}
+                </div>
+                {['positive','negative'].map(sent => {
+                  const items = summary.annotations?.[sent] || []
+                  if (!items.length) return null
+                  const isPos = sent==='positive'
+                  return (
+                    <div key={sent} style={{ marginBottom:10, background: isPos?'#10b98110':'#ef444410', border:'1px solid '+(isPos?'#10b98130':'#ef444430'), borderRadius:8, padding:'10px 14px' }}>
+                      <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color: isPos?'#34d399':'#f87171', marginBottom:6 }}>{sent}</div>
+                      {items.map((p,i)=><div key={i} style={{ fontSize:11, color:'var(--text-secondary)', lineHeight:1.5 }}>· {p}</div>)}
+                    </div>
+                  )
+                })}
+                <div style={{ fontSize:11, color:'var(--text-tertiary)', margin:'14px 0 18px', lineHeight:1.5 }}>
+                  {advisor.name} will apply these notes in future conversations.
+                  {summary.queue_remaining>0 && <span> <strong>{summary.queue_remaining} more file{summary.queue_remaining>1?'s':''}</strong> ready.</span>}
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  {summary.queue_remaining>0 && <button onClick={()=>{ setStage('idle'); setSelectedFile(null); setSummary(null) }} style={{ padding:'8px 18px', borderRadius:8, border:'none', fontFamily:'inherit', background:color, color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' }}>Next File →</button>}
+                  <button onClick={onClose} style={{ padding:'8px 18px', borderRadius:8, border:'1px solid var(--border)', fontFamily:'inherit', background:'none', color:'var(--text-secondary)', fontSize:12, cursor:'pointer' }}>Done</button>
+                </div>
+              </div>
+            )}
+
+            {error && <div style={{ marginTop:12, padding:'8px 12px', borderRadius:6, background:'#ef444415', border:'1px solid #ef444430', fontSize:11, color:'#f87171' }}>{error}</div>}
+
+            {selectedFile && stage!=='idle' && stage!=='done' && (
+              <div style={{ marginTop:20, paddingTop:14, borderTop:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <div style={{ fontSize:10, color:'var(--text-subtle)' }}>Processing: <span style={{ color:'var(--text-tertiary)', fontWeight:600 }}>{selectedFile.name}</span></div>
+                <button onClick={async()=>{ await fetch(`${API}/intake/cancel/${advisor.id}`,{method:'DELETE'}); setStage('idle'); setSelectedFile(null); setError('') }} style={{ fontSize:10, color:'var(--text-subtle)', background:'none', border:'none', cursor:'pointer', fontFamily:'inherit' }}>Cancel</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Photo-forward portrait card ─────────────────────────────────────────── */
-function AdvisorCard({ advisor, isSelected, onClick, isExec = false }) {
+function AdvisorCard({ advisor, isSelected, onClick, onIntake, isExec = false }) {
   const [imgErr, setImgErr] = useState(false)
   const hasOrg = HAS_ORG.includes(advisor.id)
 
@@ -101,6 +361,12 @@ function AdvisorCard({ advisor, isSelected, onClick, isExec = false }) {
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{advisor.role}</div>
       </div>
 
+      {/* Intake button */}
+      <button onClick={e => { e.stopPropagation(); onIntake && onIntake(advisor) }}
+        title="Knowledge Intake"
+        style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(0,0,0,0.45)', cursor: 'pointer', color: '#fff', fontSize: 10, fontWeight: 600, backdropFilter: 'blur(6px)' }}>
+        <IntakeIcon /> Intake
+      </button>
       {/* Org jump */}
       {hasOrg && (
         <button onClick={e => { e.stopPropagation(); document.getElementById('org-' + advisor.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
@@ -113,7 +379,7 @@ function AdvisorCard({ advisor, isSelected, onClick, isExec = false }) {
 }
 
 /* ── KAI hero card ───────────────────────────────────────────────────────── */
-function KaiCard({ advisor, isSelected, onClick }) {
+function KaiCard({ advisor, isSelected, onClick, onIntake }) {
   const [imgErr, setImgErr] = useState(false)
   return (
     <div onClick={onClick} style={{
@@ -149,6 +415,12 @@ function KaiCard({ advisor, isSelected, onClick }) {
           {advisor.sidekick_enabled && <Badge label="SideKick" bg="#6366f118" color="#a5b4fc" border="#6366f130" />}
         </div>
       </div>
+      {/* Intake button */}
+      <button onClick={e => { e.stopPropagation(); onIntake && onIntake(advisor) }}
+        title="Knowledge Intake"
+        style={{ position: 'absolute', top: 14, left: 14, display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(0,0,0,0.45)', cursor: 'pointer', color: '#fff', fontSize: 11, fontWeight: 600, backdropFilter: 'blur(6px)' }}>
+        <IntakeIcon /> Intake
+      </button>
       {HAS_ORG.includes('kai') && (
         <button onClick={e => { e.stopPropagation(); document.getElementById('org-kai')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
           style={{ position: 'absolute', top: 14, right: 14, display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(0,0,0,0.45)', cursor: 'pointer', color: '#fff', fontSize: 11, fontWeight: 600, backdropFilter: 'blur(6px)' }}>
@@ -303,7 +575,7 @@ function RowDetail({ advisor, onClose }) {
 }
 
 /* ── Card grid with row-drop expansion ───────────────────────────────────── */
-function CardGrid({ advisors, selected, onSelect, isExec = false, cols = 3 }) {
+function CardGrid({ advisors, selected, onSelect, onIntake, isExec = false, cols = 3 }) {
   const rows = []
   for (let i = 0; i < advisors.length; i += cols) {
     rows.push(advisors.slice(i, i + cols))
@@ -316,7 +588,7 @@ function CardGrid({ advisors, selected, onSelect, isExec = false, cols = 3 }) {
           <div key={rowIdx} style={{ marginBottom: hit ? 0 : 10 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + cols + ', 1fr)', gap: 10 }}>
               {row.map(a => (
-                <AdvisorCard key={a.id} advisor={a} isSelected={selected?.id === a.id} onClick={() => onSelect(a)} isExec={isExec} />
+                <AdvisorCard key={a.id} advisor={a} isSelected={selected?.id === a.id} onClick={() => onSelect(a)} onIntake={onIntake} isExec={isExec} />
               ))}
               {row.length < cols && Array(cols - row.length).fill(null).map((_, i) => <div key={'pad'+i} />)}
             </div>
@@ -329,13 +601,22 @@ function CardGrid({ advisors, selected, onSelect, isExec = false, cols = 3 }) {
 }
 
 /* ── Specialist card ─────────────────────────────────────────────────────── */
-function SpecCard({ spec, color }) {
+function SpecCard({ spec, color, onIntake }) {
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', transition: 'all 0.15s' }}
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', transition: 'all 0.15s', position: 'relative' }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = color + '40'; e.currentTarget.style.transform = 'translateY(-1px)' }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'none' }}
     >
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 3 }}>{spec.name}</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{spec.name}</div>
+        <button
+          onClick={e => { e.stopPropagation(); onIntake && onIntake({ id: spec.id, name: spec.name, color, role: spec.domain }) }}
+          title="Knowledge Intake"
+          style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 4, border: '1px solid ' + color + '40', background: color + '12', cursor: 'pointer', color, fontSize: 9, fontWeight: 700, letterSpacing: '0.03em' }}
+        >
+          <IntakeIcon /> intake
+        </button>
+      </div>
       <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.4 }}>{spec.domain}</div>
       {!spec.has_persona && <div style={{ marginTop: 7 }}><Badge label="Spec Needed" bg="#f59e0b18" color="#fbbf24" border="#f59e0b30" /></div>}
     </div>
@@ -343,7 +624,7 @@ function SpecCard({ spec, color }) {
 }
 
 /* ── Org section ─────────────────────────────────────────────────────────── */
-function OrgSection({ advisor, teamData }) {
+function OrgSection({ advisor, teamData, onIntake }) {
   const team = teamData[advisor.id] || []
   if (!team.length) return null
   return (
@@ -356,7 +637,7 @@ function OrgSection({ advisor, teamData }) {
         <span style={{ marginLeft:'auto', fontSize:11, color:'var(--text-subtle)', background:'var(--bg-muted)', padding:'2px 8px', borderRadius:10 }}>{team.length} specialists</span>
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:10 }}>
-        {team.map(spec => <SpecCard key={spec.id} spec={spec} color={advisor.color} />)}
+        {team.map(spec => <SpecCard key={spec.id} spec={spec} color={advisor.color} onIntake={onIntake} />)}
       </div>
     </div>
   )
@@ -367,6 +648,7 @@ export default function Advisors() {
   const [advisors, setAdvisors]   = useState(null)
   const [selected, setSelected]   = useState(null)
   const [teamData, setTeamData]   = useState({})
+  const [intakeAdvisor, setIntakeAdvisor] = useState(null)
 
   useEffect(() => {
     fetch(API + '/advisors').then(r=>r.json()).then(d=>setAdvisors(d.advisors||[])).catch(()=>setAdvisors([]))
@@ -391,6 +673,7 @@ export default function Advisors() {
   const kai = byId('kai')
 
   return (
+    <>
     <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
       <div style={{ padding:'16px 24px 0', flexShrink:0 }}>
         <div style={{ display:'flex', alignItems:'baseline', gap:10, marginBottom:3 }}>
@@ -407,7 +690,7 @@ export default function Advisors() {
             {/* KAI hero */}
             {kai && (
               <div style={{ marginBottom: 20 }}>
-                <KaiCard advisor={kai} isSelected={selected?.id === 'kai'} onClick={() => select(kai)} />
+                <KaiCard advisor={kai} isSelected={selected?.id === 'kai'} onClick={() => select(kai)} onIntake={setIntakeAdvisor} />
                 {selected?.id === 'kai' && <RowDetail advisor={kai} onClose={() => select(kai)} />}
               </div>
             )}
@@ -415,13 +698,13 @@ export default function Advisors() {
             {/* Council */}
             <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-subtle)', marginBottom:10 }}>The Council</div>
             <div style={{ marginBottom: 28 }}>
-              <CardGrid advisors={councilAdvisors} selected={selected} onSelect={select} />
+              <CardGrid advisors={councilAdvisors} selected={selected} onSelect={select} onIntake={setIntakeAdvisor} />
             </div>
 
             {/* Exec team */}
             <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-subtle)', marginBottom:10 }}>Executive Team</div>
             <div style={{ marginBottom: 36 }}>
-              <CardGrid advisors={execAdvisors} selected={selected} onSelect={select} isExec={true} cols={4} />
+              <CardGrid advisors={execAdvisors} selected={selected} onSelect={select} onIntake={setIntakeAdvisor} isExec={true} cols={4} />
             </div>
 
             {/* Org sections */}
@@ -429,12 +712,14 @@ export default function Advisors() {
               <>
                 <div style={{ height:1, background:'var(--border)', marginBottom:28 }} />
                 <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-subtle)', marginBottom:20 }}>Specialist Bench</div>
-                {orgAdvisors.map(a => <OrgSection key={a.id} advisor={a} teamData={teamData} />)}
+                {orgAdvisors.map(a => <OrgSection key={a.id} advisor={a} teamData={teamData} onIntake={setIntakeAdvisor} />)}
               </>
             )}
           </>
         )}
       </div>
     </div>
+    {intakeAdvisor && <IntakeModal advisor={intakeAdvisor} onClose={() => setIntakeAdvisor(null)} />}
+    </>
   )
 }

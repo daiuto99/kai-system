@@ -87,7 +87,12 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
 
     spec_file = VAULT_PATH / spec["file"]
     if not spec_file.exists():
-        return {"error": f"Persona file not found: {spec['file']}"}
+        # Fall back to the full advisor persona if the specialist stub is missing
+        advisor_persona = VAULT_PATH / "60_Council" / specialist_id / f"{specialist_id.upper()}.md"
+        if advisor_persona.exists():
+            spec_file = advisor_persona
+        else:
+            return {"error": f"Persona file not found: {spec['file']}"}
 
     persona = spec_file.read_text(encoding="utf-8")
     bp = VAULT_PATH / "00_System" / "business_profile.md"
@@ -99,6 +104,33 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
             + "\n</background_context>\n\n"
         )
     system += persona
+
+    # Inject specialist knowledge from Qdrant if available
+    try:
+        import httpx as _hx
+        _qdrant = "http://kai-qdrant:6333"
+        _ollama = "http://kai-ollama:11434"
+        _col = _hx.get(f"{_qdrant}/collections/{specialist_id}", timeout=5)
+        if _col.status_code == 200 and _col.json().get("result", {}).get("points_count", 0) > 0:
+            _q = f"{context} {question}".strip()
+            _er = _hx.post(f"{_ollama}/api/embed",
+                json={"model": "nomic-embed-text", "input": _q}, timeout=15)
+            _vec = _er.json().get("embeddings", [[]])[0]
+            if _vec:
+                _sr = _hx.post(f"{_qdrant}/collections/{specialist_id}/points/search",
+                    json={"vector": _vec, "limit": 4, "with_payload": True}, timeout=10)
+                _hits = _sr.json().get("result", [])
+                _parts = []
+                for _h in _hits:
+                    if _h.get("score", 0) < 0.45:
+                        continue
+                    _p = _h.get("payload", {})
+                    _label = f"[{_p.get('verdict','').upper()} — {_p.get('sentiment','')}]"
+                    _parts.append(f"{_label} {_p.get('text','')} (ref: {_p.get('source_file','')})")
+                if _parts:
+                    system += "\n\n<design_references>\n" + "\n".join(_parts) + "\n</design_references>"
+    except Exception as _ke:
+        logger.warning("specialist qdrant lookup: %s", _ke)
 
     user_msg = question
     if context:

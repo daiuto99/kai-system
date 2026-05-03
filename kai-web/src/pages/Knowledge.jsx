@@ -6,7 +6,6 @@ const ADVISOR_COLORS = {
   chief: '#6366f1', kai: '#6366f1',
   ember: '#ec4899', beats: '#f59e0b',
   doc: '#10b981', coach: '#f97316',
-  biz: '#3b82f6', sky: '#06b6d4',
   roads: '#f59e0b', creative: '#8b5cf6',
 }
 
