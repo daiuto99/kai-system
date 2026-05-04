@@ -666,9 +666,13 @@ export default function Advisors() {
   const byId = id => advisors?.find(a => a.id === id)
   const select = a => setSelected(s => s?.id === a.id ? null : a)
 
-  const directorAdvisors = (advisors || []).filter(a => a.tier === 'director')
-  const advisorTierMembers = (advisors || []).filter(a => a.tier === 'advisor')
-  const orgAdvisors = (advisors || []).filter(a => (a.tier === 'director' || a.id === 'kai') && (teamData[a.id]||[]).length > 0)
+  // Visual section groupings — independent of org tier
+  const COUNCIL_IDS  = ['beats', 'ember', 'sky', 'roads', 'doc', 'coach']
+  const EXEC_IDS     = ['creative', 'dev', 'devops']
+
+  const councilMembers = (advisors || []).filter(a => COUNCIL_IDS.includes(a.id))
+  const execMembers    = (advisors || []).filter(a => EXEC_IDS.includes(a.id))
+  const orgAdvisors    = (advisors || []).filter(a => (a.tier === 'director' || a.id === 'kai') && (teamData[a.id]||[]).length > 0)
   const kai = byId('kai')
 
   return (
@@ -694,19 +698,19 @@ export default function Advisors() {
               </div>
             )}
 
-            {/* Directors */}
-            <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-subtle)', marginBottom:10 }}>Directors</div>
+            {/* The Council */}
+            <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-subtle)', marginBottom:10 }}>The Council</div>
             <div style={{ marginBottom: 28 }}>
-              <CardGrid advisors={directorAdvisors} selected={selected} onSelect={select} onIntake={setIntakeAdvisor} isExec={true} cols={4} />
+              <CardGrid advisors={councilMembers} selected={selected} onSelect={select} onIntake={setIntakeAdvisor} cols={3} />
             </div>
 
-            {/* Advisors */}
-            <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-subtle)', marginBottom:10 }}>Advisors</div>
+            {/* Executive Team */}
+            <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-subtle)', marginBottom:10 }}>Executive Team</div>
             <div style={{ marginBottom: 36 }}>
-              <CardGrid advisors={advisorTierMembers} selected={selected} onSelect={select} onIntake={setIntakeAdvisor} />
+              <CardGrid advisors={execMembers} selected={selected} onSelect={select} onIntake={setIntakeAdvisor} isExec={true} cols={3} />
             </div>
 
-            {/* Org sections */}
+            {/* Specialist Bench */}
             {orgAdvisors.length > 0 && (
               <>
                 <div style={{ height:1, background:'var(--border)', marginBottom:28 }} />
