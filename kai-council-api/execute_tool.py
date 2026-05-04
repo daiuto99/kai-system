@@ -552,7 +552,7 @@ def _h_wordpress(client, tool_name, ti, advisor):
             if status and status != "any":
                 wp_params["status"] = status
             r = httpx.get(f"{site['url']}/wp-json/wp/v2/posts",
-                params=wp_params, headers=_hdrs(creds), timeout=15)
+                params=wp_params, headers=_hdrs(creds), follow_redirects=True, timeout=15)
             posts = r.json() if r.status_code == 200 else []
             return {"site": site_key, "url": site["url"], "posts": [_shape_item(p) for p in posts]}
         except Exception as e:
@@ -569,7 +569,7 @@ def _h_wordpress(client, tool_name, ti, advisor):
             if status and status != "any":
                 wp_params["status"] = status
             r = httpx.get(f"{site['url']}/wp-json/wp/v2/pages",
-                params=wp_params, headers=_hdrs(creds), timeout=15)
+                params=wp_params, headers=_hdrs(creds), follow_redirects=True, timeout=15)
             pages = r.json() if r.status_code == 200 else []
             return {"site": site_key, "url": site["url"], "pages": [_shape_item(p) for p in pages], "count": len(pages)}
         except Exception as e:
@@ -584,7 +584,7 @@ def _h_wordpress(client, tool_name, ti, advisor):
         try:
             site, creds = _wp_creds(site_key)
             r = httpx.get(f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
-                headers=_hdrs(creds), timeout=15)
+                headers=_hdrs(creds), follow_redirects=True, timeout=15)
             if r.status_code != 200:
                 return {"error": f"WP returned {r.status_code}"}
             p = r.json()
@@ -603,11 +603,11 @@ def _h_wordpress(client, tool_name, ti, advisor):
         try:
             site, creds = _wp_creds(site_key)
             hdrs = _hdrs(creds)
-            root_r = httpx.get(f"{site['url']}/wp-json/", timeout=10)
+            root_r = httpx.get(f"{site['url']}/wp-json/", follow_redirects=True, timeout=10)
             d = root_r.json() if root_r.status_code == 200 else {}
             pages_r = httpx.get(f"{site['url']}/wp-json/wp/v2/pages",
                 params={"per_page": 50, "_fields": "id,title,slug,status,link,template"},
-                headers=hdrs, timeout=15)
+                headers=hdrs, follow_redirects=True, timeout=15)
             pages = pages_r.json() if pages_r.status_code == 200 else []
             return {
                 "site": site_key, "url": site["url"],
@@ -635,20 +635,20 @@ def _h_wordpress(client, tool_name, ti, advisor):
             tag_ids = []
             for tag_name in tags:
                 tr = httpx.get(f"{site['url']}/wp-json/wp/v2/tags",
-                    params={"search": tag_name}, headers=hdrs, timeout=10)
+                    params={"search": tag_name}, headers=hdrs, follow_redirects=True, timeout=10)
                 existing = tr.json() if tr.status_code == 200 else []
                 if existing:
                     tag_ids.append(existing[0]["id"])
                 else:
                     cr = httpx.post(f"{site['url']}/wp-json/wp/v2/tags",
-                        json={"name": tag_name}, headers=hdrs, timeout=10)
+                        json={"name": tag_name}, headers=hdrs, follow_redirects=True, timeout=10)
                     if cr.status_code in (200, 201):
                         tag_ids.append(cr.json().get("id"))
             payload = {"title": title, "content": content_body, "status": status, "excerpt": excerpt}
             if tag_ids:
                 payload["tags"] = tag_ids
             r = httpx.post(f"{site['url']}/wp-json/wp/v2/posts",
-                json=payload, headers=hdrs, timeout=20)
+                json=payload, headers=hdrs, follow_redirects=True, timeout=20)
             post = r.json()
             return {
                 "created": True, "id": post.get("id"), "status": post.get("status"),
@@ -672,7 +672,7 @@ def _h_wordpress(client, tool_name, ti, advisor):
             if slug:
                 payload["slug"] = slug
             r = httpx.post(f"{site['url']}/wp-json/wp/v2/pages",
-                json=payload, headers=_hdrs(creds), timeout=30)
+                json=payload, headers=_hdrs(creds), follow_redirects=True, timeout=30)
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
             p = r.json()
@@ -695,7 +695,7 @@ def _h_wordpress(client, tool_name, ti, advisor):
         try:
             site, creds = _wp_creds(site_key)
             r = httpx.patch(f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
-                json=payload, headers=_hdrs(creds), timeout=30)
+                json=payload, headers=_hdrs(creds), follow_redirects=True, timeout=30)
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
             p = r.json()
@@ -712,7 +712,7 @@ def _h_wordpress(client, tool_name, ti, advisor):
         try:
             site, creds = _wp_creds(site_key)
             r = httpx.patch(f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
-                json={"status": "publish"}, headers=_hdrs(creds), timeout=20)
+                json={"status": "publish"}, headers=_hdrs(creds), follow_redirects=True, timeout=20)
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}"}
             p = r.json()
@@ -727,7 +727,7 @@ def _h_wordpress(client, tool_name, ti, advisor):
         try:
             site, creds = _wp_creds(site_key)
             r = httpx.post(f"{site['url']}/wp-json/wp/v2/settings",
-                json={"custom_css": css}, headers=_hdrs(creds), timeout=20)
+                json={"custom_css": css}, headers=_hdrs(creds), follow_redirects=True, timeout=20)
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
             return {"ok": True, "site": site_key, "message": "Custom CSS updated"}
