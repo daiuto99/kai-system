@@ -503,6 +503,8 @@ def _h_oura(client, tool_name, ti, advisor):
 
 def _h_wordpress(client, tool_name, ti, advisor):
     import base64 as _b64
+    import uuid as _uuid
+    import datetime as _dt
 
     def _wp_creds(site_key):
         wp_sites = json.loads((VAULT_PATH / "00_System" / "wordpress_sites.json").read_text())
@@ -515,28 +517,110 @@ def _h_wordpress(client, tool_name, ti, advisor):
         creds = _b64.b64encode(f"{site['username']}:{site['app_password']}".encode()).decode()
         return site, creds
 
+    def _hdrs(creds):
+        return {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
+
+    def _shape_item(p):
+        return {
+            "id": p.get("id"),
+            "title": p.get("title", {}).get("rendered", ""),
+            "status": p.get("status"),
+            "date": p.get("date", "")[:10],
+            "link": p.get("link"),
+            "slug": p.get("slug", ""),
+            "excerpt": p.get("excerpt", {}).get("rendered", "")[:200],
+        }
+
+    if tool_name == "wordpress_list_sites":
+        wp_sites = json.loads((VAULT_PATH / "00_System" / "wordpress_sites.json").read_text())
+        return {
+            "sites": [
+                {"id": k, "url": v["url"], "description": v.get("description", ""),
+                 "business": v.get("business", ""), "blank_canvas": v.get("blank_canvas_installed", False)}
+                for k, v in wp_sites["sites"].items()
+            ],
+            "count": len(wp_sites["sites"]),
+        }
+
     if tool_name == "wordpress_get_posts":
         site_key = ti.get("site", "leodaiuto")
         count = min(ti.get("count", 5), 20)
         status = ti.get("status", "any")
         try:
             site, creds = _wp_creds(site_key)
-            r = httpx.get(
-                f"{site['url']}/wp-json/wp/v2/posts",
-                params={"per_page": count, "status": status, "_fields": "id,title,status,date,link,excerpt"},
-                headers={"Authorization": f"Basic {creds}"},
-                timeout=15
-            )
-            posts = r.json()
-            return {"site": site_key, "url": site["url"], "posts": [
-                {"id": p.get("id"), "title": p.get("title", {}).get("rendered", ""),
-                 "status": p.get("status"), "date": p.get("date","")[:10],
-                 "link": p.get("link"), "excerpt": p.get("excerpt", {}).get("rendered", "")[:200]}
-                for p in posts
-            ]}
+            wp_params = {"per_page": count, "_fields": "id,title,status,date,link,slug,excerpt"}
+            if status and status != "any":
+                wp_params["status"] = status
+            r = httpx.get(f"{site['url']}/wp-json/wp/v2/posts",
+                params=wp_params, headers=_hdrs(creds), timeout=15)
+            posts = r.json() if r.status_code == 200 else []
+            return {"site": site_key, "url": site["url"], "posts": [_shape_item(p) for p in posts]}
         except Exception as e:
             logger.exception("wordpress_get_posts: %s", e)
             return {"error": f"WordPress get posts failed: {e}"}
+
+    if tool_name == "wordpress_get_pages":
+        site_key = ti.get("site", "leodaiuto")
+        count = min(ti.get("count", 20), 50)
+        status = ti.get("status", "any")
+        try:
+            site, creds = _wp_creds(site_key)
+            wp_params = {"per_page": count, "_fields": "id,title,status,date,modified,link,slug,template"}
+            if status and status != "any":
+                wp_params["status"] = status
+            r = httpx.get(f"{site['url']}/wp-json/wp/v2/pages",
+                params=wp_params, headers=_hdrs(creds), timeout=15)
+            pages = r.json() if r.status_code == 200 else []
+            return {"site": site_key, "url": site["url"], "pages": [_shape_item(p) for p in pages], "count": len(pages)}
+        except Exception as e:
+            logger.exception("wordpress_get_pages: %s", e)
+            return {"error": f"WordPress get pages failed: {e}"}
+
+    if tool_name == "wordpress_get_post":
+        site_key = ti.get("site", "leodaiuto")
+        post_id = ti.get("post_id")
+        post_type = ti.get("post_type", "posts")
+        endpoint = "pages" if post_type == "pages" else "posts"
+        try:
+            site, creds = _wp_creds(site_key)
+            r = httpx.get(f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
+                headers=_hdrs(creds), timeout=15)
+            if r.status_code != 200:
+                return {"error": f"WP returned {r.status_code}"}
+            p = r.json()
+            return {
+                "id": p.get("id"), "title": p.get("title", {}).get("rendered", ""),
+                "content": p.get("content", {}).get("rendered", ""),
+                "status": p.get("status"), "link": p.get("link"),
+                "slug": p.get("slug"), "template": p.get("template", ""),
+            }
+        except Exception as e:
+            logger.exception("wordpress_get_post: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_get_site_info":
+        site_key = ti.get("site", "leodaiuto")
+        try:
+            site, creds = _wp_creds(site_key)
+            hdrs = _hdrs(creds)
+            root_r = httpx.get(f"{site['url']}/wp-json/", timeout=10)
+            d = root_r.json() if root_r.status_code == 200 else {}
+            pages_r = httpx.get(f"{site['url']}/wp-json/wp/v2/pages",
+                params={"per_page": 50, "_fields": "id,title,slug,status,link,template"},
+                headers=hdrs, timeout=15)
+            pages = pages_r.json() if pages_r.status_code == 200 else []
+            return {
+                "site": site_key, "url": site["url"],
+                "title": d.get("name", ""), "description": d.get("description", ""),
+                "pages": [{"id": p["id"], "title": p["title"]["rendered"],
+                           "slug": p["slug"], "status": p["status"],
+                           "link": p["link"], "template": p.get("template", "")}
+                          for p in pages],
+                "page_count": len(pages),
+            }
+        except Exception as e:
+            logger.exception("wordpress_get_site_info: %s", e)
+            return {"error": str(e)}
 
     if tool_name == "wordpress_create_post":
         site_key = ti.get("site", "leodaiuto")
@@ -547,29 +631,143 @@ def _h_wordpress(client, tool_name, ti, advisor):
         excerpt = ti.get("excerpt", "")
         try:
             site, creds = _wp_creds(site_key)
-            headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
+            hdrs = _hdrs(creds)
             tag_ids = []
             for tag_name in tags:
-                tr = httpx.get(f"{site['url']}/wp-json/wp/v2/tags", params={"search": tag_name}, headers=headers, timeout=10)
-                existing = tr.json()
+                tr = httpx.get(f"{site['url']}/wp-json/wp/v2/tags",
+                    params={"search": tag_name}, headers=hdrs, timeout=10)
+                existing = tr.json() if tr.status_code == 200 else []
                 if existing:
                     tag_ids.append(existing[0]["id"])
                 else:
-                    cr = httpx.post(f"{site['url']}/wp-json/wp/v2/tags", json={"name": tag_name}, headers=headers, timeout=10)
-                    tag_ids.append(cr.json().get("id"))
+                    cr = httpx.post(f"{site['url']}/wp-json/wp/v2/tags",
+                        json={"name": tag_name}, headers=hdrs, timeout=10)
+                    if cr.status_code in (200, 201):
+                        tag_ids.append(cr.json().get("id"))
             payload = {"title": title, "content": content_body, "status": status, "excerpt": excerpt}
             if tag_ids:
                 payload["tags"] = tag_ids
-            r = httpx.post(f"{site['url']}/wp-json/wp/v2/posts", json=payload, headers=headers, timeout=20)
+            r = httpx.post(f"{site['url']}/wp-json/wp/v2/posts",
+                json=payload, headers=hdrs, timeout=20)
             post = r.json()
             return {
                 "created": True, "id": post.get("id"), "status": post.get("status"),
                 "link": post.get("link"), "title": title, "site": site_key,
-                "message": f"Post {'published' if status == 'publish' else 'saved as draft'} on {site['url']}"
+                "message": f"Post {'published' if status == 'publish' else 'saved as draft'} on {site['url']}",
             }
         except Exception as e:
             logger.exception("wordpress_create_post: %s", e)
             return {"error": f"WordPress create post failed: {e}"}
+
+    if tool_name == "wordpress_create_page":
+        site_key = ti.get("site", "leodaiuto")
+        title = ti.get("title", "")
+        content_body = ti.get("content", "")
+        status = ti.get("status", "draft")
+        slug = ti.get("slug", "")
+        template = ti.get("template", "")
+        try:
+            site, creds = _wp_creds(site_key)
+            payload = {"title": title, "content": content_body, "status": status, "template": template}
+            if slug:
+                payload["slug"] = slug
+            r = httpx.post(f"{site['url']}/wp-json/wp/v2/pages",
+                json=payload, headers=_hdrs(creds), timeout=30)
+            if r.status_code not in (200, 201):
+                return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
+            p = r.json()
+            return {
+                "created": True, "id": p.get("id"), "status": p.get("status"),
+                "link": p.get("link"), "slug": p.get("slug"), "title": title,
+                "site": site_key, "template": template,
+                "message": f"Page {'published' if status == 'publish' else 'saved as draft'} on {site['url']}",
+            }
+        except Exception as e:
+            logger.exception("wordpress_create_page: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_update_post":
+        site_key = ti.get("site", "leodaiuto")
+        post_id = ti.get("post_id")
+        post_type = ti.get("post_type", "posts")
+        endpoint = "pages" if post_type == "pages" else "posts"
+        payload = {k: ti[k] for k in ("title", "content", "status", "excerpt", "slug", "template") if k in ti}
+        try:
+            site, creds = _wp_creds(site_key)
+            r = httpx.patch(f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
+                json=payload, headers=_hdrs(creds), timeout=30)
+            if r.status_code not in (200, 201):
+                return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
+            p = r.json()
+            return {"updated": True, "id": p.get("id"), "status": p.get("status"), "link": p.get("link")}
+        except Exception as e:
+            logger.exception("wordpress_update_post: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_publish":
+        site_key = ti.get("site", "leodaiuto")
+        post_id = ti.get("post_id")
+        post_type = ti.get("post_type", "posts")
+        endpoint = "pages" if post_type == "pages" else "posts"
+        try:
+            site, creds = _wp_creds(site_key)
+            r = httpx.patch(f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
+                json={"status": "publish"}, headers=_hdrs(creds), timeout=20)
+            if r.status_code not in (200, 201):
+                return {"error": f"WP returned {r.status_code}"}
+            p = r.json()
+            return {"published": True, "id": p.get("id"), "link": p.get("link"), "site": site_key}
+        except Exception as e:
+            logger.exception("wordpress_publish: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_set_custom_css":
+        site_key = ti.get("site", "leodaiuto")
+        css = ti.get("css", "")
+        try:
+            site, creds = _wp_creds(site_key)
+            r = httpx.post(f"{site['url']}/wp-json/wp/v2/settings",
+                json={"custom_css": css}, headers=_hdrs(creds), timeout=20)
+            if r.status_code not in (200, 201):
+                return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
+            return {"ok": True, "site": site_key, "message": "Custom CSS updated"}
+        except Exception as e:
+            logger.exception("wordpress_set_custom_css: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_create_task":
+        WP_TASKS = VAULT_PATH / "00_System" / "wp_task_queue.json"
+        tasks = json.loads(WP_TASKS.read_text()) if WP_TASKS.exists() else []
+        task = {
+            "id": f"wpt-{_uuid.uuid4().hex[:8]}",
+            "site": ti.get("site"), "type": ti.get("type"),
+            "title": ti.get("title"), "brief": ti.get("brief"),
+            "priority": ti.get("priority", "normal"),
+            "status": "pending",
+            "created": _dt.date.today().isoformat(),
+            "result": None,
+        }
+        tasks.append(task)
+        WP_TASKS.write_text(json.dumps(tasks, indent=2))
+        return {"ok": True, "task_id": task["id"], "task": task}
+
+    if tool_name == "wordpress_complete_task":
+        WP_TASKS = VAULT_PATH / "00_System" / "wp_task_queue.json"
+        task_id = ti.get("task_id")
+        result = ti.get("result", "")
+        if not WP_TASKS.exists():
+            return {"error": "No task queue found"}
+        tasks = json.loads(WP_TASKS.read_text())
+        for t in tasks:
+            if t["id"] == task_id:
+                t["status"] = "complete"
+                t["result"] = result
+                t["completed"] = _dt.date.today().isoformat()
+                WP_TASKS.write_text(json.dumps(tasks, indent=2))
+                return {"ok": True, "task_id": task_id, "status": "complete"}
+        return {"error": f"Task {task_id} not found"}
+
+    return {"error": f"Unknown wordpress tool: {tool_name}"}
 
 
 def _h_parking_lot(client, tool_name, ti, advisor):
@@ -736,8 +934,18 @@ TOOL_REGISTRY = {
     # Oura
     "get_oura_data": _h_oura,
     # WordPress
+    "wordpress_list_sites": _h_wordpress,
     "wordpress_get_posts": _h_wordpress,
+    "wordpress_get_pages": _h_wordpress,
+    "wordpress_get_post": _h_wordpress,
+    "wordpress_get_site_info": _h_wordpress,
     "wordpress_create_post": _h_wordpress,
+    "wordpress_create_page": _h_wordpress,
+    "wordpress_update_post": _h_wordpress,
+    "wordpress_publish": _h_wordpress,
+    "wordpress_set_custom_css": _h_wordpress,
+    "wordpress_create_task": _h_wordpress,
+    "wordpress_complete_task": _h_wordpress,
     # Parking lot
     "add_to_parking_lot": _h_parking_lot,
     # T2
