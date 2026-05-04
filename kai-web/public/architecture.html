@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.12.0 · 2026-05-03 — Council Persona Enrichment: full specialist roster + org load + avatar analysis</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.13.0 · 2026-05-03 — LangGraph Session 1: /council/orchestrate live, channel_router, advisor_node, SQLite checkpoint, audit log</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -438,7 +438,7 @@
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8001</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-council-api</div><div class="container-meta">FastAPI · AI routing · Tool-use loop · 44 KAI tools · KEYSTONE context · Tavily · ethos routing (dev/creative/devops)</div></div>
+      <div><div class="container-name">kai-council-api</div><div class="container-meta">FastAPI · LangGraph orchestration · /council/orchestrate (v0.4.0) · channel_router + advisor_node · SqliteSaver checkpoint · 44 KAI tools · complexity routing · privacy mode · audit log JSONL</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8002</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
@@ -1345,7 +1345,7 @@
         </div>
         <div class="flow-step">
           <div class="flow-num" style="background:#f59e0b">4</div>
-          <div class="flow-text"><div class="flow-label">LangGraph in Sprint 18 — not before</div><div class="flow-desc">Sprints 15–17 (accuracy/stability/tone) are independent of orchestration. LangGraph = execute_tool monolith refactor. Same work — do together.</div></div>
+          <div class="flow-text"><div class="flow-label">LangGraph Session 1 shipped 2026-05-03. /council/orchestrate live. Session 2 (KAI-200): director specialist delegation via consult_specialist tool.</div></div>
         </div>
         <div class="flow-step">
           <div class="flow-num" style="background:#3b82f6">5</div>

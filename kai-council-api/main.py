@@ -4,8 +4,9 @@ import router as council_router
 import history
 import insights
 from models_api import models_router
+import routes_orchestrate
 
-app = FastAPI(title="kai-council-api", version="0.3.0")
+app = FastAPI(title="kai-council-api", version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,6 +19,7 @@ app.include_router(council_router.router)
 app.include_router(history.router)
 app.include_router(insights.router)
 app.include_router(models_router)
+app.include_router(routes_orchestrate.router)
 
 
 @app.get("/health")
@@ -27,5 +29,6 @@ def health():
     return {
         "status": "ok",
         "service": "kai-council-api",
+        "version": "0.4.0",
         "council_path_mounted": council_ok,
     }

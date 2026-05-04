@@ -6,3 +6,5 @@ anthropic==0.52.0
 pydantic==2.11.3
 
 tavily-python==0.5.0
+langgraph==0.2.73
+langgraph-checkpoint-sqlite==2.0.6

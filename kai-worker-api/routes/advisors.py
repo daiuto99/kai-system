@@ -8,24 +8,19 @@ from config import VAULT_PATH
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-COUNCIL_DIR  = VAULT_PATH / "60_Council"
-SYSTEM_DIR   = VAULT_PATH / "00_System"
-SPECIALISTS_FILE = SYSTEM_DIR / "specialists.json"
+COUNCIL_DIR = VAULT_PATH / "60_Council"
+ORG_FILE    = VAULT_PATH / "00_System" / "org.json"
 
-ADVISOR_META = {
-    "kai":      {"name": "KAI",      "role": "Chief of Staff",          "color": "#6366f1", "local": False, "status": "active",      "avatar": "/avatar-kai.png"},
-    "beats":    {"name": "Beats",    "role": "Music Director & Mentor", "color": "#f59e0b", "local": False, "status": "active",      "avatar": "/avatar-beats.png"},
-    "sky":      {"name": "Sky",      "role": "Studio Operations",       "color": "#06b6d4", "local": False, "status": "active",      "avatar": "/avatar-sky.png"},
-    "roads":    {"name": "Roads",    "role": "Gear & Production",       "color": "#f59e0b", "local": False, "status": "active",      "avatar": "/avatar-roads.png"},
-    "coach":    {"name": "Coach",    "role": "Performance & Fitness",   "color": "#f97316", "local": False, "status": "active",      "avatar": "/avatar-coach.png"},
-    "doc":      {"name": "Doc",      "role": "Health & Longevity",      "color": "#10b981", "local": True,  "status": "active",      "avatar": "/avatar-doc.png"},
-    "ember":    {"name": "Ember",    "role": "Emotional & Personal",    "color": "#ec4899", "local": True,  "status": "active",      "avatar": "/avatar-ember.png"},
-    "creative": {"name": "Creative", "role": "Creative Director",       "color": "#a855f7", "local": False, "status": "spec_needed", "avatar": "/avatar-creative.png"},
-    "dev":      {"name": "Dev",      "role": "Engineering Director",    "color": "#3b82f6", "local": False, "status": "spec_needed", "avatar": "/avatar-dev.png"},
-    "devops":   {"name": "DevOps",   "role": "Infrastructure & Ops",    "color": "#64748b", "local": False, "status": "spec_needed", "avatar": "/avatar-devops.png"},
-}
 
-COUNCIL_ORDER = ["kai", "beats", "sky", "roads", "coach", "doc", "ember", "creative", "dev", "devops"]
+def _load_org() -> list:
+    """Load org.json — the single source of truth for all members."""
+    if not ORG_FILE.exists():
+        return []
+    return json.loads(ORG_FILE.read_text(encoding="utf-8"))["members"]
+
+
+def _get_member(member_id: str) -> dict | None:
+    return next((m for m in _load_org() if m["id"] == member_id), None)
 
 
 def _safe_path(name: str, filename: str) -> Path:
@@ -42,53 +37,67 @@ def _load_assets(name: str) -> dict:
             return json.loads(assets_file.read_text())
         except Exception:
             pass
-    meta = ADVISOR_META.get(name, {})
+    member = _get_member(name)
     return {
         "heygen_id": "",
         "elevenlabs_id": "",
         "sidekick_enabled": False,
-        "status": meta.get("status", "active"),
-        "default_model": "claude-sonnet-4-6",
-        "research_model": "claude-opus-4-7",
+        "status": member.get("status", "active") if member else "active",
+        "default_model": member.get("default_model", "claude-sonnet-4-6") if member else "claude-sonnet-4-6",
+        "research_model": member.get("director_model", "claude-opus-4-7") if member else "claude-opus-4-7",
     }
 
 
-def _load_specialists() -> list:
-    if SPECIALISTS_FILE.exists():
-        try:
-            return json.loads(SPECIALISTS_FILE.read_text())
-        except Exception:
-            pass
-    return []
+@router.get("/org")
+def get_org():
+    """Full org — all members with tier, reports_to, domain. Primary source for LangGraph routing."""
+    members = _load_org()
+    return {"version": "1.0.0", "members": members}
+
+
+@router.get("/org/{tier}")
+def get_org_by_tier(tier: str):
+    """Members filtered by tier: orchestrator / director / advisor / specialist."""
+    members = [m for m in _load_org() if m.get("tier") == tier]
+    return {"tier": tier, "members": members}
 
 
 @router.get("/advisors")
 def list_advisors():
+    """Council view — orchestrators, directors, and advisors (not specialists)."""
+    council_tiers = {"orchestrator", "director", "advisor"}
     advisors = []
-    for advisor_id in COUNCIL_ORDER:
-        meta = ADVISOR_META.get(advisor_id, {})
-        assets = _load_assets(advisor_id)
-        persona_file = COUNCIL_DIR / advisor_id / f"{advisor_id.upper()}.md"
+    for m in _load_org():
+        if m.get("tier") not in council_tiers:
+            continue
+        assets = _load_assets(m["id"])
+        persona_file = VAULT_PATH / m.get("persona_file", "")
         advisors.append({
-            "id":              advisor_id,
-            "name":            meta.get("name", advisor_id.title()),
-            "role":            meta.get("role", ""),
-            "color":           meta.get("color", "#6366f1"),
-            "local":           meta.get("local", False),
-            "status":          assets.get("status", meta.get("status", "active")),
-            "sidekick_enabled":assets.get("sidekick_enabled", False),
-            "avatar":          meta.get("avatar"),
-            "has_persona":     persona_file.exists(),
-            "default_model":   assets.get("default_model", "claude-sonnet-4-6"),
+            "id":               m["id"],
+            "name":             m["name"],
+            "role":             m.get("role", ""),
+            "tier":             m.get("tier"),
+            "reports_to":       m.get("reports_to"),
+            "domain":           m.get("domain", ""),
+            "color":            m.get("color", "#6366f1"),
+            "local":            m.get("local", False),
+            "status":           assets.get("status", m.get("status", "active")),
+            "sidekick_enabled": assets.get("sidekick_enabled", False),
+            "avatar":           m.get("avatar"),
+            "has_persona":      persona_file.exists() if m.get("persona_file") else False,
+            "default_model":    assets.get("default_model", m.get("default_model", "claude-sonnet-4-6")),
         })
     return {"advisors": advisors}
 
 
 @router.get("/advisors/{name}")
 def get_advisor(name: str):
-    persona_file = _safe_path(name, f"{name.upper()}.md")
+    member = _get_member(name)
+    if not member:
+        raise HTTPException(404, f"Member {name} not found")
+    persona_file = VAULT_PATH / member.get("persona_file", "")
     if not persona_file.exists():
-        raise HTTPException(404, f"Advisor {name} not found")
+        raise HTTPException(404, f"Persona file not found for {name}")
     return {"name": name, "content": persona_file.read_text(encoding="utf-8")}
 
 
@@ -98,9 +107,12 @@ class AdvisorUpdateRequest(BaseModel):
 
 @router.put("/advisors/{name}")
 def update_advisor(name: str, req: AdvisorUpdateRequest):
-    persona_file = _safe_path(name, f"{name.upper()}.md")
+    member = _get_member(name)
+    if not member:
+        raise HTTPException(404, f"Member {name} not found")
+    persona_file = VAULT_PATH / member.get("persona_file", "")
     if not persona_file.exists():
-        raise HTTPException(404, f"Advisor {name} not found")
+        raise HTTPException(404, f"Persona file not found for {name}")
     persona_file.write_text(req.content, encoding="utf-8")
     return {"ok": True, "name": name}
 
@@ -125,17 +137,20 @@ def update_assets(name: str, body: dict):
 
 @router.get("/advisors/{name}/team")
 def get_team(name: str):
-    specialists = _load_specialists()
-    team = [s for s in specialists if s.get("director") == name]
+    """Specialists that report to this director."""
+    team = [m for m in _load_org() if m.get("reports_to") == name and m.get("tier") == "specialist"]
     result = []
     for s in team:
-        spec_file = VAULT_PATH / s.get("file", "")
+        spec_file = VAULT_PATH / s.get("persona_file", "")
         result.append({
-            "id":     s["id"],
-            "name":   s["name"],
-            "domain": s.get("domain", ""),
-            "director": s.get("director", ""),
-            "has_persona": spec_file.exists() if s.get("file") else False,
+            "id":          s["id"],
+            "name":        s["name"],
+            "role":        s.get("role", ""),
+            "domain":      s.get("domain", ""),
+            "reports_to":  s.get("reports_to"),
+            "default_model": s.get("default_model", "claude-sonnet-4-6"),
+            "status":      s.get("status", "active"),
+            "has_persona": spec_file.exists() if s.get("persona_file") else False,
         })
     return {"director": name, "team": result}
 
