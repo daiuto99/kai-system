@@ -2,9 +2,7 @@ import React, { useState, useEffect } from 'react'
 
 const API = '/api'
 
-const COUNCIL   = ['beats','sky','roads','coach','doc','ember']
-const EXEC_TEAM = ['creative','dev','devops']
-const HAS_ORG   = ['creative','dev','devops','doc','coach','kai']
+// Tier groupings derived from API data — do not hardcode
 
 const STATUS_BADGE = {
   active:      { label: 'Active',      bg: '#10b98118', color: '#34d399', border: '#10b98130' },
@@ -317,7 +315,7 @@ function IntakeModal({ advisor, onClose }) {
 /* ── Photo-forward portrait card ─────────────────────────────────────────── */
 function AdvisorCard({ advisor, isSelected, onClick, onIntake, isExec = false }) {
   const [imgErr, setImgErr] = useState(false)
-  const hasOrg = HAS_ORG.includes(advisor.id)
+  const hasOrg = advisor.tier === 'director' || advisor.tier === 'orchestrator'
 
   return (
     <div onClick={onClick} style={{
@@ -421,7 +419,7 @@ function KaiCard({ advisor, isSelected, onClick, onIntake }) {
         style={{ position: 'absolute', top: 14, left: 14, display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(0,0,0,0.45)', cursor: 'pointer', color: '#fff', fontSize: 11, fontWeight: 600, backdropFilter: 'blur(6px)' }}>
         <IntakeIcon /> Intake
       </button>
-      {HAS_ORG.includes('kai') && (
+      {true && (
         <button onClick={e => { e.stopPropagation(); document.getElementById('org-kai')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
           style={{ position: 'absolute', top: 14, right: 14, display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(0,0,0,0.45)', cursor: 'pointer', color: '#fff', fontSize: 11, fontWeight: 600, backdropFilter: 'blur(6px)' }}>
           <OrgIcon color="#fff" /> Team
@@ -655,21 +653,22 @@ export default function Advisors() {
   }, [])
 
   useEffect(() => {
-    const dirs = ['kai','creative','dev','devops','doc','coach']
+    if (!advisors || advisors.length === 0) return
+    const dirs = advisors.filter(a => a.tier === 'director' || a.id === 'kai').map(a => a.id)
     Promise.all(dirs.map(id => fetch(API + '/advisors/' + id + '/team').then(r=>r.json()).catch(()=>({team:[]}))))
       .then(results => {
         const map = {}
         dirs.forEach((id,i) => { map[id] = results[i].team || [] })
         setTeamData(map)
       })
-  }, [])
+  }, [advisors])
 
   const byId = id => advisors?.find(a => a.id === id)
   const select = a => setSelected(s => s?.id === a.id ? null : a)
 
-  const councilAdvisors = COUNCIL.map(id => byId(id)).filter(Boolean)
-  const execAdvisors    = EXEC_TEAM.map(id => byId(id)).filter(Boolean)
-  const orgAdvisors     = HAS_ORG.map(id => byId(id)).filter(a => a && (teamData[a.id]||[]).length)
+  const directorAdvisors = (advisors || []).filter(a => a.tier === 'director')
+  const advisorTierMembers = (advisors || []).filter(a => a.tier === 'advisor')
+  const orgAdvisors = (advisors || []).filter(a => (a.tier === 'director' || a.id === 'kai') && (teamData[a.id]||[]).length > 0)
   const kai = byId('kai')
 
   return (
@@ -695,16 +694,16 @@ export default function Advisors() {
               </div>
             )}
 
-            {/* Council */}
-            <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-subtle)', marginBottom:10 }}>The Council</div>
+            {/* Directors */}
+            <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-subtle)', marginBottom:10 }}>Directors</div>
             <div style={{ marginBottom: 28 }}>
-              <CardGrid advisors={councilAdvisors} selected={selected} onSelect={select} onIntake={setIntakeAdvisor} />
+              <CardGrid advisors={directorAdvisors} selected={selected} onSelect={select} onIntake={setIntakeAdvisor} isExec={true} cols={4} />
             </div>
 
-            {/* Exec team */}
-            <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-subtle)', marginBottom:10 }}>Executive Team</div>
+            {/* Advisors */}
+            <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-subtle)', marginBottom:10 }}>Advisors</div>
             <div style={{ marginBottom: 36 }}>
-              <CardGrid advisors={execAdvisors} selected={selected} onSelect={select} onIntake={setIntakeAdvisor} isExec={true} cols={4} />
+              <CardGrid advisors={advisorTierMembers} selected={selected} onSelect={select} onIntake={setIntakeAdvisor} />
             </div>
 
             {/* Org sections */}
