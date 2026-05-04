@@ -74,8 +74,8 @@ def _list_specialists() -> dict:
 
 
 def _consult_specialist(specialist_id: str, question: str, context: str) -> dict:
-    from providers import get_anthropic_client
     from council_config import _track_usage
+    from router import _run_agentic_loop
     if not SPECIALISTS_FILE.exists():
         return {"error": "Specialists registry not found"}
 
@@ -87,7 +87,6 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
 
     spec_file = VAULT_PATH / spec["file"]
     if not spec_file.exists():
-        # Fall back to the full advisor persona if the specialist stub is missing
         advisor_persona = VAULT_PATH / "60_Council" / specialist_id / f"{specialist_id.upper()}.md"
         if advisor_persona.exists():
             spec_file = advisor_persona
@@ -137,15 +136,12 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
         user_msg = f"Context: {context}\n\nQuestion: {question}"
 
     try:
-        client = get_anthropic_client()
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1500,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}]
+        messages = [{"role": "user", "content": user_msg}]
+        # Specialists are end-of-chain — no tools, no further delegation
+        reply, input_tokens, output_tokens = _run_agentic_loop(
+            messages, [], "claude-sonnet-4-6", system, specialist_id
         )
-        reply = response.content[0].text
-        _track_usage("specialist", response.usage.input_tokens, response.usage.output_tokens)
+        _track_usage("specialist", input_tokens, output_tokens)
         return {
             "specialist": spec["name"],
             "domain": spec["domain"],
@@ -154,9 +150,6 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
     except Exception as e:
         logger.exception("consult_specialist: %s", e)
         return {"error": str(e)}
-
-
-# ── Category handlers ─────────────────────────────────────────────────────────
 
 def _h_workflows(client, tool_name, ti, advisor):
     if tool_name == "save_workflow":

@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.13.0 · 2026-05-03 — LangGraph Session 1: /council/orchestrate live, channel_router, advisor_node, SQLite checkpoint, audit log</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.14.0 · 2026-05-04 — KAI-200: True agentic delegation — 26-member org.json, Director Operating Mode, consult_specialist as execution mechanism</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -588,154 +588,214 @@
 
 <!-- ADVISORS -->
 <div id="panel-advisors" class="panel">
-  <div style="margin-bottom:12px;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px">
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#64748b;margin-bottom:8px">Council Architecture Rule</div>
-    <div style="font-size:13px;color:#94a3b8;line-height:1.7"><strong style="color:#e2e8f0">Council members</strong> = directly DM-able personas with real relationships. <strong style="color:#e2e8f0">Functions</strong> = capabilities invoked by their director (no persona, no SideKick, no DM). If you talk to them directly — they're Council. If they only exist as a role under a director — they're a Function.</div>
-    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-      <span class="badge badge-purple">SideKick: configurable per council member</span>
-      <span class="badge badge-blue">Priority: Sky → Roads → Ember → Beats → Coach → others</span>
+
+  <!-- Delegation Architecture Header -->
+  <div style="margin-bottom:16px;background:#1e293b;border:1px solid #6366f144;border-radius:10px;padding:16px">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#a5b4fc;margin-bottom:8px">KAI-200 — True Agentic Delegation</div>
+    <div style="font-size:13px;color:#94a3b8;line-height:1.8">
+      The council runs on a <strong style="color:#e2e8f0">4-tier org structure</strong> backed by <code style="background:#0f172a;padding:2px 6px;border-radius:4px;color:#a5b4fc">org.json</code> (26 members). Every advisor is a real agentic loop via LangGraph. Directors delegate to specialists via <code style="background:#0f172a;padding:2px 6px;border-radius:4px;color:#a5b4fc">consult_specialist()</code> — the execution mechanism, not an optional call. Specialists are end-of-chain agents with full persona depth.
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <span class="badge badge-purple">Orchestrator → routes to all</span>
+      <span class="badge badge-blue">Directors → delegate to specialists</span>
+      <span class="badge badge-cyan">Advisors → domain depth, no delegation</span>
+      <span class="badge badge-green">Specialists → agentic end-nodes</span>
     </div>
   </div>
 
-  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#64748b;margin-bottom:8px">Direct Reports to KAI — 9 Council Members</div>
+  <!-- ORCHESTRATOR -->
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#a5b4fc;margin-bottom:8px">Orchestrator</div>
+  <div style="margin-bottom:20px">
+    <div class="advisor-card" style="border-color:#6366f166;max-width:400px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <img src="/avatar-kai.png" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
+        <div>
+          <div class="advisor-name" style="color:#a5b4fc">KAI</div>
+          <div class="advisor-domain">Chief of Staff · Trusted Confidant · JARVIS DNA</div>
+        </div>
+      </div>
+      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+        <span class="badge badge-purple">30 tools</span>
+        <span class="badge badge-blue">consult_specialist</span>
+        <span class="badge badge-cyan">Slack DM</span>
+        <span class="badge badge-cyan">Telegram</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6 · Haiku/Sonnet/Opus by complexity</span></div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">Routes to any director or specialist. Handles ops, coordination, synthesis directly. Delegates all domain work.</div>
+    </div>
+  </div>
+
+  <!-- DIRECTORS -->
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#60a5fa;margin-bottom:8px">Directors — Tier 2 (report to KAI)</div>
   <div class="grid grid-3" style="margin-bottom:20px">
 
-    <div class="advisor-card" style="border-color:#6366f144">
-      <div class="advisor-name" style="color:#a5b4fc">KAI</div>
-      <div class="advisor-domain">Chief of Staff · Closest Trusted Confidant · JARVIS DNA</div>
-      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
-        <span class="badge badge-purple">Slack DM</span>
-        <span class="badge badge-cyan">Telegram</span>
-        <span class="badge badge-blue">Tool-use</span>
-        <span class="badge badge-green">44 tools</span>
+    <div class="advisor-card" style="border-color:#ec489966">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <img src="/avatar-creative.png" style="width:32px;height:32px;border-radius:50%;object-fit:cover">
+        <div class="advisor-name" style="color:#f472b6">Creative</div>
+      </div>
+      <div class="advisor-domain">Creative Director · Brand · Design · Copy · Campaigns</div>
+      <div style="margin-top:8px;font-size:11px;color:#64748b">Delegates to:</div>
+      <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+        <span class="badge badge-pink">copywriter</span>
+        <span class="badge badge-pink">designer</span>
+        <span class="badge badge-pink">graphic-designer</span>
+        <span class="badge badge-pink">strategist</span>
+        <span class="badge badge-pink">brand</span>
       </div>
       <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
-      <div style="font-size:11px;color:#64748b;margin-top:6px">System + persona. Command center. Every tool runs through KAI chief.</div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#3b82f666">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <img src="/avatar-dev.png" style="width:32px;height:32px;border-radius:50%;object-fit:cover">
+        <div class="advisor-name" style="color:#60a5fa">Dev</div>
+      </div>
+      <div class="advisor-domain">Technical Director · Architecture · Engineering Leadership</div>
+      <div style="margin-top:8px;font-size:11px;color:#64748b">Delegates to:</div>
+      <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+        <span class="badge badge-blue">architect</span>
+        <span class="badge badge-blue">lead-developer</span>
+        <span class="badge badge-blue">data-engineer</span>
+        <span class="badge badge-blue">test-engineer</span>
+        <span class="badge badge-blue">pm</span>
+        <span class="badge badge-blue">lse</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#f59e0b66">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <img src="/avatar-devops.png" style="width:32px;height:32px;border-radius:50%;object-fit:cover">
+        <div class="advisor-name" style="color:#fbbf24">DevOps</div>
+      </div>
+      <div class="advisor-domain">Infrastructure · Containers · Monitoring · Server Health</div>
+      <div style="margin-top:8px;font-size:11px;color:#64748b">Executes T1 ops directly · Consults for architecture:</div>
+      <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+        <span class="badge badge-yellow">architect</span>
+        <span class="badge badge-yellow">lse</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#10b98166">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <img src="/avatar-doc.png" style="width:32px;height:32px;border-radius:50%;object-fit:cover">
+        <div class="advisor-name" style="color:#34d399">Doc</div>
+      </div>
+      <div class="advisor-domain">Chief Medical Advisor · Longevity · Biomarkers · Clinical</div>
+      <div style="margin-top:8px;font-size:11px;color:#64748b">Privacy-first — team as attributes, via KAI:</div>
+      <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+        <span class="badge badge-green">nurse</span>
+        <span class="badge badge-green">medical-researcher</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-yellow">Ollama · qwen2.5:3b · local</span></div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#f59e0b66">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <img src="/avatar-coach.png" style="width:32px;height:32px;border-radius:50%;object-fit:cover">
+        <div class="advisor-name" style="color:#fbbf24">Coach</div>
+      </div>
+      <div class="advisor-domain">Fitness · Performance · Recovery · Accountability</div>
+      <div style="margin-top:8px;font-size:11px;color:#64748b">Delegates to:</div>
+      <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+        <span class="badge badge-yellow">chef</span>
+        <span class="badge badge-yellow">meditation</span>
+      </div>
+      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
+    </div>
+
+  </div>
+
+  <!-- ADVISORS -->
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#22d3ee;margin-bottom:8px">Advisors — Tier 3 (report to KAI · domain depth · no delegation)</div>
+  <div class="grid grid-4" style="margin-bottom:20px">
+
+    <div class="advisor-card" style="border-color:#8b5cf644">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <img src="/avatar-beats.png" style="width:28px;height:28px;border-radius:50%;object-fit:cover">
+        <div class="advisor-name" style="color:#c4b5fd;font-size:14px">Beats</div>
+      </div>
+      <div class="advisor-domain" style="font-size:11px">Musical Partner · Rick Beato model · Theory + production</div>
+      <div class="advisor-model" style="margin-top:6px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
+    </div>
+
+    <div class="advisor-card" style="border-color:#ec489944">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <img src="/avatar-ember.png" style="width:28px;height:28px;border-radius:50%;object-fit:cover">
+        <div class="advisor-name" style="color:#f472b6;font-size:14px">Ember</div>
+      </div>
+      <div class="advisor-domain" style="font-size:11px">Therapeutic Partner · Emotional health · Fort Knox privacy</div>
+      <div class="advisor-model" style="margin-top:6px"><span class="badge badge-yellow">Ollama · local · sealed vault</span></div>
     </div>
 
     <div class="advisor-card" style="border-color:#06b6d444">
-      <div class="advisor-name" style="color:#22d3ee">Sky</div>
-      <div class="advisor-domain">Studio Creative Collaborator · Session Director</div>
-      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
-        <span class="badge badge-pink">Slack DM</span>
-        <span class="badge badge-cyan">SideKick ✓ (priority 1)</span>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <img src="/avatar-sky.png" style="width:28px;height:28px;border-radius:50%;object-fit:cover">
+        <div class="advisor-name" style="color:#22d3ee;font-size:14px">Sky</div>
       </div>
-      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
-      <div style="font-size:11px;color:#64748b;margin-top:6px">Always on in session. Irreverent, trusted. Runs the studio. Gear knowledge Sprint 20.</div>
+      <div class="advisor-domain" style="font-size:11px">Studio Creative Collaborator · Session Director · Signal flow</div>
+      <div class="advisor-model" style="margin-top:6px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
     </div>
 
     <div class="advisor-card" style="border-color:#f59e0b44">
-      <div class="advisor-name" style="color:#fbbf24">Roads</div>
-      <div class="advisor-domain">Guitar Tech & Friend · Guitars · Amps · Live Rig</div>
-      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
-        <span class="badge badge-pink">Slack DM</span>
-        <span class="badge badge-cyan">SideKick ✓ (priority 2)</span>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <img src="/avatar-roads.png" style="width:28px;height:28px;border-radius:50%;object-fit:cover">
+        <div class="advisor-name" style="color:#fbbf24;font-size:14px">Roads</div>
       </div>
-      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
-      <div style="font-size:11px;color:#64748b;margin-top:6px">30-year friend + tech. Called when needed. Gear knowledge Sprint 20.</div>
-    </div>
-
-    <div class="advisor-card" style="border-color:#ec489944">
-      <div class="advisor-name" style="color:#f472b6">Ember</div>
-      <div class="advisor-domain">Personal Coach · Therapeutic Partner · Fort Knox</div>
-      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
-        <span class="badge badge-pink">Slack DM</span>
-        <span class="badge badge-yellow">Local-first</span>
-        <span class="badge badge-cyan">SideKick (priority 3)</span>
-      </div>
-      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-yellow">Ollama · qwen2.5:3b</span><span class="badge badge-red" style="margin-left:6px">Fort Knox Sprint 20</span></div>
-      <div style="font-size:11px;color:#64748b;margin-top:6px">Modeled after 2 therapists. Privacy: sealed vault, CAST.md anonymization. Sprint 20 GATED on Leo sign-off.</div>
-    </div>
-
-    <div class="advisor-card" style="border-color:#10b98144">
-      <div class="advisor-name" style="color:#34d399">Doc</div>
-      <div class="advisor-domain">Chief Medical Advisor · Longevity · Peter Attia model</div>
-      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
-        <span class="badge badge-pink">Slack DM</span>
-        <span class="badge badge-yellow">Local-first</span>
-      </div>
-      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-yellow">Ollama · qwen2.5:3b</span><span class="badge badge-red" style="margin-left:6px">Fort Knox Sprint 20</span></div>
-      <div style="font-size:11px;color:#64748b;margin-top:6px">Medical, longevity, general wellness. NOT workouts/nutrition (that's Coach). Same Fort Knox privacy as Ember.</div>
-    </div>
-
-    <div class="advisor-card" style="border-color:#8b5cf644">
-      <div class="advisor-name" style="color:#c4b5fd">Beats</div>
-      <div class="advisor-domain">Musical Partner & Mentor · Rick Beato model</div>
-      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
-        <span class="badge badge-pink">Slack DM</span>
-        <span class="badge badge-cyan">SideKick (priority 4)</span>
-      </div>
-      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
-      <div style="font-size:11px;color:#64748b;margin-top:6px">Theory, learning, playing, expanding musically. Mentor not peer. Knowledge base (Beato catalog) Sprint 19.</div>
-    </div>
-
-    <div class="advisor-card" style="border-color:#f59e0b44">
-      <div class="advisor-name" style="color:#fbbf24">Coach</div>
-      <div class="advisor-domain">Health & Performance · Workouts · Nutrition · Wellness</div>
-      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
-        <span class="badge badge-pink">Slack DM</span>
-        <span class="badge badge-cyan">SideKick (priority 5)</span>
-      </div>
-      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
-      <div style="font-size:11px;color:#64748b;margin-top:6px">Tony Robbins + Chef + S&amp;C Coach. Meal plans, workouts, meditation, stretching. NOT medical (that's Doc).</div>
-    </div>
-
-    <div class="advisor-card" style="border-color:#ec489944">
-      <div class="advisor-name" style="color:#f472b6">Creative</div>
-      <div class="advisor-domain">Creative Director · Visual Design · Brand · Marketing</div>
-      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
-        <span class="badge badge-pink">Slack DM</span>
-        <span class="badge badge-yellow">Future Claude Design</span>
-      </div>
-      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
-      <div style="font-size:11px;color:#64748b;margin-top:6px">Primary creative force. Visual/brand/marketing background. Functions (design, UI/UX, copy) report to her.</div>
-    </div>
-
-    <div class="advisor-card" style="border-color:#3b82f644">
-      <div class="advisor-name" style="color:#60a5fa">Dev</div>
-      <div class="advisor-domain">Technical Director · Code · Software Engineering</div>
-      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
-        <span class="badge badge-pink">Slack DM</span>
-      </div>
-      <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
-      <div style="font-size:11px;color:#64748b;margin-top:6px">Engineering counterpart to Creative. Functions (architect, lead dev, QA, data) report to Dev.</div>
+      <div class="advisor-domain" style="font-size:11px">Guitar Tech & Friend · Live rig · Gear · Tone</div>
+      <div class="advisor-model" style="margin-top:6px"><span class="badge badge-purple">claude-sonnet-4-6</span></div>
     </div>
 
   </div>
 
-  <div class="grid grid-2">
-    <div class="card">
-      <div class="card-title">Functions — Under Creative Director</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
-        <span class="badge badge-pink">Designer</span>
-        <span class="badge badge-pink">Graphic Designer</span>
-        <span class="badge badge-pink">Copywriter</span>
-        <span class="badge badge-pink">UI/UX</span>
-        <span class="badge badge-pink">Brand Strategist</span>
-      </div>
-      <p style="margin-top:10px;font-size:12px;color:#64748b">Invoked by Creative Director on demand. No DM, no SideKick, no persona relationship.</p>
-    </div>
-    <div class="card">
-      <div class="card-title">Functions — Under Dev Director</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
-        <span class="badge badge-blue">Architect</span>
-        <span class="badge badge-blue">Lead Developer</span>
-        <span class="badge badge-blue">Data Engineer</span>
-        <span class="badge badge-blue">Test Engineer</span>
-        <span class="badge badge-blue">Researcher</span>
-        <span class="badge badge-blue">Product Manager</span>
-      </div>
-      <p style="margin-top:10px;font-size:12px;color:#64748b">Invoked by Dev Director on demand. No DM, no SideKick, no persona relationship.</p>
-    </div>
-  </div>
+  <!-- SPECIALISTS -->
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#4ade80;margin-bottom:8px">Specialists — Tier 4 (agentic end-nodes · full persona depth · no further delegation)</div>
+  <div class="grid grid-3">
 
-  <div class="card" style="margin-top:16px;border-color:#64748b30">
-    <div class="card-title">Retired</div>
-    <div style="font-size:13px;color:#64748b"><strong style="color:#94a3b8">Biz</strong> — Retired. Analytical capability absorbed into KAI workflows. No genuine relationship requiring a council seat. Business strategy as needed via KAI tools and existing advisors.</div>
+    <div class="card" style="border-color:#ec489930">
+      <div class="card-title" style="color:#f472b6">Under Creative</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+        <span class="badge badge-pink">copywriter</span>
+        <span class="badge badge-pink">designer</span>
+        <span class="badge badge-pink">graphic-designer</span>
+        <span class="badge badge-pink">brand</span>
+        <span class="badge badge-pink">strategist*</span>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-top:8px">Real agentic loops. Full persona files (300–940 lines each). Qdrant knowledge injection when available.</div>
+    </div>
+
+    <div class="card" style="border-color:#3b82f630">
+      <div class="card-title" style="color:#60a5fa">Under Dev</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+        <span class="badge badge-blue">architect</span>
+        <span class="badge badge-blue">lead-developer</span>
+        <span class="badge badge-blue">data-engineer</span>
+        <span class="badge badge-blue">test-engineer</span>
+        <span class="badge badge-blue">pm</span>
+        <span class="badge badge-blue">lse</span>
+        <span class="badge badge-blue">researcher*</span>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-top:8px">Real agentic loops. Full persona files. DevOps also routes to architect + lse for design decisions.</div>
+    </div>
+
+    <div class="card" style="border-color:#10b98130">
+      <div class="card-title" style="color:#34d399">Under Doc &amp; Coach</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+        <span class="badge badge-green">nurse</span>
+        <span class="badge badge-green">medical-researcher</span>
+        <span class="badge badge-yellow">chef</span>
+        <span class="badge badge-yellow">meditation</span>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-top:8px">Doc specialists accessible via KAI (privacy-first local model). Coach delegates chef + meditation directly.</div>
+    </div>
+
   </div>
+  <div style="font-size:11px;color:#475569;margin-top:8px">* strategist and researcher report to KAI but are accessible to all directors</div>
+
 </div>
 
-<!-- COMMUNICATION -->
 <div id="panel-comms" class="panel">
   <div class="grid grid-2" style="margin-bottom:20px">
     <div class="card">
