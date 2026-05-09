@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +19,26 @@ WP_TASKS_FILE = VAULT_PATH / "00_System" / "wp_task_queue.json"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+def _atomic_write_json(path: Path, data) -> None:
+    # Write to sibling tmp then os.replace for crash-safe atomicity.
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    os.replace(tmp, path)
+
+
+def _safe_json(response):
+    # Returns parsed JSON, or an error dict with body preview if the response
+    # body is non-JSON (e.g., origin returned an HTML error page).
+    try:
+        return response.json()
+    except (ValueError, json.JSONDecodeError):
+        return {
+            "_error": "non_json_response",
+            "_status_code": response.status_code,
+            "_body_preview": response.text[:200],
+        }
+
+
 def _load_sites() -> dict:
     if not WP_SITES_FILE.exists():
         return {}
@@ -25,7 +46,7 @@ def _load_sites() -> dict:
 
 
 def _save_sites(sites: dict):
-    WP_SITES_FILE.write_text(json.dumps({"sites": sites}, indent=2))
+    _atomic_write_json(WP_SITES_FILE, {"sites": sites})
 
 
 def _get_site(site_id: str) -> dict:
@@ -52,7 +73,7 @@ def _load_tasks() -> list:
 
 
 def _save_tasks(tasks: list):
-    WP_TASKS_FILE.write_text(json.dumps(tasks, indent=2))
+    _atomic_write_json(WP_TASKS_FILE, tasks)
 
 
 # ── sites ────────────────────────────────────────────────────────────────────
@@ -101,14 +122,25 @@ def add_site(req: SiteAddRequest):
     return {"ok": True, "site_id": req.site_id, "url": req.url}
 
 
+class SiteUpdateRequest(BaseModel):
+    # Whitelist of safe fields. Credential / identity fields (app_password,
+    # username, url) are intentionally excluded — rotate via add_site flow.
+    description: Optional[str] = None
+    business: Optional[str] = None
+    blank_canvas_installed: Optional[bool] = None
+
+
 @router.patch("/wordpress/sites/{site_id}")
-def update_site(site_id: str, req: dict):
+def update_site(site_id: str, req: SiteUpdateRequest):
     sites = _load_sites()
     if site_id not in sites:
         raise HTTPException(404, f"Site '{site_id}' not found")
-    sites[site_id].update(req)
+    updates = {k: v for k, v in req.dict().items() if v is not None}
+    if not updates:
+        return {"ok": True, "site_id": site_id, "updated_fields": []}
+    sites[site_id].update(updates)
     _save_sites(sites)
-    return {"ok": True, "site_id": site_id}
+    return {"ok": True, "site_id": site_id, "updated_fields": list(updates.keys())}
 
 
 # ── posts ────────────────────────────────────────────────────────────────────
@@ -130,7 +162,9 @@ def get_posts(site_id: str, count: int = 10, status: str = "any", page_type: str
             )
             if r.status_code != 200:
                 return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
-            items = r.json()
+            items = _safe_json(r)
+            if isinstance(items, dict) and items.get("_error"):
+                return {"error": "non-JSON response from origin", **items}
             return {
                 "site": site_id,
                 "url": site["url"],
@@ -168,7 +202,9 @@ def get_post(site_id: str, post_id: int, post_type: str = "posts"):
             )
             if r.status_code != 200:
                 return {"error": f"WP returned {r.status_code}"}
-            p = r.json()
+            p = _safe_json(r)
+            if isinstance(p, dict) and p.get("_error"):
+                return {"error": "non-JSON response from origin", **p}
             return {
                 "id": p.get("id"),
                 "title": p.get("title", {}).get("rendered", ""),
@@ -208,14 +244,16 @@ def create_post(site_id: str, req: PostCreateRequest):
                 for tag_name in req.tags:
                     tr = client.get(f"{site['url']}/wp-json/wp/v2/tags",
                                     params={"search": tag_name}, headers=headers, timeout=10)
-                    existing = tr.json() if tr.status_code == 200 else []
-                    if existing:
+                    existing = _safe_json(tr) if tr.status_code == 200 else []
+                    if isinstance(existing, list) and existing:
                         tag_ids.append(existing[0]["id"])
                     else:
                         cr = client.post(f"{site['url']}/wp-json/wp/v2/tags",
                                          json={"name": tag_name}, headers=headers, timeout=10)
                         if cr.status_code in (200, 201):
-                            tag_ids.append(cr.json().get("id"))
+                            cj = _safe_json(cr)
+                            if isinstance(cj, dict) and cj.get("id") is not None:
+                                tag_ids.append(cj["id"])
 
             payload = {
                 "title": req.title,
@@ -234,7 +272,9 @@ def create_post(site_id: str, req: PostCreateRequest):
                             json=payload, headers=headers, timeout=30)
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}", "body": r.text[:500]}
-            p = r.json()
+            p = _safe_json(r)
+            if isinstance(p, dict) and p.get("_error"):
+                return {"error": "non-JSON response from origin", **p}
             return {
                 "created": True,
                 "id": p.get("id"),
@@ -275,7 +315,9 @@ def update_post(site_id: str, post_id: int, req: PostUpdateRequest):
             )
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
-            p = r.json()
+            p = _safe_json(r)
+            if isinstance(p, dict) and p.get("_error"):
+                return {"error": "non-JSON response from origin", **p}
             return {"updated": True, "id": p.get("id"), "status": p.get("status"), "link": p.get("link")}
     except Exception as e:
         logger.exception("update_post %s/%s: %s", site_id, post_id, e)
@@ -295,7 +337,9 @@ def publish_post(site_id: str, post_id: int, post_type: str = "posts"):
             )
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}"}
-            p = r.json()
+            p = _safe_json(r)
+            if isinstance(p, dict) and p.get("_error"):
+                return {"error": "non-JSON response from origin", **p}
             return {"published": True, "id": p.get("id"), "link": p.get("link"), "status": p.get("status")}
     except Exception as e:
         logger.exception("publish_post %s/%s: %s", site_id, post_id, e)
@@ -313,7 +357,27 @@ def delete_post(site_id: str, post_id: int, post_type: str = "posts", force: boo
                 params={"force": str(force).lower()},
                 headers=_auth_header(site),
             )
-            return {"deleted": r.status_code in (200, 201), "status_code": r.status_code}
+            if r.status_code not in (200, 201):
+                return {"ok": False, "status_code": r.status_code, "body": r.text[:300]}
+            data = _safe_json(r)
+            # WP REST: force=true returns {"deleted": true, "previous": {...}};
+            # force=false returns the post object with status=trash.
+            if isinstance(data, dict) and data.get("deleted") is True:
+                prev = data.get("previous", {}) or {}
+                return {
+                    "ok": True,
+                    "id": post_id,
+                    "permanent": True,
+                    "previous_status": prev.get("status"),
+                }
+            status = data.get("status") if isinstance(data, dict) else None
+            return {
+                "ok": True,
+                "id": post_id,
+                "permanent": False,
+                "trashed": status == "trash",
+                "status": status,
+            }
     except Exception as e:
         logger.exception("delete_post %s/%s: %s", site_id, post_id, e)
         return {"error": str(e)}
@@ -349,13 +413,15 @@ def get_site_info(site_id: str):
     try:
         with httpx.Client(timeout=20, follow_redirects=True) as client:
             root_r = client.get(f"{site['url']}/wp-json/", timeout=10)
-            d = root_r.json() if root_r.status_code == 200 else {}
+            d_raw = _safe_json(root_r) if root_r.status_code == 200 else {}
+            d = d_raw if isinstance(d_raw, dict) and not d_raw.get("_error") else {}
             pages_r = client.get(
                 f"{site['url']}/wp-json/wp/v2/pages",
                 params={"per_page": 50, "_fields": "id,title,slug,status,link,template"},
                 headers=_auth_header(site),
             )
-            pages = pages_r.json() if pages_r.status_code == 200 else []
+            pages_raw = _safe_json(pages_r) if pages_r.status_code == 200 else []
+            pages = pages_raw if isinstance(pages_raw, list) else []
             return {
                 "site": site_id,
                 "url": site["url"],
@@ -386,7 +452,10 @@ def get_menus(site_id: str):
                 return {"menus": [], "note": "WP REST menus endpoint not available — may need WP Menus REST API plugin"}
             if r.status_code != 200:
                 return {"error": f"WP returned {r.status_code}"}
-            return {"menus": r.json()}
+            menus = _safe_json(r)
+            if isinstance(menus, dict) and menus.get("_error"):
+                return {"error": "non-JSON response from origin", **menus}
+            return {"menus": menus}
     except Exception as e:
         logger.exception("get_menus %s: %s", site_id, e)
         return {"error": str(e)}
