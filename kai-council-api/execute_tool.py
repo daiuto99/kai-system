@@ -512,10 +512,18 @@ def _h_wordpress(client, tool_name, ti, advisor):
         if not site:
             available = list(wp_sites["sites"].keys())
             raise ValueError(f"Unknown site: {site_key}. Available: {available}")
-        if not site.get("app_password"):
+        kai_pw = site.get("kai_app_password")
+        if kai_pw:
+            user, pw = "kai", kai_pw
+        elif site.get("app_password"):
+            user, pw = site.get("username", ""), site["app_password"]
+        else:
             raise ValueError(f"No app password configured for {site_key}.")
-        creds = _b64.b64encode(f"{site['username']}:{site['app_password']}".encode()).decode()
-        return site, creds
+        creds = _b64.b64encode(f"{user}:{pw}".encode()).decode()
+        fqdn = site.get("cloudways_fqdn")
+        base_url = f"https://{fqdn}" if fqdn else site["url"]
+        verify = False if fqdn else True  # Cloudways FQDNs have no valid TLS cert
+        return site, creds, base_url, verify
 
     def _hdrs(creds):
         return {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
@@ -530,6 +538,162 @@ def _h_wordpress(client, tool_name, ti, advisor):
             "slug": p.get("slug", ""),
             "excerpt": p.get("excerpt", {}).get("rendered", "")[:200],
         }
+
+    # ── Cloudways SSH/file helpers ───────────────────────────────────────
+    import subprocess as _sp
+    import shlex as _sx
+    CLOUDWAYS_HOST = "134.209.166.23"
+    CLOUDWAYS_USER = "master_vvbwxpwpcc"
+    SSH_KEY = "/run/secrets/cloudways_ssh_key"
+    WEBROOT_BASE = "/home/1623875.cloudwaysapps.com"
+    MAX_FILE_BYTES = 524288  # 512 KB cap
+
+    def _site_root(site):
+        u = site.get("cloudways_sys_user")
+        if not u:
+            raise ValueError("site has no cloudways_sys_user")
+        return f"{WEBROOT_BASE}/{u}/public_html"
+
+    def _sandbox(site, rel):
+        if not rel:
+            raise ValueError("path required")
+        if rel.startswith("/"):
+            raise ValueError(f"absolute path not allowed: {rel}")
+        parts = rel.replace("\\", "/").split("/")
+        if ".." in parts:
+            raise ValueError(f"path traversal not allowed: {rel}")
+        return f"{_site_root(site)}/{rel.lstrip('/')}"
+
+    def _ssh(cmd, stdin_bytes=None, timeout=30):
+        args = ["ssh", "-i", SSH_KEY,
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "LogLevel=ERROR",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=10",
+                f"{CLOUDWAYS_USER}@{CLOUDWAYS_HOST}", cmd]
+        r = _sp.run(args, capture_output=True, timeout=timeout, input=stdin_bytes)
+        return r.returncode, r.stdout, r.stderr
+
+    if tool_name == "wordpress_read_file":
+        site_key = ti.get("site")
+        rel = ti.get("path", "")
+        try:
+            site, _, _, _ = _wp_creds(site_key)
+            abs_p = _sandbox(site, rel)
+            # check size first
+            rc, out, err = _ssh(f"stat -c%s {_sx.quote(abs_p)} 2>/dev/null || echo MISSING")
+            size_s = out.decode().strip()
+            if size_s == "MISSING":
+                return {"error": f"File not found: {rel}"}
+            if int(size_s) > MAX_FILE_BYTES:
+                return {"error": f"File too large ({size_s} bytes; max {MAX_FILE_BYTES})"}
+            rc, out, err = _ssh(f"cat {_sx.quote(abs_p)}", timeout=20)
+            if rc != 0:
+                return {"error": f"ssh cat failed: {err.decode()[:200]}"}
+            return {"site": site_key, "path": rel, "size": int(size_s), "content": out.decode("utf-8", errors="replace")}
+        except Exception as e:
+            logger.exception("wordpress_read_file: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_write_file":
+        site_key = ti.get("site")
+        rel = ti.get("path", "")
+        content_str = ti.get("content", "")
+        try:
+            site, _, _, _ = _wp_creds(site_key)
+            abs_p = _sandbox(site, rel)
+            content_b = content_str.encode("utf-8")
+            if len(content_b) > MAX_FILE_BYTES:
+                return {"error": f"Content too large ({len(content_b)} bytes; max {MAX_FILE_BYTES})"}
+            ts = _dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+            backup = f"{abs_p}.bak_{ts}"
+            # 1. Backup current file if present
+            backup_made = False
+            rc, _o, _e = _ssh(f"test -f {_sx.quote(abs_p)}")
+            if rc == 0:
+                rc2, _, err2 = _ssh(f"cp -p {_sx.quote(abs_p)} {_sx.quote(backup)}")
+                if rc2 != 0:
+                    return {"error": f"backup failed: {err2.decode()[:200]}"}
+                backup_made = True
+            # 2. Write via ssh-cat to a sibling tmp in the same directory, then mv (atomic same-fs)
+            import posixpath as _pp
+            _dir = _pp.dirname(abs_p) or _site_root(site)
+            remote_tmp = f"{_dir}/.kai_wp_{_uuid.uuid4().hex[:10]}.tmp"
+            rc3, _, err3 = _ssh(f"cat > {_sx.quote(remote_tmp)}", stdin_bytes=content_b, timeout=30)
+            if rc3 != 0:
+                _ssh(f"rm -f {_sx.quote(remote_tmp)}")
+                return {"error": f"ssh cat write failed: {err3.decode()[:200]}"}
+            rc4, out4, err4 = _ssh(f"mv {_sx.quote(remote_tmp)} {_sx.quote(abs_p)} && stat -c%s {_sx.quote(abs_p)}")
+            if rc4 != 0:
+                _ssh(f"rm -f {_sx.quote(remote_tmp)}")
+                return {"error": f"mv failed: {err4.decode()[:200]}"}
+            return {"site": site_key, "path": rel,
+                    "bytes_written": int(out4.decode().strip()),
+                    "backup": backup if backup_made else None}
+        except Exception as e:
+            logger.exception("wordpress_write_file: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_list_files":
+        site_key = ti.get("site")
+        rel = ti.get("path", "")
+        try:
+            site, _, _, _ = _wp_creds(site_key)
+            # allow empty path = webroot
+            if rel:
+                abs_p = _sandbox(site, rel)
+            else:
+                abs_p = _site_root(site)
+            rc, out, err = _ssh(f"ls -la --time-style=long-iso {_sx.quote(abs_p)} 2>&1", timeout=15)
+            if rc != 0:
+                return {"error": f"ssh ls failed: {out.decode()[:200]} {err.decode()[:200]}"}
+            lines = [l for l in out.decode().splitlines() if l and not l.startswith("total ")]
+            return {"site": site_key, "path": rel or ".", "abs_path": abs_p, "listing": lines}
+        except Exception as e:
+            logger.exception("wordpress_list_files: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_delete_file":
+        site_key = ti.get("site")
+        rel = ti.get("path", "")
+        try:
+            site, _, _, _ = _wp_creds(site_key)
+            abs_p = _sandbox(site, rel)
+            ts = _dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+            backup = f"{abs_p}.bak_{ts}"
+            # back up then delete
+            script = (
+                f"if [ ! -e {_sx.quote(abs_p)} ]; then echo MISSING; exit 2; fi && "
+                f"cp -p {_sx.quote(abs_p)} {_sx.quote(backup)} && rm {_sx.quote(abs_p)} && echo OK"
+            )
+            rc, out, err = _ssh(script, timeout=20)
+            tag = out.decode().strip()
+            if tag == "MISSING":
+                return {"error": f"File not found: {rel}"}
+            if rc != 0 or tag != "OK":
+                return {"error": f"ssh delete failed: {err.decode()[:200]}"}
+            return {"site": site_key, "path": rel, "deleted": True, "backup": backup}
+        except Exception as e:
+            logger.exception("wordpress_delete_file: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_purge_varnish":
+        site_key = ti.get("site")
+        url_path = ti.get("url_path", "/")
+        try:
+            site, _, _, _ = _wp_creds(site_key)
+            host_custom = site.get("url", "").replace("https://", "").replace("http://", "").rstrip("/")
+            host_fqdn = site.get("cloudways_fqdn", "")
+            results = {}
+            for host in filter(None, [host_custom, host_fqdn]):
+                cmd = f"curl -s -o /dev/null -w '%{{http_code}}' -X PURGE -H 'Host: {host}' http://localhost:8080{url_path}"
+                rc, out, err = _ssh(cmd, timeout=15)
+                results[host] = out.decode().strip() if rc == 0 else f"ssh_err: {err.decode()[:80]}"
+            return {"site": site_key, "url_path": url_path, "purges": results}
+        except Exception as e:
+            logger.exception("wordpress_purge_varnish: %s", e)
+            return {"error": str(e)}
 
     if tool_name == "wordpress_list_sites":
         wp_sites = json.loads((VAULT_PATH / "00_System" / "wordpress_sites.json").read_text())
@@ -547,12 +711,12 @@ def _h_wordpress(client, tool_name, ti, advisor):
         count = min(ti.get("count", 5), 20)
         status = ti.get("status", "any")
         try:
-            site, creds = _wp_creds(site_key)
+            site, creds, base_url, verify = _wp_creds(site_key)
             wp_params = {"per_page": count, "_fields": "id,title,status,date,link,slug,excerpt"}
             if status and status != "any":
                 wp_params["status"] = status
-            r = httpx.get(f"{site['url']}/wp-json/wp/v2/posts",
-                params=wp_params, headers=_hdrs(creds), follow_redirects=True, timeout=15)
+            r = httpx.get(f"{base_url}/wp-json/wp/v2/posts",
+                params=wp_params, headers=_hdrs(creds), follow_redirects=True, timeout=15, verify=verify)
             posts = r.json() if r.status_code == 200 else []
             return {"site": site_key, "url": site["url"], "posts": [_shape_item(p) for p in posts]}
         except Exception as e:
@@ -564,12 +728,12 @@ def _h_wordpress(client, tool_name, ti, advisor):
         count = min(ti.get("count", 20), 50)
         status = ti.get("status", "any")
         try:
-            site, creds = _wp_creds(site_key)
+            site, creds, base_url, verify = _wp_creds(site_key)
             wp_params = {"per_page": count, "_fields": "id,title,status,date,modified,link,slug,template"}
             if status and status != "any":
                 wp_params["status"] = status
-            r = httpx.get(f"{site['url']}/wp-json/wp/v2/pages",
-                params=wp_params, headers=_hdrs(creds), follow_redirects=True, timeout=15)
+            r = httpx.get(f"{base_url}/wp-json/wp/v2/pages",
+                params=wp_params, headers=_hdrs(creds), follow_redirects=True, timeout=15, verify=verify)
             pages = r.json() if r.status_code == 200 else []
             return {"site": site_key, "url": site["url"], "pages": [_shape_item(p) for p in pages], "count": len(pages)}
         except Exception as e:
@@ -582,9 +746,9 @@ def _h_wordpress(client, tool_name, ti, advisor):
         post_type = ti.get("post_type", "posts")
         endpoint = "pages" if post_type == "pages" else "posts"
         try:
-            site, creds = _wp_creds(site_key)
-            r = httpx.get(f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
-                headers=_hdrs(creds), follow_redirects=True, timeout=15)
+            site, creds, base_url, verify = _wp_creds(site_key)
+            r = httpx.get(f"{base_url}/wp-json/wp/v2/{endpoint}/{post_id}",
+                headers=_hdrs(creds), follow_redirects=True, timeout=15, verify=verify)
             if r.status_code != 200:
                 return {"error": f"WP returned {r.status_code}"}
             p = r.json()
@@ -601,13 +765,13 @@ def _h_wordpress(client, tool_name, ti, advisor):
     if tool_name == "wordpress_get_site_info":
         site_key = ti.get("site", "leodaiuto")
         try:
-            site, creds = _wp_creds(site_key)
+            site, creds, base_url, verify = _wp_creds(site_key)
             hdrs = _hdrs(creds)
-            root_r = httpx.get(f"{site['url']}/wp-json/", follow_redirects=True, timeout=10)
+            root_r = httpx.get(f"{base_url}/wp-json/", follow_redirects=True, timeout=10, verify=verify)
             d = root_r.json() if root_r.status_code == 200 else {}
-            pages_r = httpx.get(f"{site['url']}/wp-json/wp/v2/pages",
+            pages_r = httpx.get(f"{base_url}/wp-json/wp/v2/pages",
                 params={"per_page": 50, "_fields": "id,title,slug,status,link,template"},
-                headers=hdrs, follow_redirects=True, timeout=15)
+                headers=hdrs, follow_redirects=True, timeout=15, verify=verify)
             pages = pages_r.json() if pages_r.status_code == 200 else []
             return {
                 "site": site_key, "url": site["url"],
@@ -630,25 +794,25 @@ def _h_wordpress(client, tool_name, ti, advisor):
         tags = ti.get("tags", [])
         excerpt = ti.get("excerpt", "")
         try:
-            site, creds = _wp_creds(site_key)
+            site, creds, base_url, verify = _wp_creds(site_key)
             hdrs = _hdrs(creds)
             tag_ids = []
             for tag_name in tags:
-                tr = httpx.get(f"{site['url']}/wp-json/wp/v2/tags",
-                    params={"search": tag_name}, headers=hdrs, follow_redirects=True, timeout=10)
+                tr = httpx.get(f"{base_url}/wp-json/wp/v2/tags",
+                    params={"search": tag_name}, headers=hdrs, follow_redirects=True, timeout=10, verify=verify)
                 existing = tr.json() if tr.status_code == 200 else []
                 if existing:
                     tag_ids.append(existing[0]["id"])
                 else:
-                    cr = httpx.post(f"{site['url']}/wp-json/wp/v2/tags",
-                        json={"name": tag_name}, headers=hdrs, follow_redirects=True, timeout=10)
+                    cr = httpx.post(f"{base_url}/wp-json/wp/v2/tags",
+                        json={"name": tag_name}, headers=hdrs, follow_redirects=True, timeout=10, verify=verify)
                     if cr.status_code in (200, 201):
                         tag_ids.append(cr.json().get("id"))
             payload = {"title": title, "content": content_body, "status": status, "excerpt": excerpt}
             if tag_ids:
                 payload["tags"] = tag_ids
-            r = httpx.post(f"{site['url']}/wp-json/wp/v2/posts",
-                json=payload, headers=hdrs, follow_redirects=True, timeout=20)
+            r = httpx.post(f"{base_url}/wp-json/wp/v2/posts",
+                json=payload, headers=hdrs, follow_redirects=True, timeout=20, verify=verify)
             post = r.json()
             return {
                 "created": True, "id": post.get("id"), "status": post.get("status"),
@@ -667,12 +831,12 @@ def _h_wordpress(client, tool_name, ti, advisor):
         slug = ti.get("slug", "")
         template = ti.get("template", "")
         try:
-            site, creds = _wp_creds(site_key)
+            site, creds, base_url, verify = _wp_creds(site_key)
             payload = {"title": title, "content": content_body, "status": status, "template": template}
             if slug:
                 payload["slug"] = slug
-            r = httpx.post(f"{site['url']}/wp-json/wp/v2/pages",
-                json=payload, headers=_hdrs(creds), follow_redirects=True, timeout=30)
+            r = httpx.post(f"{base_url}/wp-json/wp/v2/pages",
+                json=payload, headers=_hdrs(creds), follow_redirects=True, timeout=30, verify=verify)
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
             p = r.json()
@@ -693,9 +857,9 @@ def _h_wordpress(client, tool_name, ti, advisor):
         endpoint = "pages" if post_type == "pages" else "posts"
         payload = {k: ti[k] for k in ("title", "content", "status", "excerpt", "slug", "template") if k in ti}
         try:
-            site, creds = _wp_creds(site_key)
-            r = httpx.patch(f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
-                json=payload, headers=_hdrs(creds), follow_redirects=True, timeout=30)
+            site, creds, base_url, verify = _wp_creds(site_key)
+            r = httpx.patch(f"{base_url}/wp-json/wp/v2/{endpoint}/{post_id}",
+                json=payload, headers=_hdrs(creds), follow_redirects=True, timeout=30, verify=verify)
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
             p = r.json()
@@ -710,9 +874,9 @@ def _h_wordpress(client, tool_name, ti, advisor):
         post_type = ti.get("post_type", "posts")
         endpoint = "pages" if post_type == "pages" else "posts"
         try:
-            site, creds = _wp_creds(site_key)
-            r = httpx.patch(f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
-                json={"status": "publish"}, headers=_hdrs(creds), follow_redirects=True, timeout=20)
+            site, creds, base_url, verify = _wp_creds(site_key)
+            r = httpx.patch(f"{base_url}/wp-json/wp/v2/{endpoint}/{post_id}",
+                json={"status": "publish"}, headers=_hdrs(creds), follow_redirects=True, timeout=20, verify=verify)
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}"}
             p = r.json()
@@ -725,9 +889,9 @@ def _h_wordpress(client, tool_name, ti, advisor):
         site_key = ti.get("site", "leodaiuto")
         css = ti.get("css", "")
         try:
-            site, creds = _wp_creds(site_key)
-            r = httpx.post(f"{site['url']}/wp-json/wp/v2/settings",
-                json={"custom_css": css}, headers=_hdrs(creds), follow_redirects=True, timeout=20)
+            site, creds, base_url, verify = _wp_creds(site_key)
+            r = httpx.post(f"{base_url}/wp-json/wp/v2/settings",
+                json={"custom_css": css}, headers=_hdrs(creds), follow_redirects=True, timeout=20, verify=verify)
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
             return {"ok": True, "site": site_key, "message": "Custom CSS updated"}

@@ -43,6 +43,7 @@ services:
       - tavily_api_key
       - oura_token
       - plane_api_token
+      - cloudways_ssh_key
     depends_on:
       kai-worker-api:
         condition: service_healthy
@@ -293,6 +294,8 @@ secrets:
     file: ./secrets/plane_api_token.txt
   oura_token:
     file: ./secrets/oura_token.txt
+  cloudways_ssh_key:
+    file: ./secrets/cloudways_ssh_key
   slack_bot_token_beats:
     file: ./secrets/slack_bot_token_beats.txt
   slack_app_token_beats:

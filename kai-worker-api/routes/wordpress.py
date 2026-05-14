@@ -54,15 +54,27 @@ def _get_site(site_id: str) -> dict:
     site = sites.get(site_id)
     if not site:
         raise HTTPException(404, f"Site '{site_id}' not found. Known sites: {list(sites.keys())}")
-    if not site.get("app_password"):
-        raise HTTPException(400, f"No app_password configured for '{site_id}'")
+    if not (site.get("kai_app_password") or site.get("app_password")):
+        raise HTTPException(400, f"No app password configured for '{site_id}' (kai_app_password or app_password)")
     return site
 
 
+def _base_url(site: dict) -> str:
+    fqdn = site.get("cloudways_fqdn")
+    return f"https://{fqdn}" if fqdn else site["url"]
+
+
+def _verify_for(site: dict) -> bool:
+    # Cloudways FQDNs do not have a valid TLS cert for the subdomain.
+    return not bool(site.get("cloudways_fqdn"))
+
+
 def _auth_header(site: dict) -> dict:
-    token = base64.b64encode(
-        f"{site['username']}:{site['app_password']}".encode()
-    ).decode()
+    if site.get("kai_app_password"):
+        user, pw = "kai", site["kai_app_password"]
+    else:
+        user, pw = site.get("username", ""), site["app_password"]
+    token = base64.b64encode(f"{user}:{pw}".encode()).decode()
     return {"Authorization": f"Basic {token}", "Content-Type": "application/json"}
 
 
@@ -150,13 +162,13 @@ def get_posts(site_id: str, count: int = 10, status: str = "any", page_type: str
     site = _get_site(site_id)
     endpoint = "pages" if page_type == "pages" else "posts"
     try:
-        with httpx.Client(timeout=20, follow_redirects=True) as client:
+        with httpx.Client(timeout=20, follow_redirects=True, verify=_verify_for(site)) as client:
             params = {"per_page": min(count, 50),
                       "_fields": "id,title,status,date,modified,link,excerpt,slug,template"}
             if status and status != "any":
                 params["status"] = status
             r = client.get(
-                f"{site['url']}/wp-json/wp/v2/{endpoint}",
+                f"{_base_url(site)}/wp-json/wp/v2/{endpoint}",
                 params=params,
                 headers=_auth_header(site),
             )
@@ -195,9 +207,9 @@ def get_post(site_id: str, post_id: int, post_type: str = "posts"):
     site = _get_site(site_id)
     endpoint = "pages" if post_type == "pages" else "posts"
     try:
-        with httpx.Client(timeout=20, follow_redirects=True) as client:
+        with httpx.Client(timeout=20, follow_redirects=True, verify=_verify_for(site)) as client:
             r = client.get(
-                f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
+                f"{_base_url(site)}/wp-json/wp/v2/{endpoint}/{post_id}",
                 headers=_auth_header(site),
             )
             if r.status_code != 200:
@@ -238,17 +250,17 @@ def create_post(site_id: str, req: PostCreateRequest):
     endpoint = "pages" if req.post_type == "pages" else "posts"
     headers = _auth_header(site)
     try:
-        with httpx.Client(timeout=30, follow_redirects=True) as client:
+        with httpx.Client(timeout=30, follow_redirects=True, verify=_verify_for(site)) as client:
             tag_ids = []
             if req.tags and endpoint == "posts":
                 for tag_name in req.tags:
-                    tr = client.get(f"{site['url']}/wp-json/wp/v2/tags",
+                    tr = client.get(f"{_base_url(site)}/wp-json/wp/v2/tags",
                                     params={"search": tag_name}, headers=headers, timeout=10)
                     existing = _safe_json(tr) if tr.status_code == 200 else []
                     if isinstance(existing, list) and existing:
                         tag_ids.append(existing[0]["id"])
                     else:
-                        cr = client.post(f"{site['url']}/wp-json/wp/v2/tags",
+                        cr = client.post(f"{_base_url(site)}/wp-json/wp/v2/tags",
                                          json={"name": tag_name}, headers=headers, timeout=10)
                         if cr.status_code in (200, 201):
                             cj = _safe_json(cr)
@@ -268,7 +280,7 @@ def create_post(site_id: str, req: PostCreateRequest):
             if tag_ids:
                 payload["tags"] = tag_ids
 
-            r = client.post(f"{site['url']}/wp-json/wp/v2/{endpoint}",
+            r = client.post(f"{_base_url(site)}/wp-json/wp/v2/{endpoint}",
                             json=payload, headers=headers, timeout=30)
             if r.status_code not in (200, 201):
                 return {"error": f"WP returned {r.status_code}", "body": r.text[:500]}
@@ -307,9 +319,9 @@ def update_post(site_id: str, post_id: int, req: PostUpdateRequest):
     endpoint = "pages" if req.post_type == "pages" else "posts"
     payload = {k: v for k, v in req.dict(exclude={"post_type"}).items() if v is not None}
     try:
-        with httpx.Client(timeout=30, follow_redirects=True) as client:
+        with httpx.Client(timeout=30, follow_redirects=True, verify=_verify_for(site)) as client:
             r = client.patch(
-                f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
+                f"{_base_url(site)}/wp-json/wp/v2/{endpoint}/{post_id}",
                 json=payload,
                 headers=_auth_header(site),
             )
@@ -329,9 +341,9 @@ def publish_post(site_id: str, post_id: int, post_type: str = "posts"):
     site = _get_site(site_id)
     endpoint = "pages" if post_type == "pages" else "posts"
     try:
-        with httpx.Client(timeout=20, follow_redirects=True) as client:
+        with httpx.Client(timeout=20, follow_redirects=True, verify=_verify_for(site)) as client:
             r = client.patch(
-                f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
+                f"{_base_url(site)}/wp-json/wp/v2/{endpoint}/{post_id}",
                 json={"status": "publish"},
                 headers=_auth_header(site),
             )
@@ -351,9 +363,9 @@ def delete_post(site_id: str, post_id: int, post_type: str = "posts", force: boo
     site = _get_site(site_id)
     endpoint = "pages" if post_type == "pages" else "posts"
     try:
-        with httpx.Client(timeout=20, follow_redirects=True) as client:
+        with httpx.Client(timeout=20, follow_redirects=True, verify=_verify_for(site)) as client:
             r = client.delete(
-                f"{site['url']}/wp-json/wp/v2/{endpoint}/{post_id}",
+                f"{_base_url(site)}/wp-json/wp/v2/{endpoint}/{post_id}",
                 params={"force": str(force).lower()},
                 headers=_auth_header(site),
             )
@@ -393,9 +405,9 @@ class CustomCSSRequest(BaseModel):
 def set_custom_css(site_id: str, req: CustomCSSRequest):
     site = _get_site(site_id)
     try:
-        with httpx.Client(timeout=20, follow_redirects=True) as client:
+        with httpx.Client(timeout=20, follow_redirects=True, verify=_verify_for(site)) as client:
             r = client.post(
-                f"{site['url']}/wp-json/wp/v2/settings",
+                f"{_base_url(site)}/wp-json/wp/v2/settings",
                 json={"custom_css": req.css},
                 headers=_auth_header(site),
             )
@@ -411,12 +423,12 @@ def set_custom_css(site_id: str, req: CustomCSSRequest):
 def get_site_info(site_id: str):
     site = _get_site(site_id)
     try:
-        with httpx.Client(timeout=20, follow_redirects=True) as client:
-            root_r = client.get(f"{site['url']}/wp-json/", timeout=10)
+        with httpx.Client(timeout=20, follow_redirects=True, verify=_verify_for(site)) as client:
+            root_r = client.get(f"{_base_url(site)}/wp-json/", timeout=10)
             d_raw = _safe_json(root_r) if root_r.status_code == 200 else {}
             d = d_raw if isinstance(d_raw, dict) and not d_raw.get("_error") else {}
             pages_r = client.get(
-                f"{site['url']}/wp-json/wp/v2/pages",
+                f"{_base_url(site)}/wp-json/wp/v2/pages",
                 params={"per_page": 50, "_fields": "id,title,slug,status,link,template"},
                 headers=_auth_header(site),
             )
@@ -443,9 +455,9 @@ def get_site_info(site_id: str):
 def get_menus(site_id: str):
     site = _get_site(site_id)
     try:
-        with httpx.Client(timeout=20, follow_redirects=True) as client:
+        with httpx.Client(timeout=20, follow_redirects=True, verify=_verify_for(site)) as client:
             r = client.get(
-                f"{site['url']}/wp-json/wp/v2/menus",
+                f"{_base_url(site)}/wp-json/wp/v2/menus",
                 headers=_auth_header(site),
             )
             if r.status_code == 404:
