@@ -204,14 +204,20 @@ services:
       - TZ=America/New_York
     volumes:
       - /home/leo/vault:/vault:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /home/leo/plane:/home/leo/plane:ro
+      - /home/leo/backups:/backups:ro
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     secrets:
       - anthropic_api_key
       - slack_bot_token
       - todoist_api_key
       - telegram_bot_token
       - oura_token
+      - plane_api_token
     depends_on:
       kai-worker-api:
         condition: service_healthy

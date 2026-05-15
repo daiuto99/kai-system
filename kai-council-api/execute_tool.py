@@ -830,6 +830,9 @@ def _h_wordpress(client, tool_name, ti, advisor):
         status = ti.get("status", "draft")
         slug = ti.get("slug", "")
         template = ti.get("template", "")
+        import re as _re
+        if _re.search(r'<(!DOCTYPE|html|head|body)[\s>]', content_body, _re.IGNORECASE):
+            return {"error": "content_format_error", "message": "Content must be body HTML only. Do not include <!DOCTYPE>, <html>, <head>, or <body> tags. Pass clean block content or shortcodes only."}
         try:
             site, creds, base_url, verify = _wp_creds(site_key)
             payload = {"title": title, "content": content_body, "status": status, "template": template}
@@ -856,6 +859,9 @@ def _h_wordpress(client, tool_name, ti, advisor):
         post_type = ti.get("post_type", "posts")
         endpoint = "pages" if post_type == "pages" else "posts"
         payload = {k: ti[k] for k in ("title", "content", "status", "excerpt", "slug", "template") if k in ti}
+        import re as _re
+        if "content" in payload and _re.search(r'<(!DOCTYPE|html|head|body)[\s>]', payload["content"], _re.IGNORECASE):
+            return {"error": "content_format_error", "message": "Content must be body HTML only. Do not include <!DOCTYPE>, <html>, <head>, or <body> tags."}
         try:
             site, creds, base_url, verify = _wp_creds(site_key)
             r = httpx.patch(f"{base_url}/wp-json/wp/v2/{endpoint}/{post_id}",
@@ -890,11 +896,25 @@ def _h_wordpress(client, tool_name, ti, advisor):
         css = ti.get("css", "")
         try:
             site, creds, base_url, verify = _wp_creds(site_key)
-            r = httpx.post(f"{base_url}/wp-json/wp/v2/settings",
-                json={"custom_css": css}, headers=_hdrs(creds), follow_redirects=True, timeout=20, verify=verify)
-            if r.status_code not in (200, 201):
-                return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
-            return {"ok": True, "site": site_key, "message": "Custom CSS updated"}
+            webroot  = _site_root(site)
+            mu_dir   = f"{webroot}/wp-content/mu-plugins"
+            css_path = f"{webroot}/wp-content/kai-custom.css"
+            mu_path  = f"{mu_dir}/kai-custom-css.php"
+            mu_php = (
+                '<?php\n'
+                'add_action("wp_head", function() {\n'
+                '    $f = dirname(__DIR__) . "/kai-custom.css";\n'
+                '    if (file_exists($f)) echo "<style>" . file_get_contents($f) . "</style>\\n";\n'
+                '}, 100);\n'
+            )
+            _ssh(f"mkdir -p {_sx.quote(mu_dir)}")
+            rc1, _, e1 = _ssh(f"cat > {_sx.quote(mu_path)}", stdin_bytes=mu_php.encode(), timeout=20)
+            if rc1 != 0:
+                return {"error": f"write mu-plugin failed: {e1.decode()[:200]}"}
+            rc2, _, e2 = _ssh(f"cat > {_sx.quote(css_path)}", stdin_bytes=css.encode(), timeout=20)
+            if rc2 != 0:
+                return {"error": f"write CSS failed: {e2.decode()[:200]}"}
+            return {"ok": True, "site": site_key, "message": "Custom CSS updated via mu-plugin"}
         except Exception as e:
             logger.exception("wordpress_set_custom_css: %s", e)
             return {"error": str(e)}
@@ -930,6 +950,135 @@ def _h_wordpress(client, tool_name, ti, advisor):
                 WP_TASKS.write_text(json.dumps(tasks, indent=2))
                 return {"ok": True, "task_id": task_id, "status": "complete"}
         return {"error": f"Task {task_id} not found"}
+
+    if tool_name == "wordpress_upload_media":
+        import posixpath as _pp
+        site_key = ti.get("site", "leodaiuto")
+        rel_path = ti.get("path", "")
+        filename = ti.get("filename", _pp.basename(rel_path) if rel_path else "upload.png")
+        mime     = ti.get("mime_type", "image/png")
+        try:
+            site, creds, base_url, verify = _wp_creds(site_key)
+            if not rel_path:
+                return {"error": "path required"}
+            abs_path = _sandbox(site, rel_path)
+            rc, img_bytes, err = _ssh(f"cat {_sx.quote(abs_path)}", timeout=20)
+            if rc != 0:
+                return {"error": f"ssh read failed: {err.decode()[:150]}"}
+            if not img_bytes:
+                return {"error": "file is empty"}
+            auth_b64 = _b64.b64encode(f"kai:{site['kai_app_password']}".encode()).decode()
+            import tempfile as _tf, os as _os
+            ext = _pp.splitext(filename)[1] or ".png"
+            with _tf.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                tmp.write(img_bytes)
+                tmp_path = tmp.name
+            try:
+                import subprocess as _sp2
+                result = _sp2.run([
+                    "curl", "-s", "-k", "-w", "\n%{http_code}",
+                    "-H", f"Authorization: Basic {auth_b64}",
+                    "-H", f'Content-Disposition: attachment; filename="{filename}"',
+                    "-H", f"Content-Type: {mime}",
+                    "--data-binary", f"@{tmp_path}",
+                    f"{base_url}/wp-json/wp/v2/media"
+                ], capture_output=True, text=True, timeout=30)
+                lines = result.stdout.strip().split("\n")
+                status = int(lines[-1]) if lines[-1].isdigit() else 0
+                body = json.loads("\n".join(lines[:-1]))
+                if status in (200, 201):
+                    return {"ok": True, "id": body.get("id"), "url": body.get("source_url"), "site": site_key}
+                return {"error": f"WP media HTTP {status}", "body": str(body)[:200]}
+            finally:
+                _os.unlink(tmp_path)
+        except Exception as e:
+            logger.exception("wordpress_upload_media: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_update_settings":
+        site_key = ti.get("site", "leodaiuto")
+        settings = {k: v for k, v in ti.items() if k != "site"}
+        try:
+            site, creds, base_url, verify = _wp_creds(site_key)
+            r = httpx.post(f"{base_url}/wp-json/wp/v2/settings",
+                json=settings, headers=_hdrs(creds), follow_redirects=True, timeout=20, verify=verify)
+            if r.status_code not in (200, 201):
+                return {"error": f"WP returned {r.status_code}", "body": r.text[:300]}
+            return {"updated": True, "site": site_key, "settings": r.json()}
+        except Exception as e:
+            logger.exception("wordpress_update_settings: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_set_option":
+        site_key = ti.get("site")
+        option_name = ti.get("option_name", "")
+        option_value = str(ti.get("option_value", ""))
+        try:
+            site, _, _, _ = _wp_creds(site_key)
+            webroot = _site_root(site)
+            import shlex as _sx2
+            cmd = "wp option update " + _sx2.quote(option_name) + " " + _sx2.quote(option_value) + " --path=" + _sx2.quote(webroot) + " --allow-root"
+            rc, out, err = _ssh(cmd, timeout=20)
+            if rc != 0:
+                return {"error": "wp-cli failed: " + err.decode()[:200], "stdout": out.decode()[:100]}
+            return {"ok": True, "site": site_key, "option": option_name, "value": option_value, "output": out.decode().strip()}
+        except Exception as e:
+            logger.exception("wordpress_set_option: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_get_page_content":
+        site_key = ti.get("site")
+        page_id = ti.get("page_id")
+        try:
+            site, creds, base_url, verify = _wp_creds(site_key)
+            r = httpx.get(f"{base_url}/wp-json/wp/v2/pages/{page_id}",
+                params={"context": "edit"},
+                headers=_hdrs(creds), follow_redirects=True, timeout=20, verify=verify)
+            if r.status_code != 200:
+                return {"error": f"WP returned {r.status_code}"}
+            p = r.json()
+            return {
+                "id": p.get("id"),
+                "title": p.get("title", {}).get("raw", ""),
+                "content": p.get("content", {}).get("raw", ""),
+                "status": p.get("status"),
+                "template": p.get("template", ""),
+                "slug": p.get("slug"),
+            }
+        except Exception as e:
+            logger.exception("wordpress_get_page_content: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_verify_live":
+        site_key = ti.get("site")
+        url_path = ti.get("url_path", "/")
+        marker = ti.get("marker", "")
+        try:
+            import re as _re2
+            site, _, _, _ = _wp_creds(site_key)
+            domain = site["url"].replace("https://", "").replace("http://", "").rstrip("/")
+            resolve_arg = domain + ":443:134.209.166.23"
+            r = _sp.run(
+                ["curl", "-s", "-k", "-w", "\n%{http_code}",
+                 "--resolve", resolve_arg,
+                 "https://" + domain + url_path, "--max-time", "15"],
+                capture_output=True, text=True, timeout=20)
+            lines = r.stdout.split("\n")
+            http_code = lines[-1].strip() if lines else "0"
+            html = "\n".join(lines[:-1])
+            title_m = _re2.search(r"<title>(.*?)</title>", html, _re2.IGNORECASE)
+            return {
+                "site": site_key,
+                "url": "https://" + domain + url_path,
+                "http_status": int(http_code) if http_code.isdigit() else 0,
+                "title": title_m.group(1) if title_m else None,
+                "marker_found": bool(marker and marker in html),
+                "coming_soon_active": bool(_re2.search(r"Coming Soon", html)),
+                "html_preview": html[:600],
+            }
+        except Exception as e:
+            logger.exception("wordpress_verify_live: %s", e)
+            return {"error": str(e)}
 
     return {"error": f"Unknown wordpress tool: {tool_name}"}
 
@@ -1108,8 +1257,18 @@ TOOL_REGISTRY = {
     "wordpress_update_post": _h_wordpress,
     "wordpress_publish": _h_wordpress,
     "wordpress_set_custom_css": _h_wordpress,
+    "wordpress_upload_media": _h_wordpress,
     "wordpress_create_task": _h_wordpress,
     "wordpress_complete_task": _h_wordpress,
+    "wordpress_read_file": _h_wordpress,
+    "wordpress_write_file": _h_wordpress,
+    "wordpress_list_files": _h_wordpress,
+    "wordpress_delete_file": _h_wordpress,
+    "wordpress_purge_varnish": _h_wordpress,
+    "wordpress_update_settings": _h_wordpress,
+    "wordpress_set_option": _h_wordpress,
+    "wordpress_get_page_content": _h_wordpress,
+    "wordpress_verify_live": _h_wordpress,
     # Parking lot
     "add_to_parking_lot": _h_parking_lot,
     # T2

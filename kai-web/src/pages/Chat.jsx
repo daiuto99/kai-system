@@ -83,7 +83,7 @@ export default function Chat() {
     } catch (err) {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Something went wrong. Try again.',
+        content: 'Error: ' + (err?.message || err?.toString() || 'Unknown error'),
         ts: String(Date.now() / 1000),
         error: true,
       }])

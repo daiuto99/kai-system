@@ -734,7 +734,7 @@ function LotWidget() {
   async function fetchLot() {
     try {
       const d = await api.getParkingLot(); setItems(d.items || [])
-    } catch {}
+    } catch (err) {}
   }
   useEffect(() => { fetchLot(); const t = setInterval(fetchLot, 30000); return () => clearInterval(t) }, [])
 
@@ -905,8 +905,8 @@ function ChatWidget() {
     try {
       const d = await api.sendMessage(text, advisor.channel, history)
       setMessages(p => [...p, { role: 'assistant', content: d.reply || d.message || '', ts: String(Date.now() / 1000), provider: d.provider, model: d.model }])
-    } catch {
-      setMessages(p => [...p, { role: 'assistant', content: 'Something went wrong.', error: true, ts: String(Date.now() / 1000) }])
+    } catch (err) {
+      setMessages(p => [...p, { role: 'assistant', content: 'Error: ' + (err?.message || err?.toString() || 'Unknown error'), error: true, ts: String(Date.now() / 1000) }])
     } finally { setThinking(false); inputRef.current?.focus(); fetchWorkflows() }
   }
 
@@ -1233,7 +1233,7 @@ function WellbeingWidget() {
     try {
       await api.saveCheckin({ checkin_type: checkinType, answers })
       setDone(true); setEditing(false); setOpen(false)
-    } catch { /* silent */ }
+    } catch (err) { /* silent */ }
     finally { setSaving(false) }
   }
 

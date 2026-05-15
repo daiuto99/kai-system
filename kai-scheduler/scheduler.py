@@ -16,6 +16,8 @@ import httpx
 import concurrent.futures
 from watchdog import run_watchdog_checks
 from security_watchdog import run_security_checks
+from execution_registry import record as reg_record
+from triage import triage_failure
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [scheduler] %(message)s")
 
@@ -142,7 +144,7 @@ def build_context() -> str:
     import json as _json
 
     now_local = datetime.now(_leo_timezone())
-    today_str = now_et.strftime("%Y-%m-%d")
+    today_str = now_local.strftime("%Y-%m-%d")
     today_date = _d2.today()
 
     def _get_calendar():
@@ -207,7 +209,7 @@ def build_context() -> str:
     weather_result = fut_weather.result() if not fut_weather.exception() else None
     oura_trend     = fut_oura.result()    if not fut_oura.exception()    else None
 
-    signals = [f"TODAY: {now_et.strftime('%A, %B %d, %Y at %I:%M %p ET')}"]
+    signals = [f"TODAY: {now_local.strftime('%A, %B %d, %Y at %I:%M %p ET')}"]
 
     # HEALTH SIGNALS
     try:
@@ -388,8 +390,8 @@ def build_context() -> str:
 
 def build_afternoon_context() -> str:
     now_local = datetime.now(_leo_timezone())
-    now_str = now_et.strftime("%Y-%m-%dT%H:%M")
-    parts = [f"**AFTERNOON — {now_et.strftime('%A, %B %d, %I:%M %p ET')}**"]
+    now_str = now_local.strftime("%Y-%m-%dT%H:%M")
+    parts = [f"**AFTERNOON — {now_local.strftime('%A, %B %d, %I:%M %p ET')}**"]
 
     # Remaining calendar events
     try:
@@ -429,9 +431,9 @@ def build_afternoon_context() -> str:
 
 def build_evening_context() -> str:
     now_local = datetime.now(_leo_timezone())
-    today_str = now_et.strftime("%Y-%m-%d")
+    today_str = now_local.strftime("%Y-%m-%d")
     tomorrow_str = (_date.today() + _td(days=1)).isoformat()
-    parts = [f"**EVENING — {now_et.strftime('%A, %B %d')}**"]
+    parts = [f"**EVENING — {now_local.strftime('%A, %B %d')}**"]
 
     # Habit completion summary
     try:
@@ -557,7 +559,7 @@ def send_afternoon_brief():
     now_local = datetime.now(_leo_timezone())
     brief = strip_markdown(brief)
     tg_send(tg_token, BRIEF_CHAT_ID,
-            "Afternoon Check-in — " + now_et.strftime("%I:%M %p") + chr(10)*2 + brief)
+            "Afternoon Check-in — " + now_local.strftime("%I:%M %p") + chr(10)*2 + brief)
 
 
     log.info("Afternoon brief sent to Telegram KAI Briefs")
@@ -870,47 +872,71 @@ def main():
 
         if now.hour == 8 and now.minute == 30 and _morning_sent != date_str:
             _morning_sent = date_str
+            _t0 = time.monotonic()
             try:
                 send_morning_brief()
+                reg_record("morning_brief", "ok", duration_s=time.monotonic()-_t0)
             except Exception as e:
+                reg_record("morning_brief", "fail", error=str(e))
                 log.error(f"Morning brief error: {e}")
+                triage_failure("morning_brief", str(e))
 
         if now.hour == 9 and now.minute == 0 and _health_sent != date_str:
             _health_sent = date_str
+            _t0 = time.monotonic()
             try:
                 check_worker_health()
+                reg_record("worker_health_check", "ok", duration_s=time.monotonic()-_t0)
             except Exception as e:
+                reg_record("worker_health_check", "fail", error=str(e))
                 log.error(f"Health check error: {e}")
+                triage_failure("worker_health_check", str(e))
 
         # Morning check-in questions — 7:00 AM
         if now.hour == 7 and now.minute == 0 and _morning_checkin_sent != date_str:
             _morning_checkin_sent = date_str
+            _t0 = time.monotonic()
             try:
                 send_checkin("morning")
+                reg_record("morning_checkin", "ok", duration_s=time.monotonic()-_t0)
             except Exception as e:
+                reg_record("morning_checkin", "fail", error=str(e))
                 log.error(f"Morning checkin error: {e}")
+                triage_failure("morning_checkin", str(e))
 
         # Evening check-in questions — 9:00 PM
         if now.hour == 21 and now.minute == 0 and _evening_checkin_sent != date_str:
             _evening_checkin_sent = date_str
+            _t0 = time.monotonic()
             try:
                 send_checkin("evening")
+                reg_record("evening_checkin", "ok", duration_s=time.monotonic()-_t0)
             except Exception as e:
+                reg_record("evening_checkin", "fail", error=str(e))
                 log.error(f"Evening checkin error: {e}")
+                triage_failure("evening_checkin", str(e))
 
         if now.hour == 12 and now.minute == 30 and _afternoon_sent != date_str:
             _afternoon_sent = date_str
+            _t0 = time.monotonic()
             try:
                 send_afternoon_brief()
+                reg_record("afternoon_brief", "ok", duration_s=time.monotonic()-_t0)
             except Exception as e:
+                reg_record("afternoon_brief", "fail", error=str(e))
                 log.error(f"Afternoon brief error: {e}")
+                triage_failure("afternoon_brief", str(e))
 
         if now.hour == 20 and now.minute == 0 and _evening_sent != date_str:
             _evening_sent = date_str
+            _t0 = time.monotonic()
             try:
                 send_evening_brief()
+                reg_record("evening_brief", "ok", duration_s=time.monotonic()-_t0)
             except Exception as e:
+                reg_record("evening_brief", "fail", error=str(e))
                 log.error(f"Evening brief error: {e}")
+                triage_failure("evening_brief", str(e))
 
 
         # Security watchdog — hourly
@@ -926,10 +952,14 @@ def main():
         _watchdog_key = f"{now.hour}:{now.minute}"
         if now.minute in (0, 30) and _last_watchdog_run != _watchdog_key:
             _last_watchdog_run = _watchdog_key
+            _t0 = time.monotonic()
             try:
                 run_watchdog_checks()
+                reg_record("watchdog", "ok", duration_s=time.monotonic()-_t0)
             except Exception as e:
+                reg_record("watchdog", "fail", error=str(e))
                 log.error(f"Watchdog error: {e}")
+                triage_failure("watchdog", str(e))
             try:
                 _update_location_from_calendar()
             except Exception as e:
@@ -943,7 +973,9 @@ def main():
             try:
                 with httpx.Client(timeout=15) as hc:
                     hc.post(f"{WORKER_API}/inbox/scan")
+                reg_record("inbox_scan", "ok")
             except Exception as e:
+                reg_record("inbox_scan", "fail", error=str(e))
                 log.error(f"Inbox scan error: {e}")
 
         time.sleep(30)

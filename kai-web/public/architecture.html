@@ -462,7 +462,7 @@
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:6842</span><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-scheduler</div><div class="container-meta">Morning brief 7am · Telegram long polling · Background threads</div></div>
+      <div><div class="container-name">kai-scheduler</div><div class="container-meta">Briefs 8:30/12:30/20:00 · Check-ins · Telegram · Execution registry (SQLite) · Gap detection · Triage pipeline</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
     <div class="container-row">
@@ -1320,7 +1320,7 @@
       </div>
 
       <div class="card" style="border-color:#10b98140;background:#10b98108">
-        <strong style="color:#6ee7b7">✅ Sprint 24 — KAI Task + Project Tools (complete 2026-04-28)</strong>
+        <strong style="color:#6ee7b7">✅ Session 2026-05-14 — DevOps Mandate + Execution Health Registry</strong></div><div class="card" style="margin-bottom:8px;border-color:#10b98140"><ul style="margin:4px 0 0 16px;padding:0;font-size:0.82rem"><li>KAI-215: DevOps mandate defined — full operational ownership: execution health, component currency, backup integrity, security, auto-triage. Mandate doc at vault/00_System/teams/devops_mandate.md</li><li>KAI-216: Execution health registry live — SQLite at /vault/00_System/execution_registry.db. All 8 scheduled functions (briefs, check-ins, watchdog, inbox scan) write ok/fail/error/duration on every run</li><li>Triage pipeline: failure → Plane BUG auto-created (KAI project) + structured Slack to Leo: what broke, Plane #, proposed fix (KAI-219), risk level (KAI-219)</li><li>Watchdog gap detection: every 30 min checks registry — if function overdue beyond max gap, triage fires automatically</li><li>KAI-212 fixed: scheduler now_et NameError — all 7 call sites corrected. Briefs resume 2026-05-15</li><li>KAI-213 closed: 12-day silent failure now impossible — first failure creates Plane ticket and Slacks Leo</li><li>DevOps persona context.md updated with full monitoring stack state and open gaps (KAI-217/218/219)</li></ul></div><div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#6ee7b7">✅ Sprint 24 — KAI Task + Project Tools (complete 2026-04-28)</strong>
         <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
           <li>update_task, delete_task, reschedule_task tools in council API</li>
           <li>list_todoist_projects, create_todoist_project, delete_todoist_project tools</li>

@@ -17,6 +17,18 @@ OLLAMA_API  = "http://kai-ollama:11434"
 _last_alert: dict = {}
 ALERT_INTERVAL_HOURS = 2  # re-alert if still failing after 2h
 
+# Plane CE crash-loop detection — track restart count between watchdog runs
+_plane_restart_baseline: int | None = None
+PLANE_COMPOSE_DIR = "/home/leo/plane"
+PLANE_CRASH_LOOP_THRESHOLD = 5  # restarts since last check = crash loop
+
+# Disk + journal maintenance — runs once per day, not every 30-min cycle
+DISK_WARN_PCT = 85
+DISK_CRIT_PCT = 90
+JOURNAL_VACUUM_DAYS = 7
+_last_maintenance: float = 0.0
+MAINTENANCE_INTERVAL_HOURS = 24
+
 
 def _load_secret(name: str) -> str:
     p = Path(f"/run/secrets/{name}")
@@ -162,6 +174,73 @@ def check_google_calendar() -> tuple[bool, str]:
         return False, str(e)
 
 
+def check_disk() -> tuple[bool, str]:
+    """Check root filesystem usage. Returns warning/critical based on thresholds."""
+    try:
+        result = subprocess.run(
+            ["df", "--output=pcent", "/"], capture_output=True, text=True, timeout=5
+        )
+        pct = int(result.stdout.strip().splitlines()[-1].replace("%", "").strip())
+        if pct >= DISK_CRIT_PCT:
+            return False, f"CRITICAL: {pct}% used — run cleanup"
+        if pct >= DISK_WARN_PCT:
+            return False, f"WARNING: {pct}% used"
+        return True, f"{pct}% used"
+    except Exception as e:
+        return False, str(e)
+
+
+def run_maintenance():
+    """Daily: vacuum journald logs + clean apt cache. Requires sudoers entry."""
+    global _last_maintenance
+    now = datetime.now(timezone.utc).timestamp()
+    if (now - _last_maintenance) < MAINTENANCE_INTERVAL_HOURS * 3600:
+        return
+    _last_maintenance = now
+    try:
+        subprocess.run(
+            ["sudo", "journalctl", f"--vacuum-time={JOURNAL_VACUUM_DAYS}d"],
+            capture_output=True, text=True, timeout=30,
+        )
+        subprocess.run(
+            ["sudo", "apt-get", "clean"],
+            capture_output=True, text=True, timeout=30,
+        )
+        log.info("watchdog maintenance: journal vacuum + apt cache clean done")
+    except Exception as e:
+        log.warning("watchdog maintenance failed: %s", e)
+
+
+def check_plane_ce() -> tuple[bool, str]:
+    """Check plane-api container status and detect crash loops via docker inspect."""
+    global _plane_restart_baseline
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "plane-api", "--format", "{{.State.Status}} {{.RestartCount}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return False, "plane-api container not found"
+        parts = result.stdout.strip().split()
+        status, restart_count = parts[0], int(parts[1])
+
+        crash_looping = False
+        delta = 0
+        if _plane_restart_baseline is not None:
+            delta = restart_count - _plane_restart_baseline
+            if delta >= PLANE_CRASH_LOOP_THRESHOLD:
+                crash_looping = True
+        _plane_restart_baseline = restart_count
+
+        if status == "running" and not crash_looping:
+            return True, f"ok (restarts={restart_count})"
+        if crash_looping:
+            return False, f"crash loop (+{delta} restarts since last check, total={restart_count})"
+        return False, f"status={status} restarts={restart_count}"
+    except Exception as e:
+        return False, str(e)
+
+
 # ── Tier 2: auto-remediation ──────────────────────────────────────────────────
 
 def _try_restart_container(name: str) -> str:
@@ -184,8 +263,136 @@ RESTARTABLE = {
     "ollama":       "kai-ollama",
 }
 
+# Services that need full container recreation (not just restart) to recover
+def _try_recreate_plane_api() -> str:
+    """Recreate plane-api from scratch to clear stale writable layer (staticfiles.json)."""
+    try:
+        rm = subprocess.run(
+            ["docker", "compose", "rm", "-sf", "api"],
+            capture_output=True, text=True, timeout=30, cwd=PLANE_COMPOSE_DIR,
+        )
+        if rm.returncode != 0:
+            return f"rm failed: {rm.stderr[:120]}"
+        up = subprocess.run(
+            ["docker", "compose", "up", "-d", "api"],
+            capture_output=True, text=True, timeout=60, cwd=PLANE_COMPOSE_DIR,
+        )
+        if up.returncode == 0:
+            return "plane-api recreated ✅"
+        return f"up failed: {up.stderr[:120]}"
+    except Exception as e:
+        return f"recreate error: {e}"
+
 
 # ── Main runner ───────────────────────────────────────────────────────────────
+
+
+# ── KAI-218: Backup integrity ─────────────────────────────────────────────────
+
+def check_backup_integrity() -> tuple[bool, str]:
+    """Verify backup ran within 26h, log shows success, output file is non-zero."""
+    import re
+    from datetime import datetime
+    backup_log = Path("/backups/backup.log")
+    backup_dir = Path("/backups/plane")
+
+    if not backup_log.exists():
+        return False, "backup.log not found at /backups/backup.log"
+
+    lines = backup_log.read_text().splitlines()
+    last_complete_ts = None
+    for line in reversed(lines):
+        if "Backup complete" in line:
+            m = re.search(r"\[(\d{8}_\d{6})\]", line)
+            if m:
+                last_complete_ts = datetime.strptime(m.group(1), "%Y%m%d_%H%M%S")
+            break
+
+    if not last_complete_ts:
+        return False, "no successful backup found in log"
+
+    hours_since = (datetime.now() - last_complete_ts).total_seconds() / 3600
+    if hours_since > 26:
+        return False, f"last backup {hours_since:.1f}h ago — expected <26h"
+
+    if backup_dir.exists():
+        files = sorted(backup_dir.glob("plane_*.sql.gz"))
+        if not files:
+            return False, "backup dir exists but no .sql.gz files found"
+        latest = files[-1]
+        if latest.stat().st_size == 0:
+            return False, f"latest backup file is 0 bytes: {latest.name}"
+        return True, f"ok — last: {last_complete_ts.strftime('%Y-%m-%d %H:%M')} — {len(files)} file(s)"
+
+    return True, f"ok — last: {last_complete_ts.strftime('%Y-%m-%d %H:%M')}"
+
+
+# ── KAI-217: Cert expiry ──────────────────────────────────────────────────────
+
+def check_cert_expiry() -> tuple[bool, str]:
+    """Alert if kai.sonicink.space SSL cert expires within 30 days."""
+    import ssl, socket
+    from datetime import datetime
+    WARN_DAYS = 30
+    HOST = "kai.sonicink.space"
+    try:
+        ctx = ssl.create_default_context()
+        with ctx.wrap_socket(socket.socket(), server_hostname=HOST) as s:
+            s.settimeout(10)
+            s.connect((HOST, 443))
+            cert = s.getpeercert()
+        expires = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
+        days_left = (expires - datetime.utcnow()).days
+        if days_left < WARN_DAYS:
+            return False, f"cert expires in {days_left} days ({expires.strftime('%Y-%m-%d')}) — renew now"
+        return True, f"ok — {days_left} days remaining ({expires.strftime('%Y-%m-%d')})"
+    except Exception as e:
+        return False, f"cert check error: {e}"
+
+
+# ── KAI-217: Component currency ───────────────────────────────────────────────
+
+def check_component_currency() -> tuple[bool, str]:
+    """Flag stale KAI Docker images (>30d) and pending apt security updates."""
+    import json as _json
+    from datetime import datetime, timezone
+    issues = []
+
+    # Docker image ages
+    try:
+        result = subprocess.run(
+            ["docker", "images", "--format", "{{json .}}"],
+            capture_output=True, text=True, timeout=10
+        )
+        for line in result.stdout.strip().splitlines():
+            try:
+                img = _json.loads(line)
+                repo = img.get("Repository", "")
+                if "kai-system" not in repo:
+                    continue
+                created_raw = img.get("CreatedAt", "")
+                dt = datetime.strptime(created_raw[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                age_days = (datetime.now(timezone.utc) - dt).days
+                if age_days > 30:
+                    name = repo.split("/")[-1] + ":" + img.get("Tag", "?")
+                    issues.append(f"{name} ({age_days}d old)")
+            except Exception:
+                continue
+    except Exception as e:
+        issues.append(f"image check error: {e}")
+
+    # apt security updates from cached status file
+    apt_file = Path("/vault/00_System/apt_status.txt")
+    if apt_file.exists():
+        content = apt_file.read_text()
+        sec_pkgs = [l for l in content.splitlines() if l.strip() and "security" in l.lower()]
+        if sec_pkgs:
+            issues.append(f"{len(sec_pkgs)} security apt update(s) pending: {sec_pkgs[0].split('/')[0]}")
+
+    if issues:
+        return False, "; ".join(issues)
+    return True, "all components current"
+
 
 CHECKS = [
     ("worker_api",       "Worker API",       check_worker_api),
@@ -196,11 +403,21 @@ CHECKS = [
     ("oura",             "Oura",             lambda: _check_with_retry(check_oura)),
     ("todoist",          "Todoist",          lambda: _check_with_retry(check_todoist)),
     ("google_calendar",  "Google Calendar",  lambda: _check_with_retry(check_google_calendar)),
+    ("plane_ce",         "Plane CE",         check_plane_ce),
+    ("disk",             "Disk",             check_disk),
+    ("backup",           "Backup",           check_backup_integrity),
+    ("cert_expiry",      "SSL Cert",         check_cert_expiry),
+    ("component_currency","Components",      check_component_currency),
 ]
+
+RECREATABLE = {
+    "plane_ce": _try_recreate_plane_api,
+}
 
 
 def run_watchdog_checks():
     """Run all functional health checks. Post failures to #kai-system."""
+    run_maintenance()
     token = _load_secret("slack_bot_token")
     failures = []
     remediations = []
@@ -216,13 +433,23 @@ def run_watchdog_checks():
             log.debug("watchdog ✅ %s: %s", label, detail)
         else:
             log.warning("watchdog ❌ %s: %s", label, detail)
-            # Tier 2: auto-remediate restartable services
-            if key in RESTARTABLE:
+            # Tier 2: auto-remediate — recreate takes priority over restart
+            if key in RECREATABLE:
+                remedy = RECREATABLE[key]()
+                remediations.append(f"  • {label}: {remedy}")
+                log.info("watchdog remediation: %s → %s", label, remedy)
+            elif key in RESTARTABLE:
                 remedy = _try_restart_container(RESTARTABLE[key])
                 remediations.append(f"  • {label}: {remedy}")
                 log.info("watchdog remediation: %s → %s", label, remedy)
             if _should_alert(key):
                 failures.append(f"  • *{label}*: `{detail}`")
+
+    # Gap checks — scheduled function execution health
+    try:
+        run_gap_checks()
+    except Exception as e:
+        log.error("gap checks failed: %s", e)
 
     if failures and token:
         lines = [f":warning: *KAI Watchdog — {datetime.now().strftime('%H:%M')}*"]
@@ -235,3 +462,51 @@ def run_watchdog_checks():
         log.info("watchdog alert posted: %d failures", len(failures))
     else:
         log.info("watchdog ✅ all checks passed")
+
+
+# ── Scheduled function gap checks ─────────────────────────────────────────────
+
+def check_scheduled_functions():
+    """Check execution registry for functions that missed their expected run window."""
+    try:
+        from execution_registry import check_gaps
+        return check_gaps()
+    except Exception as e:
+        log.error("gap check failed: %s", e)
+        return []
+
+
+def run_gap_checks():
+    """Called by watchdog — alert on any scheduled function that has gone silent."""
+    token = _load_secret("slack_bot_token")
+    gaps = check_scheduled_functions()
+    if not gaps:
+        return
+
+    for gap in gaps:
+        fn   = gap["function"]
+        hrs  = gap.get("hours_since")
+        last = gap["last_run"] or "never"
+        err  = gap.get("last_error") or ""
+        key  = "gap_" + fn
+
+        if not _should_alert(key):
+            continue
+
+        log.warning("gap detected: %s — %sh since last run", fn, hrs)
+
+        try:
+            from triage import triage_failure
+            hrs_str = str(hrs) if hrs else "unknown"
+            error_msg = (
+                "Scheduled function '" + fn + "' has not run in " + hrs_str + "h "
+                "(last: " + last + ", last error: " + (err or "none") + ")"
+            )
+            triage_failure(fn + "_gap", error_msg)
+        except Exception as e:
+            log.error("gap triage failed: %s", e)
+            if token:
+                hrs_str = str(hrs) if hrs else "unknown"
+                _slack_alert(token,
+                    ":warning: *KAI Gap Detected* — `" + fn + "` has not run in " +
+                    hrs_str + "h. Last run: " + last + ". Triage also failed: " + str(e))

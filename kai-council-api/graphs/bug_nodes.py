@@ -119,7 +119,7 @@ UNKNOWNS:
 # ── Node: lse_review ────────────────────────────────────────────────────────
 
 def lse_review(state: BugState) -> BugState:
-    system = load_persona("lse")
+    system = load_persona("kai")
 
     prompt = f"""You are reviewing a bug diagnosis from the Support Engineer. 
 Your job: verify the root cause analysis is sound and the proposed fix is appropriate.
@@ -164,7 +164,7 @@ If you REJECT, be specific about what needs to change.
 # ── Node: architect_review ───────────────────────────────────────────────────
 
 def architect_review(state: BugState) -> BugState:
-    system = load_persona("architect")
+    system = load_persona("dev")
 
     prompt = f"""You are reviewing a bug diagnosis from the Support Engineer.
 The LSE has also reviewed — their assessment is included below.
