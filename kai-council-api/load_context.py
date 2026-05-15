@@ -4,22 +4,12 @@ from council_config import COUNCIL_PATH
 
 logger = logging.getLogger(__name__)
 
-# Channels that share history (chief→kai rename transition)
-CHANNEL_ALIASES = {
-    "kai": ["kai", "chief"],
-    "chief": ["chief", "kai"],
-}
-
-
 def load_session_memory(channel: str, n: int = 2) -> str:
     """Return the last n session summary files for a channel as a formatted block."""
-    channels_to_check = CHANNEL_ALIASES.get(channel, [channel])
-
     all_files = []
-    for ch in channels_to_check:
-        sessions_dir = COUNCIL_PATH / "sessions" / ch
-        if sessions_dir.exists():
-            all_files.extend(sessions_dir.glob("*.md"))
+    sessions_dir = COUNCIL_PATH / "sessions" / channel
+    if sessions_dir.exists():
+        all_files.extend(sessions_dir.glob("*.md"))
 
     if not all_files:
         return ""

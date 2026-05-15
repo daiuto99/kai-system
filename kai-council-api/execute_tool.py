@@ -1,4 +1,5 @@
 import json
+import re
 import logging
 import os
 from datetime import datetime as _dt2, date as _d2, timedelta as _td2
@@ -6,6 +7,7 @@ from pathlib import Path
 import httpx
 from council_config import WORKER_URL, VAULT_PATH, ADVISOR_AVATARS, _slack_token
 from knowledge_layer import _write_session_summary, _write_decision, _log_mission_deliverable
+import wp_state_machine as _wpsm
 
 logger = logging.getLogger(__name__)
 
@@ -508,10 +510,33 @@ def _h_wordpress(client, tool_name, ti, advisor):
 
     def _wp_creds(site_key):
         wp_sites = json.loads((VAULT_PATH / "00_System" / "wordpress_sites.json").read_text())
-        site = wp_sites["sites"].get(site_key)
+        sites = wp_sites["sites"]
+        resolved_key = site_key
+
+        # Exact match first
+        site = sites.get(site_key)
+
+        # Strip TLD and retry
         if not site:
-            available = list(wp_sites["sites"].keys())
-            raise ValueError(f"Unknown site: {site_key}. Available: {available}")
+            normalized = re.sub(r'\.(com|org|net|space|io|co|dev|app|site|us|uk|ca)$', '', site_key, flags=re.IGNORECASE)
+            if normalized != site_key:
+                site = sites.get(normalized)
+                if site:
+                    resolved_key = normalized
+
+        # Substring match: find any key that the input contains or that contains the input
+        if not site:
+            for k, v in sites.items():
+                if site_key in k or k in site_key:
+                    site = v
+                    resolved_key = k
+                    break
+
+        if not site:
+            available = list(sites.keys())
+            raise ValueError(f"Unknown site: {site_key!r}. Available: {available}. Check wordpress_sites.json.")
+
+        site_key = resolved_key
         kai_pw = site.get("kai_app_password")
         if kai_pw:
             user, pw = "kai", kai_pw
@@ -679,6 +704,12 @@ def _h_wordpress(client, tool_name, ti, advisor):
             return {"error": str(e)}
 
     if tool_name == "wordpress_purge_varnish":
+        _task_id = ti.get("task_id")
+        if not _task_id:
+            return {"blocked": "task_id is required. Call wordpress_create_task first to start a tracked build. Every WP build must be tracked."}
+        _gate = _wpsm.advance_tool(_task_id, "wordpress_purge_varnish", {"site": ti.get("site")})
+        if "blocked" in _gate:
+            return _gate
         site_key = ti.get("site")
         url_path = ti.get("url_path", "/")
         try:
@@ -824,6 +855,12 @@ def _h_wordpress(client, tool_name, ti, advisor):
             return {"error": f"WordPress create post failed: {e}"}
 
     if tool_name == "wordpress_create_page":
+        _task_id = ti.get("task_id")
+        if not _task_id:
+            return {"blocked": "task_id is required. Call wordpress_create_task first to start a tracked build. Every WP build must be tracked."}
+        _gate = _wpsm.advance_tool(_task_id, "wordpress_create_page", {"site": ti.get("site")})
+        if "blocked" in _gate:
+            return _gate
         site_key = ti.get("site", "leodaiuto")
         title = ti.get("title", "")
         content_body = ti.get("content", "")
@@ -854,6 +891,12 @@ def _h_wordpress(client, tool_name, ti, advisor):
             return {"error": str(e)}
 
     if tool_name == "wordpress_update_post":
+        _task_id = ti.get("task_id")
+        if not _task_id:
+            return {"blocked": "task_id is required. Call wordpress_create_task first to start a tracked build. Every WP build must be tracked."}
+        _gate = _wpsm.advance_tool(_task_id, "wordpress_update_post", {"site": ti.get("site")})
+        if "blocked" in _gate:
+            return _gate
         site_key = ti.get("site", "leodaiuto")
         post_id = ti.get("post_id")
         post_type = ti.get("post_type", "posts")
@@ -920,36 +963,28 @@ def _h_wordpress(client, tool_name, ti, advisor):
             return {"error": str(e)}
 
     if tool_name == "wordpress_create_task":
-        WP_TASKS = VAULT_PATH / "00_System" / "wp_task_queue.json"
-        tasks = json.loads(WP_TASKS.read_text()) if WP_TASKS.exists() else []
-        task = {
-            "id": f"wpt-{_uuid.uuid4().hex[:8]}",
-            "site": ti.get("site"), "type": ti.get("type"),
-            "title": ti.get("title"), "brief": ti.get("brief"),
-            "priority": ti.get("priority", "normal"),
-            "status": "pending",
-            "created": _dt.date.today().isoformat(),
-            "result": None,
-        }
-        tasks.append(task)
-        WP_TASKS.write_text(json.dumps(tasks, indent=2))
-        return {"ok": True, "task_id": task["id"], "task": task}
+        try:
+            task_id = _wpsm.create_task(
+                site=ti.get("site"),
+                task_type=ti.get("type", "page"),
+                title=ti.get("title", ""),
+                brief=ti.get("brief", ""),
+                priority=ti.get("priority", "normal"),
+            )
+            return {"ok": True, "task_id": task_id, "state": "created",
+                    "next_step": "Call wordpress_council_review with council=dev to begin the build"}
+        except Exception as e:
+            logger.exception("wordpress_create_task: %s", e)
+            return {"error": str(e)}
 
     if tool_name == "wordpress_complete_task":
-        WP_TASKS = VAULT_PATH / "00_System" / "wp_task_queue.json"
+        # Advances devops_approved → complete. Only valid after DevOps council review.
         task_id = ti.get("task_id")
-        result = ti.get("result", "")
-        if not WP_TASKS.exists():
-            return {"error": "No task queue found"}
-        tasks = json.loads(WP_TASKS.read_text())
-        for t in tasks:
-            if t["id"] == task_id:
-                t["status"] = "complete"
-                t["result"] = result
-                t["completed"] = _dt.date.today().isoformat()
-                WP_TASKS.write_text(json.dumps(tasks, indent=2))
-                return {"ok": True, "task_id": task_id, "status": "complete"}
-        return {"error": f"Task {task_id} not found"}
+        try:
+            return _wpsm.advance_complete(task_id)
+        except Exception as e:
+            logger.exception("wordpress_complete_task: %s", e)
+            return {"error": str(e)}
 
     if tool_name == "wordpress_upload_media":
         import posixpath as _pp
@@ -996,6 +1031,12 @@ def _h_wordpress(client, tool_name, ti, advisor):
             return {"error": str(e)}
 
     if tool_name == "wordpress_update_settings":
+        _task_id = ti.get("task_id")
+        if not _task_id:
+            return {"blocked": "task_id is required. Call wordpress_create_task first to start a tracked build. Every WP build must be tracked."}
+        _gate = _wpsm.advance_tool(_task_id, "wordpress_update_settings", {"site": ti.get("site")})
+        if "blocked" in _gate:
+            return _gate
         site_key = ti.get("site", "leodaiuto")
         settings = {k: v for k, v in ti.items() if k != "site"}
         try:
@@ -1010,6 +1051,12 @@ def _h_wordpress(client, tool_name, ti, advisor):
             return {"error": str(e)}
 
     if tool_name == "wordpress_set_option":
+        _task_id = ti.get("task_id")
+        if not _task_id:
+            return {"blocked": "task_id is required. Call wordpress_create_task first to start a tracked build. Every WP build must be tracked."}
+        _gate = _wpsm.advance_tool(_task_id, "wordpress_set_option", {"site": ti.get("site")})
+        if "blocked" in _gate:
+            return _gate
         site_key = ti.get("site")
         option_name = ti.get("option_name", "")
         option_value = str(ti.get("option_value", ""))
@@ -1027,6 +1074,12 @@ def _h_wordpress(client, tool_name, ti, advisor):
             return {"error": str(e)}
 
     if tool_name == "wordpress_get_page_content":
+        _task_id = ti.get("task_id")
+        if not _task_id:
+            return {"blocked": "task_id is required. Call wordpress_create_task first to start a tracked build. Every WP build must be tracked."}
+        _gate = _wpsm.advance_tool(_task_id, "wordpress_get_page_content", {"site": ti.get("site")})
+        if "blocked" in _gate:
+            return _gate
         site_key = ti.get("site")
         page_id = ti.get("page_id")
         try:
@@ -1050,6 +1103,12 @@ def _h_wordpress(client, tool_name, ti, advisor):
             return {"error": str(e)}
 
     if tool_name == "wordpress_verify_live":
+        _task_id = ti.get("task_id")
+        if not _task_id:
+            return {"blocked": "task_id is required. Call wordpress_create_task first to start a tracked build. Every WP build must be tracked."}
+        _gate = _wpsm.advance_tool(_task_id, "wordpress_verify_live", {"site": ti.get("site")})
+        if "blocked" in _gate:
+            return _gate
         site_key = ti.get("site")
         url_path = ti.get("url_path", "/")
         marker = ti.get("marker", "")
@@ -1078,6 +1137,171 @@ def _h_wordpress(client, tool_name, ti, advisor):
             }
         except Exception as e:
             logger.exception("wordpress_verify_live: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_request_council":
+        task_id = ti.get("task_id")
+        council = ti.get("council", "").lower()
+        if council not in ("dev", "creative", "devops"):
+            return {"error": f"Unknown council '{council}'. Valid: dev, creative, devops"}
+        try:
+            task = _wpsm.get_task(task_id)
+            if not task:
+                return {"error": f"Task {task_id} not found"}
+
+            # Inject past direction + Leo feedback as context for the advisor
+            history = _wpsm.get_council_history(council, limit=3)
+            history_ctx = ""
+            if history:
+                history_ctx = "\n\nPast direction + Leo feedback for reference:\n"
+                for h in history:
+                    history_ctx += (
+                        "- [" + h["ts"][:10] + "] " + h["site"] + "/" + h["title"] + ": "
+                        + h["direction"][:200]
+                    )
+                    if h.get("leo_feedback"):
+                        history_ctx += " | Leo: " + h["leo_feedback"]
+                    history_ctx += "\n"
+
+            context = (
+                "WP Build Task: " + task["site"] + " - " + task["title"] + "\n"
+                "Type: " + task["type"] + " | Priority: " + task["priority"] + "\n"
+                "Brief: " + task["brief"] + "\n"
+                "Current state: " + task["state"]
+                + history_ctx
+            )
+
+            COUNCIL_QUESTIONS = {
+                "dev": (
+                    "Review this WordPress build task and provide technical direction. "
+                    "What is the correct execution sequence? Any risks or pre-conditions? "
+                    "Confirm the 6-step protocol applies or specify deviations."
+                ),
+                "creative": (
+                    "Review this WordPress build task and provide creative direction. "
+                    "Recommend design approach, copy tone, visual language, layout priorities, "
+                    "and any brand-specific considerations for this site."
+                ),
+                "devops": (
+                    "Review this completed WordPress build task. "
+                    "Has the protocol been followed correctly? Any operational risks? "
+                    "Confirm it is safe to mark the build complete."
+                ),
+            }
+            question = COUNCIL_QUESTIONS[council]
+
+            # Real advisor call — stamps the consultation record
+            result = _consult_specialist(council, question, context)
+            if "error" in result:
+                return result
+
+            raw_response = result.get("response", "")
+
+            # Generate single-use token — ties this consultation to this task+council
+            import secrets as _sec
+            consultation_token = "ctk-" + _sec.token_hex(16)
+            _wpsm.stamp_consultation(task_id, council, council, question, raw_response, consultation_token)
+
+            return {
+                "ok": True,
+                "task_id": task_id,
+                "council": council,
+                "direction": raw_response,
+                "token": consultation_token,
+                "stamped": True,
+                "next_step": (
+                    "Call wordpress_council_review with task_id='" + task_id + "', "
+                    "council='" + council + "', token='" + consultation_token + "', "
+                    "and direction summarised from above"
+                ),
+            }
+        except Exception as e:
+            logger.exception("wordpress_request_council: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_council_review":
+        task_id = ti.get("task_id")
+        council = ti.get("council", "")
+        direction = ti.get("direction", "")
+        approved = ti.get("approved", True)
+        token = ti.get("token", "")
+        try:
+            # Gate 1: consultation must exist
+            if not _wpsm.verify_consultation(task_id, council):
+                return {
+                    "consultation_required": True,
+                    "council": council,
+                    "message": (
+                        "No " + council + " council consultation on record for task " + task_id + ". "
+                        "Call wordpress_request_council first to get real direction and a consultation token."
+                    ),
+                }
+            # Gate 2: token must be valid, match this task+council, and be unused
+            token_result = _wpsm.validate_token(task_id, council, token)
+            if "blocked" in token_result:
+                return token_result
+            return _wpsm.advance_council(task_id, council, direction, approved)
+        except Exception as e:
+            logger.exception("wordpress_council_review: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_review_feedback":
+        task_id = ti.get("task_id")
+        council = ti.get("council", "")
+        feedback = ti.get("feedback", "")
+        try:
+            return _wpsm.add_feedback(task_id, council, feedback)
+        except Exception as e:
+            logger.exception("wordpress_review_feedback: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_get_council_history":
+        council = ti.get("council", "")
+        limit = ti.get("limit", 10)
+        try:
+            return {"history": _wpsm.get_council_history(council, limit)}
+        except Exception as e:
+            logger.exception("wordpress_get_council_history: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_get_task":
+        task_id = ti.get("task_id")
+        try:
+            result = _wpsm.get_task_history(task_id)
+            return result
+        except Exception as e:
+            logger.exception("wordpress_get_task: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_list_tasks":
+        site = ti.get("site")
+        state = ti.get("state")
+        limit = ti.get("limit", 20)
+        try:
+            tasks = _wpsm.list_tasks(site=site, state=state, limit=limit)
+            return {"tasks": tasks, "count": len(tasks)}
+        except Exception as e:
+            logger.exception("wordpress_list_tasks: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_override":
+        task_id = ti.get("task_id")
+        target_state = ti.get("target_state", "")
+        reason = ti.get("reason", "")
+        authorized_by = ti.get("authorized_by", "leo")
+        try:
+            return _wpsm.record_override(task_id, target_state, reason, authorized_by)
+        except Exception as e:
+            logger.exception("wordpress_override: %s", e)
+            return {"error": str(e)}
+
+    if tool_name == "wordpress_audit_report":
+        task_id = ti.get("task_id")
+        report_type = ti.get("report_type", "task_history")
+        try:
+            return _wpsm.get_audit_report(task_id=task_id, report_type=report_type)
+        except Exception as e:
+            logger.exception("wordpress_audit_report: %s", e)
             return {"error": str(e)}
 
     return {"error": f"Unknown wordpress tool: {tool_name}"}
@@ -1260,6 +1484,14 @@ TOOL_REGISTRY = {
     "wordpress_upload_media": _h_wordpress,
     "wordpress_create_task": _h_wordpress,
     "wordpress_complete_task": _h_wordpress,
+    "wordpress_request_council": _h_wordpress,
+    "wordpress_council_review": _h_wordpress,
+    "wordpress_review_feedback": _h_wordpress,
+    "wordpress_get_council_history": _h_wordpress,
+    "wordpress_get_task": _h_wordpress,
+    "wordpress_list_tasks": _h_wordpress,
+    "wordpress_override": _h_wordpress,
+    "wordpress_audit_report": _h_wordpress,
     "wordpress_read_file": _h_wordpress,
     "wordpress_write_file": _h_wordpress,
     "wordpress_list_files": _h_wordpress,

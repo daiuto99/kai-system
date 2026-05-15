@@ -124,7 +124,7 @@ Architecture decisions locked: Drop OpenAI as LLM (unified Anthropic billing). R
 
 ### Architecture Considerations
 - **Slack bidirectional logging** — Leo's messages not captured in vault, only AI replies. Future: full bidirectional vault history.
-- **Context window management** — as histories grow, rolling window or summarization strategy needed for long-running chief channel.
+- **Context window management** — as histories grow, rolling window or summarization strategy needed for long-running kai channel.
 - **Cost control at scale** — negligible today. As scheduled briefs scale, consider per-advisor daily budgets + spend alerts.
 - **Hardware upgrade** — Mac Mini M4 ($599) is the practical first step for better local models (7B at 3s vs current 3B at 9s). Multiple older machines can be used as Ollama nodes.
 

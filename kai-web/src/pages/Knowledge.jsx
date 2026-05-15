@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react'
 const API = '/api'
 
 const ADVISOR_COLORS = {
-  chief: '#6366f1', kai: '#6366f1',
+  kai: '#6366f1',
   ember: '#ec4899', beats: '#f59e0b',
   doc: '#10b981', coach: '#f97316',
   roads: '#f59e0b', creative: '#8b5cf6',

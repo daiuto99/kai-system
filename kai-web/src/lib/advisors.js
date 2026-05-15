@@ -1,7 +1,7 @@
 export const ADVISORS = [
   {
     id:      'kai',
-    channel: 'chief',
+    channel: 'kai',
     name:    'KAI',
     role:    'Command',
     emoji:   '⚡',

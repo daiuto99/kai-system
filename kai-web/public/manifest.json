@@ -1,7 +1,7 @@
 {
   "name": "KAI",
   "short_name": "KAI",
-  "description": "Your chief of staff",
+  "description": "Your personal AI system",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#060E1F",

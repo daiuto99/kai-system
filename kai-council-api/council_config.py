@@ -11,7 +11,6 @@ WORKER_URL = "http://kai-worker-api:8001"
 
 ADVISOR_CHANNELS = {
     "kai":   "kai",
-    "chief": "kai",
     "beats": "beats",
     "beats-personal": "beats",
     "ember": "ember",

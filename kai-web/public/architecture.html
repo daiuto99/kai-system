@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.18.0 · 2026-05-14 — KAI-207 Phase 1.5 + WP-2: WP REST tools migrated to Cloudways fleet (kai user + FQDN + verify=False + .htaccess REDIRECT_STATUS guard), 5 new SSH static-file tools shipped (KAI WP_TOOLS: 30 → 35), full WordPress operational stack live on all 10 sites</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.20.0 · 2026-05-15 — KAI-239 Chief removal complete (advisors.js root cause, 22+ files, both containers rebuilt), mandatory task_id enforcement on all 7 WP tools, _wp_creds() fuzzy matching, session boundaries established</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -234,7 +234,7 @@
     <div class="layer" style="background:#ec489908;border-color:#ec489930">
       <div class="layer-title" style="color:#f472b6">AI Council (port 8002)</div>
       <div class="layer-items">
-        <span class="layer-item" style="background:#ec489920;color:#f472b6">KAI (Chief) — Anthropic Sonnet</span>
+        <span class="layer-item" style="background:#ec489920;color:#f472b6">KAI — Anthropic Sonnet</span>
         <span class="layer-item" style="background:#ec489920;color:#f472b6">Ember — Ollama Local (privacy-first)</span>
         <span class="layer-item" style="background:#ec489920;color:#f472b6">Doc — Ollama Local (privacy-first)</span>
         <span class="layer-item" style="background:#ec489920;color:#f472b6">Beats, Coach, Sky, Roads, Creative, Dev — Anthropic</span>
@@ -321,7 +321,7 @@
     <div class="sys-layer-icon">🧠</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#f472b6">AI Council Layer</div>
-      <div class="sys-layer-desc">8 lead advisors + 13 specialist personas (all fully written, 300-942 lines each). CreativeOrg.md and DevOrg.md always-load alongside their directors. Each advisor has a defined domain, model assignment, and access to KAI tools. KAI chief is the command center. Complexity routing (Haiku/Sonnet/Opus by task type) is live.</div>
+      <div class="sys-layer-desc">8 lead advisors + 13 specialist personas (all fully written, 300-942 lines each). CreativeOrg.md and DevOrg.md always-load alongside their directors. Each advisor has a defined domain, model assignment, and access to KAI tools. KAI is the command center. Complexity routing (Haiku/Sonnet/Opus by task type) is live.</div>
       <div class="sys-layer-status">
         <span class="badge badge-green">10 advisors live ✅</span>
         <span class="badge badge-green">13 specialists ✅</span>
@@ -910,7 +910,7 @@
     <div class="card">
       <div class="card-title">All Communication Channels — Status</div>
       <div class="container-row">
-        <div><div class="container-name">Telegram</div><div class="container-meta">@Kai_sonicink_bot — long polling in scheduler → routes to KAI chief</div></div>
+        <div><div class="container-name">Telegram</div><div class="container-meta">@Kai_sonicink_bot — long polling in scheduler → routes to KAI</div></div>
         <span class="badge badge-green"><span class="dot"></span> Live</span>
       </div>
       <div class="container-row">
@@ -1019,7 +1019,7 @@
     <div class="card-title">Function → Model Routing (Current)</div>
     <table>
       <tr><th>Function</th><th>Provider</th><th>Model</th><th>Reason</th></tr>
-      <tr><td>KAI (Chief) chat + tools</td><td><span class="badge badge-purple">Anthropic</span></td><td>claude-sonnet-4-6</td><td>Tool-use required — agentic loop</td></tr>
+      <tr><td>KAI chat + tools</td><td><span class="badge badge-purple">Anthropic</span></td><td>claude-sonnet-4-6</td><td>Tool-use required — agentic loop</td></tr>
       <tr><td>Specialist consultation</td><td><span class="badge badge-purple">Anthropic</span></td><td>claude-sonnet-4-6</td><td>Complex domain reasoning</td></tr>
       <tr><td>Session summaries + decisions</td><td><span class="badge badge-purple">Anthropic</span></td><td>claude-sonnet-4-6</td><td>Summary quality matters</td></tr>
       <tr><td>Gmail read / draft</td><td><span class="badge badge-purple">Anthropic</span></td><td>claude-sonnet-4-6</td><td>Via KAI tool — Anthropic turn</td></tr>
@@ -1034,7 +1034,7 @@
     <div class="card-title">Token Cost by Channel</div>
     <table>
       <tr><th>Channel / Function</th><th>Provider</th><th>Model</th><th>In</th><th>Out</th><th>Privacy</th></tr>
-      <tr><td>KAI (Chief) + tools</td><td>Anthropic</td><td>claude-sonnet-4-6</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker API</td></tr>
+      <tr><td>KAI + tools</td><td>Anthropic</td><td>claude-sonnet-4-6</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker API</td></tr>
       <tr><td>Ember chat</td><td>Ollama</td><td>qwen2.5:3b</td><td>$0</td><td>$0</td><td style="color:#10b981">100% local</td></tr>
       <tr><td>Doc chat</td><td>Ollama</td><td>qwen2.5:3b</td><td>$0</td><td>$0</td><td style="color:#10b981">100% local</td></tr>
       <tr><td>Beats, Sky, Roads, Coach</td><td>Anthropic</td><td>claude-sonnet-4-6</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker</td></tr>

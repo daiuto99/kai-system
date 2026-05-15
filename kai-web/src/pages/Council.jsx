@@ -3,7 +3,7 @@ import { api } from '../lib/api'
 import { Users } from 'lucide-react'
 
 const ADVISORS = [
-  { id: 'chief', name: 'Chief', role: 'Strategy & priorities',  color: 'text-blue-400'   },
+  { id: 'kai', name: 'KAI', role: 'Command & operations', color: 'text-blue-400' },
   { id: 'beats', name: 'Beats', role: 'Music & creative',       color: 'text-orange-400' },
   { id: 'ember', name: 'Ember', role: 'Emotional & personal',   color: 'text-rose-400'   },
   { id: 'doc',   name: 'Doc',   role: 'Health & science',       color: 'text-green-400'  },
@@ -11,7 +11,7 @@ const ADVISORS = [
 ]
 
 export default function Council() {
-  const [active, setActive] = useState('chief')
+  const [active, setActive] = useState('kai')
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(false)
 
