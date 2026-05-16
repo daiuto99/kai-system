@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 
 VAULT_PATH = Path("/vault")
+WORKSPACE_PATH = Path("/workspace")
 
 def load_secret(name: str) -> str:
     p = Path(f"/run/secrets/{name}")

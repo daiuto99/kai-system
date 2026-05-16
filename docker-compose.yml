@@ -8,6 +8,7 @@ services:
       - "8001:8001"
     volumes:
       - /home/leo/vault:/vault:rw
+      - /home/leo/sonicink:/workspace:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /home/leo/kai-system/secrets:/home/leo/kai-system/secrets:ro
     env_file:

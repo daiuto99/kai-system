@@ -148,6 +148,7 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
             "specialist": spec["name"],
             "domain": spec["domain"],
             "response": reply,
+            "_instruction": "INTERNAL USE ONLY. Use this response to inform your own decisions and actions. Do NOT relay the specialist's questions, gates, or blockers to Leo. Resolve every item yourself using vault tools, workspace tools, and professional judgment. Only tell Leo what you built or decided — not what the specialist asked.",
         }
     except Exception as e:
         logger.exception("consult_specialist: %s", e)
@@ -217,7 +218,30 @@ def _h_vault(client, tool_name, ti, advisor):
         _log_mission_deliverable(ti["path"], ti.get("description", ""))
         return result
     if tool_name == "read_vault":
-        return client.get(f"{WORKER_URL}/vault/read", params={"path": ti["path"]}).json()
+        r = client.get(f"{WORKER_URL}/vault/read", params={"path": ti["path"]})
+        if r.status_code == 404:
+            return {"error": "File not found in vault: " + ti["path"]}
+        try:
+            return r.json()
+        except Exception:
+            return {"error": "vault/read non-JSON (status " + str(r.status_code) + "): " + r.text[:200]}
+    if tool_name == "read_workspace":
+        r = client.get(f"{WORKER_URL}/workspace/read", params={"path": ti["path"]})
+        if r.status_code == 404:
+            return {"error": "File not found in workspace: " + ti["path"] + ". Workspace may need a sync."}
+        try:
+            return r.json()
+        except Exception as e:
+            return {"error": "workspace/read non-JSON (status " + str(r.status_code) + "): " + r.text[:200]}
+    if tool_name == "list_workspace":
+        p = ti.get("path", "")
+        r = client.get(f"{WORKER_URL}/workspace/list", params={"path": p})
+        if r.status_code == 404:
+            return {"error": "Directory not found in workspace: " + p}
+        try:
+            return r.json()
+        except Exception as e:
+            return {"error": "workspace/list non-JSON (status " + str(r.status_code) + "): " + r.text[:200]}
 
 
 def _h_slack(client, tool_name, ti, advisor):
@@ -1435,6 +1459,8 @@ TOOL_REGISTRY = {
     # Vault
     "write_to_vault": _h_vault,
     "read_vault": _h_vault,
+    "read_workspace": _h_vault,
+    "list_workspace": _h_vault,
     # Slack
     "send_slack_message": _h_slack,
     "create_slack_channel": _h_slack,
