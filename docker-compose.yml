@@ -35,6 +35,7 @@ services:
       - "8002:8002"
     volumes:
       - /home/leo/vault:/vault:rw
+      - /home/leo/kai-system/secrets:/run/wp_secrets:ro
     env_file:
       - .env
     secrets:
@@ -154,11 +155,13 @@ services:
       - N8N_EDITOR_BASE_URL=https://n8n.sonicink.space
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=kai
-      - N8N_BASIC_AUTH_PASSWORD=sonicink_n8n_2026
-      - N8N_ENCRYPTION_KEY=CDxy1Cu/up4axYksZCGfkHmORbE5Zp9N
       - N8N_SECURE_COOKIE=false
       - GENERIC_TIMEZONE=America/New_York
       - TZ=America/New_York
+    entrypoint: ["/bin/sh", "-c", "export N8N_BASIC_AUTH_PASSWORD=$(cat /run/secrets/n8n_basic_auth_password) && export N8N_ENCRYPTION_KEY=$(cat /run/secrets/n8n_encryption_key) && exec tini -- /docker-entrypoint.sh"]
+    secrets:
+      - n8n_basic_auth_password
+      - n8n_encryption_key
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
       interval: 30s
@@ -266,10 +269,27 @@ services:
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
       - TS_HOSTNAME=kai-worker
-      - TS_AUTHKEY=tskey-auth-k8EF5yZNxZ11CNTRL-jQ3ufRWS64ZGDdCbeyP64ZRhNuMTL5u94
+      - TS_AUTHKEY_FILE=/secrets/tailscale_authkey.txt
     restart: unless-stopped
 
 
+
+  kai-orchestrator:
+    build: ./kai-orchestrator
+    container_name: kai-orchestrator
+    restart: unless-stopped
+    ports:
+      - "8004:8003"
+    volumes:
+      - orchestrator-data:/data/orchestrator
+      - /home/leo/vault:/vault:rw
+      - /home/leo/kai-system/secrets:/run/wp_secrets:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
 volumes:
   qdrant-data:
@@ -277,6 +297,7 @@ volumes:
   habitsync_data:
   ollama_data:
   tailscale-data:
+  orchestrator-data:
 
 secrets:
   anthropic_api_key:
@@ -327,3 +348,7 @@ secrets:
     file: ./secrets/litellm_master_key.txt
   codeserver_password:
     file: ./secrets/codeserver_password.txt
+  n8n_basic_auth_password:
+    file: ./secrets/n8n_basic_auth_password.txt
+  n8n_encryption_key:
+    file: ./secrets/n8n_encryption_key.txt

@@ -561,13 +561,19 @@ def _h_wordpress(client, tool_name, ti, advisor):
             raise ValueError(f"Unknown site: {site_key!r}. Available: {available}. Check wordpress_sites.json.")
 
         site_key = resolved_key
-        kai_pw = site.get("kai_app_password")
+        # Read kai_app_password from Docker secrets volume; fall back to JSON field
+        wp_secrets_path = Path("/run/wp_secrets")
+        secret_file = wp_secrets_path / f"wp_{site_key}_kai_app_password.txt"
+        if secret_file.exists():
+            kai_pw = secret_file.read_text().strip()
+        else:
+            kai_pw = site.get("kai_app_password", "")
         if kai_pw:
             user, pw = "kai", kai_pw
         elif site.get("app_password"):
             user, pw = site.get("username", ""), site["app_password"]
         else:
-            raise ValueError(f"No app password configured for {site_key}.")
+            raise ValueError(f"No app password configured for {site_key}. Secret file not found: {secret_file}")
         creds = _b64.b64encode(f"{user}:{pw}".encode()).decode()
         fqdn = site.get("cloudways_fqdn")
         base_url = f"https://{fqdn}" if fqdn else site["url"]
