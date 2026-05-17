@@ -17,6 +17,7 @@ SPECIALISTS_FILE = VAULT_PATH / "00_System" / "specialists.json"
 PLANE_API_TOKEN = open("/run/secrets/plane_api_token").read().strip().split("\n")[0]
 PLANE_BASE_URL = "http://172.18.0.1:8090/api/v1"
 PLANE_WORKSPACE = "sonicink"
+from council_config import ORCHESTRATOR_URL as _ORCH_URL
 
 
 
@@ -154,6 +155,43 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
         return {"error": str(e)}
 
 def _h_workflows(client, tool_name, ti, advisor):
+
+    if tool_name == "list_capabilities":
+        try:
+            r = httpx.get(f"{_ORCH_URL}/capabilities", timeout=10)
+            data = r.json()
+            caps = data.get("capabilities", [])
+            lines = []
+            for c in caps:
+                flags = []
+                if c.get("destructive"):
+                    flags.append("destructive — requires confirmed=true")
+                if c.get("read_only"):
+                    flags.append("read-only")
+                if c.get("rate_limit"):
+                    rl = c["rate_limit"]
+                    flags.append(f"rate-limited: {rl['max']}/{rl['window']}s")
+                flag_str = " | ".join(flags) if flags else "safe"
+                lines.append(f"  {c['name']} [{flag_str}]")
+            return {"capabilities": "\n".join(lines), "count": data.get("count", len(caps))}
+        except Exception as e:
+            return {"error": str(e)}
+
+    if tool_name == "run_capability":
+        capability = tool_input.get("capability", "")
+        inputs = tool_input.get("inputs", {})
+        confirmed = tool_input.get("confirmed", False)
+        if not capability:
+            return {"ok": False, "error": "capability name required"}
+        try:
+            payload = {"inputs": inputs}
+            if confirmed:
+                payload["confirmed"] = True
+            r = httpx.post(f"{_ORCH_URL}/capability/{capability}", json=payload, timeout=60)
+            return r.json()
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     if tool_name == "save_workflow":
         return client.post(f"{WORKER_URL}/workflows", json=ti).json()
     if tool_name == "list_workflows":

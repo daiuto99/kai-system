@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 VAULT_PATH = Path("/vault")
 COUNCIL_PATH = VAULT_PATH / "60_Council"
 WORKER_URL = "http://kai-worker-api:8001"
+ORCHESTRATOR_URL = "http://kai-orchestrator:8003"
 
 ADVISOR_CHANNELS = {
     "kai":   "kai",
