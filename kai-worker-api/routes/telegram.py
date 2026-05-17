@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Header
 from pydantic import BaseModel
 import httpx as _tghttpx
+from safe_http import safe_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,7 +46,10 @@ def _tg_download_file(file_id: str) -> tuple[bytes, str]:
     """Download a Telegram file. Returns (bytes, mime_type)."""
     token = _tg_token()
     r = _tghttpx.get(f"{TELEGRAM_API}/bot{token}/getFile", params={"file_id": file_id}, timeout=10)
-    file_path = r.json()["result"]["file_path"]
+    j = safe_json(r)
+    file_path = j.get("result", {}).get("file_path")
+    if not file_path:
+        raise ValueError(f"getFile returned no file_path (status={r.status_code})")
     data = _tghttpx.get(f"{TELEGRAM_API}/file/bot{token}/{file_path}", timeout=30)
     ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
     mime = {"pdf": "application/pdf", "jpg": "image/jpeg", "jpeg": "image/jpeg",
@@ -152,7 +156,7 @@ def telegram_status():
     try:
         r = _tghttpx.get(f"{TELEGRAM_API}/bot{token}/getMe", timeout=10)
         if r.status_code == 200:
-            bot = r.json().get("result", {})
+            bot = safe_json(r).get("result", {})
             return {"configured": True, "bot": bot}
         return {"configured": False, "error": r.text[:200]}
     except Exception as e:
@@ -171,4 +175,4 @@ def telegram_register_webhook(body: dict):
         json={"url": webhook_url},
         timeout=15,
     )
-    return r.json()
+    return safe_json(r, default={"ok": False, "error": "non-json response"})

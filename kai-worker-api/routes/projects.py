@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from config import VAULT_PATH
+from safe_http import safe_json
 
 try:
     import yaml as _yaml
@@ -54,7 +55,7 @@ def _slack_api(method: str, payload: dict) -> dict:
         json=payload,
         timeout=15,
     )
-    return r.json()
+    return safe_json(r)
 
 
 def _slack_get(method: str, params: dict) -> dict:
@@ -69,7 +70,7 @@ def _slack_get(method: str, params: dict) -> dict:
         params=params,
         timeout=15,
     )
-    return r.json()
+    return safe_json(r)
 
 
 def _contacts_load() -> list:

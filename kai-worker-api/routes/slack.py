@@ -5,6 +5,7 @@ from datetime import datetime as _sdt
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 import httpx as _slhx
+from safe_http import safe_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -23,7 +24,7 @@ def _slack_api(method: str, payload: dict) -> dict:
         json=payload,
         timeout=15,
     )
-    return r.json()
+    return safe_json(r)
 
 
 def _slack_get(method: str, params: dict) -> dict:
@@ -34,7 +35,7 @@ def _slack_get(method: str, params: dict) -> dict:
         params=params,
         timeout=15,
     )
-    return r.json()
+    return safe_json(r)
 
 
 @router.post("/slack/channels")
@@ -130,7 +131,7 @@ def _download_slack_file(file_id: str, token: str) -> tuple[dict, bytes | None]:
         params={"file": file_id},
         timeout=15,
     )
-    meta = r.json()
+    meta = safe_json(r)
     if not meta.get("ok"):
         return meta.get("file", {}), None
     file_info = meta["file"]
@@ -150,7 +151,7 @@ def _ingest_file_background(vault_path: str, advisor: str, channel_id: str, file
             json={"path": vault_path, "advisor": advisor},
             timeout=120,
         )
-        result = r.json() if r.status_code == 200 else {"ok": False, "error": r.text[:200]}
+        result = safe_json(r) if r.status_code == 200 else {"ok": False, "error": r.text[:200]}
         summary = result.get("summary", "done") if result.get("ok") else f"ingest error: {result.get('error', 'unknown')}"
 
         # Post confirmation to channel
@@ -199,7 +200,7 @@ def _handle_checkin_reply(thread_ts: str, channel_id: str, text: str):
                   "thread_ts": thread_ts, "channel_id": channel_id},
             timeout=15,
         )
-        logger.info("slack_events: checkin-reply result: %s", r.json())
+        logger.info("slack_events: checkin-reply result: %s", safe_json(r))
     except Exception as e:
         logger.exception("slack_events: checkin-reply failed: %s", e)
 

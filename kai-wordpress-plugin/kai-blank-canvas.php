@@ -2,7 +2,7 @@
 /**
  * Plugin Name: KAI Blank Canvas
  * Description: Registers a full-width blank page template for KAI-designed pages. No theme header/footer — KAI owns the entire page.
- * Version: 1.0.0
+ * Version: 1.1.0
  */
 
 if (!defined('ABSPATH')) exit;
@@ -33,4 +33,35 @@ add_filter('template_include', function($template) {
         }
     }
     return $template;
+});
+
+add_action('rest_api_init', function() {
+    $allowed_options = ['kai_cs_active'];
+
+    register_rest_route('kai/v1', '/option/(?P<name>[a-zA-Z0-9_]+)', [
+        [
+            'methods'             => 'GET',
+            'callback'            => function($req) use ($allowed_options) {
+                $n = $req->get_param('name');
+                if (!in_array($n, $allowed_options)) {
+                    return new WP_Error('forbidden', 'Option not in allowlist', ['status' => 403]);
+                }
+                return ['option' => $n, 'value' => get_option($n, null)];
+            },
+            'permission_callback' => 'is_user_logged_in',
+        ],
+        [
+            'methods'             => 'POST',
+            'callback'            => function($req) use ($allowed_options) {
+                $n = $req->get_param('name');
+                if (!in_array($n, $allowed_options)) {
+                    return new WP_Error('forbidden', 'Option not in allowlist', ['status' => 403]);
+                }
+                $v = sanitize_text_field($req->get_param('value'));
+                update_option($n, $v);
+                return ['option' => $n, 'value' => get_option($n), 'updated' => true];
+            },
+            'permission_callback' => 'is_user_logged_in',
+        ],
+    ]);
 });

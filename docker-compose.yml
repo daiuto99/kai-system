@@ -280,10 +280,17 @@ services:
     restart: unless-stopped
     ports:
       - "8004:8003"
+    environment:
+      - ORCHESTRATOR_INTERNAL_URL=http://kai-orchestrator:8003
+      - COUNCIL_API_URL=http://kai-council-api:8002
     volumes:
       - orchestrator-data:/data/orchestrator
       - /home/leo/vault:/vault:rw
       - /home/leo/kai-system/secrets:/run/wp_secrets:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    secrets:
+      - cloudways_ssh_key
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
       interval: 30s

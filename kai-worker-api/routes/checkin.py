@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel
 from config import VAULT_PATH
+from safe_http import safe_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -63,7 +64,7 @@ def _slack_post(channel: str, text: str, thread_ts: str = None) -> dict:
     r = httpx.post("https://slack.com/api/chat.postMessage",
                    headers={"Authorization": f"Bearer {token}"},
                    json=payload, timeout=15)
-    return r.json()
+    return safe_json(r)
 
 
 def _lookup_channel(name: str) -> str | None:
@@ -73,7 +74,7 @@ def _lookup_channel(name: str) -> str | None:
                   headers={"Authorization": f"Bearer {token}"},
                   params={"types": "public_channel,private_channel", "limit": 200},
                   timeout=15)
-    for ch in r.json().get("channels", []):
+    for ch in safe_json(r).get("channels", []):
         if ch["name"] == name.lstrip("#"):
             return ch["id"]
     return None
