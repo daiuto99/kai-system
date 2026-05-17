@@ -1,7 +1,7 @@
 import json
 import logging
 from fastapi import APIRouter, HTTPException
-from config import VAULT_PATH
+from config import VAULT_PATH, safe_path
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -58,7 +58,9 @@ def list_decisions():
 
 @router.get("/knowledge/decisions/{month}")
 def read_decisions_month(month: str):
-    target = DECISIONS_DIR / f"{month}.md"
+    target = safe_path(DECISIONS_DIR, f"{month}.md")
+    if target is None:
+        raise HTTPException(400, "Invalid path")
     if not target.exists():
         raise HTTPException(404, f"No decisions for {month}")
     return {"month": month, "content": target.read_text(encoding="utf-8")}

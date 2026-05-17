@@ -11,3 +11,12 @@ def load_secret(name: str) -> str:
     return os.environ.get(name.upper(), "")
 
 TODOIST_TOKEN = load_secret("todoist_api_key")
+
+def safe_path(base: Path, rel: str) -> Path | None:
+    """Resolve rel against base; return None if it would escape base."""
+    try:
+        p = (base / rel.lstrip("/")).resolve()
+        p.relative_to(base.resolve())
+        return p
+    except ValueError:
+        return None

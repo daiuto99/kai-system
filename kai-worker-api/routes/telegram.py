@@ -140,9 +140,12 @@ async def telegram_webhook(
         r.raise_for_status()
         data = r.json()
         reply = data.get("reply", "No response.")
+    except (_tghttpx.ConnectError, _tghttpx.ConnectTimeout, _tghttpx.NetworkError) as e:
+        logger.exception("Council API unreachable from Telegram: %s", e)
+        raise HTTPException(503, "KAI temporarily unavailable — Telegram will retry")
     except Exception as e:
         logger.exception("Council API error from Telegram: %s", e)
-        reply = "KAI is temporarily unavailable. Try again in a moment."
+        reply = "KAI encountered an error. Try again in a moment."
 
     _tg_send(chat_id, reply)
     return {"ok": True}

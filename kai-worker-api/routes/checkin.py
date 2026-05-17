@@ -6,7 +6,7 @@ from datetime import datetime as _dt
 from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel
-from config import VAULT_PATH
+from config import VAULT_PATH, safe_path
 from safe_http import safe_json
 
 logger = logging.getLogger(__name__)
@@ -125,7 +125,9 @@ def _save_checkin_data(checkin_type: str, answers: dict):
     CHECKIN_FILE.write_text(json.dumps(existing, indent=2))
 
     WELLBEING_DIR.mkdir(parents=True, exist_ok=True)
-    vault_path = WELLBEING_DIR / f"{today}-{checkin_type}.md"
+    vault_path = safe_path(WELLBEING_DIR, f"{today}-{checkin_type}.md")
+    if vault_path is None:
+        raise HTTPException(400, "Invalid checkin_type")
     questions = QUESTION_SETS.get(checkin_type, [])
     lines = [f"---\ndate: {today}\ntype: {checkin_type}\n---\n"]
     for q in questions:

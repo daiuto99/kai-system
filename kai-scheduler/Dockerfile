@@ -13,5 +13,6 @@ COPY watchdog.py .
 COPY security_watchdog.py .
 COPY execution_registry.py .
 COPY triage.py .
+COPY invariants.py .
 
 CMD ["python", "scheduler.py"]

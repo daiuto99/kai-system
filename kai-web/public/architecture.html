@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.26.1 · 2026-05-17 — Code review checkpoint (Codex+Claude, 12 findings, 4 categories). Sprint 5: 10 issues filed in Plane. Standing rules: remediation scope = full risk class, auth before surface, handler-level tests required.</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.27.0 · 2026-05-17 — Sprint 5 complete: 10 invariants, APScheduler, rollback switch, System Health tab. S4-5 Autonomy Policy Registry. S4-6 next.</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -114,6 +114,7 @@
   <button class="tab" onclick="show('privacy')">Privacy</button>
   <button class="tab" onclick="show('governance')">Governance</button>
   <button class="tab" onclick="show('roadmap')">Roadmap</button>
+  <button class="tab" onclick="show('health')">System Health</button>
 </div>
 
 
@@ -1320,7 +1321,7 @@
       </div>
 
             <div class="card" style="margin-bottom:8px;border-color:#6366f140;background:#6366f108">
-        <strong style="color:#6ee7b7"><strong style="color:#818cf8">&#x2705; Session 2026-05-17 &mdash; JARVIS Sprint 2: Council Gates + OVERRIDE + WP Vertical E2E</strong>#x2705; Session 2026-05-17 (S2) &mdash; JARVIS Sprint 2: Council Gates + OVERRIDE + WP Vertical E2E</strong></div><div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#6ee7b7">&#x2705; Session 2026-05-17 (S5) &mdash; Code Review Checkpoint: Codex+Claude parallel review, 12 findings (5 execution, 2 architecture, 3 plan, 2 incomplete-prior-fix). 10 Sprint 5 issues filed in Plane. 7 standing process rules established. v2.26.1</strong></div><div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#6ee7b7">&#x2705; Session 2026-05-17 (S4b) &mdash; JARVIS Sprint 4 S4-4: GET /capabilities + POST /capability/{name} + quality gates (destructive confirmation, rate limiting). run_capability+list_capabilities in KAI_TOOLS. Council→orchestrator bridge. Code review gate filed (db700282). v2.26.0</strong></div><div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#6ee7b7">&#x2705; Session 2026-05-17 (S4) &mdash; JARVIS Sprint 4 Partial: S4-0 Syncthing gate, S4-1 vault+workspace+calendar (6 caps), S4-2 workspace.sync KAI-242, S4-3 session.close() workflow. v2.25.0</strong></div><div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#6ee7b7"><strong style="color:#818cf8">&#x2705; Session 2026-05-17 &mdash; JARVIS Sprint 2: Council Gates + OVERRIDE + WP Vertical E2E</strong>#x2705; Session 2026-05-17 (S3) &mdash; JARVIS Sprint 3: safe_request audit + Slack/Plane caps + regression suite + wp_state_machine deleted</strong>
+        <strong style="color:#6ee7b7"><strong style="color:#818cf8">&#x2705; Session 2026-05-17 &mdash; JARVIS Sprint 2: Council Gates + OVERRIDE + WP Vertical E2E</strong>#x2705; Session 2026-05-17 (S2) &mdash; JARVIS Sprint 2: Council Gates + OVERRIDE + WP Vertical E2E</strong></div><div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#6ee7b7">&#x2705; Session 2026-05-17 (S6) &mdash; Sprint 5 Complete + S4-5 Autonomy Policy Registry: 10/10 invariants, APScheduler 12-job migration, weekly cron, rollback switch, System Health dashboard tab. Backup integrity FAIL (genuine). S4-6 next. v2.27.0</strong></div><div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#6ee7b7">&#x2705; Session 2026-05-17 (S5) &mdash; Code Review Checkpoint: Codex+Claude parallel review, 12 findings (5 execution, 2 architecture, 3 plan, 2 incomplete-prior-fix). 10 Sprint 5 issues filed in Plane. 7 standing process rules established. v2.26.1</strong></div><div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#6ee7b7">&#x2705; Session 2026-05-17 (S4b) &mdash; JARVIS Sprint 4 S4-4: GET /capabilities + POST /capability/{name} + quality gates (destructive confirmation, rate limiting). run_capability+list_capabilities in KAI_TOOLS. Council→orchestrator bridge. Code review gate filed (db700282). v2.26.0</strong></div><div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#6ee7b7">&#x2705; Session 2026-05-17 (S4) &mdash; JARVIS Sprint 4 Partial: S4-0 Syncthing gate, S4-1 vault+workspace+calendar (6 caps), S4-2 workspace.sync KAI-242, S4-3 session.close() workflow. v2.25.0</strong></div><div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#6ee7b7"><strong style="color:#818cf8">&#x2705; Session 2026-05-17 &mdash; JARVIS Sprint 2: Council Gates + OVERRIDE + WP Vertical E2E</strong>#x2705; Session 2026-05-17 (S3) &mdash; JARVIS Sprint 3: safe_request audit + Slack/Plane caps + regression suite + wp_state_machine deleted</strong>
         <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
           <li>S2-3: Council gates wired &mdash; orchestrator&harr;council-api callback, 30s fallback poller. Gate types: dev (auto-approve), creative_review (Ember draft &rarr; vault). Sync background task avoids asyncio blocking. gates table + engine.open_gate/resolve_gate.</li>
           <li>S2-4: OVERRIDE endpoint &mdash; POST /jobs/{job_id}/steps/{step_id}/override. &ge;50 char reason. Slack ack to #kai-system. Auto-files Plane BUG at &ge;5 overrides/7d.</li>
@@ -1456,6 +1457,41 @@
   </div>
 </div>
 
+
+<div id="panel-health" class="panel">
+  <h2 style="color:#e2e8f0;margin-bottom:16px">System Health</h2>
+
+  <!-- Invariants table -->
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <strong style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em">Invariants</strong>
+      <span id="inv-updated" style="color:#64748b;font-size:12px">loading...</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="border-bottom:1px solid #1e293b">
+          <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Invariant</th>
+          <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">Status</th>
+          <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Detail</th>
+          <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Last Check</th>
+        </tr>
+      </thead>
+      <tbody id="inv-tbody">
+        <tr><td colspan="4" style="color:#64748b;padding:12px 8px">Loading invariants...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Metrics summary -->
+  <div class="card">
+    <strong style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:12px">Operational Metrics</strong>
+    <div id="metrics-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px">
+      <div style="color:#64748b">Loading...</div>
+    </div>
+  </div>
+  <p style="color:#475569;font-size:12px;margin-top:12px">Auto-refreshes every 60s. Source: /orchestrator/invariants/state + /orchestrator/metrics/summary</p>
+</div>
+
 </div><!-- /content -->
 <script>
 function show(tab) {
@@ -1464,6 +1500,67 @@ function show(tab) {
   document.getElementById('panel-' + tab).classList.add('active')
   event.target.classList.add('active')
 }
+
+// System Health auto-refresh
+function _metricCard(label, value, color) {
+  return '<div style="background:#0f172a;border-radius:8px;padding:12px;text-align:center">'
+    + '<div style="font-size:22px;font-weight:700;color:' + (color||'#e2e8f0') + '">' + value + '</div>'
+    + '<div style="font-size:11px;color:#64748b;margin-top:4px">' + label + '</div>'
+    + '</div>';
+}
+
+function loadHealth() {
+  fetch('/orchestrator/invariants/state')
+    .then(r => r.json())
+    .then(resp => {
+      if (!resp.ok) { document.getElementById('inv-tbody').innerHTML = '<tr><td colspan="4" style="color:#f87171;padding:12px 8px">Error: ' + (resp.error||'unknown') + '</td></tr>'; return; }
+      const d = resp.data;
+      document.getElementById('inv-updated').textContent = 'Updated: ' + (d.updated_at||'?').replace('T',' ').substring(0,16) + ' UTC' + (d.runner_enabled===false ? ' | RUNNER DISABLED' : '');
+      const rows = Object.entries(d.invariants||{}).map(([k,v]) => {
+        const pass = v.pass;
+        const icon = pass ? '&#x2705;' : '&#x274C;';
+        const ts = (v.checked_at||'').replace('T',' ').substring(11,16) + ' UTC';
+        return '<tr style="border-bottom:1px solid #0f172a">'
+          + '<td style="padding:7px 8px;color:#e2e8f0">' + (v.label||k) + '</td>'
+          + '<td style="padding:7px 8px;text-align:center">' + icon + '</td>'
+          + '<td style="padding:7px 8px;color:' + (pass?'#86efac':'#fca5a5') + ';font-family:monospace;font-size:12px">' + (v.detail||'-') + '</td>'
+          + '<td style="padding:7px 8px;color:#64748b;font-size:12px">' + ts + '</td>'
+          + '</tr>';
+      });
+      document.getElementById('inv-tbody').innerHTML = rows.join('') || '<tr><td colspan="4" style="color:#64748b;padding:12px 8px">No invariants recorded yet.</td></tr>';
+    })
+    .catch(e => { document.getElementById('inv-tbody').innerHTML = '<tr><td colspan="4" style="color:#f87171;padding:12px 8px">Fetch error: ' + e + '</td></tr>'; });
+
+  fetch('/orchestrator/metrics/summary')
+    .then(r => r.json())
+    .then(resp => {
+      if (!resp.ok) { document.getElementById('metrics-grid').innerHTML = '<div style="color:#f87171">Error loading metrics</div>'; return; }
+      const d = resp.data;
+      document.getElementById('metrics-grid').innerHTML = [
+        _metricCard('Active Jobs',   d.active_jobs,   d.active_jobs   > 0 ? '#fbbf24' : '#34d399'),
+        _metricCard('Pending Gates', d.pending_gates, d.pending_gates > 0 ? '#fbbf24' : '#34d399'),
+        _metricCard('Total Jobs',    d.total_jobs,    '#94a3b8'),
+        _metricCard('Failed Jobs',   d.failed_jobs,   d.failed_jobs   > 0 ? '#f87171' : '#34d399'),
+        _metricCard('Overrides (7d)',d.overrides_7d,  d.overrides_7d  > 0 ? '#fbbf24' : '#34d399'),
+      ].join('');
+    })
+    .catch(e => { document.getElementById('metrics-grid').innerHTML = '<div style="color:#f87171">Fetch error: ' + e + '</div>'; });
+}
+
+// Auto-refresh every 60s when on health tab
+setInterval(function() {
+  if (document.getElementById('panel-health') && document.getElementById('panel-health').classList.contains('active')) {
+    loadHealth();
+  }
+}, 60000);
+
+// Load on tab click
+var _origShow = show;
+show = function(tab) {
+  _origShow(tab);
+  if (tab === 'health') loadHealth();
+};
+
 </script>
 </body>
 </html>

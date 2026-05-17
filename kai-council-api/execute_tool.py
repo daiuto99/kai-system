@@ -178,9 +178,9 @@ def _h_workflows(client, tool_name, ti, advisor):
             return {"error": str(e)}
 
     if tool_name == "run_capability":
-        capability = tool_input.get("capability", "")
-        inputs = tool_input.get("inputs", {})
-        confirmed = tool_input.get("confirmed", False)
+        capability = ti.get("capability", "")
+        inputs = ti.get("inputs", {})
+        confirmed = ti.get("confirmed", False)
         if not capability:
             return {"ok": False, "error": "capability name required"}
         try:

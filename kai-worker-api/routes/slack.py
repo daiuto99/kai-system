@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -14,6 +16,22 @@ router = APIRouter()
 def _slack_token() -> str:
     p = Path("/run/secrets/slack_bot_token")
     return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
+
+
+
+def _slack_signing_secret() -> str:
+    p = Path("/run/secrets/slack_signing_secret")
+    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_SIGNING_SECRET", "")
+
+
+def _verify_slack_sig(raw_body: bytes, ts: str, sig: str) -> bool:
+    secret = _slack_signing_secret()
+    if not secret:
+        logger.warning("SLACK_SIGNING_SECRET not configured — skipping verification")
+        return True
+    base = f"v0:{ts}:{raw_body.decode('utf-8', errors='replace')}".encode()
+    expected = "v0=" + hmac.new(secret.encode(), base, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig)
 
 
 def _slack_api(method: str, payload: dict) -> dict:
@@ -208,7 +226,13 @@ def _handle_checkin_reply(thread_ts: str, channel_id: str, text: str):
 @router.post("/slack/events")
 async def slack_events(request: Request, background_tasks: BackgroundTasks):
     """Slack Events API receiver — handles file_shared events in KAI-managed channels."""
-    body = await request.json()
+    raw = await request.body()
+    ts = request.headers.get("X-Slack-Request-Timestamp", "")
+    sig = request.headers.get("X-Slack-Signature", "")
+    if not _verify_slack_sig(raw, ts, sig):
+        raise HTTPException(403, "Invalid Slack signature")
+    import json as _json
+    body = _json.loads(raw)
 
     # URL verification handshake
     if body.get("type") == "url_verification":

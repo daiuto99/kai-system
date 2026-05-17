@@ -16,6 +16,7 @@ import httpx
 import concurrent.futures
 from watchdog import run_watchdog_checks
 from security_watchdog import run_security_checks
+from invariants import run_invariants
 from execution_registry import record as reg_record
 from triage import triage_failure
 
@@ -768,6 +769,7 @@ _morning_checkin_sent:  str = ""
 _evening_checkin_sent:  str = ""
 _last_watchdog_run: str = ""
 _last_security_run: str = ""
+_last_invariant_run: str = ""
 _last_inbox_scan: str = ""
 
 
@@ -860,125 +862,160 @@ def send_checkin(checkin_type: str):
 
 
 def main():
-    global _morning_sent, _afternoon_sent, _evening_sent, _health_sent, _last_watchdog_run, _last_security_run, _last_inbox_scan, _morning_checkin_sent, _evening_checkin_sent
-    log.info("kai-scheduler started — briefs at 8:30/12:30/20:00 local + Telegram polling")
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    log.info("kai-scheduler started — APScheduler + Telegram polling")
+
+    tz = _leo_timezone()
+
+    def _safe(fn_name, fn, *args):
+        t0 = time.monotonic()
+        try:
+            fn(*args)
+            reg_record(fn_name, "ok", duration_s=time.monotonic() - t0)
+        except Exception as e:
+            reg_record(fn_name, "fail", error=str(e))
+            log.error("%s error: %s", fn_name, e)
+            triage_failure(fn_name, str(e))
+
+    def _inbox_job():
+        try:
+            with httpx.Client(timeout=15) as hc:
+                hc.post(f"{WORKER_API}/inbox/scan")
+            reg_record("inbox_scan", "ok")
+        except Exception as e:
+            reg_record("inbox_scan", "fail", error=str(e))
+            log.error("Inbox scan error: %s", e)
+
+    def _invariant_job():
+        now_tz = datetime.now(_leo_timezone())
+        try:
+            run_invariants(send_daily_digest=(now_tz.hour == 8))
+        except Exception as e:
+            log.error("Invariant engine error: %s", e)
+
+    def _watchdog_job():
+        _safe("watchdog", run_watchdog_checks)
+        try:
+            _update_location_from_calendar()
+        except Exception as e:
+            log.error("Calendar location check error: %s", e)
+
+    # Reschedule daily CronTrigger jobs when Leo's timezone changes
+    _scheduled_tz = [tz]
+
+    def _tz_check_job(sched):
+        new_tz = _leo_timezone()
+        if str(new_tz) == str(_scheduled_tz[0]):
+            return
+        log.info("Timezone changed: %s → %s — rescheduling daily jobs", _scheduled_tz[0], new_tz)
+        _scheduled_tz[0] = new_tz
+        daily_jobs = [
+            ("morning_brief",     CronTrigger(hour=8,  minute=30, timezone=new_tz)),
+            ("afternoon_brief",   CronTrigger(hour=12, minute=30, timezone=new_tz)),
+            ("evening_brief",     CronTrigger(hour=20, minute=0,  timezone=new_tz)),
+            ("morning_checkin",   CronTrigger(hour=7,  minute=0,  timezone=new_tz)),
+            ("evening_checkin",   CronTrigger(hour=21, minute=0,  timezone=new_tz)),
+            ("worker_health",     CronTrigger(hour=9,  minute=0,  timezone=new_tz)),
+        ]
+        for job_id, trigger in daily_jobs:
+            try:
+                sched.reschedule_job(job_id, trigger=trigger)
+            except Exception as e:
+                log.warning("Could not reschedule %s: %s", job_id, e)
+
+
+    def _weekly_learning_cron():
+        """Monday 07:00 ET -- write weekly learning recap to vault + post Slack."""
+        import json as _json
+        now_local = datetime.now(_leo_timezone())
+        iso_week = now_local.strftime("%Y-W%W")
+        vault_dir = Path("/vault/60_Council/learning")
+        vault_dir.mkdir(parents=True, exist_ok=True)
+        out_path = vault_dir / (iso_week + ".md")
+        inv_path = Path("/vault/00_System/invariants.json")
+        inv_summary = "Invariant data unavailable"
+        if inv_path.exists():
+            try:
+                inv_data = _json.loads(inv_path.read_text())
+                passing = sum(1 for v in inv_data.get("invariants", {}).values() if v.get("pass"))
+                total = len(inv_data.get("invariants", {}))
+                updated = inv_data.get("updated_at", "?")[:16]
+                inv_summary = str(passing) + "/" + str(total) + " passing as of " + updated
+            except Exception:
+                pass
+        date_str = now_local.strftime("%Y-%m-%d %H:%M %Z")
+        content = (
+            "# KAI Weekly Learning Recap -- " + iso_week + "\n"
+            "**Generated:** " + date_str + "\n\n"
+            "## System Health\n"
+            "- Invariants: " + inv_summary + "\n\n"
+            "## This Week (Sprint 6 Learning Loop will fill this in)\n"
+            "- Events aggregation: pending Sprint 6\n"
+            "- Pattern analysis: pending Sprint 6\n"
+            "- Proposal: pending Sprint 6\n\n"
+            "## Notes\n"
+            "_Add session notes here._\n"
+        )
+        try:
+            out_path.write_text(content)
+            log.info("weekly cron: wrote %s", out_path)
+        except Exception as e:
+            log.error("weekly cron: vault write failed: %s", e)
+            return
+        token = load_secret("slack_bot_token")
+        if token:
+            try:
+                with httpx.Client(timeout=10) as hc:
+                    hc.post(
+                        "https://slack.com/api/chat.postMessage",
+                        headers={"Authorization": "Bearer " + token},
+                        json={
+                            "channel": "#kai-system",
+                            "text": (
+                                ":spiral_calendar_pad: *KAI Weekly -- " + iso_week + "*\n"
+                                "Invariants: " + inv_summary + "\n"
+                                "Vault: `60_Council/learning/" + iso_week + ".md`\n"
+                                "_Sprint 6 will add events + pattern analysis._"
+                            ),
+                            "username": "KAI Weekly", "icon_emoji": ":calendar:",
+                        },
+                    )
+                log.info("weekly cron: Slack posted for %s", iso_week)
+            except Exception as e:
+                log.error("weekly cron: Slack failed: %s", e)
+
+    sched = BackgroundScheduler(timezone=tz)
+
+    # Daily brief jobs — CronTrigger in Leo's local timezone
+    sched.add_job(lambda: _safe("morning_brief",   send_morning_brief),     CronTrigger(hour=8,  minute=30, timezone=tz), id="morning_brief",   coalesce=True, max_instances=1)
+    sched.add_job(lambda: _safe("afternoon_brief",  send_afternoon_brief),   CronTrigger(hour=12, minute=30, timezone=tz), id="afternoon_brief",  coalesce=True, max_instances=1)
+    sched.add_job(lambda: _safe("evening_brief",   send_evening_brief),     CronTrigger(hour=20, minute=0,  timezone=tz), id="evening_brief",   coalesce=True, max_instances=1)
+    sched.add_job(lambda: _safe("morning_checkin", send_checkin, "morning"), CronTrigger(hour=7,  minute=0,  timezone=tz), id="morning_checkin", coalesce=True, max_instances=1)
+    sched.add_job(lambda: _safe("evening_checkin", send_checkin, "evening"), CronTrigger(hour=21, minute=0,  timezone=tz), id="evening_checkin", coalesce=True, max_instances=1)
+    sched.add_job(lambda: _safe("worker_health_check", check_worker_health), CronTrigger(hour=9,  minute=0,  timezone=tz), id="worker_health",   coalesce=True, max_instances=1)
+
+    # Periodic jobs
+    sched.add_job(_watchdog_job,                         IntervalTrigger(minutes=30), id="watchdog",   coalesce=True, max_instances=1)
+    sched.add_job(run_security_checks,                   IntervalTrigger(hours=1),    id="security",   coalesce=True, max_instances=1)
+    sched.add_job(_invariant_job,                        IntervalTrigger(minutes=30), id="invariants", coalesce=True, max_instances=1)
+    sched.add_job(_inbox_job,                            IntervalTrigger(seconds=60), id="inbox_scan", coalesce=True, max_instances=1)
+    sched.add_job(lambda: _tz_check_job(sched),          IntervalTrigger(hours=1),    id="tz_check",   coalesce=True, max_instances=1)
+    sched.add_job(_weekly_learning_cron, CronTrigger(day_of_week="mon", hour=7, minute=0, timezone=tz), id="weekly_learning_cron", coalesce=True, max_instances=1)
+
+    sched.start()
+    log.info("APScheduler started with %d jobs", len(sched.get_jobs()))
 
     tg_thread = threading.Thread(target=telegram_poll_loop, daemon=True, name="telegram-poll")
     tg_thread.start()
 
-    while True:
-        now = datetime.now(_leo_timezone())
-        date_str = now.strftime("%Y-%m-%d")
-
-        if now.hour == 8 and now.minute == 30 and _morning_sent != date_str:
-            _morning_sent = date_str
-            _t0 = time.monotonic()
-            try:
-                send_morning_brief()
-                reg_record("morning_brief", "ok", duration_s=time.monotonic()-_t0)
-            except Exception as e:
-                reg_record("morning_brief", "fail", error=str(e))
-                log.error(f"Morning brief error: {e}")
-                triage_failure("morning_brief", str(e))
-
-        if now.hour == 9 and now.minute == 0 and _health_sent != date_str:
-            _health_sent = date_str
-            _t0 = time.monotonic()
-            try:
-                check_worker_health()
-                reg_record("worker_health_check", "ok", duration_s=time.monotonic()-_t0)
-            except Exception as e:
-                reg_record("worker_health_check", "fail", error=str(e))
-                log.error(f"Health check error: {e}")
-                triage_failure("worker_health_check", str(e))
-
-        # Morning check-in questions — 7:00 AM
-        if now.hour == 7 and now.minute == 0 and _morning_checkin_sent != date_str:
-            _morning_checkin_sent = date_str
-            _t0 = time.monotonic()
-            try:
-                send_checkin("morning")
-                reg_record("morning_checkin", "ok", duration_s=time.monotonic()-_t0)
-            except Exception as e:
-                reg_record("morning_checkin", "fail", error=str(e))
-                log.error(f"Morning checkin error: {e}")
-                triage_failure("morning_checkin", str(e))
-
-        # Evening check-in questions — 9:00 PM
-        if now.hour == 21 and now.minute == 0 and _evening_checkin_sent != date_str:
-            _evening_checkin_sent = date_str
-            _t0 = time.monotonic()
-            try:
-                send_checkin("evening")
-                reg_record("evening_checkin", "ok", duration_s=time.monotonic()-_t0)
-            except Exception as e:
-                reg_record("evening_checkin", "fail", error=str(e))
-                log.error(f"Evening checkin error: {e}")
-                triage_failure("evening_checkin", str(e))
-
-        if now.hour == 12 and now.minute == 30 and _afternoon_sent != date_str:
-            _afternoon_sent = date_str
-            _t0 = time.monotonic()
-            try:
-                send_afternoon_brief()
-                reg_record("afternoon_brief", "ok", duration_s=time.monotonic()-_t0)
-            except Exception as e:
-                reg_record("afternoon_brief", "fail", error=str(e))
-                log.error(f"Afternoon brief error: {e}")
-                triage_failure("afternoon_brief", str(e))
-
-        if now.hour == 20 and now.minute == 0 and _evening_sent != date_str:
-            _evening_sent = date_str
-            _t0 = time.monotonic()
-            try:
-                send_evening_brief()
-                reg_record("evening_brief", "ok", duration_s=time.monotonic()-_t0)
-            except Exception as e:
-                reg_record("evening_brief", "fail", error=str(e))
-                log.error(f"Evening brief error: {e}")
-                triage_failure("evening_brief", str(e))
-
-
-        # Security watchdog — hourly
-        _security_key = f"{now.hour}"
-        if now.minute < 1 and _last_security_run != _security_key:
-            _last_security_run = _security_key
-            try:
-                run_security_checks()
-            except Exception as e:
-                log.error(f"Security watchdog error: {e}")
-
-
-        _watchdog_key = f"{now.hour}:{now.minute}"
-        if now.minute in (0, 30) and _last_watchdog_run != _watchdog_key:
-            _last_watchdog_run = _watchdog_key
-            _t0 = time.monotonic()
-            try:
-                run_watchdog_checks()
-                reg_record("watchdog", "ok", duration_s=time.monotonic()-_t0)
-            except Exception as e:
-                reg_record("watchdog", "fail", error=str(e))
-                log.error(f"Watchdog error: {e}")
-                triage_failure("watchdog", str(e))
-            try:
-                _update_location_from_calendar()
-            except Exception as e:
-                log.error(f"Calendar location check error: {e}")
-
-
-        # Inbox watcher — every 60s
-        _inbox_key = now.strftime("%Y%m%d%H%M")
-        if _last_inbox_scan != _inbox_key:
-            _last_inbox_scan = _inbox_key
-            try:
-                with httpx.Client(timeout=15) as hc:
-                    hc.post(f"{WORKER_API}/inbox/scan")
-                reg_record("inbox_scan", "ok")
-            except Exception as e:
-                reg_record("inbox_scan", "fail", error=str(e))
-                log.error(f"Inbox scan error: {e}")
-
-        time.sleep(30)
+    try:
+        while True:
+            time.sleep(3600)
+    except (KeyboardInterrupt, SystemExit):
+        sched.shutdown()
 
 
 if __name__ == "__main__":

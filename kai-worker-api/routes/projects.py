@@ -5,7 +5,7 @@ from datetime import datetime as _cdt
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from config import VAULT_PATH
+from config import VAULT_PATH, safe_path
 from safe_http import safe_json
 
 try:
@@ -335,7 +335,10 @@ def setup_project(req: ProjectSetupRequest):
         "PROJECT_NAME": req.name, "PROJECT_ID": req.id, "DATE": today,
         "ADVISOR": req.advisor, "SLACK_CHANNEL": slack_channel,
     }
-    proj_dir = (VAULT_PATH / "20_Projects" / "ideas" / req.id) if is_idea else (VAULT_PATH / "20_Projects" / req.id)
+    _id_safe = safe_path(VAULT_PATH / "20_Projects", ("ideas/" + req.id) if is_idea else req.id)
+    if _id_safe is None:
+        raise HTTPException(400, "Invalid project id")
+    proj_dir = _id_safe
     proj_dir.mkdir(parents=True, exist_ok=True)
 
     # Write canonical STATUS.md (always, overwrite if format is wrong)
