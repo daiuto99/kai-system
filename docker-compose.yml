@@ -191,8 +191,6 @@ services:
     build: ./kai-mcp-api
     container_name: kai-mcp-api
     restart: unless-stopped
-    ports:
-      - "8003:8003"
     depends_on:
       kai-worker-api:
         condition: service_healthy

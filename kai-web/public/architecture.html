@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.27.0 · 2026-05-17 — Sprint 5 complete: 10 invariants, APScheduler, rollback switch, System Health tab. S4-5 Autonomy Policy Registry. S4-6 next.</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.30.0 · 2026-05-18 — Sprint 6 complete: S6-1 Metrics tab + S6-2 Aggregator + S6-3 Proposals shipped. Learning Loop live.</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -115,6 +115,8 @@
   <button class="tab" onclick="show('governance')">Governance</button>
   <button class="tab" onclick="show('roadmap')">Roadmap</button>
   <button class="tab" onclick="show('health')">System Health</button>
+  <button class="tab" onclick="show('peer')">Peer Review</button>
+  <button class="tab" onclick="show('metrics')">Metrics</button>
 </div>
 
 
@@ -143,6 +145,92 @@
     document.getElementById("gc-time").textContent=ago(c.committed_at);
   }).catch(function(){document.getElementById("gc-msg").textContent="unavailable";});
 })();
+
+// Peer Review tab
+function loadPeerReview() {
+  fetch('/orchestrator/reviews/summary')
+    .then(r => r.json())
+    .then(resp => {
+      if (!resp.ok) { document.getElementById('peer-tbody').innerHTML = '<tr><td colspan="6" style="color:#f87171;padding:12px 8px">Error loading reviews</td></tr>'; return; }
+      document.getElementById('peer-meta').textContent = resp.count + ' reviews · incorporation rate: ' + (resp.incorporation_rate !== null ? (resp.incorporation_rate*100).toFixed(0)+'%' : 'n/a');
+      if (!resp.reviews.length) {
+        document.getElementById('peer-tbody').innerHTML = '<tr><td colspan="6" style="color:#64748b;padding:12px 8px">No peer reviews recorded yet.</td></tr>';
+      } else {
+        const rows = resp.reviews.map(r => {
+          const rev = r.reviewer==='codex' ? '🧠 Codex' : '💬 ChatGPT';
+          const dt = (r.reviewed_at||'').replace('T',' ').substring(0,16);
+          const ir = r.findings_count > 0 ? Math.round(r.incorporated_count/r.findings_count*100)+'%' : 'n/a';
+          return '<tr style="border-bottom:1px solid #0f172a">'
+            + '<td style="padding:7px 8px;color:#e2e8f0;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + r.topic + '</td>'
+            + '<td style="padding:7px 8px;text-align:center;color:#94a3b8">' + rev + '</td>'
+            + '<td style="padding:7px 8px;text-align:center;color:#64748b;font-family:monospace;font-size:11px">' + r.model + '</td>'
+            + '<td style="padding:7px 8px;text-align:center;color:#fbbf24">' + r.findings_count + '</td>'
+            + '<td style="padding:7px 8px;text-align:center;color:#34d399">' + r.incorporated_count + ' (' + ir + ')</td>'
+            + '<td style="padding:7px 8px;color:#64748b;font-size:12px">' + dt + '</td></tr>';
+        });
+        document.getElementById('peer-tbody').innerHTML = rows.join('');
+      }
+      const cc = resp.reviews.filter(r=>r.reviewer==='codex').length;
+      const gc = resp.reviews.filter(r=>r.reviewer==='chatgpt').length;
+      const rate = resp.incorporation_rate;
+      document.getElementById('peer-summary-grid').innerHTML = [
+        _metricCard('Total Reviews', resp.count, '#94a3b8'),
+        _metricCard('Codex Reviews', cc, '#818cf8'),
+        _metricCard('ChatGPT Reviews', gc, '#34d399'),
+        _metricCard('Incorporation Rate', rate!==null?(rate*100).toFixed(0)+'%':'n/a', rate===null?'#64748b':rate>=0.7?'#34d399':'#fbbf24'),
+      ].join('');
+    })
+    .catch(e => { document.getElementById('peer-tbody').innerHTML = '<tr><td colspan="6" style="color:#f87171;padding:12px 8px">Fetch error: ' + e + '</td></tr>'; });
+}
+setInterval(function() {
+  if (document.getElementById('panel-peer') && document.getElementById('panel-peer').classList.contains('active')) loadPeerReview();
+}, 60000);
+
+// Metrics tab
+function loadMetrics() {
+  fetch('/orchestrator/workflow-metrics')
+    .then(r => r.json())
+    .then(resp => {
+      if (!resp.ok) { document.getElementById('wm-cap-tbody').innerHTML = '<tr><td colspan="5" style="color:#f87171;padding:12px 8px">Error</td></tr>'; return; }
+      document.getElementById('wm-updated').textContent = resp.total_steps + ' total steps';
+      const verPct = resp.verify_first_try_rate !== null ? (resp.verify_first_try_rate*100).toFixed(0)+'%' : 'n/a';
+      document.getElementById('wm-summary-grid').innerHTML = [
+        _metricCard('Total Steps',      resp.total_steps,       '#94a3b8'),
+        _metricCard('Avg Latency',      resp.avg_latency_ms !== null ? resp.avg_latency_ms+'ms' : 'n/a', '#818cf8'),
+        _metricCard('Verified 1st Try', verPct, resp.verify_first_try_rate===null?'#64748b':resp.verify_first_try_rate>=0.8?'#34d399':'#fbbf24'),
+      ].join('');
+      if (!resp.by_capability.length) {
+        document.getElementById('wm-cap-tbody').innerHTML = '<tr><td colspan="5" style="color:#64748b;padding:12px 8px">No workflow steps recorded yet.</td></tr>';
+      } else {
+        document.getElementById('wm-cap-tbody').innerHTML = resp.by_capability.map(r =>
+          '<tr style="border-bottom:1px solid #0f172a">'
+          + '<td style="padding:7px 8px;color:#e2e8f0;font-family:monospace;font-size:12px">' + r.capability + '</td>'
+          + '<td style="padding:7px 8px;text-align:center;color:#94a3b8">' + r.count + '</td>'
+          + '<td style="padding:7px 8px;text-align:center;color:#818cf8">' + (r.avg_ms||'—') + '</td>'
+          + '<td style="padding:7px 8px;text-align:center;color:' + (r.retries>0?'#fbbf24':'#34d399') + '">' + r.retries + '</td>'
+          + '<td style="padding:7px 8px;text-align:center;color:#34d399">' + r.verified + '/' + r.count + '</td>'
+          + '</tr>'
+        ).join('');
+      }
+      if (!resp.recent.length) {
+        document.getElementById('wm-recent-tbody').innerHTML = '<tr><td colspan="5" style="color:#64748b;padding:12px 8px">No steps yet.</td></tr>';
+      } else {
+        document.getElementById('wm-recent-tbody').innerHTML = resp.recent.map(r =>
+          '<tr style="border-bottom:1px solid #0f172a">'
+          + '<td style="padding:7px 8px;color:#e2e8f0;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (r.step||'—') + '</td>'
+          + '<td style="padding:7px 8px;color:#64748b;font-family:monospace;font-size:11px">' + (r.capability||'—') + '</td>'
+          + '<td style="padding:7px 8px;text-align:center;color:#818cf8">' + (r.latency_ms||'—') + '</td>'
+          + '<td style="padding:7px 8px;text-align:center">' + (r.verified ? '&#x2705;' : '&#x274C;') + '</td>'
+          + '<td style="padding:7px 8px;color:#64748b;font-size:12px">' + (r.at||'—') + '</td>'
+          + '</tr>'
+        ).join('');
+      }
+    })
+    .catch(e => { document.getElementById('wm-cap-tbody').innerHTML = '<tr><td colspan="5" style="color:#f87171;padding:12px 8px">Fetch error: ' + e + '</td></tr>'; });
+}
+setInterval(function() {
+  if (document.getElementById('panel-metrics') && document.getElementById('panel-metrics').classList.contains('active')) loadMetrics();
+}, 60000);
 </script>
 
 <div class="content">
@@ -1490,6 +1578,77 @@
     </div>
   </div>
   <p style="color:#475569;font-size:12px;margin-top:12px">Auto-refreshes every 60s. Source: /orchestrator/invariants/state + /orchestrator/metrics/summary</p>
+</div>
+
+<div id="panel-peer" class="panel">
+  <h2 style="color:#e2e8f0;margin-bottom:16px">Peer Review Health</h2>
+
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <strong style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em">Review Log</strong>
+      <span id="peer-meta" style="color:#64748b;font-size:12px">loading...</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="border-bottom:1px solid #1e293b">
+        <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Topic</th>
+        <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">Reviewer</th>
+        <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">Model</th>
+        <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">Findings</th>
+        <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">Incorporated</th>
+        <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Date</th>
+      </tr></thead>
+      <tbody id="peer-tbody"><tr><td colspan="6" style="color:#64748b;padding:12px 8px">Loading reviews...</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <strong style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:12px">Summary</strong>
+    <div id="peer-summary-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px"><div style="color:#64748b">Loading...</div></div>
+  </div>
+  <p style="color:#475569;font-size:12px;margin-top:12px">Auto-refreshes every 60s. Source: /orchestrator/reviews/summary</p>
+</div>
+
+<div id="panel-metrics" class="panel">
+  <h2 style="color:#e2e8f0;margin-bottom:16px">Workflow Metrics</h2>
+
+  <div class="card" style="margin-bottom:16px">
+    <strong style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:12px">Summary</strong>
+    <div id="wm-summary-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px"><div style="color:#64748b">Loading...</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <strong style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em">By Capability</strong>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="border-bottom:1px solid #1e293b">
+        <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Capability</th>
+        <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">Calls</th>
+        <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">Avg ms</th>
+        <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">Retries</th>
+        <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">Verified 1st</th>
+      </tr></thead>
+      <tbody id="wm-cap-tbody"><tr><td colspan="5" style="color:#64748b;padding:12px 8px">Loading...</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <strong style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em">Recent Steps</strong>
+      <span id="wm-updated" style="color:#64748b;font-size:12px">loading...</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="border-bottom:1px solid #1e293b">
+        <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Step</th>
+        <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Capability</th>
+        <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">ms</th>
+        <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">Verified</th>
+        <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Time</th>
+      </tr></thead>
+      <tbody id="wm-recent-tbody"><tr><td colspan="5" style="color:#64748b;padding:12px 8px">Loading...</td></tr></tbody>
+    </table>
+  </div>
+  <p style="color:#475569;font-size:12px;margin-top:12px">Auto-refreshes every 60s. Source: /orchestrator/workflow-metrics</p>
 </div>
 
 </div><!-- /content -->

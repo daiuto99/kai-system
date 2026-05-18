@@ -9,6 +9,11 @@ model_list:
       model: openai/gpt-4o-mini
       api_key: os.environ/OPENAI_API_KEY
 
+  - model_name: o4-mini
+    litellm_params:
+      model: openai/o4-mini
+      api_key: os.environ/OPENAI_API_KEY
+
   # Gemini slot — activate by adding GEMINI_API_KEY secret
   # - model_name: gemini-pro
   #   litellm_params:
@@ -17,7 +22,7 @@ model_list:
 
 litellm_settings:
   drop_params: true
-  request_timeout: 60
+  request_timeout: 90
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

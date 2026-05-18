@@ -1411,6 +1411,9 @@ TOOL_REGISTRY = {
     "get_plane_issues": _h_plane,
     "update_plane_issue": _h_plane,
     "create_plane_issue": _h_plane,
+    # Orchestrator capability bridge
+    "run_capability": _h_workflows,
+    "list_capabilities": _h_workflows,
 }
 
 
