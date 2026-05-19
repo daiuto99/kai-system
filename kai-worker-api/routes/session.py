@@ -4,13 +4,14 @@ import json
 import re
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date
 from fastapi import APIRouter
 from config import VAULT_PATH
 
 router = APIRouter()
 
 MANIFEST_PATH = VAULT_PATH / "00_System" / "session_close_log.json"
+WARMBOOT_MANIFEST_PATH = VAULT_PATH / "00_System" / "session_warmboot_log.json"
 
 
 @router.get("/session/brief")
@@ -18,6 +19,7 @@ def session_brief():
     """S7-2: Compact session brief (~200 tokens) for catch-up.
     Replaces full reads of StateOfTheUnion + Sprint_History + vault session files.
     """
+    today = date.today().isoformat()
     brief = {
         "ok": True,
         "generated_at": datetime.utcnow().isoformat() + "Z",
@@ -27,6 +29,9 @@ def session_brief():
         "sprint_status": None,
         "open_items": [],
         "recent_decisions": [],
+        "last_close": None,
+        "warmboot": None,
+        "warmboot_required": True,
     }
 
     # 1. StateOfTheUnion.md
@@ -46,7 +51,17 @@ def session_brief():
             if "**Open:**" in line:
                 in_open, in_next = True, False
             elif "**What's next:**" in line:
-                in_open, in_next = False, True
+                in_open = False
+                # Fix 2026-05-19: close_engine.step_sotu writes "What's next" inline
+                # rather than as a bullet list. The previous parser set in_next=True
+                # on the marker line and expected bullets on subsequent lines, so
+                # brief["sprint"] was never populated from SOTU.
+                # See: ~/sonicink/docs/specs/warmboot-surgical-additions.md §3.1
+                m = re.search(r"\*\*What's next:\*\*\s*(.+)", line)
+                if m and not brief["sprint"]:
+                    brief["sprint"] = m.group(1).strip()[:80]
+                    brief["sprint_status"] = "planned"
+                in_next = True  # also catch bullet-style entries on subsequent lines
             elif line.startswith("---") or line.startswith("##"):
                 in_open = in_next = False
             elif in_open and line.startswith("- "):
@@ -59,9 +74,23 @@ def session_brief():
     sh = Path("/workspace/Sprint_History.md")
     if sh.exists():
         for line in sh.read_text().splitlines()[:10]:
-            m = re.match(r"## Session (\S+).*?-- (.+?) -- (Complete|In Progress)", line)
-            if not m:
-                m = re.match(r"## Session (\S+).*?— (.+?) — (Complete|In Progress)", line)
+            # Fix 2026-05-19: close_engine.step_sprint_history writes
+            # "## {title} — Complete — {date}" but the old regex required the
+            # literal word "Session" and a different field order, so
+            # brief["sprint_status"] was never populated from Sprint_History.
+            # See: ~/sonicink/docs/specs/warmboot-surgical-additions.md §3.2
+
+            # Primary: matches close_engine.step_sprint_history format (2026-05-19+)
+            m = re.match(r"^## (.+?)\s+[—-]{1,2}\s+(Complete|In Progress)\s+[—-]{1,2}\s+(\d{4}-\d{2}-\d{2})", line)
+            if m:
+                title, status, dt = m.group(1), m.group(2), m.group(3)
+                brief["last_session"] = brief["last_session"] or f"{dt} — {title}"
+                brief["sprint"] = brief["sprint"] or title[:80]
+                brief["sprint_status"] = status.lower().replace(" ", "_")
+                break
+
+            # Fallback: legacy "## Session ..." format (pre-close-engine)
+            m = re.match(r"## Session (\S+).*?[—-]{1,2} (.+?) [—-]{1,2} (Complete|In Progress)", line)
             if m:
                 brief["last_session"] = brief["last_session"] or f"{m.group(1)} — {m.group(2)}"
                 brief["sprint"] = brief["sprint"] or m.group(2)
@@ -88,6 +117,59 @@ def session_brief():
                             break
             except Exception:
                 pass
+
+    # 4. Close manifest — last_close field
+    # Fix 2026-05-19: brief now reads the close manifest written by close_engine.py
+    # and exposes last-close state and failed steps so the welcome block can surface
+    # unresolved close failures without re-reading vault files.
+    # See: ~/sonicink/docs/specs/warmboot-surgical-additions.md §3.4
+    if MANIFEST_PATH.exists():
+        try:
+            cm = json.loads(MANIFEST_PATH.read_text())
+            cm_date = cm.get("date", "")
+            cm_steps = cm.get("steps", [])
+            failed = [
+                {"name": s.get("name", ""), "label": s.get("label", ""), "detail": s.get("detail", "")}
+                for s in cm_steps if s.get("status") == "fail"
+            ]
+            from datetime import date as _date
+            try:
+                close_dt = _date.fromisoformat(cm_date)
+                stale = (date.today() - close_dt).days > 1
+            except Exception:
+                stale = True
+            brief["last_close"] = {
+                "date": cm_date,
+                "overall": cm.get("overall", "unknown"),
+                "failed_steps": failed,
+                "stale": stale,
+            }
+        except Exception:
+            pass
+
+    # 5. Warmboot manifest — warmboot field + warmboot_required
+    # Fix 2026-05-19: brief now reads the warmboot manifest written by
+    # sync_plane_state.py warmboot, exposing freshness and container state so
+    # the welcome block traces [4] PLANE WARM BOOT to a single source of truth.
+    # See: ~/sonicink/docs/specs/warmboot-surgical-additions.md §3.4
+    if WARMBOOT_MANIFEST_PATH.exists():
+        try:
+            wm = json.loads(WARMBOOT_MANIFEST_PATH.read_text())
+            wm_date = wm.get("date", "")
+            wb_stale = wm_date != today
+            brief["warmboot"] = {
+                "date": wm_date,
+                "timestamp": wm.get("timestamp", ""),
+                "stale": wb_stale,
+                "containers_down": wm.get("containers_down", []),
+                "plane_open_issues": wm.get("plane", {}).get("open_issues", None),
+                "reconciliation": wm.get("reconciliation", "unknown"),
+                "overall": wm.get("overall", "unknown"),
+            }
+            brief["warmboot_required"] = wb_stale
+        except Exception:
+            pass
+    # warmboot_required stays True if manifest is missing or parse failed
 
     return brief
 
