@@ -1,6 +1,9 @@
+import json
+import re as _re
 import shutil
 import subprocess
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter
 from config import VAULT_PATH
@@ -9,7 +12,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 THRESHOLDS = {"disk_pct": 80, "mem_pct": 85, "temp_c": 75, "apt_updates": 10}
-APT_STATUS_FILE = VAULT_PATH / "00_System" / "apt_status.txt"
+APT_STATUS_FILE  = VAULT_PATH / "00_System" / "apt_status.txt"
+INVARIANTS_FILE  = VAULT_PATH / "00_System" / "invariants.json"
+BACKUP_TRIGGER   = VAULT_PATH / "00_System" / "backup_trigger"
 
 
 def _read_proc(path: str) -> str:
@@ -51,7 +56,7 @@ def system_health():
     except Exception:
         pass
 
-    # Apt updates — read from host-written vault file
+    # Apt updates
     apt_updates = None
     try:
         if APT_STATUS_FILE.exists():
@@ -60,7 +65,6 @@ def system_health():
     except Exception:
         pass
 
-    # Threshold checks
     alerts = []
     if disk_pct >= THRESHOLDS["disk_pct"]:
         alerts.append(f"disk {disk_pct}% (threshold {THRESHOLDS['disk_pct']}%)")
@@ -92,7 +96,6 @@ def system_health():
 # ── KAI ambient status (used by Übersicht HUD widget) ─────────────────────────
 
 def _parse_status_yaml(path):
-    """Parse key: value lines from a YAML-ish STATUS.md (ignoring comment lines)."""
     result = {}
     try:
         for line in path.read_text().splitlines():
@@ -151,7 +154,6 @@ def kai_status():
 
 _session_context: dict = {}
 
-
 from fastapi import Request as _Request
 from pydantic import BaseModel as _BaseModel
 
@@ -171,3 +173,67 @@ def set_session_context(payload: _SessionContextPayload):
 @router.get('/session-context')
 def get_session_context():
     return _session_context or {'pct': 0.0, 'session_start_iso': None, 'resets_iso': None}
+
+
+# ── Ops endpoints — system self-management ─────────────────────────────────────
+# Architecture: backup runs on the HOST (cron). Containers communicate via:
+#   - invariants.json in vault (written by scheduler every 30m) → read-only status
+#   - backup_trigger file in vault (written by API) → host cron picks up within 5m
+
+def _get_backup_invariant() -> dict:
+    """Read backup status from invariants.json (written by scheduler, in vault)."""
+    try:
+        if INVARIANTS_FILE.exists():
+            data = json.loads(INVARIANTS_FILE.read_text())
+            inv = data.get("invariants", {}).get("backup_integrity", {})
+            return {
+                "status": "ok" if inv.get("pass") else "failing",
+                "detail": inv.get("detail", "unknown"),
+                "checked_at": inv.get("checked_at"),
+            }
+    except Exception:
+        pass
+    return {"status": "unknown", "detail": "invariants.json not readable"}
+
+
+@router.get("/system/ops-state")
+def ops_state():
+    """Live system state: failing invariants + backup + trigger status."""
+    failing = {}
+    try:
+        if INVARIANTS_FILE.exists():
+            data = json.loads(INVARIANTS_FILE.read_text())
+            failing = {
+                k: v.get("detail", "")
+                for k, v in data.get("invariants", {}).items()
+                if not v.get("pass")
+            }
+    except Exception:
+        pass
+
+    backup = _get_backup_invariant()
+    trigger_pending = BACKUP_TRIGGER.exists()
+
+    return {
+        "failing_invariants": failing,
+        "backup": backup,
+        "backup_trigger_pending": trigger_pending,
+        "ok": len(failing) == 0,
+    }
+
+
+@router.post("/system/run-backup")
+def run_backup():
+    """Write a trigger file to vault. Host cron (every 5m) picks it up and runs backup.sh."""
+    try:
+        BACKUP_TRIGGER.write_text(datetime.now(timezone.utc).isoformat())
+        return {"ok": True, "action": "trigger_written",
+                "message": "Backup will run within 5 minutes via host cron."}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/system/backup-trigger-status")
+def backup_trigger_status():
+    """Check if a backup trigger is pending."""
+    return {"pending": BACKUP_TRIGGER.exists()}

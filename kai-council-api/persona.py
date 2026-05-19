@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from fastapi import HTTPException
 from council_config import VAULT_PATH, COUNCIL_PATH
-from load_context import load_session_memory
+from load_context import load_session_memory, load_system_state
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,6 @@ def load_persona(advisor: str, channel: str = None) -> str:
         raise HTTPException(status_code=404, detail=f"Persona not found: {advisor}")
 
     now = datetime.now(ZoneInfo('America/New_York'))
-    # Pre-compute 14-day date map so KAI never has to calculate day-of-week
     from datetime import timedelta
     date_map_lines = []
     for i in range(14):
@@ -29,6 +28,7 @@ def load_persona(advisor: str, channel: str = None) -> str:
     date_ref += "\n".join(date_map_lines)
     date_ref += "\n</date_reference>"
     parts = [f'<current_datetime>{now.strftime("%A, %B %d, %Y at %I:%M %p ET")}</current_datetime>', date_ref]
+
     keystone_file = VAULT_PATH / '00_System' / 'KEYSTONE.md'
     bp_file = VAULT_PATH / '00_System' / 'business_profile.md'
     ctx_parts = []
@@ -38,9 +38,14 @@ def load_persona(advisor: str, channel: str = None) -> str:
         combined = '\n\n---\n\n'.join(ctx_parts)
         parts.append('<background_context>\n' + combined + '\n</background_context>')
 
+    # KAI always gets live system state — knows what's broken before Leo asks
+    if advisor == "kai":
+        system_state = load_system_state()
+        if system_state:
+            parts.append(system_state)
+
     parts.append(persona_file.read_text(encoding="utf-8"))
 
-    # Always load org structure doc alongside Creative Director and Dev — gives them full team knowledge
     org_file_map = {
         "creative": advisor_dir / "CreativeOrg.md",
         "dev": advisor_dir / "DevOrg.md",
@@ -49,7 +54,6 @@ def load_persona(advisor: str, channel: str = None) -> str:
     if org_file and org_file.exists():
         parts.append('<organization_structure>\n' + org_file.read_text(encoding="utf-8") + '\n</organization_structure>')
 
-    # Inject JARVIS communication standard — applies to all advisors
     style_guide = COUNCIL_PATH / "JARVIS_STYLE_GUIDE.md"
     if style_guide.exists():
         parts.append(style_guide.read_text(encoding="utf-8"))
@@ -58,7 +62,6 @@ def load_persona(advisor: str, channel: str = None) -> str:
     if context_file.exists():
         parts.append(context_file.read_text(encoding="utf-8"))
 
-    # Inject cross-session memory (KAI-28/30/22)
     session_memory = load_session_memory(channel or advisor)
     if session_memory:
         parts.append('<session_memory>\n' + session_memory + '\n</session_memory>')

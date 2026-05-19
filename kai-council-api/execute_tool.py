@@ -1306,7 +1306,83 @@ def _h_plane(client, tool_name, ti, advisor):
             return {"error": f"Plane create failed: {e}"}
 
 
+# ── Ops — system self-management ─────────────────────────────────────────────
+
+def _h_ops(client, tool_name, ti, advisor):
+    """System ops tools — query and act on KAI infrastructure."""
+    if tool_name == "get_system_health":
+        try:
+            r = client.get(f"{WORKER_URL}/system/ops-state", timeout=10)
+            return r.json()
+        except Exception as e:
+            return {"error": f"ops-state unavailable: {e}"}
+
+    if tool_name == "run_backup_now":
+        try:
+            r = client.post(f"{WORKER_URL}/system/run-backup", timeout=15)
+            return r.json()
+        except Exception as e:
+            return {"error": f"run-backup failed: {e}"}
+
+    if tool_name == "restore_backup_cron":
+        try:
+            r = client.post(f"{WORKER_URL}/system/restore-cron", timeout=10)
+            return r.json()
+        except Exception as e:
+            return {"error": f"restore-cron failed: {e}"}
+
+    return {"error": f"Unknown ops tool: {tool_name}"}
+
+
 # ── Dispatch registry ─────────────────────────────────────────────────────────
+
+
+def _h_jobs(client, tool_name, ti, advisor):
+    """Job engine tools: submit, status, list."""
+    if tool_name == "submit_job":
+        workflow = ti.get("workflow")
+        inputs = ti.get("inputs", {})
+        if ti.get("title"):
+            inputs["title"] = ti["title"]
+        if workflow:
+            try:
+                r = client.post(f"{_ORCH_URL}/workflows/run",
+                                json={"type": workflow, "inputs": inputs},
+                                timeout=30)
+                return r.json()
+            except Exception as e:
+                return {"error": f"submit_job failed: {e}"}
+        else:
+            intent = ti.get("intent", "")
+            try:
+                r = client.post(f"{_ORCH_URL}/dispatch",
+                                json={"intent": intent, "inputs": inputs},
+                                timeout=30)
+                return r.json()
+            except Exception as e:
+                return {"error": f"dispatch failed: {e}"}
+
+    if tool_name == "get_job_status":
+        job_id = ti.get("job_id", "")
+        try:
+            r = client.get(f"{_ORCH_URL}/jobs/{job_id}", timeout=10)
+            return r.json()
+        except Exception as e:
+            return {"error": f"get_job_status failed: {e}"}
+
+    if tool_name == "list_jobs":
+        limit = ti.get("limit", 10)
+        status = ti.get("status", "")
+        try:
+            params = {"limit": limit}
+            if status:
+                params["status"] = status
+            r = client.get(f"{_ORCH_URL}/jobs", params=params, timeout=10)
+            return r.json()
+        except Exception as e:
+            return {"error": f"list_jobs failed: {e}"}
+
+    return {"error": f"Unknown jobs tool: {tool_name}"}
 
 TOOL_REGISTRY = {
     # Workflows
@@ -1414,6 +1490,14 @@ TOOL_REGISTRY = {
     # Orchestrator capability bridge
     "run_capability": _h_workflows,
     "list_capabilities": _h_workflows,
+    # Ops — system self-management
+    "get_system_health": _h_ops,
+    "run_backup_now": _h_ops,
+    "restore_backup_cron": _h_ops,
+    # Job engine
+    "submit_job": _h_jobs,
+    "get_job_status": _h_jobs,
+    "list_jobs": _h_jobs,
 }
 
 

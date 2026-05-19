@@ -415,12 +415,49 @@ RECREATABLE = {
 }
 
 
+def _remediate_backup() -> str:
+    """Write trigger file to vault — host cron (ensure_backup_cron.sh) picks it up within 5m."""
+    try:
+        trigger = Path("/vault/00_System/backup_trigger")
+        trigger.write_text(datetime.now(timezone.utc).isoformat())
+        return "backup triggered — host cron will run within 5min ✅"
+    except Exception as e:
+        return f"remediation error: {e}"
+
+
+def _post_oauth_escalation(token: str, service: str, detail: str):
+    """Post a single structured OAuth escalation with fix steps. Does not repeat."""
+    msg = (
+        f":key: *KAI OAuth Escalation — {service}*\n"
+        f"Credential has expired and cannot be auto-renewed.\n"
+        f"Error: `{detail}`\n\n"
+        f"*Fix required:*\n"
+        f"  1. Open n8n UI: http://100.78.94.80:5678\n"
+        f"  2. Go to Credentials → find `{service}` credential\n"
+        f"  3. Re-authenticate / refresh the OAuth token\n"
+        f"  4. Test the credential — it should go green\n\n"
+        f"This alert will not repeat for 24h."
+    )
+    _slack_alert(token, msg)
+
+
+REMEDIATABLE = {
+    "backup": _remediate_backup,
+}
+
+# Services whose auth failures get a structured escalation (not repeated spam)
+OAUTH_SERVICES = {
+    "google_calendar": "Google Calendar",
+}
+
+
 def run_watchdog_checks():
     """Run all functional health checks. Post failures to #kai-system."""
     run_maintenance()
     token = _load_secret("slack_bot_token")
     failures = []
     remediations = []
+    fixed = []
 
     for key, label, fn in CHECKS:
         try:
@@ -433,8 +470,27 @@ def run_watchdog_checks():
             log.debug("watchdog ✅ %s: %s", label, detail)
         else:
             log.warning("watchdog ❌ %s: %s", label, detail)
-            # Tier 2: auto-remediate — recreate takes priority over restart
-            if key in RECREATABLE:
+
+            # Tier 1: auto-remediate known fixable failures
+            if key in REMEDIATABLE:
+                remedy = REMEDIATABLE[key]()
+                log.info("watchdog remediation: %s → %s", label, remedy)
+                if "✅" in remedy:
+                    fixed.append(f"  • *{label}*: {remedy}")
+                    _clear_alert(key)
+                    continue  # fixed — skip alert
+                else:
+                    remediations.append(f"  • {label}: {remedy}")
+
+            # Tier 2: OAuth failures — escalate once with fix steps, then snooze 24h
+            elif key in OAUTH_SERVICES and _should_alert(key):
+                _post_oauth_escalation(token, OAUTH_SERVICES[key], detail)
+                _last_alert[key] = datetime.now(timezone.utc).timestamp() + (22 * 3600)  # snooze 24h
+                log.info("watchdog oauth escalation posted for %s — snoozed 24h", key)
+                continue
+
+            # Tier 3: container restarts
+            elif key in RECREATABLE:
                 remedy = RECREATABLE[key]()
                 remediations.append(f"  • {label}: {remedy}")
                 log.info("watchdog remediation: %s → %s", label, remedy)
@@ -442,6 +498,7 @@ def run_watchdog_checks():
                 remedy = _try_restart_container(RESTARTABLE[key])
                 remediations.append(f"  • {label}: {remedy}")
                 log.info("watchdog remediation: %s → %s", label, remedy)
+
             if _should_alert(key):
                 failures.append(f"  • *{label}*: `{detail}`")
 
@@ -450,6 +507,12 @@ def run_watchdog_checks():
         run_gap_checks()
     except Exception as e:
         log.error("gap checks failed: %s", e)
+
+    if fixed and token:
+        lines = [f":white_check_mark: *KAI Watchdog — auto-fixed {datetime.now().strftime('%H:%M')}*"]
+        lines.extend(fixed)
+        _slack_alert(token, "\n".join(lines))
+        log.info("watchdog auto-fix report posted: %d fixed", len(fixed))
 
     if failures and token:
         lines = [f":warning: *KAI Watchdog — {datetime.now().strftime('%H:%M')}*"]
@@ -460,7 +523,7 @@ def run_watchdog_checks():
             lines.extend(remediations)
         _slack_alert(token, "\n".join(lines))
         log.info("watchdog alert posted: %d failures", len(failures))
-    else:
+    elif not fixed:
         log.info("watchdog ✅ all checks passed")
 
 

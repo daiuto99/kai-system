@@ -1,0 +1,15 @@
+{
+  "_note": "wp_cli is NEVER listed for any Cloudways host. No exceptions.",
+  "default_cloudways": {
+    "set_option":     ["wp_rest_kai_route", "ssh_php_eval"],
+    "get_option":     ["wp_rest_kai_route", "ssh_php_eval"],
+    "create_page":    ["wp_rest"],
+    "set_front_page": ["wp_rest_settings", "ssh_php_eval"],
+    "purge_varnish":  ["cloudways_ssh_purge"],
+    "verify_live":    ["cloudways_fqdn", "public_domain"]
+  },
+  "sites": {
+    "sette-uno.com":  {"inherits": "default_cloudways"},
+    "revoltgrp.com":  {"inherits": "default_cloudways"}
+  }
+}
