@@ -913,9 +913,9 @@ def main():
         log.info("Timezone changed: %s → %s — rescheduling daily jobs", _scheduled_tz[0], new_tz)
         _scheduled_tz[0] = new_tz
         daily_jobs = [
-            ("morning_brief",     CronTrigger(hour=8,  minute=30, timezone=new_tz)),
-            ("afternoon_brief",   CronTrigger(hour=12, minute=30, timezone=new_tz)),
-            ("evening_brief",     CronTrigger(hour=20, minute=0,  timezone=new_tz)),
+    # ("morning_brief",     CronTrigger(hour=8,  minute=30, timezone=new_tz)),
+    # ("afternoon_brief",   CronTrigger(hour=12, minute=30, timezone=new_tz)),
+    # ("evening_brief",     CronTrigger(hour=20, minute=0,  timezone=new_tz)),
             ("morning_checkin",   CronTrigger(hour=7,  minute=0,  timezone=new_tz)),
             ("evening_checkin",   CronTrigger(hour=21, minute=0,  timezone=new_tz)),
             ("worker_health",     CronTrigger(hour=9,  minute=0,  timezone=new_tz)),
@@ -990,9 +990,10 @@ def main():
     sched = BackgroundScheduler(timezone=tz)
 
     # Daily brief jobs — CronTrigger in Leo's local timezone
-    sched.add_job(lambda: _safe("morning_brief",   send_morning_brief),     CronTrigger(hour=8,  minute=30, timezone=tz), id="morning_brief",   coalesce=True, max_instances=1)
-    sched.add_job(lambda: _safe("afternoon_brief",  send_afternoon_brief),   CronTrigger(hour=12, minute=30, timezone=tz), id="afternoon_brief",  coalesce=True, max_instances=1)
-    sched.add_job(lambda: _safe("evening_brief",   send_evening_brief),     CronTrigger(hour=20, minute=0,  timezone=tz), id="evening_brief",   coalesce=True, max_instances=1)
+    # BRIEFS PAUSED 2026-05-19 — re-enable when Leo directs
+    # sched.add_job(lambda: _safe("morning_brief",   send_morning_brief),     CronTrigger(hour=8,  minute=30, timezone=tz), id="morning_brief",   coalesce=True, max_instances=1)
+    # sched.add_job(lambda: _safe("afternoon_brief",  send_afternoon_brief),   CronTrigger(hour=12, minute=30, timezone=tz), id="afternoon_brief",  coalesce=True, max_instances=1)
+    # sched.add_job(lambda: _safe("evening_brief",   send_evening_brief),     CronTrigger(hour=20, minute=0,  timezone=tz), id="evening_brief",   coalesce=True, max_instances=1)
     sched.add_job(lambda: _safe("morning_checkin", send_checkin, "morning"), CronTrigger(hour=7,  minute=0,  timezone=tz), id="morning_checkin", coalesce=True, max_instances=1)
     sched.add_job(lambda: _safe("evening_checkin", send_checkin, "evening"), CronTrigger(hour=21, minute=0,  timezone=tz), id="evening_checkin", coalesce=True, max_instances=1)
     sched.add_job(lambda: _safe("worker_health_check", check_worker_health), CronTrigger(hour=9,  minute=0,  timezone=tz), id="worker_health",   coalesce=True, max_instances=1)

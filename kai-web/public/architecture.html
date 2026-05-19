@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.31.0 · 2026-05-18 — Sprint 7 complete + Sprint 8/9/10 scoped. Re-architecture complete. Next: KAI Cleanup (Sprint 8).</div>
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.32.0 · 2026-05-19 — JARVIS Autonomy live. Job engine live. Sprint 8 in progress.</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -244,6 +244,9 @@ setInterval(function() {
       <p>A JARVIS-style life OS for Leo's life and businesses. Always-on, context-aware, action-oriented. KAI never says "I can't" — only "here's the path."</p>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
         <span class="badge badge-purple">9 Advisors</span>
+        <span class="badge badge-green">53 Tools</span>
+        <span class="badge badge-cyan">Job Engine ✅</span>
+        <span class="badge badge-green">JARVIS Autonomy ✅</span>
         <span class="badge badge-green">Live Dashboard</span>
         <span class="badge badge-blue">Slack Native</span>
         <span class="badge badge-yellow">Local AI</span>
@@ -523,11 +526,12 @@ setInterval(function() {
     <div style="font-size:12px;color:#64748b;margin-bottom:12px">Ubuntu 22.04 · 31GB RAM · 4 cores · 65GB free disk · Docker Compose v5.1.2</div>
 
     <div class="container-row">
+      <div><div class="container-name">kai-orchestrator</div><div class="container-meta">FastAPI · Job engine · capability_chain workflow · Engine (SQLite) · gate system · peer review enforcement · completion Slack notifications · GET /jobs · POST /workflows/run</div></div>
       <div><div class="container-name">kai-worker-api</div><div class="container-meta">FastAPI · All data endpoints · Contacts · Templates · T2 queue · Telegram handler</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8001</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-council-api</div><div class="container-meta">FastAPI · LangGraph orchestration · /council/orchestrate (v0.4.0) · channel_router + advisor_node · SqliteSaver checkpoint · 44 KAI tools · complexity routing · privacy mode · audit log JSONL</div></div>
+      <div><div class="container-name">kai-council-api</div><div class="container-meta">FastAPI · /council/message · 53 KAI tools · complexity routing · live system state injection · privacy mode · audit log JSONL · tools list cached (cache_control)</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8002</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
@@ -551,7 +555,7 @@ setInterval(function() {
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:6842</span><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-scheduler</div><div class="container-meta">Briefs 8:30/12:30/20:00 · Check-ins · Telegram · Execution registry (SQLite) · Gap detection · Triage pipeline</div></div>
+      <div><div class="container-name">kai-scheduler</div><div class="container-meta">Check-ins · Telegram · Invariants (every 30min) · Execution registry (SQLite) · Gap detection · Triage pipeline · Watchdog (auto-remediation 3-tier) · Briefs paused</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
     <div class="container-row">
@@ -602,7 +606,7 @@ setInterval(function() {
       <div class="container-row"><div class="container-name">Tavily</div><span class="badge badge-green">Live — web search</span></div>
       <div class="container-row"><div class="container-name">Oura API v2</div><span class="badge badge-green">Live — health + readiness</span></div>
       <div class="container-row"><div class="container-name">Plane CE</div><span class="badge badge-green">Live — project tracking</span></div>
-      <div class="container-row"><div class="container-name" style="color:#64748b">WordPress</div><span class="badge badge-yellow">Pending activation</span></div>
+      <div class="container-row"><div class="container-name">WordPress</div><span class="badge badge-green">Live ✅ — 10 sites</span></div>
     </div>
   </div>
   <!-- OS Health Panel -->
@@ -1282,7 +1286,7 @@ setInterval(function() {
 <div id="panel-roadmap" class="panel">
   <div class="grid grid-2" style="margin-bottom:16px">
     <div>
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#34d399;margin-bottom:10px">✅ Complete — Sprints 1–17</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#34d399;margin-bottom:10px">✅ Complete — Old Sprints 1–20 (pre re-architecture)</div>
       <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprints 1–8</strong> — Foundation: visual redesign, tool-use loop, JARVIS DNA, 6 Slack advisor accounts, Gmail/Calendar via n8n, Telegram, Oura, T2 approval gate, KEYSTONE.md, 30 tools, project pipeline.</div>
       <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprints 9–12</strong> — Connections + Optimization: Tavily web search live, complexity routing live, ICS calendar feeds, morning brief timezone fix, Plane CE deployed (warm boot law), Syncthing vault ↔ iCloud, GitHub clean history.</div>
       <div class="card" style="margin-bottom:8px;border-color:#10b98140"><strong style="color:#34d399">Sprint 13</strong> — System Audit: 21 containers mapped, 44 tools documented, KAI-SYSTEM.md produced, architecture.html baseline, LSE Law established.</div>
@@ -1294,7 +1298,53 @@ setInterval(function() {
     </div>
 
     <div>
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#fbbf24;margin-bottom:10px">🔜 Active &amp; Planned</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#fbbf24;margin-bottom:10px">🔜 Active &amp; Planned — New Sprint System (0–10)</div>
+
+      <div class="card" style="margin-bottom:8px;border-color:#34d39940">
+        <strong style="color:#34d399">JARVIS Sprint 2 ✅ — Autonomy + Job Engine (2026-05-19)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>Backup cron self-healing — ensure_backup_cron.sh guardian (5min host cron) ✅</li>
+          <li>Live system state injection — KAI sees failing invariants every turn ✅</li>
+          <li>3 KAI ops tools: get_system_health, run_backup_now, restore_backup_cron ✅</li>
+          <li>Watchdog 3-tier remediation: auto-fix → OAuth escalation → container restart ✅</li>
+          <li>Tools list caching — cache_control on last tool (~90% cost reduction on tools) ✅</li>
+          <li>capability_chain workflow — ad-hoc job execution without new Python class ✅</li>
+          <li>Job completion Slack notifications (terminal state only) ✅</li>
+          <li>submit_job / get_job_status / list_jobs council tools ✅</li>
+          <li>GET /jobs orchestrator endpoint ✅</li>
+        </ul>
+      </div>
+
+      <div class="card" style="margin-bottom:8px;border-color:#6366f140">
+        <strong style="color:#fbbf24">Sprint 8 🔄 — KAI Cleanup (active)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#94a3b8;line-height:1.9">
+          <li>S8-1: Plane hygiene — mark stale Sprint 6 issues Done</li>
+          <li>S8-2: Backup cron fix ✅ (resolved in JARVIS Sprint 2)</li>
+          <li>KAI.md Retirement EPIC</li>
+          <li>KAI-SYSTEM failure 2026-05-15 audit</li>
+        </ul>
+      </div>
+
+      <div class="card" style="margin-bottom:8px;border-color:#475569">
+        <strong style="color:#94a3b8">Sprint 9 — System Review (planned)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#64748b;line-height:1.9">
+          <li>S9-1: Architecture accuracy audit</li>
+          <li>S9-2: All 22 capabilities smoke tested end-to-end</li>
+          <li>S9-3: Learning loop confirmed running in production</li>
+          <li>S9-MON 1–9: Monitoring gaps for 9 uncovered components</li>
+          <li>S7-V: Token baseline validation</li>
+          <li>S9-5: Dashboard tabs data-complete</li>
+        </ul>
+      </div>
+
+      <div class="card" style="border-color:#475569">
+        <strong style="color:#94a3b8">Sprint 10 — Key Bugs (planned)</strong>
+        <ul style="margin-top:8px;padding-left:16px;font-size:12px;color:#64748b;line-height:1.9">
+          <li>B2: WP app passwords plaintext in vault JSON → secrets</li>
+          <li>WP-4/5/6: Coming Soon page fixes, site titles/icons, missing logos</li>
+          <li>Shared infrastructure audit</li>
+        </ul>
+      </div>
 
       <div class="card" style="margin-bottom:8px;border-color:#10b98140">
         <strong style="color:#34d399">Sprint 15 ✅ — Accuracy + Stability (Done)</strong>

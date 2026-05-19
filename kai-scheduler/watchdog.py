@@ -451,6 +451,40 @@ OAUTH_SERVICES = {
 }
 
 
+# Why KAI can't auto-fix each failure and what it affects
+CANT_FIX_REASON = {
+    "worker_api":        ("system",    "All KAI tools and API endpoints unavailable"),
+    "council_api":       ("system",    "Chat with all advisors unavailable"),
+    "ollama":            ("hardlimit", "Local model inference unavailable — Claude fallback active"),
+    "slack":             ("hardlimit", "All Slack notifications and approvals unavailable"),
+    "telegram":          ("hardlimit", "Telegram briefs and commands unavailable"),
+    "oura":              ("hardlimit", "Health/readiness data unavailable in briefs"),
+    "todoist":           ("hardlimit", "Task list unavailable — Todoist API down or token expired"),
+    "google_calendar":   ("hardlimit", "OAuth token expired — cannot auto-renew"),
+    "plane_ce":          ("system",    "Project management unavailable — sprint tracking broken"),
+    "disk":              ("hardlimit", "Storage critically low — data loss risk if not cleared"),
+    "backup":            ("system",    "Vault and Plane data not protected"),
+    "cert_expiry":       ("hardlimit", "SSL cert expired — all HTTPS services unreachable from web"),
+    "component_currency":("hardlimit", "One or more KAI containers running outdated images"),
+}
+
+ACTION_NEEDED = {
+    "worker_api":        "Check: ssh kai 'docker logs kai-worker-api'",
+    "council_api":       "Check: ssh kai 'docker logs kai-council-api'",
+    "ollama":            "Check: ssh kai 'docker logs kai-ollama' — may need restart or GPU issue",
+    "slack":             "Verify Slack bot token in ~/kai-system/secrets/slack_bot_token.txt",
+    "telegram":          "Verify Telegram bot token in ~/kai-system/secrets/telegram_bot_token.txt",
+    "oura":              "Check Oura token in ~/kai-system/secrets/oura_token.txt",
+    "todoist":           "Check Todoist token in ~/kai-system/secrets/todoist_api_token.txt",
+    "google_calendar":   "n8n → Credentials → Google Calendar → re-authenticate (http://100.78.94.80:5678)",
+    "plane_ce":          "Check: ssh kai 'docker logs kai-plane-web' — container recreate attempted",
+    "disk":              "Free space: ssh kai 'df -h' then clear logs/old Docker images",
+    "backup":            "Auto-trigger queued. If still failing: ssh kai 'bash ~/kai-system/backup.sh'",
+    "cert_expiry":       "Renew cert: ssh kai 'docker exec kai-nginx certbot renew --force-renewal'",
+    "component_currency":"Rebuild stale containers: ssh kai 'cd ~/kai-system && docker compose pull && docker compose up -d'",
+}
+
+
 def run_watchdog_checks():
     """Run all functional health checks. Post failures to #kai-system."""
     run_maintenance()
@@ -508,24 +542,34 @@ def run_watchdog_checks():
     except Exception as e:
         log.error("gap checks failed: %s", e)
 
-    if fixed and token:
-        lines = [f":white_check_mark: *KAI Watchdog — auto-fixed {datetime.now().strftime('%H:%M')}*"]
-        lines.extend(fixed)
-        _slack_alert(token, "\n".join(lines))
-        log.info("watchdog auto-fix report posted: %d fixed", len(fixed))
+
+    # Auto-fixed: log only, no Slack noise
+    for f in fixed:
+        log.info("watchdog auto-fixed: %s", f)
 
     if failures and token:
-        lines = [f":warning: *KAI Watchdog — {datetime.now().strftime('%H:%M')}*"]
-        lines.append("*Failures detected:*")
-        lines.extend(failures)
-        if remediations:
-            lines.append("*Auto-remediation attempted:*")
-            lines.extend(remediations)
-        _slack_alert(token, "\n".join(lines))
+        import re as _re
+        for failure_line in failures:
+            m = _re.search(r"\*(.+?)\*: `(.+?)`", failure_line)
+            if not m:
+                _slack_alert(token, failure_line)
+                continue
+            label, detail = m.group(1), m.group(2)
+            key = next((k for k, l, _ in CHECKS if l == label), "")
+            reason_type, affects = CANT_FIX_REASON.get(key, ("unknown", "unknown impact"))
+            action = ACTION_NEEDED.get(key, "Check: ssh kai 'docker ps'")
+            reason_str = "Hard limit" if reason_type == "hardlimit" else "System issue"
+            msg = (
+                f":warning: *{label}*\n"
+                f"`{detail}`\n"
+                f"Can't fix: {reason_str}\n"
+                f"Affects: {affects}\n"
+                f"Action: {action}"
+            )
+            _slack_alert(token, msg)
         log.info("watchdog alert posted: %d failures", len(failures))
     elif not fixed:
-        log.info("watchdog ✅ all checks passed")
-
+        log.info("watchdog all checks passed")
 
 # ── Scheduled function gap checks ─────────────────────────────────────────────
 

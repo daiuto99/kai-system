@@ -126,7 +126,7 @@ def print_sops():
 def reconcile_state_of_union():
     import glob, os, re as _re
     session_dir = Path("/home/leo/vault/60_Council/sessions/kai")
-    sou_path = Path("/home/leo/vault/70_Knowledge/System/StateOfTheUnion.md")
+    sou_path = Path("/home/leo/vault/70_Knowledge/01_Operations/StateOfTheUnion.md")
     if not session_dir.exists() or not sou_path.exists():
         return
     sessions = sorted(session_dir.glob("*.md"), key=os.path.getmtime, reverse=True)
