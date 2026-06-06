@@ -6,17 +6,17 @@
 <title>KAI System Architecture</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; min-height: 100vh; }
 
   .header { padding: 32px 40px 0; }
   .header h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.03em; background: linear-gradient(135deg, #6366f1, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
   .header p { color: #64748b; font-size: 14px; margin-top: 4px; }
-  .version { display: inline-flex; align-items: center; gap: 6px; background: #6366f118; border: 1px solid #6366f144; color: #a5b4fc; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 20px; margin-top: 8px; }
+  .version { display: inline-flex; align-items: center; gap: 6px; background: #ede9fe; border: 1px solid #c4b5fd; color: #7c3aed; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 20px; margin-top: 8px; }
 
-  .tabs { display: flex; gap: 4px; padding: 20px 40px 0; border-bottom: 1px solid #1e293b; flex-wrap: wrap; }
-  .tab { padding: 8px 18px; border-radius: 8px 8px 0 0; font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: none; color: #64748b; transition: all 0.15s; }
-  .tab.active { background: #1e293b; color: #e2e8f0; }
-  .tab:hover:not(.active) { color: #94a3b8; }
+  .tabs { display: flex; gap: 4px; padding: 20px 40px 0; border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; }
+  .tab { padding: 8px 18px; border-radius: 8px 8px 0 0; font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: none; color: #94a3b8; transition: all 0.15s; }
+  .tab.active { background: #ffffff; color: #1e293b; border: 1px solid #e2e8f0; border-bottom-color: #f8fafc; }
+  .tab:hover:not(.active) { color: #64748b; }
 
   .content { padding: 32px 40px; }
   .panel { display: none; }
@@ -26,33 +26,33 @@
   .grid { display: grid; gap: 16px; }
   .grid-2 { grid-template-columns: 1fr 1fr; }
   .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
-  .card { background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 20px; }
-  .card-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 12px; }
-  .card h3 { font-size: 15px; font-weight: 700; color: #e2e8f0; margin-bottom: 6px; }
-  .card p { font-size: 13px; color: #94a3b8; line-height: 1.6; }
+  .card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; }
+  .card-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 12px; }
+  .card h3 { font-size: 15px; font-weight: 700; color: #1e293b; margin-bottom: 6px; }
+  .card p { font-size: 13px; color: #475569; line-height: 1.6; }
 
   /* Badges */
   .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-  .badge-purple { background: #6366f118; color: #a5b4fc; border: 1px solid #6366f144; }
-  .badge-green  { background: #10b98118; color: #34d399; border: 1px solid #10b98144; }
-  .badge-yellow { background: #f59e0b18; color: #fbbf24; border: 1px solid #f59e0b44; }
-  .badge-red    { background: #ef444418; color: #f87171; border: 1px solid #ef444444; }
-  .badge-blue   { background: #3b82f618; color: #60a5fa; border: 1px solid #3b82f644; }
-  .badge-pink   { background: #ec489918; color: #f472b6; border: 1px solid #ec489944; }
-  .badge-cyan   { background: #06b6d418; color: #22d3ee; border: 1px solid #06b6d444; }
+  .badge-purple { background: #ede9fe; color: #7c3aed; border: 1px solid #c4b5fd; }
+  .badge-green  { background: #dcfce7; color: #16a34a; border: 1px solid #86efac; }
+  .badge-yellow { background: #fef9c3; color: #ca8a04; border: 1px solid #fde047; }
+  .badge-red    { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
+  .badge-blue   { background: #dbeafe; color: #2563eb; border: 1px solid #93c5fd; }
+  .badge-pink   { background: #fce7f3; color: #db2777; border: 1px solid #f9a8d4; }
+  .badge-cyan   { background: #cffafe; color: #0891b2; border: 1px solid #67e8f9; }
 
   .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 
   /* Container rows */
-  .container-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #0f1117; border-radius: 8px; margin-bottom: 6px; }
-  .container-name { font-size: 13px; font-weight: 600; color: #e2e8f0; font-family: monospace; }
-  .container-meta { font-size: 11px; color: #64748b; margin-top: 2px; }
-  .port { font-size: 11px; color: #6366f1; font-family: monospace; background: #6366f118; padding: 2px 7px; border-radius: 5px; }
+  .container-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #f8fafc; border-radius: 8px; margin-bottom: 6px; }
+  .container-name { font-size: 13px; font-weight: 600; color: #1e293b; font-family: monospace; }
+  .container-meta { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+  .port { font-size: 11px; color: #6366f1; font-family: monospace; background: #ede9fe; padding: 2px 7px; border-radius: 5px; }
 
   /* Advisor grid */
-  .advisor-card { padding: 14px; border-radius: 10px; border: 1px solid #334155; background: #0f1117; }
+  .advisor-card { padding: 14px; border-radius: 10px; border: 1px solid #e2e8f0; background: #f8fafc; }
   .advisor-name { font-size: 14px; font-weight: 700; }
-  .advisor-domain { font-size: 11px; color: #64748b; margin-top: 2px; }
+  .advisor-domain { font-size: 11px; color: #94a3b8; margin-top: 2px; }
   .advisor-model { font-size: 11px; margin-top: 8px; display: flex; align-items: center; gap: 6px; }
 
   /* Layer diagram */
@@ -62,13 +62,13 @@
   .layer-item { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 500; }
 
   /* Arrow */
-  .arrow { text-align: center; color: #334155; font-size: 20px; margin: 4px 0; }
+  .arrow { text-align: center; color: #cbd5e1; font-size: 20px; margin: 4px 0; }
 
   /* Flow */
   .flow-step { display: flex; gap: 14px; margin-bottom: 16px; }
   .flow-num { width: 26px; height: 26px; border-radius: 50%; background: #6366f1; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .flow-text { flex: 1; }
-  .flow-label { font-size: 13px; font-weight: 600; color: #e2e8f0; }
+  .flow-label { font-size: 13px; font-weight: 600; color: #1e293b; }
   .flow-desc { font-size: 12px; color: #64748b; margin-top: 2px; line-height: 1.5; }
 
   /* Governance */
@@ -76,20 +76,20 @@
   .tier-num { font-size: 20px; font-weight: 800; flex-shrink: 0; width: 32px; }
 
   /* Privacy */
-  .privacy-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; background: #0f1117; margin-bottom: 6px; }
+  .privacy-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; background: #f8fafc; margin-bottom: 6px; }
 
   /* Token table */
   table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; padding: 8px 12px; border-bottom: 1px solid #334155; }
-  td { padding: 10px 12px; border-bottom: 1px solid #1e293b; font-size: 13px; color: #94a3b8; }
-  td:first-child { color: #e2e8f0; font-weight: 500; }
+  th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; padding: 8px 12px; border-bottom: 1px solid #e2e8f0; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 13px; color: #475569; }
+  td:first-child { color: #1e293b; font-weight: 500; }
   tr:last-child td { border-bottom: none; }
 
   /* System layers (new) */
   .sys-layer { display: flex; gap: 16px; padding: 18px 20px; border-radius: 12px; margin-bottom: 10px; border: 1px solid; align-items: flex-start; }
   .sys-layer-icon { font-size: 22px; flex-shrink: 0; width: 36px; text-align: center; }
   .sys-layer-name { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
-  .sys-layer-desc { font-size: 12px; color: #94a3b8; line-height: 1.55; }
+  .sys-layer-desc { font-size: 12px; color: #475569; line-height: 1.55; }
   .sys-layer-status { font-size: 11px; margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
 </style>
 </head>
@@ -98,8 +98,8 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.33.0 · 2026-05-19 — JARVIS Autonomy live. Job engine live. Warmboot manifest live.</div>
-  <div style="margin-top:8px;font-size:12px;color:#475569;background:#0f1117;border:1px solid #334155;border-radius:8px;padding:8px 14px;display:inline-block">
+  <div class="version"><span class="dot" style="color:#6366f1"></span> v2.34.0 · 2026-06-06 — Creative Gate Law live. Model pinned to opus-4-6. leodaiuto.com deployed (content rebuild pending).</div>
+  <div style="margin-top:8px;font-size:12px;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
 </div>
@@ -124,10 +124,10 @@
 </div>
 
 
-<div id="git-commit-bar" style="margin:16px 40px 0;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:10px 16px;display:flex;align-items:center;gap:12px;font-size:12px;">
+<div id="git-commit-bar" style="margin:16px 40px 0;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 16px;display:flex;align-items:center;gap:12px;font-size:12px;">
   <span style="color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Latest Commit</span>
   <span id="gc-badge" style="background:#6366f118;border:1px solid #6366f144;color:#a5b4fc;padding:2px 8px;border-radius:12px;font-weight:700;font-family:monospace;">...</span>
-  <span id="gc-msg" style="color:#e2e8f0;flex:1;">loading...</span>
+  <span id="gc-msg" style="color:#1e293b;flex:1;">loading...</span>
   <span id="gc-branch" style="color:#64748b;"></span>
   <span id="gc-type" style="padding:2px 8px;border-radius:12px;font-weight:600;"></span>
   <span id="gc-time" style="color:#475569;"></span>
@@ -164,8 +164,8 @@ function loadPeerReview() {
           const rev = r.reviewer==='codex' ? '🧠 Codex' : '💬 ChatGPT';
           const dt = (r.reviewed_at||'').replace('T',' ').substring(0,16);
           const ir = r.findings_count > 0 ? Math.round(r.incorporated_count/r.findings_count*100)+'%' : 'n/a';
-          return '<tr style="border-bottom:1px solid #0f172a">'
-            + '<td style="padding:7px 8px;color:#e2e8f0;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + r.topic + '</td>'
+          return '<tr style="border-bottom:1px solid #f1f5f9">'
+            + '<td style="padding:7px 8px;color:#1e293b;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + r.topic + '</td>'
             + '<td style="padding:7px 8px;text-align:center;color:#94a3b8">' + rev + '</td>'
             + '<td style="padding:7px 8px;text-align:center;color:#64748b;font-family:monospace;font-size:11px">' + r.model + '</td>'
             + '<td style="padding:7px 8px;text-align:center;color:#fbbf24">' + r.findings_count + '</td>'
@@ -207,8 +207,8 @@ function loadMetrics() {
         document.getElementById('wm-cap-tbody').innerHTML = '<tr><td colspan="5" style="color:#64748b;padding:12px 8px">No workflow steps recorded yet.</td></tr>';
       } else {
         document.getElementById('wm-cap-tbody').innerHTML = resp.by_capability.map(r =>
-          '<tr style="border-bottom:1px solid #0f172a">'
-          + '<td style="padding:7px 8px;color:#e2e8f0;font-family:monospace;font-size:12px">' + r.capability + '</td>'
+          '<tr style="border-bottom:1px solid #f1f5f9">'
+          + '<td style="padding:7px 8px;color:#1e293b;font-family:monospace;font-size:12px">' + r.capability + '</td>'
           + '<td style="padding:7px 8px;text-align:center;color:#94a3b8">' + r.count + '</td>'
           + '<td style="padding:7px 8px;text-align:center;color:#818cf8">' + (r.avg_ms||'—') + '</td>'
           + '<td style="padding:7px 8px;text-align:center;color:' + (r.retries>0?'#fbbf24':'#34d399') + '">' + r.retries + '</td>'
@@ -220,8 +220,8 @@ function loadMetrics() {
         document.getElementById('wm-recent-tbody').innerHTML = '<tr><td colspan="5" style="color:#64748b;padding:12px 8px">No steps yet.</td></tr>';
       } else {
         document.getElementById('wm-recent-tbody').innerHTML = resp.recent.map(r =>
-          '<tr style="border-bottom:1px solid #0f172a">'
-          + '<td style="padding:7px 8px;color:#e2e8f0;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (r.step||'—') + '</td>'
+          '<tr style="border-bottom:1px solid #f1f5f9">'
+          + '<td style="padding:7px 8px;color:#1e293b;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (r.step||'—') + '</td>'
           + '<td style="padding:7px 8px;color:#64748b;font-family:monospace;font-size:11px">' + (r.capability||'—') + '</td>'
           + '<td style="padding:7px 8px;text-align:center;color:#818cf8">' + (r.latency_ms||'—') + '</td>'
           + '<td style="padding:7px 8px;text-align:center">' + (r.verified ? '&#x2705;' : '&#x274C;') + '</td>'
@@ -338,8 +338,21 @@ setInterval(function() {
       </div>
     </div>
     <div class="arrow">↓</div>
-    <div class="layer" style="background:#10b98108;border-color:#10b98130">
-      <div class="layer-title" style="color:#34d399">Worker API (port 8001)</div>
+    <div class="layer" style="background:#f5f3ff;border-color:#a5b4fc">
+      <div class="layer-title" style="color:#7c3aed">Orchestrator (internal · port 8003)</div>
+      <div class="layer-items">
+        <span class="layer-item" style="background:#ede9fe;color:#7c3aed">Job Engine (SQLite)</span>
+        <span class="layer-item" style="background:#ede9fe;color:#7c3aed">capability_chain workflow</span>
+        <span class="layer-item" style="background:#ede9fe;color:#7c3aed">Gate system (dev / creative_review)</span>
+        <span class="layer-item" style="background:#ede9fe;color:#7c3aed">OVERRIDE endpoint + auto-Plane-bug</span>
+        <span class="layer-item" style="background:#ede9fe;color:#7c3aed">Peer review enforcement</span>
+        <span class="layer-item" style="background:#ede9fe;color:#7c3aed">22 capabilities (vault · workspace · calendar · WP · session)</span>
+        <span class="layer-item" style="background:#ede9fe;color:#7c3aed">council-api bridge → POST /capability/{name}</span>
+      </div>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="layer" style="background:#f0fdf4;border-color:#6ee7b7">
+      <div class="layer-title" style="color:#16a34a">Worker API (port 8001)</div>
       <div class="layer-items">
         <span class="layer-item" style="background:#10b98120;color:#34d399">Vault R/W</span>
         <span class="layer-item" style="background:#10b98120;color:#34d399">Projects + Templates</span>
@@ -505,7 +518,7 @@ setInterval(function() {
     </div>
   </div>
 
-  <div class="sys-layer" style="background:#475569/10;border-color:#47556940">
+  <div class="sys-layer" style="background:#f8fafc;border-color:#47556940">
     <div class="sys-layer-icon">🗄️</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#94a3b8">Data Layer</div>
@@ -530,12 +543,15 @@ setInterval(function() {
     <div style="font-size:12px;color:#64748b;margin-bottom:12px">Ubuntu 22.04 · 31GB RAM · 4 cores · 65GB free disk · Docker Compose v5.1.2</div>
 
     <div class="container-row">
-      <div><div class="container-name">kai-orchestrator</div><div class="container-meta">FastAPI · Job engine · capability_chain workflow · Engine (SQLite) · gate system · peer review enforcement · completion Slack notifications · GET /jobs · POST /workflows/run</div></div>
+      <div><div class="container-name">kai-orchestrator</div><div class="container-meta">FastAPI · Job engine · capability_chain · Engine (SQLite) · gate system · peer review · OVERRIDE · 22 capabilities · POST /workflows/run · GET /jobs · council-api bridge</div></div>
+      <div style="display:flex;gap:8px;align-items:center"><span class="port">:8003 internal</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
+    </div>
+    <div class="container-row">
       <div><div class="container-name">kai-worker-api</div><div class="container-meta">FastAPI · All data endpoints · Contacts · Templates · T2 queue · Telegram handler</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8001</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-council-api</div><div class="container-meta">FastAPI · /council/message · 53 KAI tools · complexity routing · live system state injection · privacy mode · audit log JSONL · tools list cached (cache_control)</div></div>
+      <div><div class="container-name">kai-council-api</div><div class="container-meta">FastAPI · /council/orchestrate (LangGraph) · 53 KAI tools · complexity routing · live system state injection · privacy mode · audit log JSONL · tools list cached (cache_control)</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8002</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
@@ -625,14 +641,14 @@ setInterval(function() {
   <style>
     .metric-row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
     .metric-label { width:110px; font-size:12px; color:#94a3b8; flex-shrink:0; }
-    .metric-bar-wrap { flex:1; background:#1e2533; border-radius:4px; height:8px; overflow:hidden; }
+    .metric-bar-wrap { flex:1; background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden; }
     .metric-bar { height:8px; border-radius:4px; transition:width 0.4s; }
-    .metric-val { font-size:12px; color:#e2e8f0; width:60px; text-align:right; flex-shrink:0; }
+    .metric-val { font-size:12px; color:#1e293b; width:60px; text-align:right; flex-shrink:0; }
     .bar-green { background:#22c55e; }
     .bar-yellow { background:#f59e0b; }
     .bar-red { background:#ef4444; }
-    .health-alert { background:#2d1f1f; border:1px solid #7f1d1d; border-radius:6px; padding:8px 12px; margin-top:10px; font-size:12px; color:#fca5a5; }
-    .health-ok { background:#1a2e1a; border:1px solid #14532d; border-radius:6px; padding:8px 12px; margin-top:10px; font-size:12px; color:#86efac; }
+    .health-alert { background:#fef2f2; border:1px solid #fecaca; border-radius:6px; padding:8px 12px; margin-top:10px; font-size:12px; color:#dc2626; }
+    .health-ok { background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:8px 12px; margin-top:10px; font-size:12px; color:#16a34a; }
   </style>
 
   <script>
@@ -695,10 +711,10 @@ setInterval(function() {
 <div id="panel-advisors" class="panel">
 
   <!-- Delegation Architecture Header -->
-  <div style="margin-bottom:16px;background:#1e293b;border:1px solid #6366f144;border-radius:10px;padding:16px">
+  <div style="margin-bottom:16px;background:#f0f4f8;border:1px solid #6366f144;border-radius:10px;padding:16px">
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#a5b4fc;margin-bottom:8px">KAI-200 — True Agentic Delegation</div>
     <div style="font-size:13px;color:#94a3b8;line-height:1.8">
-      The council runs on a <strong style="color:#e2e8f0">4-tier org structure</strong> backed by <code style="background:#0f172a;padding:2px 6px;border-radius:4px;color:#a5b4fc">org.json</code> (26 members). Every advisor is a real agentic loop via LangGraph. Directors delegate to specialists via <code style="background:#0f172a;padding:2px 6px;border-radius:4px;color:#a5b4fc">consult_specialist()</code> — the execution mechanism, not an optional call. Specialists are end-of-chain agents with full persona depth.
+      The council runs on a <strong style="color:#1e293b">4-tier org structure</strong> backed by <code style="background:#f8fafc;padding:2px 6px;border-radius:4px;color:#a5b4fc">org.json</code> (26 members). Every advisor is a real agentic loop via LangGraph. Directors delegate to specialists via <code style="background:#f8fafc;padding:2px 6px;border-radius:4px;color:#a5b4fc">consult_specialist()</code> — the execution mechanism, not an optional call. Specialists are end-of-chain agents with full persona depth.
     </div>
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
       <span class="badge badge-purple">Orchestrator → routes to all</span>
@@ -1116,7 +1132,7 @@ setInterval(function() {
       <tr><td>gemma3:4b</td><td>3.3 GB</td><td style="color:#f59e0b">25s / turn</td><td>7</td><td><span class="badge badge-yellow">Available</span></td><td>Reassignable</td></tr>
       <tr><td>llama3.2:latest</td><td>2.0 GB</td><td style="color:#ef4444">33s / turn</td><td>6</td><td><span class="badge badge-yellow">Available</span></td><td>Legacy baseline</td></tr>
     </table>
-    <p style="margin-top:8px;font-size:12px;color:#64748b">All local models have 30s timeout. On timeout, Anthropic fallback activates automatically. Benchmark data in <code style="font-size:11px;background:#0f1117;padding:2px 5px;border-radius:3px">vault/00_System/model_benchmarks.json</code>. Re-run via Performance &amp; Models page.</p>
+    <p style="margin-top:8px;font-size:12px;color:#64748b">All local models have 30s timeout. On timeout, Anthropic fallback activates automatically. Benchmark data in <code style="font-size:11px;background:#f8fafc;padding:2px 5px;border-radius:3px">vault/00_System/model_benchmarks.json</code>. Re-run via Performance &amp; Models page.</p>
     <p style="margin-top:6px;font-size:12px;color:#64748b"><strong style="color:#94a3b8">Hardware upgrade path:</strong> Mac Mini M4 ($599) → 7B at 3s/turn. Mac Mini M4 Pro 24GB ($1,299) → 32B models. M4 Max 48GB ($2,299) → 70B (near Sonnet quality). Multiple older machines (Linux) can be used as distributed Ollama nodes.</p>
   </div>
 
@@ -1146,7 +1162,7 @@ setInterval(function() {
       <tr><td>Specialist consultation</td><td>Anthropic</td><td>claude-sonnet-4-6</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker</td></tr>
       <tr><td>Simple tasks (planned)</td><td>Anthropic</td><td>haiku-4-5</td><td>$0.80/1M</td><td>$4/1M</td><td style="color:#10b981">On-worker</td></tr>
     </table>
-    <p style="margin-top:10px;font-size:12px;color:#64748b">Usage tracked in <code style="font-size:11px;background:#0f1117;padding:2px 5px;border-radius:3px">vault/00_System/token_usage.json</code> by hour/day/week/month. Viewable on the <strong>Performance &amp; Models</strong> page with cost breakdown per model.</p>
+    <p style="margin-top:10px;font-size:12px;color:#64748b">Usage tracked in <code style="font-size:11px;background:#f8fafc;padding:2px 5px;border-radius:3px">vault/00_System/token_usage.json</code> by hour/day/week/month. Viewable on the <strong>Performance &amp; Models</strong> page with cost breakdown per model.</p>
   </div>
 </div>
 
@@ -1182,11 +1198,11 @@ setInterval(function() {
       <div class="card-title" style="color:#34d399">Local-First Advisors</div>
       <div class="privacy-row">
         <span class="badge badge-green" style="flex-shrink:0">Doc</span>
-        <div><div style="font-size:13px;color:#e2e8f0">Health data stays on-device</div><div style="font-size:11px;color:#64748b;margin-top:2px">Ollama qwen2.5:3b · worker only · no cloud call · 9s/turn</div></div>
+        <div><div style="font-size:13px;color:#1e293b">Health data stays on-device</div><div style="font-size:11px;color:#64748b;margin-top:2px">Ollama qwen2.5:3b · worker only · no cloud call · 9s/turn</div></div>
       </div>
       <div class="privacy-row">
         <span class="badge badge-pink" style="flex-shrink:0">Ember</span>
-        <div><div style="font-size:13px;color:#e2e8f0">Personal/emotional data local</div><div style="font-size:11px;color:#64748b;margin-top:2px">Ollama qwen2.5:3b · insight extraction stays on worker · 9s/turn</div></div>
+        <div><div style="font-size:13px;color:#1e293b">Personal/emotional data local</div><div style="font-size:11px;color:#64748b;margin-top:2px">Ollama qwen2.5:3b · insight extraction stays on worker · 9s/turn</div></div>
       </div>
       <p style="margin-top:8px;font-size:12px;color:#64748b">Fallback: if Ollama is unavailable, routes to Anthropic with a note. Can be disabled to enforce local-only.</p>
     </div>
@@ -1631,7 +1647,7 @@ setInterval(function() {
 
 
 <div id="panel-health" class="panel">
-  <h2 style="color:#e2e8f0;margin-bottom:16px">System Health</h2>
+  <h2 style="color:#1e293b;margin-bottom:16px">System Health</h2>
 
   <!-- Invariants table -->
   <div class="card" style="margin-bottom:16px">
@@ -1665,7 +1681,7 @@ setInterval(function() {
 </div>
 
 <div id="panel-peer" class="panel">
-  <h2 style="color:#e2e8f0;margin-bottom:16px">Peer Review Health</h2>
+  <h2 style="color:#1e293b;margin-bottom:16px">Peer Review Health</h2>
 
   <div class="card" style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -1693,7 +1709,7 @@ setInterval(function() {
 </div>
 
 <div id="panel-metrics" class="panel">
-  <h2 style="color:#e2e8f0;margin-bottom:16px">Workflow Metrics</h2>
+  <h2 style="color:#1e293b;margin-bottom:16px">Workflow Metrics</h2>
 
   <div class="card" style="margin-bottom:16px">
     <strong style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:12px">Summary</strong>
@@ -1739,7 +1755,7 @@ setInterval(function() {
 <div id="panel-capabilities" class="panel">
   <div class="card">
     <div class="card-title">Orchestrator Capabilities</div>
-    <div style="font-size:12px;color:#64748b;margin-bottom:12px">Discrete capability modules executed by the job engine. Source: <code style="background:#0f172a;padding:2px 5px;border-radius:3px;color:#a5b4fc">kai-orchestrator/capabilities/</code></div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px">Discrete capability modules executed by the job engine. Source: <code style="background:#f8fafc;padding:2px 5px;border-radius:3px;color:#a5b4fc">kai-orchestrator/capabilities/</code></div>
 
     <div class="container-row"><div><div class="container-name">calendar</div><div class="container-meta">calendar.get_events, calendar.create_event — Calendar read/write via worker-api.</div></div></div>
     <div class="container-row"><div><div class="container-name">council</div><div class="container-meta">council.gate — opens a council review gate in a workflow step.</div></div></div>
@@ -1757,7 +1773,7 @@ setInterval(function() {
 <div id="panel-workflows" class="panel">
   <div class="card">
     <div class="card-title">Orchestrator Workflows</div>
-    <div style="font-size:12px;color:#64748b;margin-bottom:12px">Multi-step tracked jobs composed of capability calls. Source: <code style="background:#0f172a;padding:2px 5px;border-radius:3px;color:#a5b4fc">kai-orchestrator/workflows/</code></div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px">Multi-step tracked jobs composed of capability calls. Source: <code style="background:#f8fafc;padding:2px 5px;border-radius:3px;color:#a5b4fc">kai-orchestrator/workflows/</code></div>
 
     <div class="container-row"><div><div class="container-name">capability_chain</div><div class="container-meta">Run an arbitrary sequence of capabilities as a tracked job. Core execution model.</div></div></div>
     <div class="container-row"><div><div class="container-name">hello_world</div><div class="container-meta">Sprint 0B validation workflow — end-to-end smoke test.</div></div></div>
@@ -1770,12 +1786,12 @@ setInterval(function() {
 <div id="panel-graphs" class="panel">
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Orchestrator Graphs</div>
-    <div style="font-size:12px;color:#64748b;margin-bottom:12px">LangGraph state machine definitions for the orchestrator. Source: <code style="background:#0f172a;padding:2px 5px;border-radius:3px;color:#a5b4fc">kai-orchestrator/graphs/</code></div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px">LangGraph state machine definitions for the orchestrator. Source: <code style="background:#f8fafc;padding:2px 5px;border-radius:3px;color:#a5b4fc">kai-orchestrator/graphs/</code></div>
     <div style="color:#64748b;font-size:13px;padding:8px 0">No graphs defined yet — auto-doc entries will appear here.</div>
   </div>
   <div class="card">
     <div class="card-title">Council Graphs</div>
-    <div style="font-size:12px;color:#64748b;margin-bottom:12px">LangGraph definitions powering the council advisory layer. Source: <code style="background:#0f172a;padding:2px 5px;border-radius:3px;color:#a5b4fc">kai-council-api/graphs/</code></div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px">LangGraph definitions powering the council advisory layer. Source: <code style="background:#f8fafc;padding:2px 5px;border-radius:3px;color:#a5b4fc">kai-council-api/graphs/</code></div>
 
     <div class="container-row"><div><div class="container-name">bug_graph</div><div class="container-meta">LangGraph graph definition for council bug triage flow. <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div></div>
     <div class="container-row"><div><div class="container-name">bug_nodes</div><div class="container-meta">Node implementations for the bug triage graph. <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div></div>
@@ -1790,7 +1806,7 @@ setInterval(function() {
 <div id="panel-mcp" class="panel">
   <div class="card">
     <div class="card-title">MCP Integration</div>
-    <div style="font-size:12px;color:#64748b;margin-bottom:12px">Model Context Protocol server — exposes KAI tools to external MCP clients. Source: <code style="background:#0f172a;padding:2px 5px;border-radius:3px;color:#a5b4fc">kai-mcp-api/</code></div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px">Model Context Protocol server — exposes KAI tools to external MCP clients. Source: <code style="background:#f8fafc;padding:2px 5px;border-radius:3px;color:#a5b4fc">kai-mcp-api/</code></div>
 
     <div class="container-row">
       <div><div class="container-name">kai-mcp-api</div><div class="container-meta">KAI MCP (Model Context Protocol) server — exposes vault, calendar, Plane, and Slack tools via standard MCP interface.</div></div>
@@ -1810,7 +1826,7 @@ function show(tab) {
 
 // System Health auto-refresh
 function _metricCard(label, value, color) {
-  return '<div style="background:#0f172a;border-radius:8px;padding:12px;text-align:center">'
+  return '<div style="background:#f8fafc;border-radius:8px;padding:12px;text-align:center">'
     + '<div style="font-size:22px;font-weight:700;color:' + (color||'#e2e8f0') + '">' + value + '</div>'
     + '<div style="font-size:11px;color:#64748b;margin-top:4px">' + label + '</div>'
     + '</div>';
@@ -1827,8 +1843,8 @@ function loadHealth() {
         const pass = v.pass;
         const icon = pass ? '&#x2705;' : '&#x274C;';
         const ts = (v.checked_at||'').replace('T',' ').substring(11,16) + ' UTC';
-        return '<tr style="border-bottom:1px solid #0f172a">'
-          + '<td style="padding:7px 8px;color:#e2e8f0">' + (v.label||k) + '</td>'
+        return '<tr style="border-bottom:1px solid #f1f5f9">'
+          + '<td style="padding:7px 8px;color:#1e293b">' + (v.label||k) + '</td>'
           + '<td style="padding:7px 8px;text-align:center">' + icon + '</td>'
           + '<td style="padding:7px 8px;color:' + (pass?'#86efac':'#fca5a5') + ';font-family:monospace;font-size:12px">' + (v.detail||'-') + '</td>'
           + '<td style="padding:7px 8px;color:#64748b;font-size:12px">' + ts + '</td>'

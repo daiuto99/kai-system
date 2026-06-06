@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from fastapi import HTTPException
 from council_config import VAULT_PATH, COUNCIL_PATH
-from load_context import load_session_memory, load_system_state
+from load_context import load_session_memory, load_system_state, load_org_model_context
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,9 @@ def load_persona(advisor: str, channel: str = None) -> str:
         system_state = load_system_state()
         if system_state:
             parts.append(system_state)
+        org_model_ctx = load_org_model_context()
+        if org_model_ctx:
+            parts.append(org_model_ctx)
 
     parts.append(persona_file.read_text(encoding="utf-8"))
 

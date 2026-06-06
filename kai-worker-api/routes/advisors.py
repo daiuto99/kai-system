@@ -44,7 +44,7 @@ def _load_assets(name: str) -> dict:
         "sidekick_enabled": False,
         "status": member.get("status", "active") if member else "active",
         "default_model": member.get("default_model", "claude-sonnet-4-6") if member else "claude-sonnet-4-6",
-        "research_model": member.get("director_model", "claude-opus-4-7") if member else "claude-opus-4-7",
+        "research_model": member.get("director_model", "claude-opus-4-6") if member else "claude-opus-4-6",
     }
 
 

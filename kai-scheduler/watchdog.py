@@ -441,8 +441,148 @@ def _post_oauth_escalation(token: str, service: str, detail: str):
     _slack_alert(token, msg)
 
 
+def _try_fix_disk() -> str:
+    """Auto-remediate disk pressure: prune Docker build cache + vacuum journal logs.
+
+    Safe operations only — no running containers or data are touched.
+    Runs without sudo (journalctl vacuum works without it for user-owned journals).
+    Reports freed space. Escalates to Leo if still above threshold after cleanup.
+    """
+    freed_parts = []
+    try:
+        result = subprocess.run(
+            ["docker", "builder", "prune", "--force"],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode == 0:
+            # Extract "Total: X.XXX GB" from output
+            for line in result.stdout.splitlines():
+                if line.strip().lower().startswith("total:"):
+                    freed_parts.append(f"build cache: {line.split(':', 1)[1].strip()}")
+                    break
+    except Exception as e:
+        log.warning("disk remediation: docker builder prune failed: %s", e)
+
+    try:
+        subprocess.run(
+            ["journalctl", "--vacuum-size=200M"],
+            capture_output=True, text=True, timeout=30,
+        )
+        freed_parts.append("journal: vacuumed to 200MB")
+    except Exception as e:
+        log.warning("disk remediation: journal vacuum failed: %s", e)
+
+    try:
+        # Remove compressed logs older than 7 days
+        import glob as _glob
+        removed = 0
+        for f in _glob.glob("/var/log/**/*.gz", recursive=True):
+            try:
+                p = Path(f)
+                if (datetime.now(timezone.utc).timestamp() - p.stat().st_mtime) > 7 * 86400:
+                    p.unlink()
+                    removed += 1
+            except Exception:
+                pass
+        if removed:
+            freed_parts.append(f"old logs: removed {removed} compressed files")
+    except Exception as e:
+        log.warning("disk remediation: log cleanup failed: %s", e)
+
+    # Re-check disk after cleanup
+    ok, detail = check_disk()
+    summary = ", ".join(freed_parts) if freed_parts else "nothing freed"
+    if ok:
+        return f"disk freed ({summary}) — now {detail} ✅"
+    else:
+        return f"disk partially freed ({summary}) — still {detail} ⚠️ manual review needed"
+
+
+def _try_fix_components() -> str:
+    """Auto-rebuild KAI containers whose images are older than 30 days.
+
+    Identifies stale kai-system images, rebuilds only those services,
+    and restarts them. Safe: only touches containers that are already stale.
+    Reports what was rebuilt. Escalates to Leo if rebuild fails.
+    """
+    import json as _json
+    from datetime import datetime, timezone as _tz
+
+    KAI_COMPOSE_DIR = Path("/home/leo/kai-system")
+
+    # Map image name → compose service name
+    IMAGE_TO_SERVICE = {
+        "kai-system-kai-slack-bot":  "kai-slack-bot",
+        "kai-system-kai-mcp-api":    "kai-mcp-api",
+        "kai-system-kai-worker-api": "kai-worker-api",
+        "kai-system-kai-council-api":"kai-council-api",
+        "kai-system-kai-scheduler":  "kai-scheduler",
+        "kai-system-kai-web":        "kai-web",
+    }
+
+    try:
+        result = subprocess.run(
+            ["docker", "images", "--format", "{{json .}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        stale_services = []
+        for line in result.stdout.strip().splitlines():
+            try:
+                img = _json.loads(line)
+                repo = img.get("Repository", "")
+                if "kai-system" not in repo:
+                    continue
+                created_raw = img.get("CreatedAt", "")
+                dt = datetime.strptime(created_raw[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=_tz.utc)
+                age_days = (datetime.now(_tz.utc) - dt).days
+                if age_days > 30:
+                    svc = IMAGE_TO_SERVICE.get(repo)
+                    if svc and svc not in stale_services:
+                        stale_services.append(svc)
+            except Exception:
+                continue
+    except Exception as e:
+        return f"component check failed: {e}"
+
+    if not stale_services:
+        return "no stale components found ✅"
+
+    rebuilt = []
+    failed = []
+    for svc in stale_services:
+        build = subprocess.run(
+            ["docker", "compose", "build", svc],
+            capture_output=True, text=True, timeout=300,
+            cwd=str(KAI_COMPOSE_DIR),
+        )
+        if build.returncode != 0:
+            failed.append(f"{svc} (build failed)")
+            continue
+        up = subprocess.run(
+            ["docker", "compose", "up", "-d", svc],
+            capture_output=True, text=True, timeout=60,
+            cwd=str(KAI_COMPOSE_DIR),
+        )
+        if up.returncode == 0:
+            rebuilt.append(svc)
+        else:
+            failed.append(f"{svc} (restart failed)")
+
+    parts = []
+    if rebuilt:
+        parts.append(f"rebuilt: {', '.join(rebuilt)}")
+    if failed:
+        parts.append(f"failed: {', '.join(failed)}")
+
+    if rebuilt and not failed:
+        return f"{', '.join(parts)} ✅"
+    return f"{', '.join(parts)} ⚠️"
+
+
 REMEDIATABLE = {
-    "backup": _remediate_backup,
+    "backup":             _remediate_backup,
+    "disk":               _try_fix_disk,
+    "component_currency": _try_fix_components,
 }
 
 # Services whose auth failures get a structured escalation (not repeated spam)
@@ -462,10 +602,10 @@ CANT_FIX_REASON = {
     "todoist":           ("hardlimit", "Task list unavailable — Todoist API down or token expired"),
     "google_calendar":   ("hardlimit", "OAuth token expired — cannot auto-renew"),
     "plane_ce":          ("system",    "Project management unavailable — sprint tracking broken"),
-    "disk":              ("hardlimit", "Storage critically low — data loss risk if not cleared"),
+    "disk":              ("autofixed", "Storage high — DevOps auto-cleanup runs (build cache prune + journal vacuum)"),
     "backup":            ("system",    "Vault and Plane data not protected"),
     "cert_expiry":       ("hardlimit", "SSL cert expired — all HTTPS services unreachable from web"),
-    "component_currency":("hardlimit", "One or more KAI containers running outdated images"),
+    "component_currency":("autofixed", "Stale KAI containers — DevOps auto-rebuilds and restarts them"),
 }
 
 ACTION_NEEDED = {

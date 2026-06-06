@@ -27,6 +27,10 @@ class BugState(TypedDict):
     kai_approved:    bool
     kai_return_notes: str
 
+    # Routing
+    bug_routing:     str   # dev / devops / creative / kai
+    risk_level:      str   # low / high
+
     # Status
     status:          str   # diagnosing / peer_review / kai_validation / awaiting_leo / done
     slack_thread_ts: str   # root Slack message ts for threading

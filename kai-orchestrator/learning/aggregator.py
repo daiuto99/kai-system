@@ -171,7 +171,39 @@ def run_aggregation() -> pathlib.Path:
             except Exception as exc:
                 log.debug("Skipping review %s: %s", rf.name, exc)
 
-    # 5. Merge duplicates ────────────────────────────────────────────────────────
+    # 5. Gate outcomes (council gate audit files) ─────────────────────────────
+    _VAULT_GATES = pathlib.Path("/vault/00_System/gates")
+    if _VAULT_GATES.exists():
+        for gf in sorted(_VAULT_GATES.glob("*_audit.json"), reverse=True)[:50]:
+            try:
+                data = json.loads(gf.read_text())
+                resolution = data.get("resolution", {})
+                approved   = resolution.get("approved", None)
+                notes      = resolution.get("notes", "")
+                gate_type  = data.get("gate_type", "unknown")
+                resolver   = resolution.get("advisor", "unknown")
+                # Only patterns where Leo rejected or gave substantive feedback
+                if approved is False or (notes and len(notes) > 20):
+                    raw_patterns.append({
+                        "pattern_type": "gate_outcome",
+                        "capability":   f"gate.{gate_type}",
+                        "error_signature": "rejected" if not approved else "approved_with_notes",
+                        "evidence_count": 1,
+                        "evidence": [{
+                            "gate_id":   data.get("gate_id", "")[:12],
+                            "gate_type": gate_type,
+                            "approved":  approved,
+                            "resolver":  resolver,
+                            "notes":     notes[:200],
+                            "brief_summary": str(data.get("brief", {}))[:150],
+                            "at":        data.get("resolution", {}).get("resolved_at", ""),
+                        }],
+                    })
+            except Exception as exc:
+                log.debug("Skipping gate %s: %s", gf.name, exc)
+
+    # 6. Merge duplicates ────────────────────────────────────────────────────────
+
     merged: dict[tuple, dict] = {}
     for p in raw_patterns:
         key = (p["pattern_type"], p["capability"], p["error_signature"])

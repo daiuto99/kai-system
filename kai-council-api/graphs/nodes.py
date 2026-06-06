@@ -12,12 +12,19 @@ from graphs.state import KAIState
 
 logger = logging.getLogger(__name__)
 
-ORG_FILE = VAULT_PATH / "00_System" / "org.json"
+ORG_FILE       = VAULT_PATH / "00_System" / "org.json"
+ORG_MODEL_FILE = VAULT_PATH / "00_System" / "org_model.json"
 PRIVACY_ADVISORS = {"ember", "doc"}
 
 
 def _load_org() -> list:
     return json.loads(ORG_FILE.read_text(encoding="utf-8"))["members"]
+
+
+def _load_org_model() -> dict:
+    if ORG_MODEL_FILE.exists():
+        return json.loads(ORG_MODEL_FILE.read_text(encoding="utf-8"))
+    return {}
 
 
 def channel_router(state: KAIState) -> KAIState:
@@ -62,13 +69,13 @@ def advisor_node(state: KAIState) -> KAIState:
     force_privacy = advisor in PRIVACY_ADVISORS or state.get("privacy_mode", False)
 
     if advisor == "kai":
-        model_map = {"deep": "claude-opus-4-7", "simple": "claude-haiku-4-5-20251001"}
+        model_map = {"deep": "claude-opus-4-6", "simple": "claude-haiku-4-5-20251001"}
         adv_cfg = {"provider": "anthropic", "model": model_map.get(complexity, "claude-sonnet-4-6")}
     else:
         adv_cfg = _get_advisor_config(advisor)
         if adv_cfg.get("provider") == "anthropic":
             if complexity == "deep":
-                adv_cfg = dict(adv_cfg, model="claude-opus-4-7")
+                adv_cfg = dict(adv_cfg, model="claude-opus-4-6")
             elif complexity == "simple":
                 adv_cfg = dict(adv_cfg, model="claude-haiku-4-5-20251001")
 

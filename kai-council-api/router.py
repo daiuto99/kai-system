@@ -273,12 +273,60 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
     return raw_reply, total_input_tokens, total_output_tokens
 
 
+
+def _maybe_resolve_gate(message: str, user_id: str) -> str | None:
+    """Detect approve/reject gate commands and resolve the gate."""
+    msg = message.strip()
+    approve_m = re.match(r'^approve\s+([\w\-]{4,})\s*$', msg, re.IGNORECASE)
+    reject_m  = re.match(r'^reject\s+([\w\-]{4,}):\s*(.+)$', msg, re.IGNORECASE)
+    if not approve_m and not reject_m:
+        return None
+    try:
+        from routes_council_gate import router as _gate_router, _GATES_STORE, _fire_callback, _persist_gate_record
+        from datetime import datetime, timezone
+        if approve_m:
+            gate_id = approve_m.group(1)
+            approved, notes = True, "Approved by Leo"
+        else:
+            gate_id = reject_m.group(1)
+            approved, notes = False, reject_m.group(2).strip()
+
+        entry = _GATES_STORE.get(gate_id)
+        if entry is None:
+            return f"Gate  not found — it may have expired or already been resolved."
+        if entry["status"] not in ("pending_leo", "processing"):
+            return f"Gate  is already in state ."
+
+        resolution = {
+            "approved":   approved,
+            "notes":      notes,
+            "advisor":    user_id,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+        entry["status"]     = "resolved"
+        entry["resolution"] = resolution
+        _persist_gate_record(gate_id, entry["gate_type"], entry["brief"], resolution)
+        _fire_callback(entry["callback_url"], resolution)
+
+        action = "approved ✓" if approved else "rejected ✗"
+        return f"Gate  {action}. Workflow {'will continue.' if approved else f'stopped. Reason: {notes}'}"
+    except Exception as e:
+        logger.exception("Gate resolve via message failed: %s", e)
+        return f"Gate resolve failed: {e}"
+
 @router.post("/council/message")
 def council_message(req: MessageRequest, background_tasks: BackgroundTasks = None):
     channel = req.channel.lstrip("#")
     advisor = ADVISOR_CHANNELS.get(channel)
     if not advisor:
         raise HTTPException(status_code=400, detail=f"Unknown channel: {channel}")
+
+    # Gate approval detection — Leo types "approve gate_id" or "reject gate_id: reason"
+    _gate_result = _maybe_resolve_gate(req.message, req.user_id or "leo")
+    if _gate_result:
+        return {"advisor": "kai", "channel": channel, "reply": _gate_result,
+                "insights_logged": 0, "input_tokens": 0, "output_tokens": 0,
+                "provider": "system", "model": "gate-resolver"}
 
     # Try auto-capture shortcut
     auto = _handle_auto_capture(req.message, advisor)

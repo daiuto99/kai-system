@@ -82,6 +82,12 @@ DIAGNOSIS:
 CONFIDENCE: [High / Medium / Low]
 [One sentence explaining your confidence level]
 
+ROUTING: [dev | devops | creative | kai]
+[Which team owns this fix: dev=code/logic bugs, devops=infrastructure/container/deployment bugs, creative=content/design bugs, kai=unknown/needs escalation]
+
+RISK_LEVEL: [low | high]
+[low=routine fix, can be deployed autonomously after LSE+KAI review. high=structural change or data risk, Leo must approve before deploy]
+
 PROPOSED FIX:
 [Specific, scoped change. Include: what to change, where, why it solves the root cause]
 
@@ -105,14 +111,24 @@ UNKNOWNS:
         ts = state.get("slack_thread_ts", "")
         _slack_post(f":arrows_counterclockwise: *Revised diagnosis (iteration {iteration + 1})*\n{reply[:400]}…", thread_ts=ts)
 
+    # Parse routing and risk from support engineer output
+    import re as _re
+    routing_m   = _re.search(r"ROUTING:\s*(dev|devops|creative|kai)", reply, _re.IGNORECASE)
+    risk_m      = _re.search(r"RISK_LEVEL:\s*(low|high)", reply, _re.IGNORECASE)
+    bug_routing = routing_m.group(1).lower() if routing_m else "dev"
+    risk_level  = risk_m.group(1).lower() if risk_m else "high"
+
     return {
         **state,
         "diagnosis": reply,
         "proposed_fix": reply,
         "status": "peer_review",
+        "bug_routing": bug_routing,
+        "risk_level": risk_level,
         "iteration": iteration + 1,
         "slack_thread_ts": ts or state.get("slack_thread_ts", ""),
-        "audit_log": _audit(state, "support_diagnosis", "diagnosed", iteration=iteration + 1),
+        "audit_log": _audit(state, "support_diagnosis", "diagnosed",
+                            iteration=iteration + 1, routing=bug_routing, risk=risk_level),
     }
 
 

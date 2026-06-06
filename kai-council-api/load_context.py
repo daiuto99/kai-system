@@ -62,3 +62,52 @@ def load_system_state() -> str:
 
     lines.append("</system_state>")
     return "\n".join(lines)
+
+
+def load_org_model_context() -> str:
+    """Inject org model routing rules and advisor domain map into KAI's context."""
+    try:
+        import json as _json
+        org_path = VAULT_PATH / "00_System" / "org_model.json"
+        if not org_path.exists():
+            return ""
+        model = _json.loads(org_path.read_text())
+        domain_map = model.get("advisor_domain_map", {})
+        routing    = model.get("routing_rules", {})
+        gov        = model.get("governance", {})
+
+        lines = ["<org_model>"]
+        lines.append("You are the PM and system orchestrator. Leo is the client.")
+        cd = gov.get("creative_agency", {}).get("director", "creative")
+        ed = gov.get("engineering_agency", {}).get("director", "dev")
+        bt = gov.get("bug_triage", {}).get("first_receiver", "support-engineer")
+        lines.append(f"Creative agency director: {cd} (sign-off required before KAI review)")
+        lines.append(f"Engineering agency director: {ed} (sign-off required before KAI review)")
+        lines.append("DevOps: autonomous on health/maintenance. Escalates structural changes.")
+        lines.append(f"Bug triage: all bugs start at {bt}")
+
+        lines.append("")
+        lines.append("Advisor domain routing — pull in the right advisor when working in their domain:")
+        for domain, info in domain_map.items():
+            if domain == "direct_advisors":
+                continue
+            kw = ", ".join(info.get("keywords", [])[:5])
+            advisor = info.get("advisor", "")
+            lines.append(f"  {domain} -> {advisor} (triggers: {kw})")
+
+        direct = domain_map.get("direct_advisors", [])
+        if direct:
+            lines.append(f"Direct advisors (Leo also talks to them directly): {', '.join(direct)}")
+
+        lines.append("")
+        lines.append("Task routing:")
+        for rtype, rule in routing.items():
+            owner = rule.get("owner") or rule.get("pm") or rule.get("first_receiver", "")
+            gate = rule.get("gate", "none")
+            lines.append(f"  {rtype}: owner={owner}, gate={gate}")
+
+        lines.append("</org_model>")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning("load_org_model_context failed: %s", e)
+        return ""
