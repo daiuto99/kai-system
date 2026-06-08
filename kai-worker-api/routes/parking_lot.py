@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 import ipaddress
 import socket
@@ -9,10 +10,18 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from config import VAULT_PATH
-from parking_lot import capture as pl_capture, enrich_text, write_capture_card, load_secret
+from parking_lot import (
+    capture as pl_capture,
+    enrich_text,
+    gather_capture_context,
+    write_capture_card,
+    load_secret,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+SPRINT_A_ENABLED = os.environ.get("SPRINT_A_INTENT_PIPELINE_ENABLED", "false").lower() == "true"
 
 LOT_DIR  = VAULT_PATH / "50_ParkingLot"
 ARCH_DIR = LOT_DIR / "archived"
@@ -115,6 +124,36 @@ class RouteBody(BaseModel):
 
 @router.post("/parking-lot/capture")
 def parking_lot_capture(req: ParkingLotRequest):
+    if SPRINT_A_ENABLED:
+        from intent_parser import parse_intent
+        from routing_engine import build_dispatch_plan
+        from clarification_store import create_pending
+        from clarification_surface import ask
+        from dispatch import dispatch as _dispatch
+
+        captured_content = gather_capture_context(req.text)
+        intent = parse_intent(
+            req.text,
+            og_title=captured_content.get("og_title", ""),
+            og_description=captured_content.get("og_description", ""),
+        )
+        plan = build_dispatch_plan(intent, origin_channel="slack")
+
+        if plan.get("clarifications_needed"):
+            entry = create_pending(
+                parsed_intent=intent,
+                dispatch_plan=plan,
+                channel="slack",
+                origin_chat_id=req.channel_id,
+                captured_content=captured_content,
+                slack_thread_ts=req.thread_ts or None,
+            )
+            ask(entry["id"])
+            return {"status": "pending_clarification", "pending_id": entry["id"]}
+
+        result = _dispatch(plan, captured_content, intent)
+        return {"status": "dispatched", **result}
+
     result = pl_capture(req.text, req.channel_id, req.thread_ts, req.user_id)
     return result
 

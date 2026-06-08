@@ -251,6 +251,23 @@ def post_capture_response(slack_token: str, channel: str, thread_ts: str,
         )
 
 
+def gather_capture_context(text: str) -> dict:
+    """Read-only sibling of enrich_text — resolves URL + OG metadata, no model calls, no vault writes.
+
+    Returned shape matches clarification_store.create_pending's captured_content contract.
+    """
+    urls = re.findall(r"https?://\S+", text)
+    raw_url = urls[0].rstrip(">).,") if urls else ""
+    real_url = resolve_url(raw_url) if raw_url else ""
+    og = fetch_og_metadata(real_url) if real_url else {}
+    return {
+        "original_message": text,
+        "url":              real_url or None,
+        "og_title":         og.get("og_title", ""),
+        "og_description":   og.get("og_description", ""),
+    }
+
+
 def enrich_text(text: str, api_key: str) -> tuple[dict, dict, str]:
     """Resolve URL, fetch OG metadata, classify. Returns (classification, og, real_url)."""
     urls = re.findall(r"https?://\S+", text)
