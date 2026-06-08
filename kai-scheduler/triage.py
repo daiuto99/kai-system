@@ -1,6 +1,7 @@
 """Auto-triage pipeline — failure → Plane BUG (DevOps) → structured Slack to Leo."""
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 import httpx
@@ -14,6 +15,46 @@ KAI_PROJECT  = "78c49227-82d4-477d-a920-66b08cb91c56"
 DEVOPS_ASSIGNEE = "aef72284-5b76-4e06-9b9b-d2cc4f9c591d"  # DevOps bot user (devops@sonicink.space)
 
 _backlog_state_id: str | None = None
+
+# Human-readable labels for scheduled function names. Keys match the fn_name
+# passed to triage_failure() — both direct crashes (e.g. "watchdog") and gap
+# alerts from watchdog.py which append "_gap" (e.g. "watchdog_gap").
+FUNCTION_LABELS: dict[str, str] = {
+    "watchdog":                "System health watchdog crashed",
+    "watchdog_gap":            "System health watchdog stopped running",
+    "morning_brief":           "Morning brief errored",
+    "morning_brief_gap":       "Morning brief stopped running",
+    "evening_brief":           "Evening brief errored",
+    "evening_brief_gap":       "Evening brief stopped running",
+    "worker_health_check":     "Worker health check errored",
+    "worker_health_check_gap": "Worker health check stopped running",
+    "inbox_scan":              "Inbox scanner crashed",
+    "inbox_scan_gap":          "Inbox scanner stopped running",
+    "security":                "Security check crashed",
+    "security_gap":            "Security checks stopped running",
+    "invariants":              "Invariant check crashed",
+    "invariants_gap":          "Invariant checks stopped running",
+    "backup":                  "Backup job errored",
+    "backup_gap":              "Backups stopped running",
+    "tz_check":                "Timezone check crashed",
+    "tz_check_gap":            "Timezone check stopped running",
+    "checkin_morning":         "Morning check-in failed to send",
+    "checkin_nightly":         "Nightly check-in failed to send",
+}
+
+
+def _label(function_name: str) -> str:
+    """Return a human-readable label for a scheduled function name.
+
+    Falls back to a best-effort prettifier when the name isn't in FUNCTION_LABELS:
+    "foo_bar_gap" → "Foo bar stopped running", "foo_bar" → "Foo bar errored".
+    """
+    if function_name in FUNCTION_LABELS:
+        return FUNCTION_LABELS[function_name]
+    is_gap = function_name.endswith("_gap")
+    stem = function_name[:-4] if is_gap else function_name
+    pretty = re.sub(r"[_\-]+", " ", stem).strip().capitalize() or function_name
+    return f"{pretty} {'stopped running' if is_gap else 'errored'}"
 
 
 def _load(name: str) -> str:
@@ -48,12 +89,15 @@ def create_plane_bug(function_name: str, error: str, proposed_fix: str = "Pendin
 
     state_id = _get_backlog_state()
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    label = _label(function_name)
+    error_block = f"<code>{error[:500]}</code>" if error else "<em>no error captured</em>"
 
     body = {
-        "name": f"[BUG] Scheduled function failed: {function_name} — {now_str}",
+        "name": f"[BUG] {label} — {now_str}",
         "description_html": (
+            f"<p><strong>What happened:</strong> {label}</p>"
             f"<p><strong>Function:</strong> <code>{function_name}</code></p>"
-            f"<p><strong>Error:</strong> <code>{error[:500]}</code></p>"
+            f"<p><strong>Error:</strong> {error_block}</p>"
             f"<p><strong>Detected:</strong> {now_str}</p>"
             f"<p><strong>Proposed fix:</strong> {proposed_fix}</p>"
             f"<p><strong>Risk:</strong> {risk}</p>"
@@ -81,21 +125,24 @@ def create_plane_bug(function_name: str, error: str, proposed_fix: str = "Pendin
 
 
 def slack_triage_alert(function_name: str, error: str, plane_seq: int | None, proposed_fix: str = "Pending", risk: str = "Unknown"):
+    """Post a single one-line Slack message in Leo's standard format:
+       "Issue: <label> — Status: Action needed — <one-sentence action> (<plane_ref>)"
+    """
     token = _load("slack_bot_token")
     if not token:
         log.error("triage: slack_bot_token not available")
         return
 
-    plane_ref = f"KAI-{plane_seq}" if plane_seq else "pending (Plane unreachable)"
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    msg = (
-        f":rotating_light: *KAI System Alert — {now_str}*\n\n"
-        f"*Issue:* `{function_name}` failed — `{error[:300]}`\n"
-        f"*Logged in Plane:* {plane_ref} — assigned to DevOps\n"
-        f"*Proposed fix:* {proposed_fix}\n"
-        f"*Risk:* {risk}\n\n"
-        f"_Approve fix in {plane_ref} to proceed._"
-    )
+    plane_ref = f"KAI-{plane_seq}" if plane_seq else "Plane unreachable"
+    label = _label(function_name)
+
+    if error:
+        action = proposed_fix if proposed_fix and proposed_fix != "Pending" else "see Plane ticket"
+    else:
+        now_hm = datetime.now().strftime("%H:%M")
+        action = f"no error captured — check kai-scheduler logs around {now_hm}"
+
+    msg = f"Issue: *{label}* — Status: Action needed — {action} ({plane_ref})"
 
     try:
         httpx.post(
@@ -143,8 +190,17 @@ def _get_devops_analysis(function_name: str, error: str) -> tuple[str, str]:
 
 
 def triage_failure(function_name: str, error: str):
-    """Full pipeline: DevOps analysis → Plane BUG → structured Slack to Leo."""
+    """Full pipeline: DevOps analysis → Plane BUG → one-line Slack to Leo.
+
+    Zero-evidence path: when `error` is empty (common for watchdog gap alerts
+    that only know a function didn't run, not why), skip the DevOps council
+    call — there's nothing for it to analyse and it just hallucinates.
+    """
     log.error("TRIAGE ACTIVATED — %s: %s", function_name, error)
-    proposed_fix, risk = _get_devops_analysis(function_name, error)
+    if error:
+        proposed_fix, risk = _get_devops_analysis(function_name, error)
+    else:
+        proposed_fix = "no error captured — inspect kai-scheduler logs"
+        risk = "Unknown"
     seq = create_plane_bug(function_name, error, proposed_fix=proposed_fix, risk=risk)
     slack_triage_alert(function_name, error, seq, proposed_fix=proposed_fix, risk=risk)

@@ -428,7 +428,7 @@ def _remediate_backup() -> str:
 def _post_oauth_escalation(token: str, service: str, detail: str):
     """Post a single structured OAuth escalation with fix steps. Does not repeat."""
     msg = (
-        f":key: *KAI OAuth Escalation — {service}*\n"
+        f":key: *ACTION NEEDED — KAI OAuth Escalation — {service}*\n"
         f"Credential has expired and cannot be auto-renewed.\n"
         f"Error: `{detail}`\n\n"
         f"*Fix required:*\n"
@@ -700,7 +700,7 @@ def run_watchdog_checks():
             action = ACTION_NEEDED.get(key, "Check: ssh kai 'docker ps'")
             reason_str = "Hard limit" if reason_type == "hardlimit" else "System issue"
             msg = (
-                f":warning: *{label}*\n"
+                f":warning: *ACTION NEEDED — {label}*\n"
                 f"`{detail}`\n"
                 f"Can't fix: {reason_str}\n"
                 f"Affects: {affects}\n"
@@ -724,8 +724,16 @@ def check_scheduled_functions():
 
 
 def run_gap_checks():
-    """Called by watchdog — alert on any scheduled function that has gone silent."""
-    token = _load_secret("slack_bot_token")
+    """Called by watchdog — log scheduled-function gaps. Does NOT file Plane bugs.
+
+    A gap (function hasn't run in N hours) is a symptom, not a bug. It can mean
+    a real failure, a container restart, an orphaned registry entry, a paused
+    function, or watchdog clock skew. Real failures arrive via the exception
+    path in scheduler.py:_safe() → triage_failure(); those create the Plane bug.
+
+    Here we only log gaps. If a gap persists and matters, the real-failure path
+    will catch it the next time the function actually tries to run and throws.
+    """
     gaps = check_scheduled_functions()
     if not gaps:
         return
@@ -735,25 +743,7 @@ def run_gap_checks():
         hrs  = gap.get("hours_since")
         last = gap["last_run"] or "never"
         err  = gap.get("last_error") or ""
-        key  = "gap_" + fn
-
-        if not _should_alert(key):
-            continue
-
-        log.warning("gap detected: %s — %sh since last run", fn, hrs)
-
-        try:
-            from triage import triage_failure
-            hrs_str = str(hrs) if hrs else "unknown"
-            error_msg = (
-                "Scheduled function '" + fn + "' has not run in " + hrs_str + "h "
-                "(last: " + last + ", last error: " + (err or "none") + ")"
-            )
-            triage_failure(fn + "_gap", error_msg)
-        except Exception as e:
-            log.error("gap triage failed: %s", e)
-            if token:
-                hrs_str = str(hrs) if hrs else "unknown"
-                _slack_alert(token,
-                    ":warning: *KAI Gap Detected* — `" + fn + "` has not run in " +
-                    hrs_str + "h. Last run: " + last + ". Triage also failed: " + str(e))
+        log.warning(
+            "gap detected: %s — %sh since last run (last: %s, last_error: %s)",
+            fn, hrs, last, err or "none",
+        )

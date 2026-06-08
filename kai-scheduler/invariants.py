@@ -258,6 +258,7 @@ def run_invariants(send_daily_digest: bool = False):
     results: dict[str, dict] = {}
     all_pass = True
     transitions: list[str] = []
+    recoveries: list[str] = []
     token = _load_secret("slack_bot_token")
 
     for key, label, fn in INVARIANTS:
@@ -296,25 +297,20 @@ def run_invariants(send_daily_digest: bool = False):
 
     # Transition alerts (suppressed if rollback switch is off)
     if transitions and token and _RUNNER_ENABLED:
-        msg = f":rotating_light: *KAI Invariant Failure — {now_utc.strftime('%H:%M UTC')}*\n"
+        msg = f":rotating_light: *ACTION NEEDED — KAI Invariant Failure — {now_utc.strftime('%H:%M UTC')}*\n"
         msg += "\n".join(transitions)
         _slack_post(token, msg)
         log.warning("invariants: posted transition alert (%d failures)", len(transitions))
     elif transitions and not _RUNNER_ENABLED:
         log.warning("invariants: %d transition(s) suppressed (INVARIANT_RUNNER_ENABLED=false)", len(transitions))
 
-    # Daily digest — once per day, driven by scheduler at morning watchdog
-    date_str = now_utc.strftime("%Y-%m-%d")
-    if send_daily_digest and _daily_digest_sent != date_str and token and _RUNNER_ENABLED:
-        _daily_digest_sent = date_str
-        lines = [f":shield: *KAI Invariants — {now_utc.strftime('%Y-%m-%d %H:%M UTC')}*"]
-        for key, label, _ in INVARIANTS:
-            r = results[key]
-            icon = ":white_check_mark:" if r["pass"] else ":x:"
-            lines.append(f"  {icon} *{label}*: {r['detail']}")
-        lines.append(f"\nAll pass: {'YES' if all_pass else 'NO'}")
-        _slack_post(token, "\n".join(lines))
-        log.info("invariants: daily digest posted")
+    if recoveries and token and _RUNNER_ENABLED:
+        msg = ":white_check_mark: *KAI Auto-Recovered — " + now_utc.strftime("%H:%M UTC") + "*\n"
+        msg += "\n".join(recoveries)
+        _slack_post(token, msg)
+        log.info("invariants: posted recovery alert (%d recovered)", len(recoveries))
+
+    # Daily digest removed — transition and recovery alerts cover all state changes
 
     status = "all_pass" if all_pass else f"{sum(1 for r in results.values() if not r['pass'])} failing"
     log.info("invariants: %s (runner_enabled=%s)", status, _RUNNER_ENABLED)

@@ -101,15 +101,10 @@ UNKNOWNS:
     messages = [{"role": "user", "content": prompt}]
     reply, _, _ = _run_agentic_loop(messages, [], MODEL, system, "support-engineer")
 
-    # Post to Slack
-    if iteration == 0:
-        ts = _slack_post(
-            f":beetle: *Bug Investigation Started*\n*{state['issue_name']}* (Priority: {state['priority']})\n"
-            f"Support Engineer is diagnosing... I'll update this thread as the review progresses."
-        )
-    else:
-        ts = state.get("slack_thread_ts", "")
-        _slack_post(f":arrows_counterclockwise: *Revised diagnosis (iteration {iteration + 1})*\n{reply[:400]}…", thread_ts=ts)
+    # Slack output suppressed — the council runs silently for audit/Plane refinement.
+    # The single user-facing Slack message comes from kai-scheduler/triage.py
+    # at failure time (KAI-404). leo_notify is also silent (see below).
+    ts = state.get("slack_thread_ts", "")
 
     # Parse routing and risk from support engineer output
     import re as _re
@@ -164,10 +159,7 @@ If you REJECT, be specific about what needs to change.
 
     approved = "DECISION: APPROVE" in reply.upper() or reply.upper().startswith("APPROVE")
 
-    _slack_post(
-        f":white_check_mark: *LSE Review*: {'Approved' if approved else ':x: Rejected'}\n{reply[:300]}…",
-        thread_ts=state.get("slack_thread_ts"),
-    )
+    # Slack output suppressed (KAI-404).
 
     return {
         **state,
@@ -213,10 +205,7 @@ CONCERNS:
 
     approved = "DECISION: APPROVE" in reply.upper() or reply.upper().startswith("APPROVE")
 
-    _slack_post(
-        f":triangular_ruler: *Architect Review*: {'Approved' if approved else ':x: Rejected'}\n{reply[:300]}…",
-        thread_ts=state.get("slack_thread_ts"),
-    )
+    # Slack output suppressed (KAI-404).
 
     return {
         **state,
@@ -265,10 +254,7 @@ If RETURN: what specifically needs to be improved before escalating.
     approved = "DECISION: ESCALATE" in reply.upper()
     return_notes = reply if not approved else ""
 
-    _slack_post(
-        f":robot_face: *KAI Validation*: {'Escalating to Leo' if approved else 'Returning for revision'}\n{reply[:300]}…",
-        thread_ts=state.get("slack_thread_ts"),
-    )
+    # Slack output suppressed (KAI-404).
 
     return {
         **state,
@@ -283,36 +269,17 @@ If RETURN: what specifically needs to be improved before escalating.
 # ── Node: leo_notify ─────────────────────────────────────────────────────────
 
 def leo_notify(state: BugState) -> BugState:
-    lse_icon = ":white_check_mark:" if state.get("lse_approved") else ":x:"
-    arch_icon = ":white_check_mark:" if state.get("architect_approved") else ":x:"
+    """Council finished refining the diagnosis — record completion in audit log.
 
-    # Extract just the diagnosis block for the summary
-    diag = state.get("diagnosis", "")
-    diag_preview = diag[:600] + "…" if len(diag) > 600 else diag
-
-    msg = f""":loudspeaker: *Bug Fix Ready for Your Approval*
-
-*Bug:* {state['issue_name']}
-*Priority:* {state['priority']}
-
-*Root Cause & Proposed Fix:*
-{diag_preview}
-
-*Peer Review:*
-{lse_icon} LSE: {"Approved" if state.get('lse_approved') else "Rejected with notes"}
-{arch_icon} Architect: {"Approved" if state.get('architect_approved') else "Rejected with notes"}
-
-*KAI Assessment:*
-{state.get('kai_assessment', '')[:300]}
-
-Reply with *approve* or *reject* to proceed."""
-
-    _slack_post(msg, thread_ts=state.get("slack_thread_ts"))
-
+    Slack output suppressed (KAI-404). Leo's single Slack message for this bug
+    was posted by kai-scheduler/triage.py at failure time. The refined diagnosis
+    from the council lives on the Plane ticket; if Leo wants more detail beyond
+    the one-liner, he opens the ticket.
+    """
     return {
         **state,
         "status": "awaiting_leo",
-        "audit_log": _audit(state, "leo_notify", "notified"),
+        "audit_log": _audit(state, "leo_notify", "audit_only_silent"),
     }
 
 

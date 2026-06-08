@@ -393,16 +393,7 @@ def main():
             return
         log.info("Timezone changed: %s → %s — rescheduling daily jobs", _scheduled_tz[0], new_tz)
         _scheduled_tz[0] = new_tz
-        daily_jobs = [
-            ("morning_checkin",   CronTrigger(hour=7,  minute=0,  timezone=new_tz)),
-            ("evening_checkin",   CronTrigger(hour=21, minute=0,  timezone=new_tz)),
-            ("worker_health",     CronTrigger(hour=9,  minute=0,  timezone=new_tz)),
-        ]
-        for job_id, trigger in daily_jobs:
-            try:
-                sched.reschedule_job(job_id, trigger=trigger)
-            except Exception as e:
-                log.warning("Could not reschedule %s: %s", job_id, e)
+        # no daily cron jobs to reschedule
 
 
     def _weekly_learning_cron():
@@ -469,9 +460,7 @@ def main():
 
     # Daily brief jobs — CronTrigger in Leo's local timezone
     # BRIEFS PAUSED 2026-05-19 — re-enable when Leo directs
-    sched.add_job(lambda: _safe("morning_checkin", send_checkin, "morning"), CronTrigger(hour=7,  minute=0,  timezone=tz), id="morning_checkin", coalesce=True, max_instances=1)
-    sched.add_job(lambda: _safe("evening_checkin", send_checkin, "evening"), CronTrigger(hour=21, minute=0,  timezone=tz), id="evening_checkin", coalesce=True, max_instances=1)
-    sched.add_job(lambda: _safe("worker_health_check", check_worker_health), CronTrigger(hour=9,  minute=0,  timezone=tz), id="worker_health",   coalesce=True, max_instances=1)
+    # morning_checkin, evening_checkin, worker_health_check removed — watchdog covers alerting
 
     # Periodic jobs
     sched.add_job(_watchdog_job,                         IntervalTrigger(minutes=30), id="watchdog",   coalesce=True, max_instances=1)
@@ -479,7 +468,7 @@ def main():
     sched.add_job(_invariant_job,                        IntervalTrigger(minutes=30), id="invariants", coalesce=True, max_instances=1)
     sched.add_job(_inbox_job,                            IntervalTrigger(seconds=60), id="inbox_scan", coalesce=True, max_instances=1)
     sched.add_job(lambda: _tz_check_job(sched),          IntervalTrigger(hours=1),    id="tz_check",   coalesce=True, max_instances=1)
-    sched.add_job(_weekly_learning_cron, CronTrigger(day_of_week="mon", hour=7, minute=0, timezone=tz), id="weekly_learning_cron", coalesce=True, max_instances=1)
+    # weekly_learning_cron removed — no content yet
 
     sched.start()
     log.info("APScheduler started with %d jobs", len(sched.get_jobs()))

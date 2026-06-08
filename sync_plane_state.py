@@ -11,7 +11,7 @@ Usage:
 State values: backlog, todo, in progress, done, cancelled
 """
 
-import sys, json, datetime
+import sys, json, datetime, subprocess
 import urllib.request as ur
 from pathlib import Path
 
@@ -238,13 +238,21 @@ def warmboot():
     services = [
         ("kai-worker-api",  "http://localhost:8001/health"),
         ("kai-council-api", "http://localhost:8002/health"),
-        ("kai-mcp-api",     "http://localhost:8003/health"),
+        ("kai-mcp-api",     None),  # no host port — checked via docker inspect
         ("kai-litellm",     "http://localhost:4000/health/liveliness"),
     ]
     for name, url in services:
         try:
-            with ur.urlopen(url, timeout=3) as r:
-                status = "UP" if r.status == 200 else f"HTTP {r.status}"
+            if url is None:
+                result = subprocess.run(
+                    ["docker", "inspect", "--format", "{{.State.Health.Status}}", name],
+                    capture_output=True, text=True, timeout=5
+                )
+                docker_status = result.stdout.strip()
+                status = "UP" if docker_status == "healthy" else f"DOWN (docker:{docker_status or 'not found'})"
+            else:
+                with ur.urlopen(url, timeout=3) as r:
+                    status = "UP" if r.status == 200 else f"HTTP {r.status}"
         except Exception as ex:
             status = f"DOWN ({type(ex).__name__})"
         mark = "✓" if status == "UP" else "✗"

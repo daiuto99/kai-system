@@ -19,3 +19,5 @@ Backup: /vault/00_System/backups/orchestrator_20260603_030001.db
 Backup: /vault/00_System/backups/orchestrator_20260604_030002.db
 Backup: /vault/00_System/backups/orchestrator_20260605_030001.db
 Backup: /vault/00_System/backups/orchestrator_20260606_030001.db
+Backup: /vault/00_System/backups/orchestrator_20260607_030003.db
+Backup: /vault/00_System/backups/orchestrator_20260608_030001.db
