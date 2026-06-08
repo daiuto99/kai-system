@@ -384,6 +384,19 @@ def main():
         except Exception as e:
             log.error("Calendar location check error: %s", e)
 
+    def _sprint_a_expire_job():
+        try:
+            with httpx.Client(timeout=15) as hc:
+                r = hc.post(
+                    f"{WORKER_API}/sprint-a/expire-stale",
+                    json={"expiry_hours": 24, "notify_channel": "#kai-system"},
+                )
+            reg_record("sprint_a_expire", "ok", duration_s=0,
+                       note=f"status={r.status_code}")
+        except Exception as e:
+            reg_record("sprint_a_expire", "fail", error=str(e))
+            log.error("sprint_a expire job error: %s", e)
+
     # Reschedule daily CronTrigger jobs when Leo's timezone changes
     _scheduled_tz = [tz]
 
@@ -468,6 +481,7 @@ def main():
     sched.add_job(_invariant_job,                        IntervalTrigger(minutes=30), id="invariants", coalesce=True, max_instances=1)
     sched.add_job(_inbox_job,                            IntervalTrigger(seconds=60), id="inbox_scan", coalesce=True, max_instances=1)
     sched.add_job(lambda: _tz_check_job(sched),          IntervalTrigger(hours=1),    id="tz_check",   coalesce=True, max_instances=1)
+    sched.add_job(_sprint_a_expire_job,                  IntervalTrigger(hours=1),    id="sprint_a_expire", coalesce=True, max_instances=1)
     # weekly_learning_cron removed — no content yet
 
     sched.start()

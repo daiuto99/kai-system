@@ -42,6 +42,62 @@ class TelegramUpdate(BaseModel):
     callback_query: dict | None = None
 
 
+# ---------------------------------------------------------------------------
+# Sprint A — clarification correlation
+# ---------------------------------------------------------------------------
+
+SPRINT_A_FRESHNESS_S = 600  # 10-minute window for free-text correlation
+
+
+def _handle_sprint_a_callback(cbq: dict) -> None:
+    try:
+        import clarification_surface as _surface
+        import sprint_a_handlers as _sah
+    except ImportError:
+        return
+    data = cbq.get("data") or ""
+    parsed = _surface.parse_callback(data)
+    if not parsed:
+        return
+    result = _sah.handle_clarification_choice(
+        parsed["pending_id"], parsed["field"], parsed["choice"],
+    )
+    chat_id = cbq.get("message", {}).get("chat", {}).get("id")
+    if chat_id:
+        _tg_send(chat_id, result.get("reply_text") or "_(no reply text)_")
+
+    # Always answer the callback so Telegram clears the button spinner.
+    try:
+        _tghttpx.post(
+            f"{TELEGRAM_API}/bot{_tg_token()}/answerCallbackQuery",
+            json={"callback_query_id": cbq.get("id")},
+            timeout=10,
+        )
+    except Exception as e:
+        logger.warning("answerCallbackQuery failed: %s", e)
+
+
+def _try_sprint_a_freetext(chat_id: int, text: str) -> bool:
+    """Return True if this message resolved (or retried) a recent pending
+    clarification; the caller should NOT also send it to the council router."""
+    try:
+        import clarification_store as _cs
+        import sprint_a_handlers as _sah
+    except ImportError:
+        return False
+    entry = _cs.find_latest_pending_for_chat("telegram", str(chat_id))
+    if not entry:
+        return False
+    from datetime import datetime, timezone
+    created = datetime.fromisoformat(entry["created_at"])
+    age = (datetime.now(timezone.utc) - created).total_seconds()
+    if age > SPRINT_A_FRESHNESS_S:
+        return False
+    result = _sah.handle_freetext_reply(entry["id"], text)
+    _tg_send(chat_id, result.get("reply_text") or "_(no reply text)_")
+    return True
+
+
 def _tg_download_file(file_id: str) -> tuple[bytes, str]:
     """Download a Telegram file. Returns (bytes, mime_type)."""
     token = _tg_token()
@@ -67,6 +123,13 @@ async def telegram_webhook(
         raise HTTPException(403, "Invalid token")
 
     body = await request.json()
+
+    # Sprint A: inline-keyboard button click → resolve pending clarification.
+    cbq = body.get("callback_query")
+    if cbq:
+        _handle_sprint_a_callback(cbq)
+        return {"ok": True}
+
     msg = body.get("message")
     if not msg:
         return {"ok": True}
@@ -80,6 +143,12 @@ async def telegram_webhook(
 
     if text == "/start":
         _tg_send(chat_id, "*KAI online.* Send me a message and I'll respond.")
+        return {"ok": True}
+
+    # Sprint A: if there's a recent pending clarification for this chat (within
+    # 10 minutes), treat free-text as the answer before falling through to the
+    # council router.
+    if text and _try_sprint_a_freetext(chat_id, text):
         return {"ok": True}
 
     # Detect file attachments

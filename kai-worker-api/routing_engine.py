@@ -76,7 +76,7 @@ def build_dispatch_plan(
     if action == "save_to_recipes":
         plan["handler"] = "recipe"
         plan["target"]["vault_path"] = "50_Inbox/recipes"
-        plan["notes"].append("Recipe vault structure is owned by Sprint A Slice 4 — vault_path is placeholder.")
+        plan["notes"].append("Recipe handler writes to 50_Inbox/recipes/ (see dispatch._dispatch_recipe).")
         return plan
 
     if action == "write_blog_post":
@@ -151,3 +151,99 @@ def _extract_blog_target(text: str, sites: tuple[str, ...]) -> str | None:
         if no_dash != key and re.search(rf"\b{re.escape(no_dash)}\b", lower):
             return key
     return None
+
+
+# ---------------------------------------------------------------------------
+# Slice 2b — clarification resume + auto-park
+# ---------------------------------------------------------------------------
+
+def validate_choice(clar: dict, raw_value: str) -> str | None:
+    """Map a free-text reply to a canonical option for this clarification.
+
+    Accepts: exact match (case-insensitive), 1-based index ("1", "2"), or a
+    unique prefix. Returns the canonical option string, or None if no match.
+    """
+    if raw_value is None:
+        return None
+    options = clar.get("options") or []
+    if not options:
+        return None
+    cleaned = str(raw_value).strip()
+    if not cleaned:
+        return None
+    lower = cleaned.lower()
+
+    for opt in options:
+        if str(opt).lower() == lower:
+            return opt
+
+    if cleaned.isdigit():
+        idx = int(cleaned) - 1
+        if 0 <= idx < len(options):
+            return options[idx]
+
+    prefix_hits = [opt for opt in options if str(opt).lower().startswith(lower)]
+    if len(prefix_hits) == 1:
+        return prefix_hits[0]
+
+    return None
+
+
+def resume(pending_entry: dict, choice: dict) -> dict:
+    """Merge Leo's choice into the half-built dispatch plan.
+
+    Args:
+        pending_entry: full row from clarification_store.
+        choice: {"field": str, "value": str} — what Leo picked.
+
+    Returns a fully-formed dispatch plan with clarifications_needed=[] and
+    ok_to_dispatch=True. Pure function — does not mutate the entry.
+    """
+    plan = json.loads(json.dumps(pending_entry["dispatch_plan"]))  # deep copy
+    field = choice.get("field")
+    value = choice.get("value")
+    if not field or value is None:
+        plan["notes"].append("resume() received malformed choice — leaving plan as-is.")
+        return plan
+
+    if field == "blog":
+        plan["target"]["blog"] = value
+        plan["notes"].append(f"Blog target resolved via clarification: {value}.")
+    elif field == "advisor":
+        plan["target"]["advisor"] = value
+        plan["notes"].append(f"Advisor resolved via clarification: {value}.")
+    elif field == "vault_path":
+        plan["target"]["vault_path"] = value
+        plan["notes"].append(f"Vault path resolved via clarification: {value}.")
+    else:
+        plan["target"][field] = value
+        plan["notes"].append(f"Field '{field}' resolved via clarification: {value}.")
+
+    plan["clarifications_needed"] = [
+        c for c in plan.get("clarifications_needed", [])
+        if c.get("field") != field
+    ]
+    if not plan["clarifications_needed"]:
+        plan["ok_to_dispatch"] = True
+        plan["blocked_reason"] = None
+    return plan
+
+
+def auto_park_plan(pending_entry: dict) -> dict:
+    """Build a capture-fallback dispatch plan for an expired pending row.
+
+    Per Slice 2b spec — when Leo never replies, we still park the item, but
+    we populate `intent` + `target.advisor` so future re-engagement can pick
+    up where we left off rather than re-parsing cold.
+    """
+    plan = json.loads(json.dumps(pending_entry["dispatch_plan"]))
+    plan["handler"] = "capture"
+    plan["ok_to_dispatch"] = True
+    plan["blocked_reason"] = None
+    plan["clarifications_needed"] = []
+    plan["notes"].append(
+        f"Auto-parked after expiry. Original intent + target retained for "
+        f"re-engagement (action={pending_entry['parsed_intent'].get('action')}, "
+        f"advisor={plan['target'].get('advisor')})."
+    )
+    return plan

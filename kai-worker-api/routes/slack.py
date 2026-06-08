@@ -189,6 +189,35 @@ def _ingest_file_background(vault_path: str, advisor: str, channel_id: str, file
         logger.exception("ingest_file_background failed for %s: %s", vault_path, e)
 
 
+def _handle_clarification_thread_reply(thread_ts: str, channel_id: str, text: str) -> bool:
+    """Sprint A: if a thread reply lands in a thread that has a pending
+    clarification, hand it off to handlers.handle_freetext_reply and post the
+    response in-thread. Returns True if the thread had a pending row (so the
+    caller can skip the check-in path)."""
+    try:
+        import clarification_store as _cs
+        import sprint_a_handlers as _sah
+    except ImportError:
+        return False
+    entry = _cs.find_by_thread_ts(thread_ts)
+    if not entry:
+        return False
+    result = _sah.handle_freetext_reply(entry["id"], text)
+    reply = result.get("reply_text") or "_(no reply text)_"
+    try:
+        _slhx.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={"Authorization": f"Bearer {_slack_token()}"},
+            json={"channel": channel_id, "thread_ts": thread_ts,
+                  "text": reply, "username": "KAI",
+                  "icon_url": "https://kai.sonicink.space/icon-192.png"},
+            timeout=15,
+        )
+    except Exception as e:
+        logger.warning("slack clarification reply failed: %s", e)
+    return True
+
+
 def _handle_checkin_reply(thread_ts: str, channel_id: str, text: str):
     """Called in background when a Slack message arrives — check if it's a check-in reply."""
     import json as _json
@@ -250,7 +279,12 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
         channel_id = event.get("channel")
         text = event.get("text", "").strip()
         if thread_ts and channel_id and text:
-            background_tasks.add_task(_handle_checkin_reply, thread_ts, channel_id, text)
+            # Sprint A: try the clarification path first; only fall through to
+            # check-in if no pending clarification matched this thread.
+            def _dispatch_reply(_ts=thread_ts, _ch=channel_id, _txt=text):
+                if not _handle_clarification_thread_reply(_ts, _ch, _txt):
+                    _handle_checkin_reply(_ts, _ch, _txt)
+            background_tasks.add_task(_dispatch_reply)
         return {"ok": True}
 
     # Only handle file_shared events (beyond message)
