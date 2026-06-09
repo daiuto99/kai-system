@@ -8,6 +8,8 @@ import anthropic
 import httpx
 import os
 
+from usage_tracker import _track_usage
+
 
 CAPTURE_TYPES = ["article", "idea", "product", "recipe", "note", "link", "music", "video"]
 
@@ -116,6 +118,8 @@ def summarize_article(url: str, fallback: str, api_key: str) -> str:
                 f"Summarize this article in 2-3 sentences for a personal dashboard. "
                 f"Be concise and direct. No preamble.\n\n{text}"}],
         )
+        _track_usage("parking_lot", resp.usage.input_tokens, resp.usage.output_tokens,
+                     provider="anthropic", model="claude-haiku-4-5-20251001")
         return resp.content[0].text.strip()
     except Exception:
         return fallback
@@ -147,6 +151,8 @@ SUMMARY: [one sentence summary]
 TAGS: [2-4 comma-separated lowercase tags]"""
         }],
     )
+    _track_usage("parking_lot", response.usage.input_tokens, response.usage.output_tokens,
+                 provider="anthropic", model="claude-haiku-4-5-20251001")
 
     raw = response.content[0].text.strip()
     result = {"type": "note", "title": og_title or text[:50], "summary": og_description or text[:100], "tags": []}

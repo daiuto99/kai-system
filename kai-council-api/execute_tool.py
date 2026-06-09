@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 from council_config import WORKER_URL, VAULT_PATH, ADVISOR_AVATARS, _slack_token
 from knowledge_layer import _write_session_summary, _write_decision, _log_mission_deliverable
+from usage_tracker import track_api_call
 
 logger = logging.getLogger(__name__)
 
@@ -1250,6 +1251,7 @@ def _h_web_search(client, tool_name, ti, advisor):
             json={"api_key": tavily_key, "query": query, "max_results": max_results, "search_depth": "basic"},
             timeout=15
         )
+        track_api_call(advisor, provider="tavily", endpoint="search")
         data = resp.json()
         results = data.get("results", [])
         answer = data.get("answer", "")

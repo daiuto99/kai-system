@@ -23,6 +23,8 @@ from pathlib import Path
 
 import anthropic
 
+from usage_tracker import _track_usage
+
 logger = logging.getLogger(__name__)
 
 MODEL = "claude-haiku-4-5-20251001"
@@ -110,6 +112,8 @@ def parse_intent(
         max_tokens=400,
         messages=[{"role": "user", "content": prompt}],
     )
+    _track_usage("intent_parser", resp.usage.input_tokens, resp.usage.output_tokens,
+                 provider="anthropic", model=MODEL)
     raw = resp.content[0].text.strip()
 
     parsed = _extract_json(raw)

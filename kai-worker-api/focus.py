@@ -8,6 +8,8 @@ import httpx
 import os
 import anthropic
 
+from usage_tracker import _track_usage
+
 
 def load_secret(name: str) -> str:
     p = Path(f"/run/secrets/{name}")
@@ -105,6 +107,8 @@ Keep it tight. No preamble. Just the brief."""
         max_tokens=512,
         messages=[{"role": "user", "content": prompt}],
     )
+    _track_usage("focus", response.usage.input_tokens, response.usage.output_tokens,
+                 provider="anthropic", model="claude-haiku-4-5-20251001")
     return response.content[0].text
 
 
