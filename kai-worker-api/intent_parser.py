@@ -34,6 +34,7 @@ ACTIONS = [
     "write_blog_post",
     "summarize",
     "share_with_advisor",
+    "forward_summary",
     "capture",
 ]
 
@@ -52,8 +53,9 @@ URL DESCRIPTION (if any): {og_desc}
 POSSIBLE ACTIONS:
 - save_to_recipes:    Leo wants this saved as a recipe (food, cooking, drink). Destination is the recipe vault.
 - write_blog_post:    Leo wants a blog post, draft, copy, article, or any written output. ALWAYS routes to `creative` regardless of topic — copywriting is creative's domain even when the subject is strategy, business, gear, or anything else. Creative will consult other advisors for subject-matter context.
-- summarize:          Leo wants a summary or wants this saved as a note in an advisor\'s knowledge folder. Destination is the named advisor (or doc by default). The result lands as a markdown note in vault/60_Council/<advisor>/knowledge/ and Slack only sees a one-liner.
-- share_with_advisor: Leo named a specific advisor to send this to (Sky, Roads, Beats, Coach, Ember, Doc, Creative, Dev, Kai).
+- summarize:          Leo wants a generic summary. KAI produces the summary as a neutral markdown file in vault/40_Summaries/. Destination is "kai" — does NOT pick an advisor. Slack sees only a terse "summary <id> is available" line.
+- share_with_advisor: Leo wants this sent to a specific advisor (Sky, Roads, Beats, Coach, Ember, Doc, Creative, Dev, Kai). The advisor responds AND the content + their response is persisted to their knowledge folder and indexed into their Qdrant collection, so future questions can reason about it.
+- forward_summary:    Leo references an existing summary ("this summary", "that summary", "send S-XXXX") and wants it sent to a named advisor. KAI loads the summary md and runs the share-with-advisor pipeline against it.
 - capture:            FALLBACK. No clear intent — Leo just wants this saved for later. Use when in doubt.
 
 ADVISOR DESTINATIONS (only valid when action is share_with_advisor or summarize):
@@ -75,9 +77,10 @@ RULES:
 2. If Leo wrote prose around the URL, parse it. Look for verbs (summarize, write, save, send, share, gather).
 3. If Leo named an advisor explicitly ("send to Sky", "for Roads") → action="share_with_advisor", destination=<name>.
 4. If Leo asked for a blog post / draft / copy / article / written output → action="write_blog_post", destination="creative" ALWAYS. Topic does not change the destination — copywriting belongs to creative regardless of subject. Even leadership/brand/strategy blog posts go to creative, not kai.
-5. "Summarize", "summarize and gather", "give me a summary", "add to <advisor>", "save to <advisor>\'s notes", "note for <advisor>", "for <advisor>\'s knowledge" → action="summarize". Destination is the named advisor when one is explicit (any of: kai, beats, sky, roads, coach, ember, doc, creative, dev), otherwise destination="doc". The result is saved as a markdown note in that advisor\'s knowledge folder and Slack only sees a terse notice.
+5. "Summarize", "summarize and gather", "give me a summary" → action="summarize", destination="kai". The summary lands in vault/40_Summaries/ as a neutral KAI-owned md file. Slack sees only a one-liner with the summary id. Do NOT route summarize to a non-kai advisor — if Leo wants to send something to an advisor, that is share_with_advisor (rule 3) or forward_summary (rule 8).
 6. The instructions field MUST quote Leo's specific asks verbatim ("highlighting X, Y, and Z") — do not paraphrase.
-7. When uncertain, choose action="capture" with confidence="low" rather than guessing.
+7. "Send this summary to <advisor>", "send that summary to <advisor>", "forward the summary to <advisor>", "send S-XXXX to <advisor>" → action="forward_summary", destination=<advisor>. If Leo named an explicit S-XXXX id, include it verbatim in instructions (e.g. instructions="S-7K3M"). Otherwise instructions can be empty — KAI resolves to the most recent summary in this channel.
+8. When uncertain, choose action="capture" with confidence="low" rather than guessing.
 """
 
 

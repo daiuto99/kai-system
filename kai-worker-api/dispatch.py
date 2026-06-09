@@ -88,6 +88,9 @@ def dispatch(
                                          worker_client=worker_client)
         elif handler == "recipe":
             result = _dispatch_recipe(plan, captured_content, parsed_intent)
+        elif handler == "forward_summary":
+            result = _dispatch_forward_summary(plan, captured_content, parsed_intent,
+                                               client=council_client)
         else:
             result = _result(
                 ok=False, handler=handler,
@@ -131,32 +134,130 @@ def _dispatch_share(plan: dict, content: dict, intent: dict, *,
                        error="missing_advisor")
     prompt = _share_prompt(content, intent, advisor)
     reply = _call_council(advisor, prompt, client=client)
+    reply_text = reply.get("reply", "") or ""
+
+    title = (content.get("og_title") or "").strip() or (content.get("original_message") or "(untitled)")[:80]
+    note_path = _write_advisor_knowledge(advisor, content, reply_text, intent)
+    chunks = _ingest_into_advisor(advisor, note_path,
+                                  title=title,
+                                  source_url=content.get("url") or "")
+    vault_rel = str(note_path).replace("/vault/", "vault/")
+
+    terse = f"Sent to {advisor} · added to {advisor} knowledge ({chunks} chunks indexed)"
     return _result(
         ok=True, handler="share",
-        summary=f"Sent to {advisor}. Reply: {_oneliner(reply.get('reply',''))}",
-        details={"advisor": advisor, "reply": reply.get("reply", ""),
+        summary=terse,
+        details={"advisor": advisor, "reply": reply_text,
+                 "note_path": vault_rel, "ingest_chunks": chunks,
                  "usage": reply.get("usage", {})},
     )
 
 
-def _write_advisor_note(advisor: str, content: dict, summary_text: str,
-                        intent: dict) -> Path:
-    """Write a frontmattered summary note into the advisor's knowledge folder."""
-    from datetime import datetime, timezone
-    import re as _re
+def _short_summary_id() -> str:
+    """4-char base32 id like S-7K3M, easy to read back to KAI from a Slack message."""
+    import secrets, string
+    alphabet = string.ascii_uppercase + "2345679"  # no 0/1/8/I/O — readability
+    return "S-" + "".join(secrets.choice(alphabet) for _ in range(4))
 
+
+def _slugify(text: str, n: int = 40) -> str:
+    import re as _re
+    s = _re.sub(r"[^a-zA-Z0-9]+", "-", (text or "").lower()).strip("-")
+    return s[:n] or "note"
+
+
+def _write_summary_md(content: dict, summary_text: str, intent: dict) -> tuple[Path, str]:
+    """Write a neutral summary md to vault/40_Summaries/. Returns (path, id)."""
+    from datetime import datetime, timezone
+
+    sid = _short_summary_id()
+    title = (content.get("og_title") or "").strip()
+    if not title:
+        first = (content.get("original_message") or "").splitlines()[:1]
+        title = (first[0] if first else "untitled").strip()[:80] or "untitled"
+    slug = _slugify(title)
+    folder = VAULT_PATH / "40_Summaries"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{sid}_{slug}.md"
+
+    url = content.get("url") or ""
+    instructions = (intent.get("instructions") or "").strip()
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    fm = (
+        "---\n"
+        f"id: {sid}\n"
+        f"title: {title}\n"
+        f"date: {ts[:8]}\n"
+        f"source_url: {url}\n"
+        f"generated_by: kai\n"
+        f"instructions: {instructions}\n"
+        "---\n\n"
+        f"# {title}\n\n"
+        f"{summary_text.strip()}\n"
+    )
+    path.write_text(fm, encoding="utf-8")
+    return path, sid
+
+
+def _update_last_summary(channel: str, chat_id: str | None, sid: str, path: Path) -> None:
+    """Maintain vault/00_System/last_summaries.json so 'send this summary' resolves."""
+    import json as _json
+    store = VAULT_PATH / "00_System" / "last_summaries.json"
+    store.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        data = _json.loads(store.read_text()) if store.exists() else {}
+    except Exception:
+        data = {}
+    key = f"{channel or 'unknown'}:{chat_id or 'unknown'}"
+    data[key] = {"id": sid, "path": str(path).replace("/vault/", "vault/")}
+    # Also a global most-recent so backlog reprocess (no chat_id) still resolves
+    data["_latest"] = data[key]
+    store.write_text(_json.dumps(data, indent=2))
+
+
+def _dispatch_summarize(plan: dict, content: dict, intent: dict, *,
+                        client: httpx.Client | None) -> dict:
+    """Summarize via KAI. Writes neutral md to vault/40_Summaries/, terse Slack notice."""
+    advisor = plan["target"].get("advisor") or "kai"
+    prompt = _summarize_prompt(content, intent)
+    reply = _call_council(advisor, prompt, client=client)
+    reply_text = reply.get("reply", "") or ""
+
+    path, sid = _write_summary_md(content, reply_text, intent)
+    vault_rel = str(path).replace("/vault/", "vault/")
+
+    origin_channel = plan.get("origin_channel") or "unknown"
+    origin_chat_id = plan.get("origin_chat_id")
+    _update_last_summary(origin_channel, origin_chat_id, sid, path)
+
+    title = (content.get("og_title") or "").strip() or "(untitled)"
+    terse = f"Summary {sid} of '{title}' is available · vault/40_Summaries/"
+
+    return _result(
+        ok=True, handler="summarize",
+        summary=terse,
+        details={"advisor": advisor, "summary_id": sid, "note_path": vault_rel,
+                 "reply": reply_text, "usage": reply.get("usage", {})},
+    )
+
+
+def _write_advisor_knowledge(advisor: str, content: dict, reply_text: str,
+                              intent: dict) -> Path:
+    """Write source + advisor take to vault/60_Council/<advisor>/knowledge/."""
+    from datetime import datetime, timezone
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     title = (content.get("og_title") or "").strip()
     if not title:
-        first_line = (content.get("original_message") or "").splitlines()[0:1]
-        title = (first_line[0] if first_line else "untitled").strip()[:80] or "untitled"
-
-    slug_base = _re.sub(r"[^a-zA-Z0-9]+", "-", title.lower()).strip("-")[:40] or "note"
+        first = (content.get("original_message") or "").splitlines()[:1]
+        title = (first[0] if first else "untitled").strip()[:80] or "untitled"
+    slug = _slugify(title)
     folder = VAULT_PATH / "60_Council" / advisor / "knowledge"
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{ts}_summary_{slug_base}.md"
+    path = folder / f"{ts}_{slug}.md"
 
     url = content.get("url") or ""
+    og_desc = content.get("og_description") or ""
+    original = content.get("original_message") or ""
     instructions = (intent.get("instructions") or "").strip()
     fm = (
         "---\n"
@@ -164,35 +265,120 @@ def _write_advisor_note(advisor: str, content: dict, summary_text: str,
         f"date: {ts[:8]}\n"
         f"advisor: {advisor}\n"
         f"source_url: {url}\n"
-        f"generated_by: sprint_a_summarize\n"
+        f"generated_by: sprint_a_share\n"
         f"instructions: {instructions}\n"
         "---\n\n"
         f"# {title}\n\n"
-        f"{summary_text.strip()}\n"
+        "## Source\n\n"
+        f"{og_desc}\n\n"
+        f"Original message: {original}\n\n"
+        f"## {advisor.capitalize()}'s Take\n\n"
+        f"{reply_text.strip()}\n"
     )
-    path.write_text(fm)
+    path.write_text(fm, encoding="utf-8")
     return path
 
 
-def _dispatch_summarize(plan: dict, content: dict, intent: dict, *,
-                        client: httpx.Client | None) -> dict:
-    advisor = plan["target"].get("advisor") or "doc"
-    prompt = _summarize_prompt(content, intent)
-    reply = _call_council(advisor, prompt, client=client)
-    reply_text = reply.get("reply", "") or ""
+def _ingest_into_advisor(advisor: str, md_path: Path, title: str, source_url: str) -> int:
+    """Embed + upsert md into the advisor's Qdrant collection. Returns chunks."""
+    try:
+        from vault_ingest import upsert_md
+        return upsert_md(advisor, md_path, title=title, source_url=source_url)
+    except Exception as e:
+        logger.warning("ingest into %s failed: %s", advisor, e)
+        return 0
 
-    note_path = _write_advisor_note(advisor, content, reply_text, intent)
-    vault_rel = str(note_path).replace("/vault/", "vault/")
 
-    title = (content.get("og_title") or "").strip() or "(untitled)"
-    terse = f"Summary of '{title}' is available in {advisor} notes."
+def _dispatch_forward_summary(plan: dict, content: dict, intent: dict, *,
+                              client: httpx.Client | None) -> dict:
+    """Take an existing summary md and run the share+ingest path against an advisor."""
+    advisor = plan["target"].get("advisor")
+    if not advisor:
+        return _result(ok=False, handler="forward_summary",
+                       summary="No advisor on plan.", details={},
+                       error="missing_advisor")
+    ref = plan.get("forward_ref")  # short id like S-XXXX, or None for last-in-channel
+    summary_path = _resolve_summary_ref(ref, plan)
+    if not summary_path:
+        return _result(ok=False, handler="forward_summary",
+                       summary="Could not resolve summary reference.",
+                       details={"ref": ref}, error="summary_not_found")
 
-    return _result(
-        ok=True, handler="summarize",
-        summary=terse,
-        details={"advisor": advisor, "note_path": vault_rel,
-                 "reply": reply_text, "usage": reply.get("usage", {})},
-    )
+    summary_text = summary_path.read_text(encoding="utf-8")
+    # Build content from the summary md
+    title = _frontmatter_field(summary_text, "title") or summary_path.stem
+    source_url = _frontmatter_field(summary_text, "source_url") or ""
+    fwd_content = {
+        "original_message": f"Forwarded summary {summary_path.name}",
+        "url": source_url,
+        "og_title": title,
+        "og_description": _strip_frontmatter(summary_text)[:500],
+    }
+    fwd_intent = dict(intent)
+    fwd_intent.setdefault("instructions", "Read this summary and respond with your take.")
+
+    # Reuse share dispatch logic
+    share_plan = dict(plan)
+    share_plan["handler"] = "share"
+    return _dispatch_share(share_plan, fwd_content, fwd_intent, client=client)
+
+
+def _frontmatter_field(md_text: str, key: str) -> str:
+    if not md_text.startswith("---"):
+        return ""
+    end = md_text.find("\n---\n", 4)
+    if end < 0:
+        return ""
+    fm = md_text[4:end]
+    for line in fm.splitlines():
+        if ":" in line:
+            k, _, v = line.partition(":")
+            if k.strip() == key:
+                return v.strip()
+    return ""
+
+
+def _strip_frontmatter(md_text: str) -> str:
+    if not md_text.startswith("---"):
+        return md_text
+    end = md_text.find("\n---\n", 4)
+    if end < 0:
+        return md_text
+    return md_text[end + 5:]
+
+
+def _resolve_summary_ref(ref: str | None, plan: dict) -> Path | None:
+    """Resolve a forward-summary reference to a vault path.
+
+    ref priority: explicit S-XXXX → last_summaries[channel:chat_id] → _latest.
+    """
+    import json as _json
+    base = VAULT_PATH / "40_Summaries"
+    if not base.exists():
+        return None
+    # Explicit id
+    if ref and ref.upper().startswith("S-"):
+        matches = list(base.glob(f"{ref.upper()}_*.md"))
+        if matches:
+            return matches[0]
+    # Channel-aware lookup
+    store = VAULT_PATH / "00_System" / "last_summaries.json"
+    if not store.exists():
+        return None
+    try:
+        data = _json.loads(store.read_text())
+    except Exception:
+        return None
+    origin_channel = plan.get("origin_channel") or "unknown"
+    origin_chat_id = plan.get("origin_chat_id")
+    key = f"{origin_channel}:{origin_chat_id}"
+    entry = data.get(key) or data.get("_latest")
+    if not entry:
+        return None
+    sid = entry.get("id")
+    matches = list(base.glob(f"{sid}_*.md")) if sid else []
+    return matches[0] if matches else None
+
 
 
 def _dispatch_blog_post(plan: dict, content: dict, intent: dict, *,

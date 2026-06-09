@@ -128,6 +128,22 @@ def build_dispatch_plan(
 
     plan["handler"] = "capture"
     plan["notes"].append(f"Unknown action '{action}' — falling back to capture.")
+    if action == "forward_summary":
+        plan["handler"] = "forward_summary"
+        plan["target"]["advisor"] = destination or "kai"
+        plan["privacy_scope"] = (destination or "") in PRIVACY_ADVISORS
+        # Pass through the explicit S-XXXX ref if present in instructions
+        instr = (intent.get("instructions") or "").strip()
+        ref = None
+        for token in instr.split():
+            t = token.strip(",.")
+            if t.upper().startswith("S-") and len(t) >= 4:
+                ref = t.upper()
+                break
+        plan["forward_ref"] = ref
+        return plan
+
+
     return plan
 
 
