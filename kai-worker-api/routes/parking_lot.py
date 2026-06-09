@@ -466,6 +466,30 @@ def parking_lot_sprint_a_route(slug: str, req: SprintARouteRequest):
     return {"status": "dispatched", "slug": slug, "archived": archived, **result}
 
 
+class AnnotateRequest(BaseModel):
+    note: str
+
+
+@router.post("/parking-lot/{slug}/annotate")
+def parking_lot_annotate(slug: str, req: AnnotateRequest):
+    """Append a timestamped context note to a backlog card without dispatching.
+
+    The note is appended as a markdown blockquote at the end of the card body.
+    Card stays in /vault/50_ParkingLot/. No archive, no dispatch, no Slack noise.
+    Use this when Leo wants to add context to an existing card while triaging.
+    """
+    path = LOT_DIR / f"{slug}.md"
+    if not path.exists():
+        raise HTTPException(404, "Capture not found")
+    note = (req.note or "").strip()
+    if not note:
+        raise HTTPException(400, "Empty note")
+    ts = _datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    block = f"\n\n> **Note ({ts}):** {note}\n"
+    path.write_text(path.read_text() + block, encoding="utf-8")
+    return {"ok": True, "slug": slug, "note_added": note, "ts": ts}
+
+
 class TriageRequest(BaseModel):
     action: str
     advisor: str = "kai"

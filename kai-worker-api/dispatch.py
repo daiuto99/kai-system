@@ -305,14 +305,16 @@ def _dispatch_forward_summary(plan: dict, content: dict, intent: dict, *,
                        details={"ref": ref}, error="summary_not_found")
 
     summary_text = summary_path.read_text(encoding="utf-8")
-    # Build content from the summary md
+    # Build content from the summary md — pass the FULL stripped body so the
+    # advisor sees everything, not a 500-char truncation.
     title = _frontmatter_field(summary_text, "title") or summary_path.stem
     source_url = _frontmatter_field(summary_text, "source_url") or ""
+    full_body = _strip_frontmatter(summary_text).strip()
     fwd_content = {
-        "original_message": f"Forwarded summary {summary_path.name}",
+        "original_message": full_body,
         "url": source_url,
         "og_title": title,
-        "og_description": _strip_frontmatter(summary_text)[:500],
+        "og_description": full_body[:500],
     }
     fwd_intent = dict(intent)
     fwd_intent.setdefault("instructions", "Read this summary and respond with your take.")

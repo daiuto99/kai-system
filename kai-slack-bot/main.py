@@ -222,7 +222,15 @@ def handle_message(event, say):
                 timeout=30.0,
             )
             data = r.json()
-            log.info(f"Parking lot: {data.get('type', '?')}: {data.get('title', '?')[:40]}")
+            log.info(f"Parking lot: status={data.get('status')} handler={data.get('handler')}")
+            # Post terse confirmation back to the channel so Leo sees KAI received it.
+            # The advisor's full reply lives in the vault md, not in Slack — by design.
+            confirmation = data.get('summary')
+            if confirmation:
+                try:
+                    app.client.chat_postMessage(channel=channel_id, text=confirmation, thread_ts=ts)
+                except Exception as post_err:
+                    log.error(f"Parking lot confirmation post error: {post_err}")
         except Exception as e:
             log.error(f"Parking lot error: {e}")
         return

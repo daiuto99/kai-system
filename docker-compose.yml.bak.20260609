@@ -153,7 +153,6 @@ services:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - N8N_PROXY_HOPS=1
       - WEBHOOK_URL=https://n8n.sonicink.space
       - N8N_EDITOR_BASE_URL=https://n8n.sonicink.space
       - N8N_BASIC_AUTH_ACTIVE=true
