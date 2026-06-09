@@ -346,6 +346,126 @@ def parking_lot_archive(slug: str):
     return {"ok": True}
 
 
+class SprintARouteRequest(BaseModel):
+    context: str | None = None
+    dry_run: bool = False
+
+
+def _backlog_audit(slug: str, intent: dict, plan: dict):
+    """Write a marker row to the dispatch log noting this is a backlog reprocess.
+
+    A reprocess attempt always produces this row + a downstream row from
+    dispatch.dispatch (on dispatch path) or no second row (on clarification path,
+    until the eventual resolution dispatches and writes its own row).
+    """
+    log_path = VAULT_PATH / "60_Council" / "sprint_a_dispatch_log.jsonl"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "ts": _datetime.utcnow().isoformat() + "+00:00",
+        "handler": "backlog_reprocess",
+        "ok": True,
+        "error": None,
+        "target": plan.get("target", {}),
+        "action": intent.get("action"),
+        "summary": f"reprocess attempt slug={slug} planned_handler={plan.get('handler')}",
+    }
+    with open(log_path, "a") as f:
+        f.write(json.dumps(row) + "\n")
+
+
+@router.post("/parking-lot/{slug}/sprint-a-route")
+def parking_lot_sprint_a_route(slug: str, req: SprintARouteRequest):
+    """Re-run an existing backlog card through the Sprint A intent pipeline.
+
+    Combines optional user-supplied context with the card's title/summary/url,
+    runs intent_parser -> dispatch_plan -> clarification|dispatch. On dispatch
+    success the original card is archived; on clarification it stays put until
+    resolved.
+    """
+    if not SPRINT_A_ENABLED:
+        raise HTTPException(503, "Sprint A pipeline disabled")
+
+    path = LOT_DIR / f"{slug}.md"
+    if not path.exists():
+        raise HTTPException(404, "Capture not found")
+
+    from intent_parser import parse_intent
+    from routing_engine import build_dispatch_plan
+    from clarification_store import create_pending
+    from clarification_surface import ask
+    from dispatch import dispatch as _dispatch
+
+    card = _parse_card(path)
+
+    parts = []
+    if req.context:
+        parts.append(req.context.strip())
+    title = card.get("title", "") or ""
+    summary = card.get("summary", "") or ""
+    url = card.get("url", "") or ""
+    if title:
+        parts.append(title)
+    if summary and summary != title:
+        parts.append(summary)
+    if url:
+        parts.append(url)
+    text = "\n".join(p for p in parts if p).strip()
+
+    if not text:
+        raise HTTPException(400, "Card has no content to reprocess")
+
+    captured_content = {
+        "original_message": text,
+        "url": url or None,
+        "og_title": title,
+        "og_description": summary,
+    }
+
+    intent = parse_intent(
+        text,
+        og_title=title,
+        og_description=summary,
+    )
+    plan = build_dispatch_plan(intent, origin_channel="slack")
+
+    _backlog_audit(slug, intent, plan)
+
+    if req.dry_run:
+        return {
+            "status": "dry_run",
+            "slug": slug,
+            "text": text,
+            "intent": intent,
+            "plan": plan,
+        }
+
+    if plan.get("clarifications_needed"):
+        entry = create_pending(
+            parsed_intent=intent,
+            dispatch_plan=plan,
+            channel="slack",
+            origin_chat_id=f"backlog:{slug}",
+            captured_content=captured_content,
+        )
+        ask(entry["id"])
+        return {
+            "status": "pending_clarification",
+            "pending_id": entry["id"],
+            "slug": slug,
+            "archived": False,
+        }
+
+    result = _dispatch(plan, captured_content, intent)
+
+    archived = False
+    if result.get("ok"):
+        ARCH_DIR.mkdir(parents=True, exist_ok=True)
+        path.rename(ARCH_DIR / path.name)
+        archived = True
+
+    return {"status": "dispatched", "slug": slug, "archived": archived, **result}
+
+
 class TriageRequest(BaseModel):
     action: str
     advisor: str = "kai"

@@ -139,16 +139,59 @@ def _dispatch_share(plan: dict, content: dict, intent: dict, *,
     )
 
 
+def _write_advisor_note(advisor: str, content: dict, summary_text: str,
+                        intent: dict) -> Path:
+    """Write a frontmattered summary note into the advisor's knowledge folder."""
+    from datetime import datetime, timezone
+    import re as _re
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    title = (content.get("og_title") or "").strip()
+    if not title:
+        first_line = (content.get("original_message") or "").splitlines()[0:1]
+        title = (first_line[0] if first_line else "untitled").strip()[:80] or "untitled"
+
+    slug_base = _re.sub(r"[^a-zA-Z0-9]+", "-", title.lower()).strip("-")[:40] or "note"
+    folder = VAULT_PATH / "60_Council" / advisor / "knowledge"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{ts}_summary_{slug_base}.md"
+
+    url = content.get("url") or ""
+    instructions = (intent.get("instructions") or "").strip()
+    fm = (
+        "---\n"
+        f"title: {title}\n"
+        f"date: {ts[:8]}\n"
+        f"advisor: {advisor}\n"
+        f"source_url: {url}\n"
+        f"generated_by: sprint_a_summarize\n"
+        f"instructions: {instructions}\n"
+        "---\n\n"
+        f"# {title}\n\n"
+        f"{summary_text.strip()}\n"
+    )
+    path.write_text(fm)
+    return path
+
+
 def _dispatch_summarize(plan: dict, content: dict, intent: dict, *,
                         client: httpx.Client | None) -> dict:
     advisor = plan["target"].get("advisor") or "doc"
     prompt = _summarize_prompt(content, intent)
     reply = _call_council(advisor, prompt, client=client)
+    reply_text = reply.get("reply", "") or ""
+
+    note_path = _write_advisor_note(advisor, content, reply_text, intent)
+    vault_rel = str(note_path).replace("/vault/", "vault/")
+
+    title = (content.get("og_title") or "").strip() or "(untitled)"
+    terse = f"Summary of '{title}' is available in {advisor} notes."
+
     return _result(
         ok=True, handler="summarize",
-        summary=f"Summary from {advisor} ready.",
-        details={"advisor": advisor, "summary": reply.get("reply", ""),
-                 "usage": reply.get("usage", {})},
+        summary=terse,
+        details={"advisor": advisor, "note_path": vault_rel,
+                 "reply": reply_text, "usage": reply.get("usage", {})},
     )
 
 

@@ -391,8 +391,7 @@ def main():
                     f"{WORKER_API}/sprint-a/expire-stale",
                     json={"expiry_hours": 24, "notify_channel": "#kai-system"},
                 )
-            reg_record("sprint_a_expire", "ok", duration_s=0,
-                       note=f"status={r.status_code}")
+            reg_record("sprint_a_expire", "ok", duration_s=0)
         except Exception as e:
             reg_record("sprint_a_expire", "fail", error=str(e))
             log.error("sprint_a expire job error: %s", e)

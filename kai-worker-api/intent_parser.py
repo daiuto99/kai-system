@@ -52,7 +52,7 @@ URL DESCRIPTION (if any): {og_desc}
 POSSIBLE ACTIONS:
 - save_to_recipes:    Leo wants this saved as a recipe (food, cooking, drink). Destination is the recipe vault.
 - write_blog_post:    Leo wants a blog post, draft, copy, article, or any written output. ALWAYS routes to `creative` regardless of topic — copywriting is creative's domain even when the subject is strategy, business, gear, or anything else. Creative will consult other advisors for subject-matter context.
-- summarize:          Leo wants a summary, possibly with additional context gathered. Pass to the doc advisor.
+- summarize:          Leo wants a summary or wants this saved as a note in an advisor\'s knowledge folder. Destination is the named advisor (or doc by default). The result lands as a markdown note in vault/60_Council/<advisor>/knowledge/ and Slack only sees a one-liner.
 - share_with_advisor: Leo named a specific advisor to send this to (Sky, Roads, Beats, Coach, Ember, Doc, Creative, Dev, Kai).
 - capture:            FALLBACK. No clear intent — Leo just wants this saved for later. Use when in doubt.
 
@@ -75,7 +75,7 @@ RULES:
 2. If Leo wrote prose around the URL, parse it. Look for verbs (summarize, write, save, send, share, gather).
 3. If Leo named an advisor explicitly ("send to Sky", "for Roads") → action="share_with_advisor", destination=<name>.
 4. If Leo asked for a blog post / draft / copy / article / written output → action="write_blog_post", destination="creative" ALWAYS. Topic does not change the destination — copywriting belongs to creative regardless of subject. Even leadership/brand/strategy blog posts go to creative, not kai.
-5. "Summarize and gather additional information" → action="summarize", destination="doc" (the doc advisor handles the enrichment as part of its response).
+5. "Summarize", "summarize and gather", "give me a summary", "add to <advisor>", "save to <advisor>\'s notes", "note for <advisor>", "for <advisor>\'s knowledge" → action="summarize". Destination is the named advisor when one is explicit (any of: kai, beats, sky, roads, coach, ember, doc, creative, dev), otherwise destination="doc". The result is saved as a markdown note in that advisor\'s knowledge folder and Slack only sees a terse notice.
 6. The instructions field MUST quote Leo's specific asks verbatim ("highlighting X, Y, and Z") — do not paraphrase.
 7. When uncertain, choose action="capture" with confidence="low" rather than guessing.
 """

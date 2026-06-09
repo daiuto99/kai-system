@@ -169,9 +169,11 @@ def resolve_pending(
         raise ClarificationStoreError(
             f"cannot resolve entry in status={entry['status']}"
         )
+    now = _now()
     entry["status"] = "resolved"
-    entry["updated_at"] = _now()
-    entry["resolution"] = {"choice": choice, "replied_at": _now()}
+    entry["resolved_at"] = now
+    entry["updated_at"] = now
+    entry["resolution"] = {"choice": choice, "replied_at": now}
     data["entries"][pending_id] = entry
     _save(store_path, data)
     return entry
