@@ -39,63 +39,14 @@ def _safe_json(response):
         }
 
 
-# Secrets-dir fallback chain — covers all containers (council/orchestrator mount
-# /run/wp_secrets; worker mounts /home/leo/kai-system/secrets directly).
-SECRETS_CANDIDATES = (
-    Path("/run/wp_secrets"),
-    Path("/home/leo/kai-system/secrets"),
-)
-
-
-def _load_kai_app_password(slug: str) -> str:
-    for base in SECRETS_CANDIDATES:
-        p = base / f"wp_{slug}_kai_app_password.txt"
-        if p.exists():
-            return p.read_text().strip()
-    raise HTTPException(
-        500,
-        f"wp_{slug}_kai_app_password.txt missing from all secrets dirs: "
-        f"{[str(c) for c in SECRETS_CANDIDATES]}",
-    )
-
-
-def _write_kai_app_password(slug: str, pw: str) -> Path:
-    # Write to the first writable secrets dir. The kai-worker-api mount is
-    # read-only by design; this path will typically fail inside the container
-    # and the host CLI (scripts/wp_add_site.sh) is the canonical onboarding tool.
-    for base in SECRETS_CANDIDATES:
-        if not base.exists():
-            continue
-        p = base / f"wp_{slug}_kai_app_password.txt"
-        try:
-            p.write_text(pw)
-            try:
-                p.chmod(0o600)
-            except Exception:
-                pass
-            return p
-        except (PermissionError, OSError):
-            continue
-    raise HTTPException(
-        500,
-        "Secrets dir is read-only inside this container. "
-        "Run scripts/wp_add_site.sh on the host to onboard the site, then call this endpoint with metadata only.",
-    )
-
-
 def _load_sites() -> dict:
     if not WP_SITES_FILE.exists():
         return {}
-    sites = json.loads(WP_SITES_FILE.read_text()).get("sites", {})
-    for slug, s in sites.items():
-        s["_slug"] = slug
-    return sites
+    return json.loads(WP_SITES_FILE.read_text()).get("sites", {})
 
 
 def _save_sites(sites: dict):
-    # Strip injected _slug field before persisting.
-    clean = {k: {kk: vv for kk, vv in v.items() if kk != "_slug"} for k, v in sites.items()}
-    _atomic_write_json(WP_SITES_FILE, {"sites": clean})
+    _atomic_write_json(WP_SITES_FILE, {"sites": sites})
 
 
 def _get_site(site_id: str) -> dict:
@@ -103,13 +54,8 @@ def _get_site(site_id: str) -> dict:
     site = sites.get(site_id)
     if not site:
         raise HTTPException(404, f"Site '{site_id}' not found. Known sites: {list(sites.keys())}")
-    # Verify a credential exists in the secrets dir (don't read it here).
-    if not any((c / f"wp_{site_id}_kai_app_password.txt").exists() for c in SECRETS_CANDIDATES):
-        raise HTTPException(
-            400,
-            f"No app password file for '{site_id}' in any secrets dir. "
-            "Run scripts/wp_add_site.sh to onboard.",
-        )
+    if not (site.get("kai_app_password") or site.get("app_password")):
+        raise HTTPException(400, f"No app password configured for '{site_id}' (kai_app_password or app_password)")
     return site
 
 
@@ -124,8 +70,11 @@ def _verify_for(site: dict) -> bool:
 
 
 def _auth_header(site: dict) -> dict:
-    pw = _load_kai_app_password(site["_slug"])
-    token = base64.b64encode(f"kai:{pw}".encode()).decode()
+    if site.get("kai_app_password"):
+        user, pw = "kai", site["kai_app_password"]
+    else:
+        user, pw = site.get("username", ""), site["app_password"]
+    token = base64.b64encode(f"{user}:{pw}".encode()).decode()
     return {"Authorization": f"Basic {token}", "Content-Type": "application/json"}
 
 
@@ -173,17 +122,16 @@ def add_site(req: SiteAddRequest):
     sites = _load_sites()
     if req.site_id in sites:
         raise HTTPException(409, f"Site '{req.site_id}' already exists")
-    # Password goes to secrets dir; JSON holds metadata only.
-    pw_path = _write_kai_app_password(req.site_id, req.app_password)
     sites[req.site_id] = {
         "url": req.url.rstrip("/"),
         "username": req.username,
+        "app_password": req.app_password,
         "description": req.description,
         "business": req.business,
         "blank_canvas_installed": False,
     }
     _save_sites(sites)
-    return {"ok": True, "site_id": req.site_id, "url": req.url, "secret_file": str(pw_path)}
+    return {"ok": True, "site_id": req.site_id, "url": req.url}
 
 
 class SiteUpdateRequest(BaseModel):
