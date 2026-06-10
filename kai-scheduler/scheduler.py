@@ -6,7 +6,7 @@ import time
 import logging
 import threading
 import os
-from datetime import datetime, date as _date, timedelta as _td
+from datetime import datetime, date as _date, timedelta as _td, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import httpx
@@ -81,7 +81,7 @@ def tg_send(token: str, chat_id: int, text: str):
 # ── Slack helpers (kept for health alerts only) ────────────────────────────────
 
 def slack_post(token: str, channel: str, text: str,
-               username: str = "KAI", icon_url: str = "https://kai.sonicink.space/icon-192.png"):
+               username: str = "KAI", icon_url: str = "https://kai.sonicink.space/avatar-kai.png"):
     try:
         r = httpx.post(
             "https://slack.com/api/chat.postMessage",
@@ -198,7 +198,8 @@ def telegram_poll_loop():
                         log.error(f"Telegram photo download error: {e}")
                         message = message or "[Photo — could not download]"
                 payload = {"channel": advisor, "message": message,
-                           "user_id": f"telegram:{username}", "history": []}
+                           "user_id": f"telegram:{username}", "history": [],
+                           "trigger_source": f"telegram:dm:{advisor}"}
                 if attachments:
                     payload["attachments"] = attachments
                 try:
@@ -236,7 +237,7 @@ def check_worker_health():
                + f"\n\nDisk: {data['disk_pct']}% | Mem: {data['mem_pct']}% | "
                  f"Temp: {data.get('temp_c', 'N/A')}°C | Uptime: {data['uptime']}")
         if slack_token:
-            slack_post(slack_token, "kai-system", msg)
+            slack_post(slack_token, "devops", msg)
         log.info(f"Health alert sent: {alerts}")
     except Exception as e:
         log.warning(f"Health check error: {e}")
@@ -326,11 +327,11 @@ def _update_location_from_calendar():
 
 
 def send_checkin(checkin_type: str):
-    """Post check-in questions to #kai-system and store the thread ts for reply detection."""
+    """Post check-in questions to #devops and store the thread ts for reply detection."""
     try:
         r = httpx.post(
             f"{WORKER_API}/checkin/send",
-            json={"checkin_type": checkin_type, "channel": "kai-system"},
+            json={"checkin_type": checkin_type, "channel": "devops"},
             timeout=20,
         )
         result = r.json() if r.status_code == 200 else {}
@@ -340,6 +341,81 @@ def send_checkin(checkin_type: str):
             log.error("checkin send failed: %s", result)
     except Exception as e:
         log.error("checkin send error (%s): %s", checkin_type, e)
+
+
+def _n8n_oauth_health_job():
+    """KAI-432 / N8N-2: hourly check of n8n + OAuth health, alert #devops on debounced failure."""
+    import json as _json
+    import subprocess
+    from pathlib import Path as _Path
+
+    HEALTH_FILE = _Path("/vault/00_System/n8n_health.json")
+    checks = {}
+    overall_ok = True
+
+    # Check 1: kai-n8n container running
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}", "kai-n8n"],
+            capture_output=True, text=True, timeout=10,
+        )
+        running = r.stdout.strip() == "true"
+        checks["container_running"] = running
+        if not running:
+            overall_ok = False
+    except Exception as e:
+        checks["container_running"] = f"error: {e}"
+        overall_ok = False
+
+    # Check 2: internal /healthz reachable
+    try:
+        r = httpx.get("http://kai-n8n:5678/healthz", timeout=5)
+        checks["healthz_internal"] = r.status_code == 200
+        if r.status_code != 200:
+            overall_ok = False
+    except Exception as e:
+        checks["healthz_internal"] = f"error: {type(e).__name__}"
+        overall_ok = False
+
+    # Check 3: external n8n.sonicink.space reachable (Cloudflare tunnel)
+    try:
+        r = httpx.get("https://n8n.sonicink.space/healthz", timeout=10, follow_redirects=True)
+        checks["external_reachable"] = r.status_code in (200, 401, 403)  # auth gate OK
+        if r.status_code >= 500:
+            overall_ok = False
+    except Exception as e:
+        checks["external_reachable"] = f"error: {type(e).__name__}"
+        # External flake is debounced — don't mark overall_ok=False on first miss
+
+    # Persist + debounce
+    now_iso = datetime.now(timezone.utc).isoformat()
+    prev = {}
+    if HEALTH_FILE.exists():
+        try:
+            prev = _json.loads(HEALTH_FILE.read_text())
+        except Exception:
+            prev = {}
+    record = {"checked_at": now_iso, "ok": overall_ok, "checks": checks,
+              "previous_ok": prev.get("ok", True)}
+    HEALTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    HEALTH_FILE.write_text(_json.dumps(record, indent=2))
+
+    # Alert on TWO consecutive failures
+    if (not overall_ok) and (prev.get("ok") is False):
+        token = load_secret("slack_bot_token")
+        if token:
+            fail_lines = [f"• {k}: {v}" for k, v in checks.items() if v is not True]
+            msg = ("*n8n health check failed twice in a row* — investigate before workflows start dropping silently.\n"
+                   + "\n".join(fail_lines)
+                   + f"\n\nRecovery: see `scripts/n8n_oauth_recover.md`")
+            slack_post(token, "#devops", msg,
+                       username="DevOps",
+                       icon_url="https://kai.sonicink.space/avatar-devops.png")
+        log.warning("n8n health: alerted #devops (2x failure) — %s", checks)
+    elif not overall_ok:
+        log.info("n8n health: first failure — debouncing, will alert next tick if still broken")
+    else:
+        log.info("n8n health: ok")
 
 
 def main():
@@ -389,7 +465,7 @@ def main():
             with httpx.Client(timeout=15) as hc:
                 r = hc.post(
                     f"{WORKER_API}/sprint-a/expire-stale",
-                    json={"expiry_hours": 24, "notify_channel": "#kai-system"},
+                    json={"expiry_hours": 24, "notify_channel": "#devops"},
                 )
             reg_record("sprint_a_expire", "ok", duration_s=0)
         except Exception as e:
@@ -454,7 +530,7 @@ def main():
                         "https://slack.com/api/chat.postMessage",
                         headers={"Authorization": "Bearer " + token},
                         json={
-                            "channel": "#kai-system",
+                            "channel": "#devops",
                             "text": (
                                 ":spiral_calendar_pad: *KAI Weekly -- " + iso_week + "*\n"
                                 "Invariants: " + inv_summary + "\n"
@@ -481,6 +557,7 @@ def main():
     sched.add_job(_inbox_job,                            IntervalTrigger(seconds=60), id="inbox_scan", coalesce=True, max_instances=1)
     sched.add_job(lambda: _tz_check_job(sched),          IntervalTrigger(hours=1),    id="tz_check",   coalesce=True, max_instances=1)
     sched.add_job(_sprint_a_expire_job,                  IntervalTrigger(hours=1),    id="sprint_a_expire", coalesce=True, max_instances=1)
+    sched.add_job(_n8n_oauth_health_job,                 IntervalTrigger(hours=1),    id="n8n_health", coalesce=True, max_instances=1)
     # weekly_learning_cron removed — no content yet
 
     sched.start()

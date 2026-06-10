@@ -11,19 +11,21 @@ from graphs.bug_state import BugState
 
 logger = logging.getLogger(__name__)
 
-SLACK_CHANNEL = "kai-system"
+SLACK_CHANNEL = "devops"
 MODEL = "claude-sonnet-4-6"
 
 
 # ── Slack helper ─────────────────────────────────────────────────────────────
 
 def _slack_post(text: str, thread_ts: str = None) -> str:
-    """Post to #kai-system. Returns ts of posted message."""
+    """Post to #devops. Returns ts of posted message."""
     token = _slack_token()
     if not token:
         logger.warning("No Slack token — skipping notification")
         return ""
-    payload = {"channel": SLACK_CHANNEL, "text": text}
+    payload = {"channel": SLACK_CHANNEL, "text": text,
+               "username": "DevOps",
+               "icon_url": "https://kai.sonicink.space/avatar-devops.png"}
     if thread_ts:
         payload["thread_ts"] = thread_ts
     data = json.dumps(payload).encode()

@@ -18,9 +18,10 @@ const PAGE_LABELS = {
   '/advisors': 'Advisors',
   '/wiki': 'Wiki',
   '/chat': 'Chat',
+  '/usage': 'Usage',
 }
 
-const FRAMED_PAGES = ['/today', '/harmony', '/tasks', '/habits', '/insights', '/settings', '/parking-lot', '/knowledge', '/models', '/plane', '/advisors', '/wiki']
+const FRAMED_PAGES = ['/today', '/harmony', '/tasks', '/habits', '/insights', '/settings', '/parking-lot', '/knowledge', '/models', '/plane', '/advisors', '/wiki', '/usage']
 
 export default function Layout({ children }) {
   const [captureOpen, setCaptureOpen] = useState(false)

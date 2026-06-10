@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import uuid
 from datetime import datetime as _dt
 from pathlib import Path
@@ -11,6 +12,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 T2_QUEUE_FILE = VAULT_PATH / "00_System" / "t2_queue.json"
+LEO_USER_ID = os.environ.get("LEO_USER_ID", "U0AG93XJ927")
 
 
 def _t2_load() -> list:
@@ -24,9 +26,30 @@ def _t2_save(queue: list):
 
 
 def _slack_token() -> str:
-    import os
     p = Path("/run/secrets/slack_bot_token")
     return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
+
+
+def _resolve_leo_dm_channel() -> str | None:
+    """Open (or fetch) the KAI↔Leo DM channel. Returns channel_id or None."""
+    token = _slack_token()
+    if not token:
+        return None
+    try:
+        import httpx as _hx
+        r = _hx.post(
+            "https://slack.com/api/conversations.open",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"users": LEO_USER_ID},
+            timeout=10,
+        )
+        d = r.json()
+        if d.get("ok"):
+            return d["channel"]["id"]
+        logger.warning("conversations.open failed: %s", d.get("error"))
+    except Exception as e:
+        logger.exception("conversations.open error: %s", e)
+    return None
 
 
 def _post_slack_thread(entry: dict, approved: bool):
@@ -54,7 +77,7 @@ class T2ActionRequest(BaseModel):
     action: str
     detail: str = ""
     advisor: str = "kai"
-    slack_channel: str = "kai"
+    slack_channel: str = ""  # ignored — all T2 prompts go to KAI↔Leo DM
 
 
 class T2RespondRequest(BaseModel):
@@ -84,7 +107,8 @@ def create_t2_action(req: T2ActionRequest):
     }
 
     slack_token = _slack_token()
-    if slack_token:
+    dm_channel = _resolve_leo_dm_channel() if slack_token else None
+    if slack_token and dm_channel:
         try:
             import httpx as _t2hx
             msg_text = (
@@ -97,7 +121,12 @@ def create_t2_action(req: T2ActionRequest):
             r = _t2hx.post(
                 "https://slack.com/api/chat.postMessage",
                 headers={"Authorization": f"Bearer {slack_token}"},
-                json={"channel": req.slack_channel, "text": msg_text},
+                json={
+                    "channel": dm_channel,
+                    "text": msg_text,
+                    "username": "KAI",
+                    "icon_url": "https://kai.sonicink.space/avatar-kai.png",
+                },
                 timeout=10,
             )
             d = r.json()

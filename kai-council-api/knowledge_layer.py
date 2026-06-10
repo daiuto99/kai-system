@@ -138,7 +138,8 @@ def _auto_summarize(channel: str, advisor: str):
             context_note=summary.get("context", ""),
         )
         marker_file.write_text(str(current_count))
-        _track_usage(advisor, response.usage.input_tokens, response.usage.output_tokens)
+        _track_usage(advisor, response.usage.input_tokens, response.usage.output_tokens,
+                     trigger_source="council:auto_summarize")
     except Exception as e:
         logger.exception("auto_summarize error: %s", e)
 

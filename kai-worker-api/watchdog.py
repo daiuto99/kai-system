@@ -28,7 +28,7 @@ def _slack_alert(token: str, message: str):
         httpx.post(
             "https://slack.com/api/chat.postMessage",
             headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#kai-system", "text": message,
+            json={"channel": "#devops", "text": message,
                   "username": "KAI Watchdog", "icon_emoji": ":eyes:"},
             timeout=10,
         )

@@ -16,7 +16,7 @@ from . import capability
 _WORKSPACE = Path("/workspace")
 _VAULT = Path("/vault")
 _MANIFEST = _VAULT / "00_System" / "session_close_log.json"
-_CHANNEL = "kai-system"
+_CHANNEL = "devops"
 
 
 def _now() -> datetime:
@@ -189,7 +189,7 @@ def close(mode: str = "manual", context_pct: str = "", **_) -> CapabilityResult:
         slack_r = _slack_post(channel=_CHANNEL, text=report, username="KAI", icon_emoji=":robot_face:")
         _add_step(steps, "slack_report", "Slack close report",
                   "ok" if slack_r.ok else "fail",
-                  "Posted to #kai-system" if slack_r.ok else f"Slack error: {slack_r.error}")
+                  "Posted to #devops" if slack_r.ok else f"Slack error: {slack_r.error}")
     except Exception as e:
         _add_step(steps, "slack_report", "Slack close report", "fail", str(e)[:120])
 

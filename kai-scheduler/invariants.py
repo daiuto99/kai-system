@@ -42,7 +42,7 @@ def _slack_post(token: str, text: str):
         httpx.post(
             "https://slack.com/api/chat.postMessage",
             headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#kai-system", "text": text,
+            json={"channel": "#devops", "text": text,
                   "username": "KAI Invariants", "icon_emoji": ":shield:"},
             timeout=10,
         )

@@ -25,6 +25,7 @@ class MessageRequest(BaseModel):
     thread_ts: str = ""
     attachments: list = []  # [{type, media_type, data (base64), filename}]
     privacy_mode: bool = False
+    trigger_source: str = ""  # e.g. "slack:dm", "telegram:dm", "dashboard:chat:kai"
 
 
 class ContextUpdateRequest(BaseModel):
@@ -77,6 +78,8 @@ KAI_TOOLS = [
     {"name": "read_workspace", "description": "Read a file from the Mac workspace mirror (~/sonicink/). Use this when Leo references logos, documents, markdown files, or any file in the sonicink workspace that is not in the vault. path is relative to the workspace root, e.g. wordpress/logos/revolt.png or wordpress/md/company_summaries.md. If the file is not found, tell Leo the workspace may need a sync: rsync -az --exclude=.git ~/sonicink/ kai:~/sonicink/", "input_schema": {"type": "object", "properties": {"path": {"type": "string", "description": "File path relative to workspace root (~/sonicink/)"}}, "required": ["path"]}},
     {"name": "list_workspace", "description": "List files in a directory of the Mac workspace mirror (~/sonicink/). Use to discover what logos, docs, or assets are available before reading them. path is relative to workspace root, e.g. wordpress/logos or wordpress/md.", "input_schema": {"type": "object", "properties": {"path": {"type": "string", "description": "Directory path relative to workspace root. Defaults to root if omitted."}}, "required":[]}},
     {"name": "send_slack_message", "description": "Post a message to a Slack channel.", "input_schema": {"type": "object", "properties": {"channel": {"type": "string"}, "message": {"type": "string"}, "advisor": {"type": "string"}}, "required": ["channel", "message"]}},
+    {"name": "deliver_asset", "description": "Send a design asset, deliverable, spec doc, wireframe, or any generated file to Leo via Slack DM. The file is versioned and persisted in the vault under vault/60_Council/<advisor>/deliverables/<slug>/v<n>.<ext>. Use this anytime Creative, Dev, or any other advisor produces a file artifact (logo, moodboard, comp, spec, wireframe, doc). The message is posted from KAI with a 'Beats says:' / 'Dev says:' attribution prefix; the file is attached so it lands in Leo's Slack Files panel.", "input_schema": {"type": "object", "properties": {"advisor": {"type": "string", "description": "Which advisor produced the asset (e.g. creative, dev, beats). Used for attribution prefix + vault path."}, "context": {"type": "string", "description": "One-line context that goes in the DM message (e.g. 'Homepage moodboard v3 — incorporated warmer palette')."}, "source_path": {"type": "string", "description": "Path to the source file (absolute, or relative to /vault)."}, "slug": {"type": "string", "description": "Asset slug (lowercase, hyphenated). Defaults to source filename stem."}, "ext": {"type": "string", "description": "File extension without dot. Defaults to source file's suffix."}}, "required": ["advisor", "context", "source_path"]}},
+    {"name": "get_advisor_recent_dms", "description": "Read recent direct-DM exchanges between Leo and Sky or Roads. Use this when Leo asks 'what's Sky been telling me lately' or wants to surface anything from a direct-advisor conversation. Returns the last N {user_id, message, reply, ts} entries.", "input_schema": {"type": "object", "properties": {"advisor": {"type": "string", "description": "sky or roads"}, "n": {"type": "integer", "description": "How many recent exchanges to return. Defaults to 20."}}, "required": ["advisor"]}},
     {"name": "start_mission", "description": "Record the start of an autonomous mission.", "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "scope": {"type": "array", "items": {"type": "string"}}, "notes": {"type": "string"}}, "required": ["name", "scope"]}},
     {"name": "complete_mission", "description": "Mark the current mission complete and compile the review briefing.", "input_schema": {"type": "object", "properties": {"built": {"type": "array", "items": {"type": "object"}}, "decisions": {"type": "array", "items": {"type": "string"}}}, "required": ["built"]}},
     {"name": "log_action", "description": "Log a governance action.", "input_schema": {"type": "object", "properties": {"action": {"type": "string"}, "tier": {"type": "integer"}, "approved_by": {"type": "string"}}, "required": ["action", "tier", "approved_by"]}},
@@ -209,7 +212,8 @@ def _handle_auto_capture(message: str, advisor: str) -> dict | None:
                 json={"text": _msg_stripped},
                 timeout=10
             )
-            _track_usage(advisor, 0, 0, "anthropic", "auto-capture")
+            _track_usage(advisor, 0, 0, "anthropic", "auto-capture",
+                         trigger_source="council:auto_capture")
             return {"reply": "Saved to your parking lot.", "advisor": advisor, "model": "auto-capture", "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0}}
         except Exception as e:
             logger.exception("auto_capture: %s", e)
@@ -469,7 +473,9 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     _append_history(channel, "assistant", clean_reply)
 
     # Track token usage
-    _track_usage(advisor, total_input_tokens, total_output_tokens, actual_provider, actual_model)
+    effective_trigger = req.trigger_source or f"council:message:{channel}"
+    _track_usage(advisor, total_input_tokens, total_output_tokens, actual_provider, actual_model,
+                 trigger_source=effective_trigger)
 
     # Auto-summarize in background
     if background_tasks:

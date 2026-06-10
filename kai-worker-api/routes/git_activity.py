@@ -21,7 +21,7 @@ except ImportError:
 
 GIT_ACTIVITY_FILE = VAULT_PATH / "00_System" / "git_activity.json"
 ET = ZoneInfo("America/New_York")
-SLACK_CHANNEL = "kai-system"
+SLACK_CHANNEL = "devops"
 
 
 def _slack_token() -> str:

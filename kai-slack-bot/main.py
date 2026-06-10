@@ -14,34 +14,32 @@ COUNCIL_API = "http://kai-council-api:8002"
 WORKER_API  = "http://kai-worker-api:8001"
 
 COUNCIL_CHANNELS = {
-    "encore", "kai-focus", "launchbox", "revolt-group",
-    "soul-collective", "ice-cream-stand", "test-project",
+    "encore", "launchbox", "revolt-group",
+    "soul-collective", "ice-cream-stand",
 }
 
-PARKING_LOT_CHANNEL = "kai-parking-lot"
-KAI_SYSTEM_CHANNEL  = "kai-system"
+DEVOPS_CHANNEL = "devops"
 
 ADVISOR_NAMES = {
     "kai", "beats", "ember", "doc", "coach",
     "creative", "tech", "dev", "sky", "roads", "ops", "learning", "support",
 }
 
-ADVISOR_BOTS = ["beats", "creative", "dev", "sky", "roads"]
+ADVISOR_BOTS = ["sky", "roads"]
 
+# Slack identities — only advisors that post as themselves. All other advisor
+# output is relayed via KAI with a "Beats says:" prefix (see post_as_advisor).
 ADVISOR_IDENTITIES = {
-    "kai":      {"username": "KAI",      "icon_url": "https://kai.sonicink.space/avatar-kai.png"},
-    "ember":    {"username": "Ember",    "icon_url": "https://kai.sonicink.space/avatar-ember.png"},
-    "beats":    {"username": "Beats",    "icon_url": "https://kai.sonicink.space/avatar-beats.png"},
-    "doc":      {"username": "Doc",      "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "coach":    {"username": "Coach",    "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "creative": {"username": "Creative", "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "tech":     {"username": "Tech",     "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "dev":      {"username": "Dev",      "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "learning": {"username": "Learning", "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "support":  {"username": "Support",  "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "sky":      {"username": "Sky",      "icon_url": "https://kai.sonicink.space/avatar-sky.png"},
-    "roads":    {"username": "Roads",    "icon_url": "https://kai.sonicink.space/avatar-roads.png"},
-    "ops":      {"username": "Ops",      "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "kai":   {"username": "KAI",   "icon_url": "https://kai.sonicink.space/avatar-kai.png"},
+    "sky":   {"username": "Sky",   "icon_url": "https://kai.sonicink.space/avatar-sky.png"},
+    "roads": {"username": "Roads", "icon_url": "https://kai.sonicink.space/avatar-roads.png"},
+}
+
+# Capitalized labels for the "Beats says:" relay prefix
+ADVISOR_LABELS = {
+    "beats": "Beats", "ember": "Ember", "doc": "Doc", "coach": "Coach",
+    "creative": "Creative", "tech": "Tech", "dev": "Dev", "ops": "Ops",
+    "learning": "Learning", "support": "Support", "devops": "DevOps",
 }
 
 
@@ -82,13 +80,16 @@ def thread_key(channel: str, ts: str) -> str:
     return f"{channel}:{ts}"
 
 
-def call_council(channel: str, message: str, user_id: str, ts: str) -> str:
+def call_council(channel: str, message: str, user_id: str, ts: str,
+                 trigger_source: str = "") -> str:
     key = thread_key(channel, ts)
     history = _history.get(key, [])
     try:
         r = httpx.post(
             f"{COUNCIL_API}/council/message",
-            json={"channel": channel, "message": message, "user_id": user_id, "history": history, "thread_ts": ts},
+            json={"channel": channel, "message": message, "user_id": user_id,
+                  "history": history, "thread_ts": ts,
+                  "trigger_source": trigger_source},
             timeout=60.0,
         )
         r.raise_for_status()
@@ -111,8 +112,16 @@ def parse_advisor_prefix(text: str) -> tuple[str, str]:
 
 
 def post_as_advisor(client, channel_id: str, advisor: str, reply: str, thread_ts: str = None):
-    identity = ADVISOR_IDENTITIES.get(advisor, ADVISOR_IDENTITIES["kai"])
-    kwargs = dict(channel=channel_id, text=reply, username=identity["username"], icon_url=identity["icon_url"])
+    """Called from KAI's main bot. KAI/Sky/Roads post as themselves; every
+    other advisor is relayed by KAI with a 'Beats says:' attribution prefix."""
+    if advisor in ADVISOR_IDENTITIES:
+        identity = ADVISOR_IDENTITIES[advisor]
+        text = reply
+    else:
+        identity = ADVISOR_IDENTITIES["kai"]
+        label = ADVISOR_LABELS.get(advisor, advisor.capitalize())
+        text = f"{label} says:\n{reply}"
+    kwargs = dict(channel=channel_id, text=text, username=identity["username"], icon_url=identity["icon_url"])
     if thread_ts:
         kwargs["thread_ts"] = thread_ts
     client.chat_postMessage(**kwargs)
@@ -165,7 +174,8 @@ def handle_reaction(event, say):
             if detail_text:
                 exec_msg += f" — {detail_text}"
             exec_msg += ". Execute it now using the appropriate tool and confirm completion."
-            exec_reply = call_council("kai", exec_msg, event.get("user", "leo"), f"t2-{action_id}")
+            exec_reply = call_council("kai", exec_msg, event.get("user", "leo"), f"t2-{action_id}",
+                                      trigger_source=f"t2:execute:{action_id}")
             try:
                 app.client.chat_postMessage(
                     channel=channel_id,
@@ -208,34 +218,14 @@ def handle_message(event, say):
                 "Available: /beats /coach /sky /roads /tech /dev /ops /creative /learning /support")
             return
         log.info(f"DM from {user_id} → {advisor}: {message[:60]}")
-        reply = call_council(advisor, message, user_id, ts)
+        reply = call_council(advisor, message, user_id, ts,
+                             trigger_source=f"slack:dm:{advisor}")
         post_as_advisor(app.client, channel_id, advisor, reply)
         return
 
     ch_name = channel_name(channel_id)
 
-    if ch_name == PARKING_LOT_CHANNEL:
-        try:
-            r = httpx.post(
-                f"{WORKER_API}/parking-lot/capture",
-                json={"text": text, "channel_id": channel_id, "thread_ts": ts, "user_id": user_id},
-                timeout=30.0,
-            )
-            data = r.json()
-            log.info(f"Parking lot: status={data.get('status')} handler={data.get('handler')}")
-            # Post terse confirmation back to the channel so Leo sees KAI received it.
-            # The advisor's full reply lives in the vault md, not in Slack — by design.
-            confirmation = data.get('summary')
-            if confirmation:
-                try:
-                    app.client.chat_postMessage(channel=channel_id, text=confirmation, thread_ts=ts)
-                except Exception as post_err:
-                    log.error(f"Parking lot confirmation post error: {post_err}")
-        except Exception as e:
-            log.error(f"Parking lot error: {e}")
-        return
-
-    if ch_name == KAI_SYSTEM_CHANNEL:
+    if ch_name == DEVOPS_CHANNEL:
         if text:
             text_lower = text.lower()
             # Intake trigger
@@ -277,7 +267,8 @@ def handle_message(event, say):
         return
 
     log.info(f"Message in #{ch_name} from {user_id}: {text[:60]}")
-    reply = call_council("kai", text, user_id, ts)
+    reply = call_council("kai", text, user_id, ts,
+                         trigger_source=f"slack:channel:{ch_name}")
     post_as_advisor(app.client, channel_id, "kai", reply, ts)
 
 
@@ -292,43 +283,30 @@ def handle_mention(event, say):
 
 
 
-# ── File Listener — project channel file_shared events ─────────────────────────
+# ── Advisor Bot Factory (Sky + Roads only — direct DMs, KAI-aware via dm_log.jsonl) ──
 
-@app.event("file_shared")
-def handle_file_shared(event, say):
-    """Download files shared in KAI-managed project channels and ingest them."""
-    channel_id = event.get("channel_id")
-    file_id = event.get("file_id")
-    if not channel_id or not file_id:
-        return
+import json as _json
+from datetime import datetime as _dt
 
-    # Check registry — only process managed project channels
+VAULT_PATH = Path(os.environ.get("VAULT_PATH", "/vault"))
+
+
+def _log_advisor_dm(advisor: str, user_id: str, message: str, reply: str):
+    """Append a DM exchange to the advisor's dm_log.jsonl so KAI can read it later."""
     try:
-        r = httpx.get(f"{WORKER_API}/slack/projects/registry", timeout=5)
-        registry = r.json().get("registry", {})
+        log_dir = VAULT_PATH / "60_Council" / advisor
+        log_dir.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": _dt.utcnow().isoformat() + "Z",
+            "user_id": user_id,
+            "message": message,
+            "reply": reply,
+        }
+        with open(log_dir / "dm_log.jsonl", "a") as f:
+            f.write(_json.dumps(entry) + "\n")
     except Exception as e:
-        log.error(f"file_shared: registry fetch failed: {e}")
-        return
+        log.error(f"_log_advisor_dm({advisor}): {e}")
 
-    project = registry.get(channel_id)
-    if not project:
-        return
-
-    log.info(f"file_shared in managed channel {channel_id}, project={project.get('project_name')}, file={file_id}")
-
-    # Download via worker API (it has the token + vault write access)
-    try:
-        r = httpx.post(
-            f"{WORKER_API}/slack/files/ingest",
-            json={"file_id": file_id, "channel_id": channel_id},
-            timeout=120,
-        )
-        data = r.json()
-        log.info(f"file ingest result: {data}")
-    except Exception as e:
-        log.error(f"file_shared: ingest call failed: {e}")
-
-# ── Advisor Bot Factory ─────────────────────────────────────────────────────────
 
 def make_advisor_handler(advisor: str) -> SocketModeHandler | None:
     bot_tok = load_secret(f"slack_bot_token_{advisor}")
@@ -357,7 +335,9 @@ def make_advisor_handler(advisor: str) -> SocketModeHandler | None:
         if not text:
             return
         log.info(f"DM ({_advisor}) from {user_id}: {text[:60]}")
-        reply = call_council(_advisor, text, user_id, ts)
+        reply = call_council(_advisor, text, user_id, ts,
+                             trigger_source=f"slack:dm:{_advisor}")
+        _log_advisor_dm(_advisor, user_id, text, reply)
         identity = ADVISOR_IDENTITIES.get(_advisor, ADVISOR_IDENTITIES["kai"])
         _client.chat_postMessage(
             channel=channel_id,
@@ -371,7 +351,7 @@ def make_advisor_handler(advisor: str) -> SocketModeHandler | None:
 
 
 def main():
-    log.info("kai-slack-bot starting — KAI + 5 advisor bots")
+    log.info(f"kai-slack-bot starting — KAI + advisor bots: {ADVISOR_BOTS}")
 
     for advisor in ADVISOR_BOTS:
         handler = make_advisor_handler(advisor)

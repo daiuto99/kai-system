@@ -22,8 +22,8 @@ _PLANE_WS      = "sonicink"
 _PLANE_BUG_PID = "9d36a2f8-f00e-4a68-9055-69c647ee1361"   # Bugs project
 _PLANE_BACKLOG = "ba26fb93-8826-4763-8f84-908ed11af231"   # Backlog state
 
-# Slack system channel for OVERRIDE acks
-_SLACK_SYSTEM_CHANNEL = "kai-system"
+# Slack system channel for OVERRIDE acks (DevOps persona)
+_SLACK_SYSTEM_CHANNEL = "devops"
 
 app = FastAPI(title="kai-orchestrator")
 

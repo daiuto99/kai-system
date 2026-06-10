@@ -15,6 +15,7 @@ import PlaneTasks from './pages/PlaneTasks'
 import Advisors from './pages/Advisors'
 import Wiki from './pages/Wiki'
 import WordPress from './pages/WordPress'
+import Usage from './pages/Usage'
 
 export default function App() {
   return (
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/advisors" element={<Advisors />} />
         <Route path="/wiki" element={<Wiki />} />
         <Route path="/wordpress" element={<WordPress />} />
+        <Route path="/usage" element={<Usage />} />
       </Routes>
     </Layout>
   )

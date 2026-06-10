@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 
-from routes import vault, focus, parking_lot, inbox, checkin, settings, projects, tasks, habits, calendar, knowledge, t2, telegram, contacts, slack, advisors, wiki, workflows, oura, system, location, git_activity, admin, plane, session, intake, wordpress, sprint_a
+from routes import vault, focus, parking_lot, inbox, checkin, settings, projects, tasks, habits, calendar, knowledge, t2, telegram, contacts, slack, advisors, wiki, workflows, oura, system, location, git_activity, admin, plane, session, intake, wordpress, sprint_a, assets
 from harmony import router as harmony_router
 
 app = FastAPI(title="kai-worker-api", version="0.3.0")
@@ -14,7 +14,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for router_module in [vault, focus, parking_lot, inbox, checkin, settings, projects, tasks, habits, calendar, knowledge, t2, telegram, contacts, slack, advisors, wiki, workflows, oura, system, location, git_activity, admin, plane, session, intake, wordpress, sprint_a]:
+for router_module in [vault, focus, parking_lot, inbox, checkin, settings, projects, tasks, habits, calendar, knowledge, t2, telegram, contacts, slack, advisors, wiki, workflows, oura, system, location, git_activity, admin, plane, session, intake, wordpress, sprint_a, assets]:
     app.include_router(router_module.router)
 
 app.include_router(harmony_router)

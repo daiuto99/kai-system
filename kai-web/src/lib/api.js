@@ -76,7 +76,8 @@ export const api = {
 
   // Council — chat
   sendMessage: (message, channel = 'kai', history = []) =>
-    post(`${COUNCIL}/message`, { message, channel, history }),
+    post(`${COUNCIL}/message`, { message, channel, history,
+      trigger_source: `dashboard:chat:${channel}` }),
 
   // Council — history
   getChannelHistory: (channel, limit = 80) =>
@@ -94,4 +95,14 @@ export const api = {
 
   // Insights
   getInsights: () => get(`${BASE}/insights`),
+
+  // Usage / cost
+  getTokenUsage: () => get(`${BASE}/token-usage`),
+
+  // Generic helpers — auto-prefix /api for worker routes. Callers like WordPress.jsx
+  // use api.get('/wordpress/sites') → fetch('/api/wordpress/sites').
+  get:   (path) => get(`${BASE}${path}`),
+  post:  (path, body) => post(`${BASE}${path}`, body),
+  patch: (path, body) => patch(`${BASE}${path}`, body),
+  del:   (path) => del(`${BASE}${path}`),
 }

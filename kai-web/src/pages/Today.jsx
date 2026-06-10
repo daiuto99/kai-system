@@ -932,7 +932,6 @@ function ChatWidget() {
           id, name,
           description: vals.description?.trim() || '',
           project_type: extras.project_type || 'active',
-          create_slack_channel: !isIdea,
         })
         const stepLines = (result.steps || []).map(s => {
           const icon = s.status === 'done' ? '✓' : s.status === 'skipped' ? '↩' : '⚠'
@@ -1021,7 +1020,7 @@ function ChatWidget() {
                   ))}
                 </div>
                 <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                  {actionModal.extras.project_type === 'active' ? 'Appears on dashboard · Slack channel created' : 'Stored in ideas/ · No dashboard entry · No Slack'}
+                  {actionModal.extras.project_type === 'active' ? 'Appears on dashboard' : 'Stored in ideas/ · No dashboard entry'}
                 </p>
               </div>
             )}

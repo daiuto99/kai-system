@@ -144,7 +144,8 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
         reply, input_tokens, output_tokens = _run_agentic_loop(
             messages, [], "claude-sonnet-4-6", system, specialist_id
         )
-        _track_usage("specialist", input_tokens, output_tokens)
+        _track_usage("specialist", input_tokens, output_tokens,
+                     trigger_source=f"tool:consult_specialist:{specialist_id}")
         return {
             "specialist": spec["name"],
             "domain": spec["domain"],
@@ -287,16 +288,22 @@ def _h_slack(client, tool_name, ti, advisor):
         token = _slack_token()
         if not token:
             return {"error": "Slack token not configured"}
+        from council_config import ADVISOR_LABELS
         adv = ti.get("advisor", "kai")
         channel = ti.get("channel", "kai")
         if not channel.startswith("#"):
             channel = f"#{channel}"
-        payload = {
-            "channel": channel,
-            "text": ti["message"],
-            "username": adv.upper() if adv == "kai" else adv.capitalize(),
-            "icon_url": ADVISOR_AVATARS.get(adv, ADVISOR_AVATARS["kai"]),
-        }
+        # Self-posting advisors keep their identity; everyone else is relayed by KAI
+        if adv in ADVISOR_AVATARS:
+            username = "KAI" if adv == "kai" else adv.capitalize()
+            icon_url = ADVISOR_AVATARS[adv]
+            text = ti["message"]
+        else:
+            username = "KAI"
+            icon_url = ADVISOR_AVATARS["kai"]
+            label = ADVISOR_LABELS.get(adv, adv.capitalize())
+            text = f"{label} says:\n{ti['message']}"
+        payload = {"channel": channel, "text": text, "username": username, "icon_url": icon_url}
         r = client.post("https://slack.com/api/chat.postMessage",
             headers={"Authorization": f"Bearer {token}"},
             json=payload)
@@ -304,6 +311,14 @@ def _h_slack(client, tool_name, ti, advisor):
         if not data.get("ok"):
             return {"error": data.get("error", "slack error"), "detail": data}
         return {"ok": True, "channel": channel}
+    if tool_name == "deliver_asset":
+        r = client.post(f"{WORKER_URL}/assets/deliver", json=ti, timeout=120)
+        return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
+    if tool_name == "get_advisor_recent_dms":
+        adv = ti.get("advisor", "")
+        n = ti.get("n", 20)
+        r = client.get(f"{WORKER_URL}/council/advisor/{adv}/recent_dms", params={"n": n}, timeout=15)
+        return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
     if tool_name == "create_slack_channel":
         r = client.post(f"{WORKER_URL}/slack/channels", json=ti, timeout=15)
         return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
@@ -1251,7 +1266,8 @@ def _h_web_search(client, tool_name, ti, advisor):
             json={"api_key": tavily_key, "query": query, "max_results": max_results, "search_depth": "basic"},
             timeout=15
         )
-        track_api_call(advisor, provider="tavily", endpoint="search")
+        track_api_call(advisor, provider="tavily", endpoint="search",
+                       trigger_source="tool:tavily_search")
         data = resp.json()
         results = data.get("results", [])
         answer = data.get("answer", "")
@@ -1417,6 +1433,9 @@ TOOL_REGISTRY = {
     "send_slack_message": _h_slack,
     "create_slack_channel": _h_slack,
     "invite_to_slack_channel": _h_slack,
+    # Asset delivery
+    "deliver_asset": _h_slack,
+    "get_advisor_recent_dms": _h_slack,
     # Mission / governance
     "start_mission": _h_mission,
     "complete_mission": _h_mission,

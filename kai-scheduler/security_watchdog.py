@@ -33,7 +33,7 @@ def _slack_security(text: str):
     token = _load_secret("slack_bot_token")
     if not token:
         return
-    for channel in ("#kai-security", "#kai-system"):
+    for channel in ("#devops", "#devops"):
         try:
             r = httpx.post(
                 "https://slack.com/api/chat.postMessage",

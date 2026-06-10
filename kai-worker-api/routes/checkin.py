@@ -172,7 +172,7 @@ def save_checkin(req: CheckInRequest):
 
 class SendCheckinRequest(BaseModel):
     checkin_type: str  # "morning" | "evening"
-    channel: str = "kai-system"
+    channel: str = "devops"
 
 
 @router.post("/checkin/send")

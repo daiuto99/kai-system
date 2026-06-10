@@ -36,13 +36,14 @@ def _load_secret(name: str) -> str:
 
 
 def _slack_alert(token: str, message: str):
-    """Post to #kai-system."""
+    """Post to #devops as the DevOps persona."""
     try:
         httpx.post(
             "https://slack.com/api/chat.postMessage",
             headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#kai-system", "text": message,
-                  "username": "KAI Watchdog", "icon_emoji": ":eyes:"},
+            json={"channel": "#devops", "text": message,
+                  "username": "DevOps",
+                  "icon_url": "https://kai.sonicink.space/avatar-devops.png"},
             timeout=10,
         )
     except Exception as e:

@@ -65,12 +65,6 @@ services:
     secrets:
       - slack_bot_token
       - slack_app_token
-      - slack_bot_token_beats
-      - slack_app_token_beats
-      - slack_bot_token_creative
-      - slack_app_token_creative
-      - slack_bot_token_dev
-      - slack_app_token_dev
       - slack_bot_token_sky
       - slack_app_token_sky
       - slack_bot_token_roads
@@ -139,7 +133,7 @@ services:
       start_period: 20s
 
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:2.16.0
     container_name: kai-n8n
     restart: unless-stopped
     ports:
@@ -173,7 +167,7 @@ services:
       start_period: 30s
 
   cloudflare-tunnel:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.3.0
     container_name: cloudflare-tunnel
     restart: unless-stopped
     command: tunnel --no-autoupdate run
@@ -334,18 +328,6 @@ secrets:
     file: ./secrets/oura_token.txt
   cloudways_ssh_key:
     file: ./secrets/cloudways_ssh_key
-  slack_bot_token_beats:
-    file: ./secrets/slack_bot_token_beats.txt
-  slack_app_token_beats:
-    file: ./secrets/slack_app_token_beats.txt
-  slack_bot_token_creative:
-    file: ./secrets/slack_bot_token_creative.txt
-  slack_app_token_creative:
-    file: ./secrets/slack_app_token_creative.txt
-  slack_bot_token_dev:
-    file: ./secrets/slack_bot_token_dev.txt
-  slack_app_token_dev:
-    file: ./secrets/slack_app_token_dev.txt
   slack_bot_token_sky:
     file: ./secrets/slack_bot_token_sky.txt
   slack_app_token_sky:

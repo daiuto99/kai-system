@@ -240,7 +240,7 @@ def resolve_gate(gate_id: str, req: GateResolve):
     _fire_callback(entry["callback_url"], resolution)
 
     action = "approved" if req.approved else "rejected"
-    _slack_post("#kai-system", f"Gate `{gate_id}` {action} by {req.resolver}. {req.notes}")
+    _slack_post("#devops", f"Gate `{gate_id}` {action} by {req.resolver}. {req.notes}")
     logger.info("Gate %s %s by %s", gate_id, action, req.resolver)
 
     # Learning capture — log Leo's decision and notes as an insight
@@ -377,7 +377,7 @@ def _process_gate(req: GateRequest):
         _GATES_STORE[req.gate_id]["kai_assessment"] = kai_assessment
         blocks, attachments = _gate_slack_message(req.gate_id, gate_type, summary, kai_assessment, "Awaiting Leo's approval")
         fallback = f"Gate {req.gate_id} ({gate_type}) needs your approval. Reply `approve {req.gate_id}` or `reject {req.gate_id}: reason`"
-        _slack_post("#kai-system", fallback, blocks, attachments)
+        _slack_post("#devops", fallback, blocks, attachments)
         logger.info("Gate %s posted to Slack — awaiting Leo", req.gate_id)
 
     except Exception as e:

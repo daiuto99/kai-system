@@ -134,7 +134,8 @@ def advisor_node(state: KAIState) -> KAIState:
                 messages, [], fallback, system_prompt, advisor
             )
 
-    _track_usage(advisor, input_tokens, output_tokens, actual_provider, actual_model)
+    _track_usage(advisor, input_tokens, output_tokens, actual_provider, actual_model,
+                 trigger_source=f"graph:advisor_node:{advisor}")
 
     ts = datetime.now(timezone.utc).isoformat()
     return {

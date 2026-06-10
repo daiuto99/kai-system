@@ -83,7 +83,7 @@ def _process_file(path: Path):
             f"Valid routes: {', '.join(sorted(VALID_ROUTES))}\n"
             f"Reply with the correct route and I'll reprocess it, or edit the file at `~/vault/50_Inbox/pending/{filename}`."
         )
-        _post_slack("#kai-system", msg)
+        _post_slack("#devops", msg)
         path.rename(PENDING_DIR / filename)
         logger.info("inbox: %s → pending (no route)", filename)
         return
@@ -118,7 +118,7 @@ def _process_file(path: Path):
     except Exception as e:
         logger.exception("inbox: council call failed: %s", e)
         path.rename(FAILED_DIR / filename)
-        _post_slack("#kai-system", f":x: Inbox intake failed for `{filename}`: {e}")
+        _post_slack("#devops", f":x: Inbox intake failed for `{filename}`: {e}")
         return
 
     reply = result.get("reply", "")
@@ -137,7 +137,7 @@ def _process_file(path: Path):
 
     # Notify via Slack
     preview = reply[:400] + ("..." if len(reply) > 400 else "")
-    _post_slack("#kai-system",
+    _post_slack("#devops",
         f":white_check_mark: *Inbox processed* — `{filename}`\n"
         f"Route: `{route}` | Action: `{action}`\n\n{preview}"
     )

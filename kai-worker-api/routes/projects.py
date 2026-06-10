@@ -19,7 +19,6 @@ router = APIRouter()
 PROJECTS_FILE = VAULT_PATH / "00_System" / "projects.json"
 PROJECTS_DIR  = VAULT_PATH / "20_Projects"
 TEMPLATES_PATH = VAULT_PATH / "00_System" / "templates"
-KAI_PROJECTS_FILE = VAULT_PATH / "00_System" / "kai_projects.json"
 N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
 
 
@@ -41,62 +40,6 @@ def _render_template(content: str, variables: dict) -> str:
     for key, value in variables.items():
         content = content.replace("{{" + key + "}}", str(value))
     return content
-
-
-def _slack_api(method: str, payload: dict) -> dict:
-    import httpx as _slhx
-    from pathlib import Path as _slp
-    import os
-    p = _slp("/run/secrets/slack_bot_token")
-    token = p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
-    r = _slhx.post(
-        f"https://slack.com/api/{method}",
-        headers={"Authorization": f"Bearer {token}"},
-        json=payload,
-        timeout=15,
-    )
-    return safe_json(r)
-
-
-def _slack_get(method: str, params: dict) -> dict:
-    import httpx as _slhx
-    from pathlib import Path as _slp
-    import os
-    p = _slp("/run/secrets/slack_bot_token")
-    token = p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
-    r = _slhx.get(
-        f"https://slack.com/api/{method}",
-        headers={"Authorization": f"Bearer {token}"},
-        params=params,
-        timeout=15,
-    )
-    return safe_json(r)
-
-
-def _contacts_load() -> list:
-    contacts_file = VAULT_PATH / "00_System" / "contacts.json"
-    if contacts_file.exists():
-        return json.loads(contacts_file.read_text())
-    return []
-
-
-
-
-def _write_project_registry(channel_id: str, channel_name: str, project_id: str, project_name: str, members: list):
-    registry = {}
-    if KAI_PROJECTS_FILE.exists():
-        try:
-            registry = json.loads(KAI_PROJECTS_FILE.read_text())
-        except Exception:
-            pass
-    registry[channel_id] = {
-        "channel_name": channel_name,
-        "project_id": project_id,
-        "project_name": project_name,
-        "created_at": _cdt.now().isoformat(),
-        "members": members,
-    }
-    KAI_PROJECTS_FILE.write_text(json.dumps(registry, indent=2))
 
 
 def _n8n_draft_email(to: str, subject: str, body: str) -> dict:
@@ -292,9 +235,6 @@ class ProjectSetupRequest(BaseModel):
     next: str = ""
     template_version: str = "v1"
     project_type: str = "active"  # "active" | "idea"
-    create_slack_channel: bool = True
-    slack_channel_name: str = ""
-    invite_contacts: list = []
     external_invites: list = []
     file_request_message: str = ""
     url: str = ""
@@ -330,10 +270,9 @@ def setup_project(req: ProjectSetupRequest):
     else:
         results["steps"].append({"step": "projects.json", "status": "skipped", "note": "Idea projects are auto-discovered — no registry entry needed"})
 
-    slack_channel = req.slack_channel_name or req.id
     template_vars = {
         "PROJECT_NAME": req.name, "PROJECT_ID": req.id, "DATE": today,
-        "ADVISOR": req.advisor, "SLACK_CHANNEL": slack_channel,
+        "ADVISOR": req.advisor,
     }
     _id_safe = safe_path(VAULT_PATH / "20_Projects", ("ideas/" + req.id) if is_idea else req.id)
     if _id_safe is None:
@@ -377,74 +316,6 @@ pinned: false
         "path": str(proj_dir), "files": files_created,
     })
 
-    channel_id = None
-    if req.create_slack_channel and not is_idea:
-        try:
-            slack_result = _slack_api("conversations.create", {"name": slack_channel, "is_private": False})
-            if slack_result.get("ok"):
-                channel_id = slack_result["channel"]["id"]
-                results["steps"].append({"step": "slack_channel", "status": "done",
-                                          "channel": f"#{slack_channel}", "channel_id": channel_id})
-                _slack_api("chat.postMessage", {
-                    "channel": channel_id,
-                    "text": f"*{req.name}* project channel is live.\n*Advisor:* {req.advisor.upper()} | *Description:* {req.description or 'TBD'}\n\nI'll be tracking updates here.",
-                    "username": "KAI",
-                    "icon_url": "https://kai.sonicink.space/icon-192.png",
-                })
-            else:
-                err = slack_result.get("error", "unknown")
-                if err == "name_taken":
-                    results["steps"].append({"step": "slack_channel", "status": "skipped",
-                                              "note": f"#{slack_channel} already exists"})
-                    ch_list = _slack_get("conversations.list", {"types": "public_channel,private_channel", "limit": 200})
-                    for ch in ch_list.get("channels", []):
-                        if ch["name"] == slack_channel:
-                            channel_id = ch["id"]
-                            break
-                else:
-                    results["errors"].append(f"slack_channel: {err}")
-        except Exception as e:
-            logger.exception("setup_project slack: %s", e)
-            results["errors"].append(f"slack_channel: {e}")
-
-    if req.invite_contacts and channel_id:
-        contacts = _contacts_load()
-        pending_invites = []
-        for contact_ref in req.invite_contacts:
-            match = None
-            for c in contacts:
-                if (contact_ref == c["id"] or
-                    contact_ref.lower() in [a.lower() for a in c.get("aliases", [])] or
-                    contact_ref.lower() in c.get("name", "").lower() or
-                    contact_ref == c.get("email")):
-                    match = c
-                    break
-            if match:
-                pending_invites.append({"name": match["name"], "email": match.get("email"), "slack_id": match.get("slack_id")})
-            else:
-                pending_invites.append({"name": contact_ref, "email": contact_ref if "@" in contact_ref else None})
-
-        if pending_invites:
-            names = ", ".join(p["name"] for p in pending_invites)
-            try:
-                import httpx as _t2hx
-                _t2hx.post(
-                    "http://localhost:8001/t2/queue",
-                    json={
-                        "action": f"Invite {names} to #{slack_channel}",
-                        "detail": f"Project: {req.name} | Channel: #{slack_channel} | People: {names}",
-                        "advisor": req.advisor, "slack_channel": "kai",
-                    },
-                    timeout=5,
-                )
-                results["steps"].append({
-                    "step": "t2_invites", "status": "queued", "people": names,
-                    "note": "React on the Slack approval message to send invites",
-                })
-            except Exception as e:
-                logger.exception("setup_project t2_queue: %s", e)
-                results["errors"].append(f"t2_queue: {e}")
-
     # Gmail draft invitations for external (non-Slack) collaborators
     if req.external_invites:
         gmail_sent = []
@@ -458,8 +329,7 @@ pinned: false
             file_note = f"\n\n{req.file_request_message}" if req.file_request_message else ""
             body_text = (
                 f"{greeting}\n\nYou've been invited to collaborate on *{req.name}*."
-                f"\n\nPlease join the #{req.slack_channel_name or req.id} Slack channel "
-                f"where you can drop files and communicate with the team.{file_note}"
+                f"\n\nLeo will follow up with details on coordination and file sharing.{file_note}"
                 f"\n\n— KAI on behalf of Leo"
             )
             draft_result = _n8n_draft_email(
@@ -482,7 +352,7 @@ pinned: false
 
 @router.post("/projects/{project_id}/teardown")
 def teardown_project(project_id: str):
-    """Full project removal: projects.json, Slack channel archive, vault folder archive."""
+    """Full project removal: projects.json + vault folder archive."""
     results = {"project_id": project_id, "steps": [], "errors": []}
 
     # 1. Remove from projects.json
@@ -500,38 +370,7 @@ def teardown_project(project_id: str):
         logger.exception("teardown projects.json: %s", e)
         results["errors"].append(f"projects.json: {e}")
 
-    # 2. Archive Slack channel — look up channel ID from kai_projects.json or Slack list
-    channel_id = None
-    try:
-        if KAI_PROJECTS_FILE.exists():
-            registry = json.loads(KAI_PROJECTS_FILE.read_text())
-            for cid, meta in registry.items():
-                if meta.get("project_id") == project_id:
-                    channel_id = cid
-                    break
-        if not channel_id:
-            ch_list = _slack_get("conversations.list", {"types": "public_channel,private_channel", "limit": 200})
-            for ch in ch_list.get("channels", []):
-                if ch["name"] == project_id or ch["name"] == project_id.replace("_", "-"):
-                    channel_id = ch["id"]
-                    break
-        if channel_id:
-            archive_result = _slack_api("conversations.archive", {"channel": channel_id})
-            if archive_result.get("ok") or archive_result.get("error") == "already_archived":
-                results["steps"].append({"step": "slack_channel", "status": "done", "note": f"Archived #{project_id}"})
-                if KAI_PROJECTS_FILE.exists():
-                    registry = json.loads(KAI_PROJECTS_FILE.read_text())
-                    registry.pop(channel_id, None)
-                    KAI_PROJECTS_FILE.write_text(json.dumps(registry, indent=2))
-            else:
-                results["errors"].append(f"slack_archive: {archive_result.get('error')}")
-        else:
-            results["steps"].append({"step": "slack_channel", "status": "skipped", "note": "No channel found"})
-    except Exception as e:
-        logger.exception("teardown slack: %s", e)
-        results["errors"].append(f"slack_channel: {e}")
-
-    # 3. Move vault folder to archived/
+    # 2. Move vault folder to archived/
     import shutil as _shutil
     for candidate_dir in [
         PROJECTS_DIR / project_id,

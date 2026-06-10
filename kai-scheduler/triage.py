@@ -148,7 +148,7 @@ def slack_triage_alert(function_name: str, error: str, plane_seq: int | None, pr
         httpx.post(
             "https://slack.com/api/chat.postMessage",
             headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#kai-system", "text": msg,
+            json={"channel": "#devops", "text": msg,
                   "username": "KAI DevOps", "icon_emoji": ":rotating_light:"},
             timeout=10,
         )

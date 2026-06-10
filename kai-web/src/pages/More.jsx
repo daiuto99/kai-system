@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { CheckSquare, Inbox, Sparkles, Activity, BookOpen, Users } from 'lucide-react'
+import { CheckSquare, Inbox, Sparkles, Activity, BookOpen, Users, DollarSign } from 'lucide-react'
 
 const ITEMS = [
   { to: '/tasks',       icon: CheckSquare, label: 'Tasks',       desc: 'Todoist queue'         },
@@ -8,6 +8,7 @@ const ITEMS = [
   { to: '/harmony',     icon: Activity,    label: 'Harmony',     desc: 'Life domain balance'   },
   { to: '/wiki',        icon: BookOpen,    label: 'Wiki',        desc: 'Knowledge vault'       },
   { to: '/advisors',    icon: Users,       label: 'Advisors',    desc: 'Manage advisor personas' },
+  { to: '/usage',       icon: DollarSign,  label: 'Usage',       desc: 'API cost & token spend' },
 ]
 
 export default function More() {

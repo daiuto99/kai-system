@@ -16,6 +16,12 @@ from models import CapabilityResult
 from transports.base import safe_request
 from . import capability
 
+try:
+    from usage_tracker import _track_usage
+except ImportError:
+    def _track_usage(*args, **kwargs):
+        pass
+
 _LITELLM_URL = "http://kai-litellm:4000"
 _VAULT_REVIEWS = Path("/vault/60_Council/reviews")
 
@@ -56,7 +62,8 @@ def _store_review(slug: str, payload: dict) -> None:
     (_VAULT_REVIEWS / f"{slug}.json").write_text(json.dumps(payload, indent=2))
 
 
-def _call_litellm(model: str, system: str, content: str) -> tuple[bool, str]:
+def _call_litellm(model: str, system: str, content: str) -> tuple[bool, str, int, int]:
+    """Returns (ok, text_or_error, input_tokens, output_tokens)."""
     key = _litellm_key()
     r = safe_request(
         "POST", f"{_LITELLM_URL}/v1/chat/completions",
@@ -72,19 +79,23 @@ def _call_litellm(model: str, system: str, content: str) -> tuple[bool, str]:
         timeout=90,
     )
     if not r.ok or not isinstance(r.data, dict):
-        return False, f"LiteLLM HTTP {r.status_code}: {r.body_preview or r.error}"
+        return False, f"LiteLLM HTTP {r.status_code}: {r.body_preview or r.error}", 0, 0
     choices = r.data.get("choices", [])
     if not choices:
-        return False, "LiteLLM returned no choices"
+        return False, "LiteLLM returned no choices", 0, 0
     text = choices[0].get("message", {}).get("content", "")
-    return True, text
+    usage = r.data.get("usage", {}) or {}
+    return True, text, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
 
 
 def _peer_review(model: str, system: str, reviewer: str, content: str, topic: str) -> CapabilityResult:
-    ok, text = _call_litellm(model, system, content)
+    ok, text, input_tokens, output_tokens = _call_litellm(model, system, content)
     if not ok:
         return CapabilityResult(ok=False, status="failed_recoverable",
                                 error={"type": "litellm_error", "detail": text})
+
+    _track_usage(reviewer, input_tokens, output_tokens, "openai", model,
+                 trigger_source=f"orchestrator:peer_review:{reviewer}")
     # Strip markdown fences if model wrapped the JSON
     clean = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE)
     # Strip trailing commas before ] or } (common LLM JSON quirk)

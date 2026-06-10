@@ -116,7 +116,8 @@ def parse_intent(
         messages=[{"role": "user", "content": prompt}],
     )
     _track_usage("intent_parser", resp.usage.input_tokens, resp.usage.output_tokens,
-                 provider="anthropic", model=MODEL)
+                 provider="anthropic", model=MODEL,
+                 trigger_source="worker:intent_parse")
     raw = resp.content[0].text.strip()
 
     parsed = _extract_json(raw)

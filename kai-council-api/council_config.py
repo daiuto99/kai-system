@@ -10,39 +10,34 @@ COUNCIL_PATH = VAULT_PATH / "60_Council"
 WORKER_URL = "http://kai-worker-api:8001"
 ORCHESTRATOR_URL = "http://kai-orchestrator:8003"
 
+# Channel-name → advisor routing. Slim post-Slack-Sprint: only channels/DMs
+# that still exist in the workspace. Scheduler check-ins still address the
+# `council-*` aliases (resolved to KAI), so those stay.
 ADVISOR_CHANNELS = {
-    "kai":   "kai",
-    "beats": "beats",
-    "beats-personal": "beats",
-    "ember": "ember",
-    "doc": "doc",
-    "coach": "coach",
-    "council": "kai",
-    "council-daily": "kai",
-    "council-weekly": "kai",
+    "kai":             "kai",
+    "sky":             "sky",
+    "roads":           "roads",
+    "devops":          "devops",
+    "council":         "kai",
+    "council-daily":   "kai",
+    "council-weekly":  "kai",
     "council-monthly": "kai",
-    "sky": "sky",
-    "roads": "roads",
-    "creative": "creative",
-    "dev": "dev",
-    "devops": "devops",
 }
 
+# Slack-posting identities — only advisors that post as themselves in Slack.
+# All other advisor output is relayed by KAI with a "Beats says:" prefix.
 ADVISOR_IDENTITIES = {
-    "kai":      {"username": "KAI",      "icon_url": "https://kai.sonicink.space/avatar-kai.png"},
-    "ember":    {"username": "Ember",    "icon_url": "https://kai.sonicink.space/avatar-ember.png"},
-    "beats":    {"username": "Beats",    "icon_url": "https://kai.sonicink.space/avatar-beats.png"},
-    "doc":      {"username": "Doc",      "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "coach":    {"username": "Coach",    "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "creative": {"username": "Creative", "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "tech":     {"username": "Tech",     "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "dev":      {"username": "Dev",      "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "learning": {"username": "Learning", "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "support":  {"username": "Support",  "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "sky":      {"username": "Sky",      "icon_url": "https://kai.sonicink.space/avatar-sky.png"},
-    "roads":    {"username": "Roads",    "icon_url": "https://kai.sonicink.space/avatar-roads.png"},
-    "ops":      {"username": "Ops",       "icon_url": "https://kai.sonicink.space/icon-192.png"},
-    "devops":   {"username": "DevOps",   "icon_url": "https://kai.sonicink.space/icon-192.png"},
+    "kai":    {"username": "KAI",    "icon_url": "https://kai.sonicink.space/avatar-kai.png"},
+    "sky":    {"username": "Sky",    "icon_url": "https://kai.sonicink.space/avatar-sky.png"},
+    "roads":  {"username": "Roads",  "icon_url": "https://kai.sonicink.space/avatar-roads.png"},
+    "devops": {"username": "DevOps", "icon_url": "https://kai.sonicink.space/avatar-devops.png"},
+}
+
+# Capitalized labels for the "Beats says:" relay prefix when KAI surfaces a non-Slack advisor
+ADVISOR_LABELS = {
+    "beats": "Beats", "ember": "Ember", "doc": "Doc", "coach": "Coach",
+    "creative": "Creative", "tech": "Tech", "dev": "Dev", "ops": "Ops",
+    "learning": "Learning", "support": "Support",
 }
 
 # Backward-compat — execute_tool.py imports this
@@ -111,7 +106,7 @@ def _maybe_slack_alert(key: str, message: str):
         _httpx.post(
             "https://slack.com/api/chat.postMessage",
             headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#kai-system", "text": message, "username": "KAI", "icon_url": "https://kai.sonicink.space/avatar-kai.png"},
+            json={"channel": "#devops", "text": message, "username": "DevOps", "icon_url": "https://kai.sonicink.space/avatar-devops.png"},
             timeout=5,
         )
     except Exception:

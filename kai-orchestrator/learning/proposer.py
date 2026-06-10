@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 _VAULT_LEARNING = pathlib.Path("/vault/60_Council/learning")
 
 _SLACK_TOKEN   = None  # loaded lazily from secrets file
-_SLACK_CHANNEL = "#kai-system"
+_SLACK_CHANNEL = "#devops"
 
 _EVIDENCE_THRESHOLD = 2  # only generate proposals for patterns with this many+ evidence items
 

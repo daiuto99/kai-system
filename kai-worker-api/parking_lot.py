@@ -119,7 +119,8 @@ def summarize_article(url: str, fallback: str, api_key: str) -> str:
                 f"Be concise and direct. No preamble.\n\n{text}"}],
         )
         _track_usage("parking_lot", resp.usage.input_tokens, resp.usage.output_tokens,
-                     provider="anthropic", model="claude-haiku-4-5-20251001")
+                     provider="anthropic", model="claude-haiku-4-5-20251001",
+                     trigger_source="worker:parking_lot_enrich")
         return resp.content[0].text.strip()
     except Exception:
         return fallback
@@ -152,7 +153,8 @@ TAGS: [2-4 comma-separated lowercase tags]"""
         }],
     )
     _track_usage("parking_lot", response.usage.input_tokens, response.usage.output_tokens,
-                 provider="anthropic", model="claude-haiku-4-5-20251001")
+                 provider="anthropic", model="claude-haiku-4-5-20251001",
+                 trigger_source="worker:parking_lot_capture")
 
     raw = response.content[0].text.strip()
     result = {"type": "note", "title": og_title or text[:50], "summary": og_description or text[:100], "tags": []}

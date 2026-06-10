@@ -127,7 +127,7 @@ async def expire_stale_endpoint(request: Request):
     except Exception:
         body = {}
     expiry_hours = int(body.get("expiry_hours", 24))
-    notify_channel = body.get("notify_channel", "#kai-system")
+    notify_channel = body.get("notify_channel", "#devops")
 
     notifier = None
     if notify_channel:

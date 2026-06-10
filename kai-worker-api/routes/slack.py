@@ -126,67 +126,7 @@ def slack_lookup_user(email: str = None, name: str = None):
     raise HTTPException(400, "email or name required")
 
 
-# ── Project registry ────────────────────────────────────────────────────────
 _VAULT = Path(os.environ.get("VAULT_PATH", "/vault"))
-_KAI_PROJECTS_FILE = _VAULT / "00_System" / "kai_projects.json"
-_COUNCIL_API = "http://kai-council-api:8002"
-
-
-def _load_project_registry() -> dict:
-    if _KAI_PROJECTS_FILE.exists():
-        try:
-            return json.loads(_KAI_PROJECTS_FILE.read_text())
-        except Exception:
-            pass
-    return {}
-
-
-def _download_slack_file(file_id: str, token: str) -> tuple[dict, bytes | None]:
-    """Returns (file_meta, content_bytes). content is None on failure."""
-    r = _slhx.get(
-        "https://slack.com/api/files.info",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"file": file_id},
-        timeout=15,
-    )
-    meta = safe_json(r)
-    if not meta.get("ok"):
-        return meta.get("file", {}), None
-    file_info = meta["file"]
-    dl_url = file_info.get("url_private_download") or file_info.get("url_private")
-    if not dl_url:
-        return file_info, None
-    dl = _slhx.get(dl_url, headers={"Authorization": f"Bearer {token}"}, timeout=60, follow_redirects=True)
-    if dl.status_code == 200:
-        return file_info, dl.content
-    return file_info, None
-
-
-def _ingest_file_background(vault_path: str, advisor: str, channel_id: str, filename: str):
-    try:
-        r = _slhx.post(
-            f"{_COUNCIL_API}/council/ingest",
-            json={"path": vault_path, "advisor": advisor},
-            timeout=120,
-        )
-        result = safe_json(r) if r.status_code == 200 else {"ok": False, "error": r.text[:200]}
-        summary = result.get("summary", "done") if result.get("ok") else f"ingest error: {result.get('error', 'unknown')}"
-
-        # Post confirmation to channel
-        token = _slack_token()
-        _slhx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "channel": channel_id,
-                "text": f":white_check_mark: *{filename}* indexed — {summary}",
-                "username": "KAI",
-                "icon_url": "https://kai.sonicink.space/icon-192.png",
-            },
-            timeout=10,
-        )
-    except Exception as e:
-        logger.exception("ingest_file_background failed for %s: %s", vault_path, e)
 
 
 def _handle_clarification_thread_reply(thread_ts: str, channel_id: str, text: str) -> bool:
@@ -254,7 +194,7 @@ def _handle_checkin_reply(thread_ts: str, channel_id: str, text: str):
 
 @router.post("/slack/events")
 async def slack_events(request: Request, background_tasks: BackgroundTasks):
-    """Slack Events API receiver — handles file_shared events in KAI-managed channels."""
+    """Slack Events API receiver — handles message thread replies (clarifications + check-ins)."""
     raw = await request.body()
     ts = request.headers.get("X-Slack-Request-Timestamp", "")
     sig = request.headers.get("X-Slack-Signature", "")
@@ -270,105 +210,16 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
     event = body.get("event", {})
     event_type = event.get("type")
 
-    # Handle message events — check-in thread replies
     if event_type == "message":
-        # Ignore bot messages and edits
         if event.get("bot_id") or event.get("subtype") in ("bot_message", "message_changed", "message_deleted"):
             return {"ok": True}
         thread_ts = event.get("thread_ts")
         channel_id = event.get("channel")
         text = event.get("text", "").strip()
         if thread_ts and channel_id and text:
-            # Sprint A: try the clarification path first; only fall through to
-            # check-in if no pending clarification matched this thread.
             def _dispatch_reply(_ts=thread_ts, _ch=channel_id, _txt=text):
                 if not _handle_clarification_thread_reply(_ts, _ch, _txt):
                     _handle_checkin_reply(_ts, _ch, _txt)
             background_tasks.add_task(_dispatch_reply)
-        return {"ok": True}
-
-    # Only handle file_shared events (beyond message)
-    if event_type != "file_shared":
-        return {"ok": True}
-
-    channel_id = event.get("channel_id")
-    file_id = event.get("file_id")
-
-    if not channel_id or not file_id:
-        return {"ok": True}
-
-    # Gate: only process files in KAI-managed project channels
-    registry = _load_project_registry()
-    project = registry.get(channel_id)
-    if not project:
-        return {"ok": True}
-
-    token = _slack_token()
-    file_info, content = _download_slack_file(file_id, token)
-    if content is None:
-        logger.warning("slack_events: could not download file %s", file_id)
-        return {"ok": True}
-
-    filename = file_info.get("name", f"file_{file_id}")
-    project_name = project.get("project_id", "unknown")
-    dest_dir = _VAULT / "20_Projects" / project_name / "files"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_path = dest_dir / filename
-    dest_path.write_bytes(content)
-
-    logger.info("slack_events: saved %s to %s", filename, dest_path)
-
-    # Ingest in background so we return quickly to Slack
-    background_tasks.add_task(
-        _ingest_file_background,
-        vault_path=str(dest_path),
-        advisor="kai",
-        channel_id=channel_id,
-        filename=filename,
-    )
 
     return {"ok": True}
-
-
-@router.get("/slack/projects/registry")
-def get_project_registry():
-    """Returns all KAI-managed Slack channels."""
-    return {"registry": _load_project_registry()}
-
-
-@router.post("/slack/files/ingest")
-async def ingest_slack_file(body: dict, background_tasks: BackgroundTasks):
-    """Called by kai-slack-bot when a file_shared event fires in a managed channel."""
-    file_id = body.get("file_id")
-    channel_id = body.get("channel_id")
-    if not file_id or not channel_id:
-        raise HTTPException(400, "file_id and channel_id required")
-
-    registry = _load_project_registry()
-    project = registry.get(channel_id)
-    if not project:
-        raise HTTPException(404, "channel not in project registry")
-
-    token = _slack_token()
-    file_info, file_bytes = _download_slack_file(file_id, token)
-    if file_bytes is None:
-        raise HTTPException(502, f"could not download Slack file {file_id}")
-
-    filename = file_info.get("name", f"file_{file_id}")
-    project_id = project.get("project_id", "unknown")
-    dest_dir = _VAULT / "20_Projects" / project_id / "files"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_path = dest_dir / filename
-    dest_path.write_bytes(file_bytes)
-
-    logger.info("slack file saved: %s → %s", filename, dest_path)
-
-    background_tasks.add_task(
-        _ingest_file_background,
-        vault_path=str(dest_path),
-        advisor="kai",
-        channel_id=channel_id,
-        filename=filename,
-    )
-
-    return {"ok": True, "filename": filename, "path": str(dest_path), "project": project.get("project_name")}

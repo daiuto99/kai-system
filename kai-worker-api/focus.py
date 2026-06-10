@@ -108,7 +108,8 @@ Keep it tight. No preamble. Just the brief."""
         messages=[{"role": "user", "content": prompt}],
     )
     _track_usage("focus", response.usage.input_tokens, response.usage.output_tokens,
-                 provider="anthropic", model="claude-haiku-4-5-20251001")
+                 provider="anthropic", model="claude-haiku-4-5-20251001",
+                 trigger_source="worker:focus")
     return response.content[0].text
 
 
