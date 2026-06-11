@@ -418,6 +418,65 @@ def _n8n_oauth_health_job():
         log.info("n8n health: ok")
 
 
+def _contract_test_job():
+    """KAI-459 Layer 2 — endpoint contract smoke tests run nightly at 04:00 ET.
+
+    Hits every safe GET endpoint on worker-api + council-api, verifies no 5xx
+    response, writes result to /vault/00_System/contract_test_results.json.
+    The inv_endpoint_contracts invariant reads that file and fails on stale
+    results or any contract failures — alert routes through the §6 CRITICAL
+    invariant path.
+    """
+    try:
+        from contract_tests import run
+        result = run()
+        log.info("contract tests: %s", result["summary"])
+    except Exception as e:
+        log.error("contract test job failed: %s", e)
+
+
+def _heartbeat_job():
+    """KAI dead-man's-switch: push heartbeat to healthchecks.io every 5 min.
+
+    External monitor — if this stops firing for ~10 min (grace period set on
+    the healthchecks.io check), they alert Leo via Slack webhook / Telegram /
+    email. None of those alert paths route through the KAI worker, so they
+    survive the worker being completely down.
+
+    Body is a compact state summary the dashboard shows alongside the ping.
+    """
+    url = load_secret("healthchecks_url")
+    if not url:
+        log.warning("heartbeat: no healthchecks_url secret — skipping")
+        return
+    try:
+        # Compact state summary — included in ping body for the HC dashboard
+        import json as _j
+        from pathlib import Path as _P
+        summary = {"ts": datetime.now(ET).isoformat()}
+        try:
+            inv = _P("/vault/00_System/invariants.json")
+            if inv.exists():
+                idata = _j.loads(inv.read_text())
+                vals = idata.get("invariants", {})
+                summary["invariants"] = (
+                    f"{sum(1 for v in vals.values() if v.get('pass'))}/{len(vals)}"
+                )
+        except Exception:
+            pass
+        try:
+            ph = _P("/vault/_persona_health.json")
+            if ph.exists():
+                summary["persona_health_issues"] = len(_j.loads(ph.read_text()))
+        except Exception:
+            pass
+        httpx.post(url, json=summary, timeout=10)
+    except Exception as e:
+        # Failing to ping is itself a signal — by NOT pinging, we let the
+        # external monitor alert. Log locally for debugging.
+        log.warning("heartbeat: ping failed (%s) — external monitor will alert", e)
+
+
 def main():
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
@@ -558,6 +617,8 @@ def main():
     sched.add_job(lambda: _tz_check_job(sched),          IntervalTrigger(hours=1),    id="tz_check",   coalesce=True, max_instances=1)
     sched.add_job(_sprint_a_expire_job,                  IntervalTrigger(hours=1),    id="sprint_a_expire", coalesce=True, max_instances=1)
     sched.add_job(_n8n_oauth_health_job,                 IntervalTrigger(hours=1),    id="n8n_health", coalesce=True, max_instances=1)
+    sched.add_job(_heartbeat_job,                        IntervalTrigger(minutes=5),  id="heartbeat",  coalesce=True, max_instances=1)
+    sched.add_job(_contract_test_job,                    CronTrigger(hour=4, minute=0, timezone=tz), id="contract_tests", coalesce=True, max_instances=1)
     # weekly_learning_cron removed — no content yet
 
     sched.start()

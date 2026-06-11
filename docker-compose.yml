@@ -234,6 +234,7 @@ services:
       - oura_token
       - plane_api_token
       - litellm_master_key
+      - healthchecks_url
     depends_on:
       kai-worker-api:
         condition: service_healthy
@@ -365,3 +366,5 @@ secrets:
     file: ./secrets/n8n_basic_auth_password.txt
   n8n_encryption_key:
     file: ./secrets/n8n_encryption_key.txt
+  healthchecks_url:
+    file: ./secrets/healthchecks_url.txt

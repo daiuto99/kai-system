@@ -1,5 +1,6 @@
+import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from fastapi import HTTPException
@@ -7,6 +8,32 @@ from council_config import VAULT_PATH, COUNCIL_PATH
 from load_context import load_session_memory, load_system_state, load_org_model_context
 
 logger = logging.getLogger(__name__)
+
+PERSONA_HEALTH_FILE = VAULT_PATH / "_persona_health.json"
+
+
+def _record_persona_health(failure_key: str, detail: str) -> None:
+    """KAI-466: record explicit degraded-mode signal when a config loader raises.
+
+    The KAI-458 persona invariant (inv_persona_assembly, kai-scheduler) reads
+    this file plus checks block presence in load_persona() — together they
+    surface the failure as CRITICAL §6 to #devops within one watchdog tick.
+    """
+    try:
+        PERSONA_HEALTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        state = {}
+        if PERSONA_HEALTH_FILE.exists():
+            try:
+                state = json.loads(PERSONA_HEALTH_FILE.read_text())
+            except Exception:
+                state = {}
+        state[failure_key] = {
+            "detail": str(detail)[:500],
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+        PERSONA_HEALTH_FILE.write_text(json.dumps(state, indent=2))
+    except Exception as e:
+        logger.error("persona_health write failed: %s", e)
 
 
 def load_persona(advisor: str, channel: str = None) -> str:
@@ -38,14 +65,32 @@ def load_persona(advisor: str, channel: str = None) -> str:
         combined = '\n\n---\n\n'.join(ctx_parts)
         parts.append('<background_context>\n' + combined + '\n</background_context>')
 
-    # KAI always gets live system state — knows what's broken before Leo asks
+    # KAI always gets live system state — knows what's broken before Leo asks.
+    # KAI-466: catch structural loader failures here explicitly; record degraded
+    # mode to /vault/_persona_health.json. The persona invariant + the block
+    # presence check in inv_persona_assembly surface the failure to #devops.
     if advisor == "kai":
-        system_state = load_system_state()
-        if system_state:
-            parts.append(system_state)
-        org_model_ctx = load_org_model_context()
-        if org_model_ctx:
-            parts.append(org_model_ctx)
+        try:
+            system_state = load_system_state()
+            if system_state:
+                parts.append(system_state)
+            else:
+                _record_persona_health("system_state_empty",
+                                       "loader returned empty — worker degraded")
+        except Exception as e:
+            logger.error("persona: load_system_state raised — degraded: %s", e)
+            _record_persona_health("system_state_load_failed", str(e))
+
+        try:
+            org_model_ctx = load_org_model_context()
+            if org_model_ctx:
+                parts.append(org_model_ctx)
+            else:
+                _record_persona_health("org_model_empty",
+                                       "loader returned empty — org_model.json missing")
+        except Exception as e:
+            logger.error("persona: load_org_model_context raised — degraded: %s", e)
+            _record_persona_health("org_model_load_failed", str(e))
 
     parts.append(persona_file.read_text(encoding="utf-8"))
 

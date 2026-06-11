@@ -282,6 +282,38 @@ def inv_persona_assembly() -> tuple[bool, str]:
     return True, f"ok — {len(results)} advisors, all required blocks present, no warnings"
 
 
+def inv_endpoint_contracts() -> tuple[bool, str]:
+    """KAI-459 Layer 2 — every GET endpoint on worker-api + council-api stays
+    non-5xx. Reads /vault/00_System/contract_test_results.json written by the
+    nightly _contract_test_job. Fails if results are missing, stale (>30h),
+    or contain any fail/error entries.
+    """
+    p = Path("/vault/00_System/contract_test_results.json")
+    if not p.exists():
+        return False, "no contract test results yet — first nightly run pending"
+    try:
+        data = json.loads(p.read_text())
+    except Exception as e:
+        return False, f"contract test results unreadable: {e}"
+    try:
+        run_at = datetime.fromisoformat(data.get("run_at", ""))
+    except Exception:
+        return False, "contract test results missing run_at"
+    age_h = (datetime.now(timezone.utc) - run_at).total_seconds() / 3600
+    if age_h > 30:
+        return False, f"contract tests stale — {age_h:.1f}h since last run"
+    s = data.get("summary", {})
+    bad = s.get("fail", 0) + s.get("error", 0)
+    if bad:
+        first = next((r for r in data.get("results", [])
+                     if r.get("status") in ("fail", "error")), {})
+        return False, (f"{bad} contract failure(s) — "
+                       f"{first.get('service','?')}{first.get('path','?')} "
+                       f"{first.get('status','?')} {first.get('code','')}")
+    return True, (f"ok — {s.get('pass',0)} pass, {s.get('skipped',0)} skipped, "
+                  f"{data.get('elapsed_s',0)}s")
+
+
 # ── Engine ────────────────────────────────────────────────────────────────────
 
 INVARIANTS = [
@@ -296,6 +328,7 @@ INVARIANTS = [
     ("llm_latency",                   "LLM Latency",               inv_llm_latency),
     ("plane_api_health",              "Plane API Health",          inv_plane_api_health),
     ("persona_assembly",              "Persona Assembly",          inv_persona_assembly),
+    ("endpoint_contracts",            "Endpoint Contracts",        inv_endpoint_contracts),
 ]
 
 
@@ -344,18 +377,24 @@ def run_invariants(send_daily_digest: bool = False):
     except Exception as e:
         log.error("invariants: failed to write %s: %s", RESULT_PATH, e)
 
-    # Transition alerts (suppressed if rollback switch is off)
+    # JARVIS §6 alerts (suppressed if rollback switch is off)
     if transitions and token and _RUNNER_ENABLED:
-        msg = f":rotating_light: *ACTION NEEDED — KAI Invariant Failure — {now_utc.strftime('%H:%M UTC')}*\n"
-        msg += "\n".join(transitions)
+        body = "; ".join(t.lstrip("•").strip() for t in transitions)
+        msg = (
+            f"CRITICAL — KAI invariant failure at {now_utc.strftime('%H:%M UTC')}. "
+            f"You need to take action — check the dashboard. {body}"
+        )
         _slack_post(token, msg)
         log.warning("invariants: posted transition alert (%d failures)", len(transitions))
     elif transitions and not _RUNNER_ENABLED:
         log.warning("invariants: %d transition(s) suppressed (INVARIANT_RUNNER_ENABLED=false)", len(transitions))
 
     if recoveries and token and _RUNNER_ENABLED:
-        msg = ":white_check_mark: *KAI Auto-Recovered — " + now_utc.strftime("%H:%M UTC") + "*\n"
-        msg += "\n".join(recoveries)
+        body = "; ".join(r.lstrip("•").strip() for r in recoveries)
+        msg = (
+            f"System Issue Corrected: {body} — corrected by DevOps at "
+            f"{now_utc.strftime('%H:%M UTC')}. System Status 100%."
+        )
         _slack_post(token, msg)
         log.info("invariants: posted recovery alert (%d recovered)", len(recoveries))
 

@@ -23,18 +23,24 @@ def load_session_memory(channel: str, n: int = 2) -> str:
 def load_system_state() -> str:
     """Compact system state block injected into KAI's system prompt each turn.
 
-    Calls /system/ops-state on the worker API. Returns empty string on failure
-    so the persona loads even if the worker is temporarily unreachable.
+    KAI-466 raise-don't-swallow: only network/HTTP failures degrade to "".
+    Structural failures (JSON decode, missing fields, AttributeError, NameError)
+    propagate so the caller records a visible degraded-mode signal instead of
+    silently producing a persona without system_state.
     """
     try:
         import httpx
         r = httpx.get(f"{WORKER_URL}/system/ops-state", timeout=5)
         if r.status_code != 200:
+            logger.warning("load_system_state: worker returned %s — degraded", r.status_code)
             return ""
         data = r.json()
-    except Exception as e:
-        logger.warning("load_system_state: worker unreachable: %s", e)
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+        logger.warning("load_system_state: worker unreachable (%s) — degraded", type(e).__name__)
         return ""
+    except Exception as e:
+        logger.error("load_system_state: structural failure: %s", e)
+        raise
 
     lines = ["<system_state>"]
 
@@ -65,12 +71,19 @@ def load_system_state() -> str:
 
 
 def load_org_model_context() -> str:
-    """Inject org model routing rules and advisor domain map into KAI's context."""
+    """Inject org model routing rules and advisor domain map into KAI's context.
+
+    KAI-466 raise-don't-swallow: file-genuinely-missing returns ""; everything
+    else (JSON parse error, schema mismatch, NameError like KAI-457) raises so
+    the caller / persona invariant sees the failure instead of producing a KAI
+    persona without org_model routing rules.
+    """
+    import json as _json
+    org_path = VAULT_PATH / "00_System" / "org_model.json"
+    if not org_path.exists():
+        logger.warning("load_org_model_context: org_model.json missing — degraded")
+        return ""
     try:
-        import json as _json
-        org_path = VAULT_PATH / "00_System" / "org_model.json"
-        if not org_path.exists():
-            return ""
         model = _json.loads(org_path.read_text())
         domain_map = model.get("advisor_domain_map", {})
         routing    = model.get("routing_rules", {})
@@ -109,5 +122,5 @@ def load_org_model_context() -> str:
         lines.append("</org_model>")
         return "\n".join(lines)
     except Exception as e:
-        logger.warning("load_org_model_context failed: %s", e)
-        return ""
+        logger.error("load_org_model_context: structural failure: %s", e)
+        raise

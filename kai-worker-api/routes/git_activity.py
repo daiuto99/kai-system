@@ -69,7 +69,7 @@ def _record(hash_: str, message: str, branch: str, author: str, repo: str, commi
                 entry["commit_type"] = "both"
                 entry["pushed_at"] = datetime.now(ET).isoformat()
                 _save(entries)
-                _post_slack(f":arrow_up: *{repo}* `{short}` pushed to GitHub — _{message[:80]}_")
+                # JARVIS §6: commits are not actionable. Activity is on the dashboard.
                 logger.info(f"Commit {short} upgraded to both")
                 return {"action": "upgraded"}
             return {"action": "duplicate"}
@@ -91,12 +91,8 @@ def _record(hash_: str, message: str, branch: str, author: str, repo: str, commi
     entries.insert(0, entry)
     _save(entries[:100])
 
-    icons = {"local": ":floppy_disk:", "remote": ":rocket:", "both": ":white_check_mark:"}
-    labels = {"local": "locally", "remote": "pushed to GitHub", "both": "committed + pushed"}
-    _post_slack(
-        f"{icons.get(commit_type, ':git:')} *{repo}* `{short}` {labels.get(commit_type, commit_type)}\n"
-        f">{message[:120]}\n_Branch: {branch}_"
-    )
+    # JARVIS §6: commits are not "auto-fixed" and not "needs-action".
+    # Recording to the dashboard is sufficient — no Slack post.
     logger.info(f"Git commit recorded: {short} ({commit_type}) — {message[:60]}")
     return {"action": "recorded"}
 

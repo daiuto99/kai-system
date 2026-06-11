@@ -189,38 +189,12 @@ CHECKS = [
 
 
 def run_watchdog_checks():
-    """Run all functional health checks. Post failures to #kai-system."""
-    token = _load_secret("slack_bot_token")
-    failures = []
-    remediations = []
+    """RETIRED 2026-06-11 — duplicate of kai-scheduler/watchdog.py.
 
-    for key, label, fn in CHECKS:
-        try:
-            ok, detail = fn()
-        except Exception as e:
-            ok, detail = False, f"check error: {e}"
-
-        if ok:
-            _clear_alert(key)
-            log.debug("watchdog ✅ %s: %s", label, detail)
-        else:
-            log.warning("watchdog ❌ %s: %s", label, detail)
-            # Tier 2: auto-remediate restartable services
-            if key in RESTARTABLE:
-                remedy = _try_restart_container(RESTARTABLE[key])
-                remediations.append(f"  • {label}: {remedy}")
-                log.info("watchdog remediation: %s → %s", label, remedy)
-            if _should_alert(key):
-                failures.append(f"  • *{label}*: `{detail}`")
-
-    if failures and token:
-        lines = [f":warning: *KAI Watchdog — {datetime.now().strftime('%H:%M')}*"]
-        lines.append("*Failures detected:*")
-        lines.extend(failures)
-        if remediations:
-            lines.append("*Auto-remediation attempted:*")
-            lines.extend(remediations)
-        _slack_alert(token, "\n".join(lines))
-        log.info("watchdog alert posted: %d failures", len(failures))
-    else:
-        log.info("watchdog ✅ all checks passed")
+    Worker-api had its own watchdog that fired the same checks every 30min as
+    the canonical scheduler watchdog — producing duplicate Slack alerts. This
+    function is now a no-op; the canonical watchdog lives in kai-scheduler.
+    Kept as importable shim so worker-api/scheduler.py imports still work.
+    """
+    log.debug("worker-api watchdog disabled — canonical lives in kai-scheduler")
+    return

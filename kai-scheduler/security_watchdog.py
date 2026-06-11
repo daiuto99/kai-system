@@ -18,7 +18,30 @@ SECRET_MAX_DAYS  = 90
 SPIKE_MULTIPLIER = 3.0   # flag if current hour >= 3x historical average
 MIN_SPIKE_CALLS  = 5     # ignore spikes below this absolute count
 
+ALERT_STATE_FILE = VAULT_PATH / "_security_alert_state.json"
+
+
+def _load_alert_state() -> dict:
+    try:
+        if ALERT_STATE_FILE.exists():
+            raw = json.loads(ALERT_STATE_FILE.read_text())
+            return {k: datetime.datetime.fromisoformat(v) for k, v in raw.items()}
+    except Exception as e:
+        log.warning(f"security alert state read failed: {e}")
+    return {}
+
+
+def _save_alert_state() -> None:
+    try:
+        ALERT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        raw = {k: v.isoformat() for k, v in _alert_sent.items()}
+        ALERT_STATE_FILE.write_text(json.dumps(raw, indent=2))
+    except Exception as e:
+        log.warning(f"security alert state write failed: {e}")
+
+
 _alert_sent: dict = {}
+_alert_sent.update(_load_alert_state())
 
 
 def _load_secret(name: str) -> str:
@@ -29,32 +52,33 @@ def _load_secret(name: str) -> str:
 
 
 def _slack_security(text: str):
-    """Post to #kai-security, fall back to #kai-system."""
+    """JARVIS §6: CRITICAL-shape posts to #devops. No legacy fallback channel."""
     token = _load_secret("slack_bot_token")
     if not token:
         return
-    for channel in ("#devops", "#devops"):
-        try:
-            r = httpx.post(
-                "https://slack.com/api/chat.postMessage",
-                headers={"Authorization": f"Bearer {token}"},
-                json={"channel": channel, "text": text,
-                      "username": "KAI Security", "icon_emoji": ":shield:"},
-                timeout=10,
-            )
-            if r.json().get("ok"):
-                return
-        except Exception as e:
-            log.error(f"Slack security post error ({channel}): {e}")
+    try:
+        httpx.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"channel": "#devops", "text": text,
+                  "username": "KAI Security", "icon_emoji": ":shield:"},
+            timeout=10,
+        )
+    except Exception as e:
+        log.error(f"Slack security post error: {e}")
 
 
 def _dedup(key: str, window_hours: int = 24) -> bool:
-    """Return True if alert should fire (not already sent within window)."""
+    """Return True if alert should fire (not already sent within window).
+
+    Dedup state persists to disk so scheduler restart does not reset it.
+    """
     now = datetime.datetime.now()
     last = _alert_sent.get(key)
     if last and (now - last).total_seconds() < window_hours * 3600:
         return False
     _alert_sent[key] = now
+    _save_alert_state()
     return True
 
 

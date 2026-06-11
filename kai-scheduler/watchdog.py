@@ -13,9 +13,33 @@ WORKER_API  = "http://kai-worker-api:8001"
 COUNCIL_API = "http://kai-council-api:8002"
 OLLAMA_API  = "http://kai-ollama:11434"
 
-# Alert dedup — store last alert time per check key
-_last_alert: dict = {}
+# Alert dedup — persisted to disk so scheduler restart does not wipe state.
+# JSON map: alert_key → last-fire epoch (UTC seconds, or epoch+snooze for OAuth).
+ALERT_STATE_FILE = Path("/vault/_alert_state.json")
 ALERT_INTERVAL_HOURS = 2  # re-alert if still failing after 2h
+
+
+def _load_alert_state() -> dict:
+    try:
+        if ALERT_STATE_FILE.exists():
+            import json as _json
+            return _json.loads(ALERT_STATE_FILE.read_text())
+    except Exception as e:
+        log.warning("alert state read failed: %s", e)
+    return {}
+
+
+def _save_alert_state() -> None:
+    try:
+        import json as _json
+        ALERT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        ALERT_STATE_FILE.write_text(_json.dumps(_last_alert, indent=2))
+    except Exception as e:
+        log.warning("alert state write failed: %s", e)
+
+
+_last_alert: dict = {}
+_last_alert.update(_load_alert_state())
 
 # Plane CE crash-loop detection — track restart count between watchdog runs
 _plane_restart_baseline: int | None = None
@@ -55,21 +79,34 @@ def _should_alert(key: str) -> bool:
     now = datetime.now(timezone.utc).timestamp()
     if last is None or (now - last) > ALERT_INTERVAL_HOURS * 3600:
         _last_alert[key] = now
+        _save_alert_state()
         return True
     return False
 
 
 def _clear_alert(key: str):
-    _last_alert.pop(key, None)
+    if key in _last_alert:
+        _last_alert.pop(key, None)
+        _save_alert_state()
 
 
+_TRANSIENT_MARKERS = ("502", "503", "504", "500", "HTTP 5", "timed out", "timeout",
+                     "Connection error", "ConnectError", "ReadTimeout", "RemoteDisconnected")
 
-def _check_with_retry(fn, retries: int = 1, delay: float = 10.0):
-    """Run a check function; retry on 5xx before treating as failure."""
+
+def _check_with_retry(fn, retries: int = 2, delay: float = 10.0):
+    """Run a check; retry on 5xx OR timeout before treating as failure.
+
+    A 10-second HTTP timeout is not an OAuth credential expiry — it is a
+    transient. We retry up to `retries` times with `delay` backoff. Only a
+    persistent failure becomes an alert.
+    """
     ok, msg = fn()
-    if not ok and any(x in msg for x in ("502", "503", "504", "500", "HTTP 5")):
+    attempts = 0
+    while not ok and attempts < retries and any(x in str(msg) for x in _TRANSIENT_MARKERS):
         time.sleep(delay)
         ok, msg = fn()
+        attempts += 1
     return ok, msg
 
 
@@ -427,17 +464,16 @@ def _remediate_backup() -> str:
 
 
 def _post_oauth_escalation(token: str, service: str, detail: str):
-    """Post a single structured OAuth escalation with fix steps. Does not repeat."""
+    """JARVIS §6 CRITICAL format. Posted at most once per 24h per service.
+
+    Only fired after persistent failure across retries — transient timeouts
+    are absorbed by _check_with_retry. Caller is responsible for the 24h snooze.
+    """
     msg = (
-        f":key: *ACTION NEEDED — KAI OAuth Escalation — {service}*\n"
-        f"Credential has expired and cannot be auto-renewed.\n"
-        f"Error: `{detail}`\n\n"
-        f"*Fix required:*\n"
-        f"  1. Open n8n UI: http://100.78.94.80:5678\n"
-        f"  2. Go to Credentials → find `{service}` credential\n"
-        f"  3. Re-authenticate / refresh the OAuth token\n"
-        f"  4. Test the credential — it should go green\n\n"
-        f"This alert will not repeat for 24h."
+        f"CRITICAL — {service} authentication failed after retries. "
+        f"You need to take action — re-authenticate at "
+        f"http://100.78.94.80:5678 → Credentials → {service}. "
+        f"Detail: `{detail}`."
     )
     _slack_alert(token, msg)
 
@@ -930,10 +966,12 @@ def run_watchdog_checks():
                 else:
                     remediations.append(f"  • {label}: {remedy}")
 
-            # Tier 2: OAuth failures — escalate once with fix steps, then snooze 24h
+            # Tier 2: OAuth failures — escalate once, then snooze 24h.
+            # Snooze state persists to disk via _save_alert_state().
             elif key in OAUTH_SERVICES and _should_alert(key):
                 _post_oauth_escalation(token, OAUTH_SERVICES[key], detail)
                 _last_alert[key] = datetime.now(timezone.utc).timestamp() + (22 * 3600)  # snooze 24h
+                _save_alert_state()
                 log.info("watchdog oauth escalation posted for %s — snoozed 24h", key)
                 continue
 
@@ -989,12 +1027,11 @@ def run_watchdog_checks():
             reason_type, affects = CANT_FIX_REASON.get(key, ("unknown", "unknown impact"))
             action = ACTION_NEEDED.get(key, "Check: ssh kai 'docker ps'")
             reason_str = "Hard limit" if reason_type == "hardlimit" else "System issue"
+            # JARVIS §6 CRITICAL format.
             msg = (
-                f":warning: *ACTION NEEDED — {label}*\n"
-                f"`{detail}`\n"
-                f"Can't fix: {reason_str}\n"
-                f"Affects: {affects}\n"
-                f"Action: {action}"
+                f"CRITICAL — {label} {detail}. "
+                f"You need to take action — {action}. "
+                f"({reason_str} · affects: {affects})"
             )
             _slack_alert(token, msg)
         log.info("watchdog alert posted: %d failures", len(failures))
