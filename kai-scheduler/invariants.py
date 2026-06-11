@@ -234,6 +234,54 @@ def inv_plane_api_health() -> tuple[bool, str]:
         return False, f"plane unreachable: {e}"
 
 
+# Per-advisor required blocks. Source of truth for KAI-458 Slice A.
+# Universal requirements + advisor-specific overrides.
+_PERSONA_UNIVERSAL_REQUIRED = ("<background_context>", "<date_reference>", "<current_datetime>")
+_PERSONA_ADVISOR_REQUIRED: dict[str, tuple[str, ...]] = {
+    "kai":      ("<org_model>",),
+    "dev":      ("<organization_structure>", "<build_profile>"),
+    "creative": ("<organization_structure>", "<build_profile>"),
+}
+
+
+def inv_persona_assembly() -> tuple[bool, str]:
+    """Every advisor persona loads without warnings AND contains its required blocks.
+
+    Catches the KAI-457 class of bug — silent degradation of persona prompts
+    where the load function swallows errors and returns degraded context.
+    Source of truth for advisor-specific block requirements is the dict above.
+    """
+    try:
+        r = httpx.get(f"{COUNCIL_API}/internal/invariants/persona_check", timeout=30)
+        if r.status_code != 200:
+            return False, f"diagnostic endpoint HTTP {r.status_code}"
+        data = r.json()
+    except Exception as e:
+        return False, f"diagnostic unreachable: {type(e).__name__}: {e}"
+
+    results = data.get("results", {})
+    if not results:
+        return False, "no advisor results returned"
+
+    failures: list[str] = []
+    for advisor, r_data in results.items():
+        if not r_data.get("load_ok"):
+            failures.append(f"{advisor}: load failed ({r_data.get('error', 'unknown')})")
+            continue
+        warnings = r_data.get("warnings", [])
+        if warnings:
+            failures.append(f"{advisor}: {len(warnings)} warning(s) — {warnings[0][:80]}")
+        blocks = r_data.get("blocks_present", {})
+        required = list(_PERSONA_UNIVERSAL_REQUIRED) + list(_PERSONA_ADVISOR_REQUIRED.get(advisor, ()))
+        missing = [b for b in required if not blocks.get(b, False)]
+        if missing:
+            failures.append(f"{advisor}: missing {','.join(missing)}")
+
+    if failures:
+        return False, "FAIL: " + " | ".join(failures[:5])
+    return True, f"ok — {len(results)} advisors, all required blocks present, no warnings"
+
+
 # ── Engine ────────────────────────────────────────────────────────────────────
 
 INVARIANTS = [
@@ -247,6 +295,7 @@ INVARIANTS = [
     ("disk_usage",                    "Disk Usage",                inv_disk_usage),
     ("llm_latency",                   "LLM Latency",               inv_llm_latency),
     ("plane_api_health",              "Plane API Health",          inv_plane_api_health),
+    ("persona_assembly",              "Persona Assembly",          inv_persona_assembly),
 ]
 
 

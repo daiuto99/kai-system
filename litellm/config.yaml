@@ -20,6 +20,20 @@ model_list:
   #     model: gemini/gemini-1.5-pro
   #     api_key: os.environ/GEMINI_API_KEY
 
+  # Local Qwen via Ollama — DEFAULT for structural monitoring (KAI-463, KAI-459 local-first rule).
+  # Use for: log triage, invariants, structural audits, schema validation,
+  # capability verification, gate-fired-or-not checks. Cost: $0.
+  # Do NOT use for: judgment-tier monitoring (taste, voice, brand) — that routes to Sonnet.
+  - model_name: qwen-small
+    litellm_params:
+      model: ollama_chat/qwen2.5:3b
+      api_base: http://kai-ollama:11434
+
+  - model_name: qwen-mid
+    litellm_params:
+      model: ollama_chat/qwen2.5:7b
+      api_base: http://kai-ollama:11434
+
 litellm_settings:
   drop_params: true
   request_timeout: 90

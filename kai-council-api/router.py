@@ -537,3 +537,59 @@ def ingest_file_endpoint(body: dict):
         return {"ok": False, "error": result.stderr[:500]}
     lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
     return {"ok": True, "advisor": advisor, "path": path, "summary": lines[-1] if lines else "done"}
+
+
+@router.get("/internal/invariants/persona_check")
+def internal_persona_check():
+    """Diagnostic for KAI-458 Slice A persona-assembly invariant.
+
+    Exercises load_persona() for each named advisor while capturing any
+    warning/error log records emitted by the persona-load path. Reports
+    block presence + warnings + size so kai-scheduler can assert against
+    the expected shape of each persona prompt.
+    """
+    advisors = ["kai", "dev", "creative", "doc", "coach", "sky", "roads", "ember", "beats"]
+    blocks_to_check = [
+        "<background_context>",
+        "<organization_structure>",
+        "<build_profile>",
+        "<org_model>",
+        "<session_memory>",
+        "<date_reference>",
+        "<current_datetime>",
+    ]
+
+    persona_logger = logging.getLogger("persona")
+    load_context_logger = logging.getLogger("load_context")
+    captured: list[tuple[str, str]] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            if record.levelno >= logging.WARNING:
+                captured.append((record.name, record.getMessage()))
+
+    handler = _Capture()
+    persona_logger.addHandler(handler)
+    load_context_logger.addHandler(handler)
+
+    results: dict[str, dict] = {}
+    try:
+        for advisor in advisors:
+            captured.clear()
+            try:
+                prompt = load_persona(advisor)
+                results[advisor] = {
+                    "load_ok": True,
+                    "size": len(prompt),
+                    "blocks_present": {b: (b in prompt) for b in blocks_to_check},
+                    "warnings": [f"{src}: {msg}" for src, msg in captured],
+                }
+            except HTTPException as e:
+                results[advisor] = {"load_ok": False, "error": f"HTTP {e.status_code}: {e.detail}"}
+            except Exception as e:
+                results[advisor] = {"load_ok": False, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        persona_logger.removeHandler(handler)
+        load_context_logger.removeHandler(handler)
+
+    return {"ok": True, "results": results}

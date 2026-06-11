@@ -4,6 +4,11 @@ services:
     build: ./kai-worker-api
     container_name: kai-worker-api
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
     ports:
       - "8001:8001"
     volumes:
@@ -32,6 +37,11 @@ services:
     build: ./kai-council-api
     container_name: kai-council-api
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
     ports:
       - "8002:8002"
     volumes:
@@ -199,6 +209,11 @@ services:
     build: ./kai-scheduler
     container_name: kai-scheduler
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
     environment:
       - TZ=America/New_York
     volumes:
@@ -218,6 +233,7 @@ services:
       - slack_signing_secret
       - oura_token
       - plane_api_token
+      - litellm_master_key
     depends_on:
       kai-worker-api:
         condition: service_healthy
@@ -274,6 +290,11 @@ services:
     build: ./kai-orchestrator
     container_name: kai-orchestrator
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
     environment:
       - ORCHESTRATOR_INTERNAL_URL=http://kai-orchestrator:8003
       - COUNCIL_API_URL=http://kai-council-api:8002

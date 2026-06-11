@@ -57,6 +57,10 @@ def load_persona(advisor: str, channel: str = None) -> str:
     if org_file and org_file.exists():
         parts.append('<organization_structure>\n' + org_file.read_text(encoding="utf-8") + '\n</organization_structure>')
 
+    build_profile_file = advisor_dir / "BUILD_PROFILE.md"
+    if build_profile_file.exists():
+        parts.append('<build_profile>\n' + build_profile_file.read_text(encoding="utf-8") + '\n</build_profile>')
+
     style_guide = COUNCIL_PATH / "JARVIS_STYLE_GUIDE.md"
     if style_guide.exists():
         parts.append(style_guide.read_text(encoding="utf-8"))

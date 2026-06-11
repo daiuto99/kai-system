@@ -626,6 +626,279 @@ ACTION_NEEDED = {
 }
 
 
+# ── KAI-465 / KAI-467: warning-log triage + archive ───────────────────────────
+
+_LITELLM_URL = "http://kai-litellm:4000"
+_LOG_ARCHIVE_DIR = Path("/vault/_logs")
+_ARCHIVE_INTERVAL_HOURS = 1
+_ARCHIVE_RETENTION_DAYS = 90
+_last_log_archive: float = 0.0
+_last_log_prune: float = 0.0
+_WARNING_DEDUPE_PATH = Path("/vault/_warning_dedupe.json")
+_WARNING_CONTAINERS = ("kai-council-api", "kai-worker-api", "kai-orchestrator")
+_WARNING_SCAN_MINUTES = 25  # slightly larger than the 15-min watchdog cadence to overlap
+_WARNING_DEDUPE_HOURS = 24
+_WARNING_MAX_CLASSIFY_PER_RUN = 20
+# Python logging level prefix + logger name + message
+_WARNING_LINE_RE = __import__("re").compile(
+    r"^(?P<level>WARNING|ERROR|CRITICAL)(?::|\s+[\-]\s+)(?P<logger>[\w\.\-]+)(?::|\s+[\-]\s+)(?P<msg>.+)$"
+)
+# Strip variable parts for fingerprint stability
+_FP_STRIP_RE = __import__("re").compile(
+    r"(\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|"  # UUIDs
+    r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[\.\,]?\d*|"                    # timestamps
+    r"'[^']{0,200}'|\"[^\"]{0,200}\"|"                                       # quoted strings
+    r"\b[a-z]*\d+[a-z0-9]*\b|"                                               # mixed alnum / IDs (covers abc123, 2c100116, etc.)
+    r"\b[a-f0-9]{6,}\b)",                                                    # hex chunks 6+
+    __import__("re").IGNORECASE,
+)
+
+
+def _docker_logs_since(container: str, minutes: int) -> list[str]:
+    """Return stdout+stderr lines from docker logs --since for container. Empty on error."""
+    try:
+        r = subprocess.run(
+            ["docker", "logs", "--since", f"{minutes}m", container],
+            capture_output=True, text=True, timeout=20,
+        )
+        return (r.stdout + r.stderr).splitlines()
+    except Exception as e:
+        log.error("warning-triage: docker logs failed for %s: %s", container, e)
+        return []
+
+
+def _fingerprint(container: str, logger_name: str, message: str) -> str:
+    """Stable hash across variable substitutions in the same warning template."""
+    import hashlib
+    stripped = _FP_STRIP_RE.sub("§", message)[:400]
+    seed = f"{container}|{logger_name}|{stripped}"
+    return hashlib.sha256(seed.encode()).hexdigest()[:16]
+
+
+def _load_warning_dedupe() -> dict:
+    import json
+    if not _WARNING_DEDUPE_PATH.exists():
+        return {}
+    try:
+        return json.loads(_WARNING_DEDUPE_PATH.read_text())
+    except Exception as e:
+        log.warning("warning-triage: dedupe cache unreadable, starting fresh: %s", e)
+        return {}
+
+
+def _save_warning_dedupe(d: dict) -> None:
+    import json
+    try:
+        _WARNING_DEDUPE_PATH.write_text(json.dumps(d, indent=2))
+    except Exception as e:
+        log.error("warning-triage: dedupe cache write failed: %s", e)
+
+
+def _classify_warning_local(container: str, logger_name: str, message: str) -> dict:
+    """Classify a warning via local qwen-mid through LiteLLM. Returns {category, fix}.
+
+    Category: real-bug | config-missing | transient-recoverable | noise.
+    Local-first per KAI-459. $0 cost.
+    """
+    import json
+    try:
+        master_key_p = Path("/run/secrets/litellm_master_key")
+        master_key = master_key_p.read_text().strip() if master_key_p.exists() else ""
+    except Exception:
+        master_key = ""
+
+    sys_prompt = (
+        "You classify a single Python WARNING/ERROR log line into ONE category. "
+        "Categories: real-bug (code defect that will cause incorrect behavior), "
+        "config-missing (a required config/env/secret is absent), "
+        "transient-recoverable (network timeout, rate limit, retry will fix), "
+        "noise (deprecation, expected info, shutdown trace, library chatter). "
+        "Reply with raw JSON only: {\"category\":\"...\", \"fix\":\"one short sentence\"}."
+    )
+    user_prompt = f"Container: {container}\nLogger: {logger_name}\nMessage: {message[:400]}"
+    payload = {
+        "model": "qwen-mid",
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": 120,
+        "temperature": 0,
+    }
+    try:
+        r = httpx.post(
+            f"{_LITELLM_URL}/v1/chat/completions",
+            headers={"Authorization": f"Bearer {master_key}", "Content-Type": "application/json"},
+            json=payload, timeout=60,
+        )
+        if r.status_code != 200:
+            return {"category": "noise", "fix": f"classifier HTTP {r.status_code}"}
+        content = r.json()["choices"][0]["message"]["content"].strip()
+        # Strip any ```json fencing
+        if content.startswith("```"):
+            content = content.strip("`")
+            if content.startswith("json"):
+                content = content[4:].strip()
+        parsed = json.loads(content)
+        cat = parsed.get("category", "noise").strip().lower()
+        if cat not in ("real-bug", "config-missing", "transient-recoverable", "noise"):
+            cat = "noise"
+        return {"category": cat, "fix": str(parsed.get("fix", ""))[:200]}
+    except Exception as e:
+        log.warning("warning-triage: classifier error: %s", e)
+        return {"category": "noise", "fix": f"classifier failed: {e}"}
+
+
+def check_container_warnings():
+    """Scrape WARNING+ from container logs, dedupe, classify via qwen-mid, file Plane bugs.
+
+    KAI-465 / KAI-459 epic. Closes the silent-warning channel that hid KAI-457
+    for 5 days. Routes through local Qwen for $0 classification cost.
+    """
+    now_ts = datetime.now(timezone.utc).timestamp()
+    dedupe = _load_warning_dedupe()
+    window_sec = _WARNING_DEDUPE_HOURS * 3600
+
+    new_warnings: list[dict] = []
+    for container in _WARNING_CONTAINERS:
+        for line in _docker_logs_since(container, _WARNING_SCAN_MINUTES):
+            m = _WARNING_LINE_RE.match(line.strip())
+            if not m:
+                continue
+            level = m.group("level")
+            logger_name = m.group("logger")
+            msg = m.group("msg").strip()
+            # Skip uvicorn access lines that occasionally surface as WARNING
+            if logger_name.startswith("uvicorn") and "HTTP/" in msg:
+                continue
+            fp = _fingerprint(container, logger_name, msg)
+            cached = dedupe.get(fp)
+            if cached and (now_ts - cached.get("last_seen", 0)) < window_sec:
+                continue
+            new_warnings.append({
+                "container": container,
+                "level": level,
+                "logger": logger_name,
+                "message": msg,
+                "fp": fp,
+            })
+
+    if not new_warnings:
+        log.info("warning-triage: no new warnings in last %d min", _WARNING_SCAN_MINUTES)
+        return
+
+    log.info("warning-triage: %d new warning(s) found, classifying", len(new_warnings))
+
+    filed_count = 0
+    for w in new_warnings[:_WARNING_MAX_CLASSIFY_PER_RUN]:
+        cls = _classify_warning_local(w["container"], w["logger"], w["message"])
+        dedupe[w["fp"]] = {
+            "last_seen": now_ts,
+            "category": cls["category"],
+            "container": w["container"],
+            "logger": w["logger"],
+            "preview": w["message"][:120],
+        }
+        if cls["category"] in ("real-bug", "config-missing"):
+            try:
+                from triage import create_plane_bug
+                seq = create_plane_bug(
+                    function_name=f"{w['container']}/{w['logger']}",
+                    error=f"[{w['level']}] {w['message'][:300]}",
+                    proposed_fix=cls["fix"][:200] or "Pending DevOps analysis",
+                    risk=cls["category"],
+                )
+                if seq:
+                    filed_count += 1
+                    log.warning(
+                        "warning-triage: filed KAI-%s for %s/%s (%s)",
+                        seq, w["container"], w["logger"], cls["category"],
+                    )
+            except Exception as e:
+                log.error("warning-triage: Plane file failed: %s", e)
+
+    _save_warning_dedupe(dedupe)
+    log.info(
+        "warning-triage: cycle done — %d new, %d classified, %d Plane bugs filed",
+        len(new_warnings),
+        min(len(new_warnings), _WARNING_MAX_CLASSIFY_PER_RUN),
+        filed_count,
+    )
+
+
+def archive_container_warnings():
+    """KAI-467 — hourly archive of WARNING+ lines from each monitored container.
+
+    Day-bucketed append-only files in /vault/_logs/<container>/<YYYY-MM-DD>.log.
+    Survives container removal because the vault lives on a host-mounted volume.
+    Forensic source-of-truth when KAI-465's dedupe references warnings whose
+    in-container logs have been rotated or wiped.
+    """
+    global _last_log_archive
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if (now_ts - _last_log_archive) < _ARCHIVE_INTERVAL_HOURS * 3600:
+        return
+    _last_log_archive = now_ts
+
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    archived_total = 0
+    for container in _WARNING_CONTAINERS:
+        # 65m overlap window so the hourly schedule never has a gap
+        lines = _docker_logs_since(container, 65)
+        warning_lines: list[str] = []
+        for line in lines:
+            m = _WARNING_LINE_RE.match(line.strip())
+            if not m:
+                continue
+            if m.group("logger").startswith("uvicorn") and "HTTP/" in m.group("msg"):
+                continue
+            warning_lines.append(line.rstrip())
+        if not warning_lines:
+            continue
+        try:
+            container_dir = _LOG_ARCHIVE_DIR / container
+            container_dir.mkdir(parents=True, exist_ok=True)
+            archive_path = container_dir / f"{today_iso}.log"
+            with archive_path.open("a", encoding="utf-8") as f:
+                for line in warning_lines:
+                    f.write(line + "\n")
+            archived_total += len(warning_lines)
+        except Exception as e:
+            log.error("log-archive: write failed for %s: %s", container, e)
+
+    if archived_total:
+        log.info("log-archive: appended %d warning(s) across %d container(s)",
+                 archived_total, len(_WARNING_CONTAINERS))
+
+
+def prune_archived_logs():
+    """KAI-467 — daily prune of log archive files older than retention window."""
+    global _last_log_prune
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if (now_ts - _last_log_prune) < 24 * 3600:
+        return
+    _last_log_prune = now_ts
+
+    if not _LOG_ARCHIVE_DIR.exists():
+        return
+    cutoff_ts = now_ts - (_ARCHIVE_RETENTION_DAYS * 24 * 3600)
+    pruned = 0
+    try:
+        for container_dir in _LOG_ARCHIVE_DIR.iterdir():
+            if not container_dir.is_dir():
+                continue
+            for f in container_dir.glob("*.log"):
+                if f.stat().st_mtime < cutoff_ts:
+                    f.unlink()
+                    pruned += 1
+    except Exception as e:
+        log.error("log-prune: walk failed: %s", e)
+        return
+    if pruned:
+        log.info("log-prune: removed %d archive file(s) older than %dd",
+                 pruned, _ARCHIVE_RETENTION_DAYS)
+
+
 def run_watchdog_checks():
     """Run all functional health checks. Post failures to #kai-system."""
     run_maintenance()
@@ -682,6 +955,22 @@ def run_watchdog_checks():
         run_gap_checks()
     except Exception as e:
         log.error("gap checks failed: %s", e)
+
+    # Container warning triage (KAI-465) — scrape log warnings, classify, file Plane bugs
+    try:
+        check_container_warnings()
+    except Exception as e:
+        log.error("warning-triage failed: %s", e)
+
+    # Container log archive (KAI-467) — hourly snapshot of WARNING+ into vault for forensics
+    try:
+        archive_container_warnings()
+    except Exception as e:
+        log.error("log-archive failed: %s", e)
+    try:
+        prune_archived_logs()
+    except Exception as e:
+        log.error("log-prune failed: %s", e)
 
 
     # Auto-fixed: log only, no Slack noise

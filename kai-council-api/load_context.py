@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from council_config import COUNCIL_PATH, WORKER_URL
+from council_config import COUNCIL_PATH, VAULT_PATH, WORKER_URL
 
 logger = logging.getLogger(__name__)
 

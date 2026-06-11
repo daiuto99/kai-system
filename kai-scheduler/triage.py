@@ -157,35 +157,58 @@ def slack_triage_alert(function_name: str, error: str, plane_seq: int | None, pr
         log.error("triage: Slack alert failed: %s", e)
 
 
+_LITELLM_URL = "http://kai-litellm:4000"
+
+
 def _get_devops_analysis(function_name: str, error: str) -> tuple[str, str]:
-    """Consult DevOps specialist for root cause, proposed fix, and risk level."""
+    """Classify a scheduled-function failure via local qwen-mid through LiteLLM.
+
+    KAI-464 — first call-site retarget from Sonnet (via council /message) to
+    local Qwen. This is a structural classification task (extract proposed-fix
+    + risk from an error string) — exactly the monitoring class that the
+    KAI-459 local-first rule says belongs on Qwen. Cost: $0.
+    """
     try:
-        prompt = (
-            "A KAI scheduled function failed. Analyze and respond in EXACTLY this format:\n\n"
+        master_key_p = Path("/run/secrets/litellm_master_key")
+        master_key = master_key_p.read_text().strip() if master_key_p.exists() else ""
+
+        system_prompt = (
+            "You are KAI's DevOps triage classifier. Given a failed scheduled "
+            "function and its error message, respond in EXACTLY this format on "
+            "two lines, nothing else:\n"
             "PROPOSED FIX: <one concrete sentence>\n"
-            "RISK: <Low|Medium|High> — <one sentence justification>\n\n"
-            f"Function: {function_name}\n"
-            f"Error: {error[:600]}"
+            "RISK: <Low|Medium|High> — <one sentence justification>"
         )
+        user_prompt = f"Function: {function_name}\nError: {error[:600]}"
+        payload = {
+            "model": "qwen-mid",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": 200,
+            "temperature": 0,
+        }
         r = httpx.post(
-            f"{COUNCIL_API}/message",
-            json={"channel": "devops", "message": prompt, "user_id": "triage"},
-            timeout=60,
+            f"{_LITELLM_URL}/v1/chat/completions",
+            headers={"Authorization": f"Bearer {master_key}", "Content-Type": "application/json"},
+            json=payload, timeout=60,
         )
         r.raise_for_status()
-        reply = r.json().get("reply", "")
+        reply = r.json()["choices"][0]["message"]["content"]
+
         proposed_fix = "See Plane ticket for DevOps analysis"
         risk = "Unknown"
         for line in reply.splitlines():
             stripped = line.strip()
-            if stripped.startswith("PROPOSED FIX:"):
-                proposed_fix = stripped.replace("PROPOSED FIX:", "").strip()
-            elif stripped.startswith("RISK:"):
-                risk = stripped.replace("RISK:", "").strip()
-        log.info("DevOps analysis: fix=%s risk=%s", proposed_fix[:60], risk[:30])
+            if stripped.upper().startswith("PROPOSED FIX:"):
+                proposed_fix = stripped.split(":", 1)[1].strip()
+            elif stripped.upper().startswith("RISK:"):
+                risk = stripped.split(":", 1)[1].strip()
+        log.info("DevOps analysis (qwen-mid): fix=%s risk=%s", proposed_fix[:60], risk[:30])
         return proposed_fix, risk
     except Exception as e:
-        log.error("DevOps council analysis failed: %s", e)
+        log.error("DevOps qwen-mid analysis failed: %s", e)
         return "DevOps analysis failed — investigate manually", "Unknown"
 
 
