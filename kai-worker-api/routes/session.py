@@ -32,6 +32,7 @@ def session_brief():
         "last_close": None,
         "warmboot": None,
         "warmboot_required": True,
+        "next_action": None,
     }
 
     # 1. StateOfTheUnion.md
@@ -179,6 +180,32 @@ def session_brief():
         except Exception:
             pass
     # warmboot_required stays True if manifest is missing or parse failed
+
+
+    # 6. next_action.json — explicit "what to do next session" override.
+    # Highest-precedence signal. Set by close engine or directly. CLAUDE.md
+    # NEXT UP rule consumes this verbatim when present.
+    next_action_path = VAULT_PATH / "00_System" / "next_action.json"
+    if next_action_path.exists():
+        try:
+            na = json.loads(next_action_path.read_text())
+            expires = na.get("expires_at")
+            if expires:
+                try:
+                    exp_dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+                    if exp_dt < datetime.now(exp_dt.tzinfo):
+                        na = None
+                except Exception:
+                    pass
+            if na:
+                brief["next_action"] = {
+                    "action": na.get("action", ""),
+                    "sprint": na.get("sprint"),
+                    "context": na.get("context", ""),
+                    "written_at": na.get("written_at", ""),
+                }
+        except Exception:
+            pass
 
     return brief
 
