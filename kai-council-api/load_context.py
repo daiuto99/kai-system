@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from council_config import COUNCIL_PATH, VAULT_PATH, WORKER_URL
+import function_map as fm
 
 logger = logging.getLogger(__name__)
 
@@ -78,43 +79,31 @@ def load_org_model_context() -> str:
     the caller / persona invariant sees the failure instead of producing a KAI
     persona without org_model routing rules.
     """
-    import json as _json
-    org_path = VAULT_PATH / "00_System" / "org_model.json"
-    if not org_path.exists():
-        logger.warning("load_org_model_context: org_model.json missing — degraded")
-        return ""
     try:
-        model = _json.loads(org_path.read_text())
-        domain_map = model.get("advisor_domain_map", {})
-        routing    = model.get("routing_rules", {})
-        gov        = model.get("governance", {})
+        cd = (fm.get_governance("creative_agency") or {}).get("director", "creative")
+        ed = (fm.get_governance("engineering_agency") or {}).get("director", "dev")
+        bt = fm.get_first_receiver_for_bug()
 
         lines = ["<org_model>"]
         lines.append("You are the PM and system orchestrator. Leo is the client.")
-        cd = gov.get("creative_agency", {}).get("director", "creative")
-        ed = gov.get("engineering_agency", {}).get("director", "dev")
-        bt = gov.get("bug_triage", {}).get("first_receiver", "support-engineer")
         lines.append(f"Creative agency director: {cd} (sign-off required before KAI review)")
         lines.append(f"Engineering agency director: {ed} (sign-off required before KAI review)")
         lines.append("DevOps: autonomous on health/maintenance. Escalates structural changes.")
-        lines.append(f"Bug triage: all bugs start at {bt}")
+        lines.append(f"Bug triage: all bugs start at {bt} (KAI internal role — classifies + routes via bug.routing)")
 
         lines.append("")
         lines.append("Advisor domain routing — pull in the right advisor when working in their domain:")
-        for domain, info in domain_map.items():
-            if domain == "direct_advisors":
-                continue
-            kw = ", ".join(info.get("keywords", [])[:5])
-            advisor = info.get("advisor", "")
-            lines.append(f"  {domain} -> {advisor} (triggers: {kw})")
+        for entry in fm.list_advisor_domains():
+            kw = ", ".join(entry["keywords"][:5])
+            lines.append(f"  {entry['domain']} -> {entry['advisor']} (triggers: {kw})")
 
-        direct = domain_map.get("direct_advisors", [])
+        direct = fm.list_direct_advisors()
         if direct:
             lines.append(f"Direct advisors (Leo also talks to them directly): {', '.join(direct)}")
 
         lines.append("")
         lines.append("Task routing:")
-        for rtype, rule in routing.items():
+        for rtype, rule in fm.list_routing_rules().items():
             owner = rule.get("owner") or rule.get("pm") or rule.get("first_receiver", "")
             gate = rule.get("gate", "none")
             lines.append(f"  {rtype}: owner={owner}, gate={gate}")

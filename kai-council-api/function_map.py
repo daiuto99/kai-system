@@ -158,6 +158,12 @@ def get_routing_rule(rule_id: str) -> dict | None:
     return om.get("routing_rules", {}).get(rule_id)
 
 
+def list_routing_rules() -> dict[str, dict]:
+    """All routing rules keyed by task type."""
+    om, _ = _load()
+    return dict(om.get("routing_rules", {}))
+
+
 def get_governance(role: str) -> dict | None:
     """Governance block for client / pm / creative_agency / engineering_agency / ..."""
     om, _ = _load()

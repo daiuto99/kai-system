@@ -27,13 +27,13 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
+import function_map as fm
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _GATES_STORE: dict[str, dict] = {}
 _VAULT_GATES = Path("/vault/00_System/gates")
-_VAULT_ORG_MODEL  = Path("/vault/00_System/org_model.json")
 _VAULT_REFERENCES = Path("/vault/60_Council/creative/references")
 _BUILD_PROFILES = {
     "creative": Path("/vault/60_Council/creative/BUILD_PROFILE.md"),
@@ -681,11 +681,7 @@ def _kai_quality_check(check_type: str, brief: dict, instruction: str) -> str:
     try:
         from graphs.graph import get_graph
         graph = get_graph()
-        org_model = {}
-        if _VAULT_ORG_MODEL.exists():
-            org_model = json.loads(_VAULT_ORG_MODEL.read_text())
-
-        gate_policy = org_model.get("gate_policies", {}).get(f"{check_type}_gate", {})
+        gate_policy = fm.get_gate_policy(f"{check_type}_gate") or {}
         standards = json.dumps(gate_policy, indent=2) if gate_policy else ""
 
         message = (

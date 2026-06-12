@@ -7,6 +7,7 @@ import httpx
 from council_config import ADVISOR_CHANNELS, WORKER_URL, _track_usage, _check_rate_limit
 from complexity import _classify_complexity, _get_advisor_config
 from persona import load_persona
+import function_map as fm
 from history import _append_history
 from insights import extract_and_strip_insights, append_insights_to_vault
 from knowledge_layer import _auto_summarize
@@ -348,6 +349,24 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     qdrant_ctx = _query_qdrant(req.message, advisor, top_k=3)
     if qdrant_ctx:
         system_prompt += f"\n\n<knowledge_context>\n{qdrant_ctx}\n</knowledge_context>"
+
+    # KAI is PM; when she receives a message, classify the domain via the
+    # function map and surface the matched advisor as a hint. KAI decides
+    # whether to consult_specialist — this just stops her from improvising
+    # which advisor owns the domain.
+    if advisor == "kai":
+        _dh = fm.get_advisor_for_domain(req.message or "")
+        if _dh.get("advisor"):
+            system_prompt += (
+                f"\n\n<domain_hint>"
+                f"\nThis message matches domain '{_dh['domain']}' "
+                f"(keyword: '{_dh['matched_keyword']}'). "
+                f"Primary advisor for this domain: {_dh['advisor']}. "
+                f"Use consult_specialist or pull in {_dh['advisor']} if domain knowledge is needed."
+                f"\n</domain_hint>"
+            )
+            logger.info("router: domain_hint channel=%s domain=%s advisor=%s kw=%s",
+                        channel, _dh["domain"], _dh["advisor"], _dh["matched_keyword"])
     messages = req.history[-10:]
     if req.attachments:
         import base64 as _b64

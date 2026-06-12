@@ -8,12 +8,12 @@ import httpx
 from council_config import WORKER_URL, VAULT_PATH, ADVISOR_AVATARS, _slack_token
 from knowledge_layer import _write_session_summary, _write_decision, _log_mission_deliverable
 from usage_tracker import track_api_call
+import function_map as fm
 
 logger = logging.getLogger(__name__)
 
 # n8n
 N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
-SPECIALISTS_FILE = VAULT_PATH / "00_System" / "specialists.json"
 # Plane PM
 PLANE_API_TOKEN = open("/run/secrets/plane_api_token").read().strip().split("\n")[0]
 PLANE_BASE_URL = "http://172.18.0.1:8090/api/v1"
@@ -70,22 +70,19 @@ def _register_n8n_workflow(name: str, webhook_url: str, description: str) -> dic
 
 
 def _list_specialists() -> dict:
-    if not SPECIALISTS_FILE.exists():
-        return {"specialists": []}
-    specialists = json.loads(SPECIALISTS_FILE.read_text())
-    return {"specialists": [{"id": s["id"], "name": s["name"], "domain": s["domain"]} for s in specialists]}
+    return {"specialists": [
+        {"id": s["id"], "name": s["name"], "domain": s["domain"]}
+        for s in fm.list_specialists()
+    ]}
 
 
 def _consult_specialist(specialist_id: str, question: str, context: str) -> dict:
     from council_config import _track_usage
     from router import _run_agentic_loop
-    if not SPECIALISTS_FILE.exists():
-        return {"error": "Specialists registry not found"}
 
-    specialists = json.loads(SPECIALISTS_FILE.read_text())
-    spec = next((s for s in specialists if s["id"] == specialist_id), None)
+    spec = fm.get_specialist(specialist_id)
     if not spec:
-        available = [s["id"] for s in specialists]
+        available = [s["id"] for s in fm.list_specialists()]
         return {"error": f"Specialist '{specialist_id}' not found. Available: {available}"}
 
     spec_file = VAULT_PATH / spec["file"]
