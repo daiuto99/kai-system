@@ -138,44 +138,74 @@ def _extract_image_urls(text: str) -> list[str]:
     return urls[:5]  # Slack image blocks cap at 5 to keep message readable
 
 
+def _extract_verdict(text: str, fallback: str = "see artifact") -> str:
+    """Pull a one-line `VERDICT: <line>` from an advisor response.
+
+    Advisors are prompted to put their headline verdict on a line starting with
+    `VERDICT:`. Returns just the line content (no prefix). If absent, returns
+    the fallback string — the gate review still produces a valid Slack message,
+    and a warning is logged so prompt drift is visible.
+    """
+    if not text:
+        return fallback
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.upper().startswith("VERDICT:"):
+            return line.split(":", 1)[1].strip() or fallback
+    logger.warning("No VERDICT: line in advisor response (len=%d) — using fallback", len(text))
+    return fallback
+
+
+def _latest_creative_brief(gate_id: str) -> str:
+    """Return text of the highest-numbered director iteration artifact, or ""."""
+    d = _gate_dir(gate_id)
+    if not d.exists():
+        return ""
+    iters = sorted(d.glob("director_iter_*.md"))
+    if not iters:
+        return ""
+    try:
+        return iters[-1].read_text()
+    except Exception:
+        return ""
+
+
 def _gate_slack_message(gate_id: str, gate_type: str, summary: str, kai_assessment: str, status: str) -> tuple[list, list]:
-    """Returns (blocks, attachments). Attachments carry mood board images for creative gates."""
+    """Build the short Slack message for a gate awaiting Leo.
+
+    Slack is a pointer, not a payload: subject + chain status + artifact dir +
+    decision commands. Full content lives in vault/00_System/gates/{gate_id}/.
+    Nothing here truncates because nothing here is long by design.
+    """
     gate_label = {
         "plan_gate":      "Plan Approval",
         "dev_gate":       "Dev Review",
         "creative_gate":  "Creative Review",
         "devops_gate":    "DevOps Review",
     }.get(gate_type, gate_type)
-
     icon = {"plan_gate": "📋", "dev_gate": "⚙️", "creative_gate": "🎨", "devops_gate": "🔧"}.get(gate_type, "🔒")
 
-    # Split long summary into 2900-char chunks (Slack section block limit is 3000)
-    def _section(text: str) -> list:
-        chunks = []
-        while text:
-            chunks.append({"type": "section", "text": {"type": "mrkdwn", "text": text[:2900]}})
-            text = text[2900:]
-        return chunks
+    artifact_path = f"vault/00_System/gates/{gate_id}/"
+
+    body = (
+        f"*Gate ID:* `{gate_id}` · *Status:* {status}\n"
+        f"{summary}\n"
+        f"*Artifacts:* `{artifact_path}`"
+    )
 
     blocks = [
         {"type": "header", "text": {"type": "plain_text", "text": f"{icon} Gate: {gate_label}"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Gate ID:* `{gate_id}`\n*Status:* {status}"}},
-        {"type": "divider"},
-    ]
-    blocks += _section(summary[:8000])
-    blocks += [
-        {"type": "divider"},
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*KAI Assessment:*\n{kai_assessment[:2900]}"}},
-        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": body}},
         {"type": "section", "text": {"type": "mrkdwn",
             "text": f"• `approve {gate_id}` — approve\n• `reject {gate_id}: [reason]` — reject"}},
     ]
 
-    # KAI-393: mood board images as attachments (image blocks unsupported by this bot token)
+    # Mood-board images as attachments (creative gates only). Pull from the
+    # persisted director iteration artifact, not the Slack summary.
     attachments = []
     if gate_type == "creative_gate":
-        image_urls = _extract_image_urls(summary)
-        for i, url in enumerate(image_urls, 1):
+        latest = _latest_creative_brief(gate_id)
+        for i, url in enumerate(_extract_image_urls(latest), 1):
             attachments.append({
                 "fallback": f"Mood board {i}",
                 "image_url": url,
@@ -291,7 +321,7 @@ def _distill_creative_taste(gate_id: str, approved: bool, notes: str):
             f"[Creative Taste Distillation — {action}]\n\n"
             f"Leo just {action.lower()} a creative brief for: {brief.get('title', 'unknown')}\n"
             f"{notes_section}\n\n"
-            f"The brief that was {'approved' if approved else 'rejected'}:\n{approved_brief[:2500]}\n\n"
+            f"The brief that was {'approved' if approved else 'rejected'}:\n{approved_brief}\n\n"
             "Extract 1-3 concrete taste rules from this decision. Rules must be:\n"
             "- Written as imperative sentences (e.g. 'Use editorial serif typefaces — no grotesque defaults')\n"
             "- Specific — not vague principles\n"
@@ -351,15 +381,18 @@ def _process_gate(req: GateRequest):
         brief     = req.brief
 
         if gate_type == "plan_gate":
-            summary, kai_assessment = _plan_gate_review(brief)
+            summary, kai_assessment = _plan_gate_review(brief, req.gate_id)
         elif gate_type == "dev_gate":
             summary, kai_assessment = _dev_gate_review(brief, req.gate_id)
         elif gate_type == "creative_gate":
             summary, kai_assessment = _creative_gate_review(brief, req.gate_id)
         elif gate_type == "devops_gate":
-            summary, kai_assessment = _devops_gate_review(brief)
-            # DevOps gate: auto-approve routine items, escalate structural
-            if "structural" not in kai_assessment.lower() and "escalate" not in kai_assessment.lower():
+            summary, kai_assessment = _devops_gate_review(brief, req.gate_id)
+            # Auto-approve when the verdict's first token is ROUTINE.
+            # First-token check (not substring) so a body containing the word
+            # STRUCTURAL inside a ROUTINE verdict doesn't falsely escalate.
+            first_token = (kai_assessment.split() or [""])[0].rstrip(",.;:—-").upper()
+            if first_token == "ROUTINE":
                 resolution = {"approved": True, "notes": kai_assessment, "advisor": "devops"}
                 _GATES_STORE[req.gate_id]["status"]     = "resolved"
                 _GATES_STORE[req.gate_id]["resolution"] = resolution
@@ -368,8 +401,9 @@ def _process_gate(req: GateRequest):
                 return
         else:
             logger.warning("Unknown gate_type %r — notifying Leo", gate_type)
-            summary       = json.dumps(brief, indent=2)[:3000]
-            kai_assessment = f"Unknown gate type '{gate_type}' — Leo must decide."
+            _persist_artifact(req.gate_id, "brief", json.dumps(brief, indent=2))
+            summary        = f"*Subject:* (unknown gate type `{gate_type}`)\n*Chain:* none — Leo must decide"
+            kai_assessment = f"Unknown gate type — see brief.md"
 
         # Move to pending_leo: post to Slack, wait for Leo's response
         _GATES_STORE[req.gate_id]["status"]         = "pending_leo"
@@ -390,42 +424,58 @@ def _process_gate(req: GateRequest):
         })
 
 
-def _plan_gate_review(brief: dict) -> tuple[str, str]:
-    """KAI reviews the plan brief and prepares a summary for Leo."""
-    job_name    = brief.get("workflow", brief.get("job_id", "Unknown workflow"))
-    description = brief.get("description", json.dumps(brief, indent=2)[:3000])
-    summary = f"*Workflow:* {job_name}\n\n{description}"
-    kai_assessment = _kai_quality_check(
+def _plan_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
+    """Plan gate (1-hop chain) — KAI reviews the plan against Leo's direction.
+
+    Persists brief.md and kai_verdict.md. Returns a short Slack summary +
+    one-line verdict. Full content lives in the gate's artifact directory.
+    """
+    _persist_artifact(gate_id, "brief", json.dumps(brief, indent=2))
+    job_name = brief.get("workflow", brief.get("job_id", "Unknown workflow"))
+
+    kai_full = _kai_quality_check(
         "plan", brief,
         "Review this plan for completeness, clarity, and alignment with Leo's direction. "
         "Is it clear what will be built? Are the steps logical? Are there obvious gaps?"
     )
-    return summary, kai_assessment
+    _persist_artifact(gate_id, "kai_verdict", kai_full)
+    kai_line = _extract_verdict(kai_full, fallback="see kai_verdict.md")
+
+    summary = f"*Subject:* {job_name}\n*Chain:* KAI plan-review — {kai_line}"
+    return summary, kai_line
 
 
 def _dev_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
-    """LSE reviews the engineering brief, then KAI quality-checks."""
+    """Dev gate (2-hop chain) — LSE engineering review → KAI quality check."""
+    _persist_artifact(gate_id, "brief", json.dumps(brief, indent=2))
     build_profile = _BUILD_PROFILES["dev"].read_text() if _BUILD_PROFILES["dev"].exists() else ""
-    summary_input = json.dumps(brief, indent=2)[:3000]
+    brief_text = json.dumps(brief, indent=2)
+    job_name = brief.get("workflow", brief.get("title", brief.get("job_id", "Engineering work")))
 
-    lse_review = _call_advisor("dev",
-        f"[LSE Sign-Off Required]\n\nBuild Profile Standards:\n{build_profile[:2000]}\n\n"
-        f"Engineering Brief:\n{summary_input}\n\n"
+    lse_full = _call_advisor("dev",
+        f"[LSE Sign-Off Required]\n\nBuild Profile Standards:\n{build_profile}\n\n"
+        f"Engineering Brief:\n{brief_text}\n\n"
         "Review this brief against the build profile. Does it meet Leo's engineering standards? "
-        "What is your assessment and sign-off? Be specific about what was checked.",
+        "What is your assessment and sign-off? Be specific about what was checked.\n\n"
+        "RESPONSE FORMAT — first line MUST be:\n"
+        "VERDICT: <SIGNED-OFF | CONCERNS | REJECTED> — one-sentence headline\n"
+        "Then the full review on subsequent lines.",
         gate_id
     )
+    _persist_artifact(gate_id, "lse_review", lse_full)
+    lse_line = _extract_verdict(lse_full, fallback="see lse_review.md")
 
-    _persist_artifact(gate_id, "lse_review", lse_review)
-    summary = f"*Engineering Brief:*\n{summary_input[:2000]}\n\n*LSE Sign-Off:*\n{lse_review[:2000]}"
-
-    kai_assessment = _kai_quality_check(
+    kai_full = _kai_quality_check(
         "dev", brief,
-        f"LSE has reviewed and signed off:\n{lse_review[:2500]}\n\n"
+        f"LSE has reviewed and signed off:\n{lse_full}\n\n"
         "Does this engineering work meet Leo's standards? Is it scoped correctly? "
         "Is the approach sound? Would Leo approve this?"
     )
-    return summary, kai_assessment
+    _persist_artifact(gate_id, "kai_verdict", kai_full)
+    kai_line = _extract_verdict(kai_full, fallback="see kai_verdict.md")
+
+    summary = f"*Subject:* {job_name}\n*Chain:* LSE — {lse_line} · KAI — {kai_line}"
+    return summary, kai_line
 
 
 _BRIEF_REQUIRED_SECTIONS = [
@@ -461,7 +511,7 @@ def _kai_validate_brief(produced_brief: str) -> tuple[bool, str]:
             "- Reject if content voice only describes tone without example sentences\n"
             "- Reject if mood board references have no WHY notes\n"
             "- Reject if brief contradicts BUILD_PROFILE for the property\n\n"
-            f"Brief to review:\n{produced_brief[:5000]}\n\n"
+            f"Brief to review:\n{produced_brief}\n\n"
             "Reply with APPROVED if all 5 sections pass all criteria.\n"
             "Reply with REJECTED: <specific list of what is missing or weak> if not.\n"
             "Be strict. Leo relies on this check so he only sees briefs that are ready."
@@ -474,7 +524,7 @@ def _kai_validate_brief(produced_brief: str) -> tuple[bool, str]:
             "input_tokens": 0, "output_tokens": 0, "audit_log": [],
         }
         result = graph.invoke(state, config={"configurable": {"thread_id": "kai-brief-validation"}})
-        reply = result.get("final_reply", "")[:3000]
+        reply = result.get("final_reply", "")
         approved = reply.strip().upper().startswith("APPROVED")
         return approved, reply
     except Exception as e:
@@ -490,7 +540,7 @@ def _creative_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
     Leo approves once — then it gets built.
     """
     build_profile = _BUILD_PROFILES["creative"].read_text() if _BUILD_PROFILES["creative"].exists() else ""
-    direction = brief.get("direction", json.dumps(brief, indent=2))[:3000]
+    direction = brief.get("direction", json.dumps(brief, indent=2))
     title = brief.get("title", brief.get("project", "Creative request"))
     property_name = brief.get("property", brief.get("project", ""))
 
@@ -511,7 +561,7 @@ def _creative_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
 
         produced_brief = _call_advisor("creative",
             f"[Creative Brief — Iteration {iteration}/3]\n\n"
-            f"BUILD PROFILE:\n{build_profile[:2000]}\n\n"
+            f"BUILD PROFILE:\n{build_profile}\n\n"
             + (f"{reference_library}\n\n" if reference_library else "")
             + f"LEO'S DIRECTION:\n{direction}\n\n"
             f"PROPERTY: {property_name}\n"
@@ -531,9 +581,10 @@ def _creative_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
             gate_id
         )
 
-        _persist_artifact(gate_id, f"creative_brief_iteration_{iteration}", produced_brief)
+        _persist_artifact(gate_id, f"director_iter_{iteration}", produced_brief)
 
         approved, kai_feedback = _kai_validate_brief(produced_brief)
+        _persist_artifact(gate_id, f"kai_validation_iter_{iteration}", kai_feedback)
         iteration_log.append({
             "iteration": iteration,
             "approved": approved,
@@ -545,50 +596,53 @@ def _creative_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
         if approved:
             break
 
-    # Persist the iteration log
-    _persist_artifact(gate_id, "brief_iteration_log", json.dumps(iteration_log, indent=2))
+    _persist_artifact(gate_id, "iteration_log", json.dumps(iteration_log, indent=2))
 
     if not approved:
-        # 3 iterations exhausted — escalate to Leo with failure context
+        verdict = f"ESCALATE — Director failed KAI validation after {len(iteration_log)} iterations"
         summary = (
-            f"*Creative Brief — {title}*\n\n"
-            f"⚠️ KAI could not approve the brief after 3 iterations.\n\n"
-            f"*Last brief produced:*\n{produced_brief[:2000]}\n\n"
-            f"*KAI's final feedback:*\n{kai_feedback[:1000]}\n\n"
-            "Leo must decide: approve this brief as-is, or reject and open a new gate."
+            f"*Subject:* {title}\n"
+            f"*Chain:* Director (×{len(iteration_log)}) → KAI — {verdict}"
         )
-        kai_assessment = f"3 iterations exhausted. Brief did not pass KAI validation.\n\nFinal KAI feedback:\n{kai_feedback[:2000]}"
     else:
+        verdict = f"APPROVED — Brief approved by KAI on iteration {len(iteration_log)}"
         summary = (
-            f"*Creative Brief — {title}*\n\n"
-            f"✓ KAI approved this brief (iteration {len(iteration_log)}).\n\n"
-            f"{produced_brief[:5000]}"
-        )
-        kai_assessment = (
-            f"Brief approved after {len(iteration_log)} iteration(s).\n\n"
-            f"KAI validation:\n{kai_feedback[:1500]}\n\n"
-            "Ready for Leo's approval. On approval: brief becomes the execution contract — "
-            "no design work begins until Leo approves."
+            f"*Subject:* {title}\n"
+            f"*Chain:* Director (×{len(iteration_log)}) → KAI — {verdict}"
         )
 
     # Store the approved brief on the gate record for use at resolution
     _GATES_STORE[gate_id]["approved_brief"] = produced_brief
 
-    return summary, kai_assessment
+    return summary, verdict
 
 
-def _devops_gate_review(brief: dict) -> tuple[str, str]:
-    """DevOps reviews infrastructure implications."""
-    summary_input = json.dumps(brief, indent=2)[:3000]
-    summary = f"*Infrastructure Brief:*\n{summary_input[:3000]}"
-    kai_assessment = _call_advisor("devops",
-        f"[DevOps Infrastructure Review]\n{summary_input}\n\n"
+def _devops_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
+    """DevOps gate (1-hop chain) — DevOps reviews infrastructure implications.
+
+    Single-advisor by design: DevOps is the authoritative voice on infra.
+    Auto-approves routine work; escalates anything whose verdict contains
+    STRUCTURAL or REJECTED.
+    """
+    _persist_artifact(gate_id, "brief", json.dumps(brief, indent=2))
+    brief_text = json.dumps(brief, indent=2)
+    job_name = brief.get("workflow", brief.get("title", "Infrastructure change"))
+
+    devops_full = _call_advisor("devops",
+        f"[DevOps Infrastructure Review]\n{brief_text}\n\n"
         "Review the infrastructure implications. Is this routine or structural? "
-        "Any risks, dependencies, or architectural concerns? "
-        "Say 'STRUCTURAL' if this needs Leo's approval.",
-        ""
+        "Any risks, dependencies, or architectural concerns?\n\n"
+        "RESPONSE FORMAT — first line MUST be:\n"
+        "VERDICT: <ROUTINE | STRUCTURAL | REJECTED> — one-sentence headline\n"
+        "Then the full review on subsequent lines. "
+        "Use STRUCTURAL when this needs Leo's approval.",
+        gate_id
     )
-    return summary, kai_assessment
+    _persist_artifact(gate_id, "devops_review", devops_full)
+    devops_line = _extract_verdict(devops_full, fallback="see devops_review.md")
+
+    summary = f"*Subject:* {job_name}\n*Chain:* DevOps — {devops_line}"
+    return summary, devops_line
 
 
 # ── Advisor + KAI calls ───────────────────────────────────────────────────────
@@ -616,7 +670,7 @@ def _call_advisor(advisor: str, message: str, thread_id: str) -> str:
             "audit_log":      [],
         }
         result = graph.invoke(state, config={"configurable": {"thread_id": thread_id or advisor}})
-        return result.get("final_reply", "")[:4000]
+        return result.get("final_reply", "")
     except Exception as e:
         logger.exception("Advisor call failed for %s: %s", advisor, e)
         return f"[{advisor} unavailable: {e}]"
@@ -632,15 +686,16 @@ def _kai_quality_check(check_type: str, brief: dict, instruction: str) -> str:
             org_model = json.loads(_VAULT_ORG_MODEL.read_text())
 
         gate_policy = org_model.get("gate_policies", {}).get(f"{check_type}_gate", {})
-        standards = json.dumps(gate_policy, indent=2)[:2000] if gate_policy else ""
+        standards = json.dumps(gate_policy, indent=2) if gate_policy else ""
 
         message = (
             f"[KAI Quality Check — {check_type}]\n\n"
             f"Gate standards:\n{standards}\n\n"
-            f"Brief:\n{json.dumps(brief, indent=2)[:2000]}\n\n"
+            f"Brief:\n{json.dumps(brief, indent=2)}\n\n"
             f"{instruction}\n\n"
-            "Give a concise assessment. If ready for Leo: say READY. "
-            "If not ready: say NOT READY and explain what's missing."
+            "RESPONSE FORMAT — first line MUST be:\n"
+            "VERDICT: <READY | NOT READY | CONCERNS> — one-sentence headline\n"
+            "Then the full assessment on subsequent lines."
         )
         state = {
             "channel":        "kai",
@@ -660,7 +715,7 @@ def _kai_quality_check(check_type: str, brief: dict, instruction: str) -> str:
             "audit_log":      [],
         }
         result = graph.invoke(state, config={"configurable": {"thread_id": f"kai-qc-{check_type}"}})
-        return result.get("final_reply", "Quality check unavailable")[:4000]
+        return result.get("final_reply", "Quality check unavailable")
     except Exception as e:
         logger.exception("KAI quality check failed: %s", e)
         return f"[KAI quality check unavailable: {e}]"
@@ -668,31 +723,41 @@ def _kai_quality_check(check_type: str, brief: dict, instruction: str) -> str:
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 
-def _persist_artifact(gate_id: str, artifact_type: str, content: str):
-    """Save a gate artifact (LSE review, creative director review, etc.) to vault."""
+def _gate_dir(gate_id: str) -> Path:
+    """Per-gate artifact directory under the vault."""
+    return _VAULT_GATES / gate_id
+
+
+def _persist_artifact(gate_id: str, artifact_type: str, content: str) -> str:
+    """Save a gate artifact to vault/00_System/gates/{gate_id}/{artifact_type}.md.
+
+    Returns the absolute path written, or "" on failure.
+    """
     try:
-        _VAULT_GATES.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        p = _VAULT_GATES / f"{ts}_{gate_id[:8]}_{artifact_type}.md"
-        p.write_text(f"# Gate Artifact: {artifact_type}\nGate: {gate_id}\n\n{content}\n")
+        d = _gate_dir(gate_id)
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / f"{artifact_type}.md"
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        p.write_text(f"# Gate Artifact: {artifact_type}\nGate: {gate_id}\nWritten: {ts}\n\n{content}\n")
+        return str(p)
     except Exception:
         logger.exception("Artifact persist failed: %s/%s", gate_id, artifact_type)
+        return ""
 
 
 def _persist_gate_record(gate_id: str, gate_type: str, brief: dict, resolution: dict):
-    """Write full gate audit record to vault."""
+    """Write the gate audit record to vault/00_System/gates/{gate_id}/audit.json."""
     try:
-        _VAULT_GATES.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        d = _gate_dir(gate_id)
+        d.mkdir(parents=True, exist_ok=True)
         record = {
             "gate_id":     gate_id,
             "gate_type":   gate_type,
             "brief":       brief,
             "resolution":  resolution,
-            "resolved_at": ts,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
         }
-        p = _VAULT_GATES / f"{ts}_{gate_id[:8]}_audit.json"
-        p.write_text(json.dumps(record, indent=2))
+        (d / "audit.json").write_text(json.dumps(record, indent=2))
     except Exception:
         logger.exception("Gate audit persist failed for %s", gate_id)
 
