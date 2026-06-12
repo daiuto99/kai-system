@@ -14,32 +14,64 @@ COUNCIL_API = "http://kai-council-api:8002"
 OLLAMA_API  = "http://kai-ollama:11434"
 
 # Alert dedup — persisted to disk so scheduler restart does not wipe state.
-# JSON map: alert_key → last-fire epoch (UTC seconds, or epoch+snooze for OAuth).
+# Behavior contract (KAI-471, 2026-06-11) — JARVIS §3 behavioral floor:
+#   • Every check requires CONSECUTIVE_FAIL_THRESHOLD consecutive failed ticks
+#     before any escalation. Single transient ticks log only.
+#   • SYSTEM-WIDE: no check ever escalates a 'transient' failure (timeout/5xx/
+#     connection error) to Leo, regardless of subsystem. Classification gate
+#     fires before tier handlers — applies to OAuth, infra, API health, all.
+#   • Only 'auth' (401/403/invalid_token) or 'other' classifications can reach
+#     the tier handlers. OAuth specifically escalates "re-authenticate".
+#   • OAuth snooze is preserved across recovery. Once Leo is told, we stay
+#     silent for the full 24h window regardless of flap recovery.
+#   • Non-OAuth alert keys are cleared on recovery so genuine outages re-alert
+#     immediately when they cross the threshold next time.
+# Tests live at kai-scheduler/test_watchdog_dedup.py.
+# Schema v2: nested format with `alerts` (snooze map) and `fail_counters`
+# (consecutive-failure counter map). Migration from legacy flat format is
+# transparent — old {key: epoch} is read as `alerts`. See KAI-471.
 ALERT_STATE_FILE = Path("/vault/_alert_state.json")
 ALERT_INTERVAL_HOURS = 2  # re-alert if still failing after 2h
+CONSECUTIVE_FAIL_THRESHOLD = 3  # ticks of failure before any check escalates
 
 
 def _load_alert_state() -> dict:
+    """Return {"alerts": {...}, "fail_counters": {...}}. Migrate legacy flat format."""
     try:
         if ALERT_STATE_FILE.exists():
             import json as _json
-            return _json.loads(ALERT_STATE_FILE.read_text())
+            data = _json.loads(ALERT_STATE_FILE.read_text())
+            if isinstance(data, dict) and "alerts" not in data and "fail_counters" not in data:
+                # Legacy flat format: {key: epoch}
+                return {"alerts": data, "fail_counters": {}}
+            return {
+                "alerts": data.get("alerts", {}) if isinstance(data, dict) else {},
+                "fail_counters": data.get("fail_counters", {}) if isinstance(data, dict) else {},
+            }
     except Exception as e:
         log.warning("alert state read failed: %s", e)
-    return {}
+    return {"alerts": {}, "fail_counters": {}}
 
 
 def _save_alert_state() -> None:
     try:
         import json as _json
         ALERT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        ALERT_STATE_FILE.write_text(_json.dumps(_last_alert, indent=2))
+        payload = {
+            "schema_version": 2,
+            "alerts": _last_alert,
+            "fail_counters": _fail_counter,
+        }
+        ALERT_STATE_FILE.write_text(_json.dumps(payload, indent=2))
     except Exception as e:
         log.warning("alert state write failed: %s", e)
 
 
 _last_alert: dict = {}
-_last_alert.update(_load_alert_state())
+_fail_counter: dict = {}
+_initial_state = _load_alert_state()
+_last_alert.update(_initial_state.get("alerts", {}))
+_fail_counter.update(_initial_state.get("fail_counters", {}))
 
 # Plane CE crash-loop detection — track restart count between watchdog runs
 _plane_restart_baseline: int | None = None
@@ -90,8 +122,41 @@ def _clear_alert(key: str):
         _save_alert_state()
 
 
+def _record_failure(key: str) -> int:
+    """Increment the persistent consecutive-failure counter and return new value."""
+    _fail_counter[key] = _fail_counter.get(key, 0) + 1
+    _save_alert_state()
+    return _fail_counter[key]
+
+
+def _record_success(key: str):
+    """Reset the consecutive-failure counter. Does NOT touch the snooze map."""
+    if key in _fail_counter:
+        _fail_counter.pop(key, None)
+        _save_alert_state()
+
+
 _TRANSIENT_MARKERS = ("502", "503", "504", "500", "HTTP 5", "timed out", "timeout",
                      "Connection error", "ConnectError", "ReadTimeout", "RemoteDisconnected")
+
+_AUTH_FAIL_MARKERS = ("401", "403", "Unauthorized", "Forbidden",
+                     "invalid_token", "invalid_grant", "credential")
+
+
+def _classify_failure(detail: str) -> str:
+    """Classify a failure detail string. Returns 'auth' | 'transient' | 'other'.
+
+    OAuth credential-expiry alerts must only fire on 'auth' — a 'transient'
+    classification means network or upstream-service flap, never a credential
+    problem. The §6 retrofit treated all retried-out failures the same; this
+    split is the fix.
+    """
+    s = str(detail)
+    if any(m in s for m in _AUTH_FAIL_MARKERS):
+        return "auth"
+    if any(m in s for m in _TRANSIENT_MARKERS):
+        return "transient"
+    return "other"
 
 
 def _check_with_retry(fn, retries: int = 2, delay: float = 10.0):
@@ -950,43 +1015,78 @@ def run_watchdog_checks():
             ok, detail = False, f"check error: {e}"
 
         if ok:
-            _clear_alert(key)
+            # Recovery: reset consecutive-fail counter.
+            # OAuth snooze is preserved — once we've told Leo to re-auth, we stay
+            # silent for the full 24h window regardless of flap recovery.
+            _record_success(key)
+            if key not in OAUTH_SERVICES:
+                _clear_alert(key)
             log.debug("watchdog ✅ %s: %s", label, detail)
-        else:
-            log.warning("watchdog ❌ %s: %s", label, detail)
+            continue
 
-            # Tier 1: auto-remediate known fixable failures
-            if key in REMEDIATABLE:
-                remedy = REMEDIATABLE[key]()
-                log.info("watchdog remediation: %s → %s", label, remedy)
-                if "✅" in remedy:
-                    fixed.append(f"  • *{label}*: {remedy}")
-                    _clear_alert(key)
-                    continue  # fixed — skip alert
-                else:
-                    remediations.append(f"  • {label}: {remedy}")
+        # Failure: increment consecutive-fail counter and gate on threshold.
+        fail_count = _record_failure(key)
+        log.warning("watchdog ❌ %s (consecutive=%d): %s", label, fail_count, detail)
 
-            # Tier 2: OAuth failures — escalate once, then snooze 24h.
-            # Snooze state persists to disk via _save_alert_state().
-            elif key in OAUTH_SERVICES and _should_alert(key):
+        if fail_count < CONSECUTIVE_FAIL_THRESHOLD:
+            log.info(
+                "watchdog %s: %d/%d consecutive fails — deferring escalation",
+                label, fail_count, CONSECUTIVE_FAIL_THRESHOLD,
+            )
+            continue
+
+        # ── System-wide rule (JARVIS §3 behavioral floor) ─────────────────
+        # No check, anywhere, ever escalates a 'transient' failure to Leo.
+        # transient = timeout / 5xx / connection error / read-timeout. These
+        # are upstream flap, not actionable. They are logged and tracked, but
+        # never produce a Slack page. Only 'auth' or 'other' classifications
+        # may proceed to the tier handlers below. This applies uniformly to
+        # every check in CHECKS — OAuth, infra, API health, the lot.
+        classification = _classify_failure(detail)
+        if classification == "transient":
+            log.warning(
+                "watchdog %s: %d consecutive transient failures — upstream flap, not escalating (JARVIS §3 floor).",
+                label, fail_count,
+            )
+            continue
+
+        # Threshold met AND failure is auth or other — proceed to tiered handling.
+
+        # Tier 1: auto-remediate known fixable failures
+        if key in REMEDIATABLE:
+            remedy = REMEDIATABLE[key]()
+            log.info("watchdog remediation: %s → %s", label, remedy)
+            if "✅" in remedy:
+                fixed.append(f"  • *{label}*: {remedy}")
+                _clear_alert(key)
+                _record_success(key)  # remediation succeeded = recovery
+                continue  # fixed — skip alert
+            else:
+                remediations.append(f"  • {label}: {remedy}")
+
+        # Tier 2: OAuth credential failures — "re-authenticate" page.
+        # Classification already excluded transient, so this is genuinely an
+        # auth failure (401/403/invalid_token) or unclassified 'other'.
+        elif key in OAUTH_SERVICES:
+            if _should_alert(key):
                 _post_oauth_escalation(token, OAUTH_SERVICES[key], detail)
                 _last_alert[key] = datetime.now(timezone.utc).timestamp() + (22 * 3600)  # snooze 24h
                 _save_alert_state()
                 log.info("watchdog oauth escalation posted for %s — snoozed 24h", key)
-                continue
+            continue
 
-            # Tier 3: container restarts
-            elif key in RECREATABLE:
-                remedy = RECREATABLE[key]()
-                remediations.append(f"  • {label}: {remedy}")
-                log.info("watchdog remediation: %s → %s", label, remedy)
-            elif key in RESTARTABLE:
-                remedy = _try_restart_container(RESTARTABLE[key])
-                remediations.append(f"  • {label}: {remedy}")
-                log.info("watchdog remediation: %s → %s", label, remedy)
+        # Tier 3: container restarts
+        elif key in RECREATABLE:
+            remedy = RECREATABLE[key]()
+            remediations.append(f"  • {label}: {remedy}")
+            log.info("watchdog remediation: %s → %s", label, remedy)
+        elif key in RESTARTABLE:
+            remedy = _try_restart_container(RESTARTABLE[key])
+            remediations.append(f"  • {label}: {remedy}")
+            log.info("watchdog remediation: %s → %s", label, remedy)
 
-            if _should_alert(key):
-                failures.append(f"  • *{label}*: `{detail}`")
+        if _should_alert(key):
+            failures.append(f"  • *{label}*: `{detail}`")
 
     # Gap checks — scheduled function execution health
     try:

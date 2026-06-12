@@ -274,6 +274,10 @@ def warmboot():
         print(f"\n=== KAI FACTORY WARMBOOT — {WS} | {len(projects)} projects ===")
         total_open = 0
         by_project = []
+        sprint_candidates = []  # (num, name, state_name, state_group, priority, project_identifier, issue_id)
+        import re as _re
+        sprint_re = _re.compile(r"^\[SPRINT\]\s+(\d+)\s*[—\-]+\s*(.+)$")
+        next_groups = {"backlog", "unstarted"}
         for p in projects:
             state_map = get_state_map(p["id"])
             completed_groups = {"completed", "cancelled"}
@@ -284,14 +288,43 @@ def warmboot():
                 for i in open_issues:
                     s = state_map.get(i.get("state", ""), {})
                     state_name = s.get("name", "?")
+                    state_group = s.get("group", "")
                     print(f"  • [{state_name:11s}] {i['name'][:56]}")
                     print(f"    {i['id']}")
+                    m = sprint_re.match(i.get("name", ""))
+                    if m and state_group in next_groups:
+                        sprint_candidates.append((
+                            int(m.group(1)),
+                            i["name"],
+                            state_name,
+                            state_group,
+                            i.get("priority", "none"),
+                            p["identifier"],
+                            i["id"],
+                        ))
             total_open += len(open_issues)
             by_project.append({"identifier": p["identifier"], "name": p["name"], "open": len(open_issues)})
         print("\n=================================================")
         wb["plane"]["projects"] = len(projects)
         wb["plane"]["open_issues"] = total_open
         wb["plane"]["by_project"] = by_project
+        # Authoritative next-sprint derivation. Lowest-numbered [SPRINT] ticket in
+        # backlog/unstarted state. Brief reads this from the warmboot manifest as
+        # the source of truth for `sprint`/`sprint_status` — SOTU "What's next" is
+        # human prose that goes stale the moment a sprint ships.
+        if sprint_candidates:
+            sprint_candidates.sort(key=lambda x: x[0])
+            num, name, st_name, st_group, prio, proj, iid = sprint_candidates[0]
+            wb["next_sprint"] = {
+                "number": num,
+                "name": name,
+                "state": st_name,
+                "state_group": st_group,
+                "priority": prio,
+                "project": proj,
+                "issue_id": iid,
+            }
+            print(f"\n[NEXT SPRINT] {name} ({st_name}, {prio})")
     except Exception as e:
         print(f"[WARN] Plane API unreachable: {e}")
         wb["overall"] = "fail"

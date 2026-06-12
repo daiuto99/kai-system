@@ -167,6 +167,15 @@ def session_brief():
                 "overall": wm.get("overall", "unknown"),
             }
             brief["warmboot_required"] = wb_stale
+            # Plane is authoritative for next-sprint. SOTU "What's next" prose
+            # goes stale the moment a sprint ships (e.g. close didn't rewrite it).
+            # If warmboot derived a next_sprint, override the SOTU-parsed values.
+            ns = wm.get("next_sprint")
+            if ns:
+                brief["sprint"] = ns.get("name", brief["sprint"])[:80]
+                # Map Plane state_group → brief contract: backlog/unstarted → planned
+                brief["sprint_status"] = "planned"
+                brief["next_sprint"] = ns
         except Exception:
             pass
     # warmboot_required stays True if manifest is missing or parse failed
