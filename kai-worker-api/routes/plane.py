@@ -92,3 +92,82 @@ def create_plane_issue(body: NewIssue):
     except Exception as e:
         logger.error(f"Plane create issue error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+class IssueUpdate(BaseModel):
+    state: Optional[str] = None
+    state_group: Optional[str] = None
+    priority: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    project_id: Optional[str] = None
+
+
+@router.patch("/plane/issues/{issue_id}")
+def patch_plane_issue(issue_id: str, body: IssueUpdate):
+    """Update an existing Plane issue.
+
+    Accepts:
+      - state: state name (case-insensitive, e.g. "Done", "Cancelled", "In Progress")
+      - state_group: state group (e.g. "completed", "cancelled") — picks the first
+        matching state in that group if state name isn't specified.
+      - priority: urgent | high | medium | low | none
+      - name, description: passed through
+
+    Returns updated issue summary.
+    """
+    try:
+        token = _plane_token()
+        if not token:
+            raise HTTPException(status_code=500, detail="Plane API token not configured")
+        pid = body.project_id or KAI_PROJECT_ID
+
+        payload = {}
+        if body.name is not None:
+            payload["name"] = body.name
+        if body.priority is not None:
+            payload["priority"] = body.priority
+        if body.description is not None:
+            payload["description_html"] = f"<p>{body.description}</p>" if body.description else ""
+
+        if body.state is not None or body.state_group is not None:
+            state_map_raw = _req(f"projects/{pid}/states/")
+            states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
+            state_id = None
+            if body.state is not None:
+                want = body.state.lower()
+                state_id = next((s["id"] for s in states if s.get("name", "").lower() == want), None)
+            if state_id is None and body.state_group is not None:
+                want = body.state_group.lower()
+                state_id = next((s["id"] for s in states if s.get("group", "").lower() == want), None)
+            if state_id is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"state '{body.state}' / group '{body.state_group}' not found in project",
+                )
+            payload["state"] = state_id
+
+        if not payload:
+            raise HTTPException(status_code=400, detail="no updatable fields provided")
+
+        url = f"{PLANE_BASE}/projects/{pid}/issues/{issue_id}/"
+        req = ur.Request(
+            url,
+            data=json.dumps(payload).encode(),
+            headers={"X-API-Key": token, "Content-Type": "application/json"},
+            method="PATCH",
+        )
+        with ur.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read())
+        return {
+            "id": result.get("id"),
+            "name": result.get("name"),
+            "state": result.get("state"),
+            "priority": result.get("priority"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Plane patch issue error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
