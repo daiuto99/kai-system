@@ -171,3 +171,78 @@ def patch_plane_issue(issue_id: str, body: IssueUpdate):
     except Exception as e:
         logger.error(f"Plane patch issue error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+class BulkIssueUpdate(BaseModel):
+    ids: list[str]
+    state: Optional[str] = None
+    state_group: Optional[str] = None
+    priority: Optional[str] = None
+    project_id: Optional[str] = None
+
+
+@router.post("/plane/issues/bulk-update")
+def bulk_update_plane_issues(body: BulkIssueUpdate):
+    """Apply the same state/priority change to a list of issues.
+
+    Returns per-id result: {id, ok, error?}. Continues on per-issue failure.
+    Useful for sprint closeout (close N sub-tasks + parent in one call).
+    """
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="ids list is empty")
+    if body.state is None and body.state_group is None and body.priority is None:
+        raise HTTPException(status_code=400, detail="no updatable fields provided")
+
+    try:
+        token = _plane_token()
+        if not token:
+            raise HTTPException(status_code=500, detail="Plane API token not configured")
+        pid = body.project_id or KAI_PROJECT_ID
+
+        # Resolve state once.
+        state_id = None
+        if body.state is not None or body.state_group is not None:
+            state_map_raw = _req(f"projects/{pid}/states/")
+            states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
+            if body.state is not None:
+                want = body.state.lower()
+                state_id = next((s["id"] for s in states if s.get("name", "").lower() == want), None)
+            if state_id is None and body.state_group is not None:
+                want = body.state_group.lower()
+                state_id = next((s["id"] for s in states if s.get("group", "").lower() == want), None)
+            if state_id is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"state '{body.state}' / group '{body.state_group}' not found in project",
+                )
+
+        payload_base = {}
+        if state_id is not None:
+            payload_base["state"] = state_id
+        if body.priority is not None:
+            payload_base["priority"] = body.priority
+
+        results = []
+        for issue_id in body.ids:
+            try:
+                url = f"{PLANE_BASE}/projects/{pid}/issues/{issue_id}/"
+                req = ur.Request(
+                    url,
+                    data=json.dumps(payload_base).encode(),
+                    headers={"X-API-Key": token, "Content-Type": "application/json"},
+                    method="PATCH",
+                )
+                with ur.urlopen(req, timeout=10) as resp:
+                    res = json.loads(resp.read())
+                results.append({"id": issue_id, "ok": True, "name": res.get("name", "")[:80]})
+            except Exception as e:
+                results.append({"id": issue_id, "ok": False, "error": f"{type(e).__name__}: {e}"})
+
+        ok_count = sum(1 for r in results if r["ok"])
+        return {"ok_count": ok_count, "total": len(body.ids), "results": results}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Plane bulk-update error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
