@@ -8,6 +8,7 @@ from models_api import models_router
 import routes_orchestrate
 import routes_bug_workflow
 import routes_council_gate
+import routes_function_map
 from routes_bug_workflow import start_bug_poller
 
 
@@ -33,6 +34,7 @@ app.include_router(models_router)
 app.include_router(routes_orchestrate.router)
 app.include_router(routes_bug_workflow.router)
 app.include_router(routes_council_gate.router)
+app.include_router(routes_function_map.router)
 
 
 @app.get("/health")
@@ -46,4 +48,5 @@ def health():
         "council_path_mounted": council_ok,
         "bug_workflow": "active",
         "council_gate": "active",
+        "function_map": "active",
     }
