@@ -1,4 +1,4 @@
-"""Auto-triage pipeline — failure → Plane BUG (DevOps) → structured Slack to Leo."""
+"""Auto-triage pipeline — failure → classify → route via function_map → Plane BUG → Slack to routed team."""
 import logging
 import os
 import re
@@ -12,7 +12,11 @@ PLANE_API   = "http://host.docker.internal:8090/api/v1"
 PLANE_WS    = "sonicink"
 COUNCIL_API = "http://kai-council-api:8002"
 KAI_PROJECT  = "78c49227-82d4-477d-a920-66b08cb91c56"
+# Fallback when function_map returns no Plane user for the routed team — keeps
+# the system filing tickets even when a team role lacks a Plane user.
 DEVOPS_ASSIGNEE = "aef72284-5b76-4e06-9b9b-d2cc4f9c591d"  # DevOps bot user (devops@sonicink.space)
+
+_BUG_CATEGORIES = ("code_bug", "infra_bug", "content_bug", "unknown")
 
 _backlog_state_id: str | None = None
 
@@ -80,12 +84,61 @@ def _get_backlog_state() -> str | None:
     return None
 
 
-def create_plane_bug(function_name: str, error: str, proposed_fix: str = "Pending DevOps analysis", risk: str = "Unknown") -> int | None:
-    """Create a Plane BUG assigned to DevOps. Returns sequence_id or None."""
+# ── Routing via function_map (Sprint 03 T3, option b) ────────────────────────
+
+def _route_bug(category: str) -> tuple[str, str, str]:
+    """Resolve a bug category to (team_role, assignee_uuid, slack_channel).
+
+    Consults the function_map HTTP surface on kai-council-api so triage shares
+    the same source of truth as orchestration. Falls back to (devops,
+    DEVOPS_ASSIGNEE, #devops) on any failure — never silently drops a bug.
+    """
+    team_role = "devops"
+    assignee  = DEVOPS_ASSIGNEE
+    channel   = "#devops"
+
+    try:
+        r = httpx.get(f"{COUNCIL_API}/function_map/bug/owner",
+                      params={"category": category}, timeout=5)
+        if r.status_code == 200:
+            team_role = r.json().get("owner", team_role) or team_role
+    except Exception as e:
+        log.warning("triage: function_map bug/owner unreachable (%s) — defaulting devops", e)
+
+    try:
+        r = httpx.get(f"{COUNCIL_API}/function_map/team_assignee/{team_role}", timeout=5)
+        if r.status_code == 200:
+            uuid = r.json().get("assignee_uuid")
+            if uuid:
+                assignee = uuid
+            # else fall through — DEVOPS_ASSIGNEE remains
+    except Exception as e:
+        log.warning("triage: function_map team_assignee unreachable (%s) — devops fallback", e)
+
+    try:
+        r = httpx.get(f"{COUNCIL_API}/function_map/team_slack/{team_role}", timeout=5)
+        if r.status_code == 200:
+            channel = r.json().get("channel") or channel
+    except Exception as e:
+        log.warning("triage: function_map team_slack unreachable (%s) — defaulting #devops", e)
+
+    return team_role, assignee, channel
+
+
+def create_plane_bug(
+    function_name: str,
+    error: str,
+    proposed_fix: str = "Pending DevOps analysis",
+    risk: str = "Unknown",
+    category: str = "infra_bug",
+) -> int | None:
+    """Create a Plane BUG routed via function_map. Returns sequence_id or None."""
     token = _load("plane_api_token")
     if not token:
         log.error("triage: plane_api_token not available")
         return None
+
+    team_role, assignee, _ = _route_bug(category)
 
     state_id = _get_backlog_state()
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -99,12 +152,13 @@ def create_plane_bug(function_name: str, error: str, proposed_fix: str = "Pendin
             f"<p><strong>Function:</strong> <code>{function_name}</code></p>"
             f"<p><strong>Error:</strong> {error_block}</p>"
             f"<p><strong>Detected:</strong> {now_str}</p>"
+            f"<p><strong>Classified as:</strong> {category} → routed to <strong>{team_role}</strong></p>"
             f"<p><strong>Proposed fix:</strong> {proposed_fix}</p>"
             f"<p><strong>Risk:</strong> {risk}</p>"
-            f"<p>Auto-created by KAI triage pipeline.</p>"
+            f"<p>Auto-created by KAI triage pipeline — support-engineer intake (kai_internal mode).</p>"
         ),
         "priority": "high",
-        "assignees": [DEVOPS_ASSIGNEE],
+        "assignees": [assignee],
     }
     if state_id:
         body["state_id"] = state_id
@@ -117,22 +171,31 @@ def create_plane_bug(function_name: str, error: str, proposed_fix: str = "Pendin
         )
         r.raise_for_status()
         seq = r.json().get("sequence_id")
-        log.info("triage: Plane BUG created — KAI-%s", seq)
+        log.info("triage: Plane BUG created — KAI-%s · %s → %s", seq, category, team_role)
         return seq
     except Exception as e:
         log.error("triage: Plane issue creation failed: %s", e)
         return None
 
 
-def slack_triage_alert(function_name: str, error: str, plane_seq: int | None, proposed_fix: str = "Pending", risk: str = "Unknown"):
-    """Post a single one-line Slack message in Leo's standard format:
-       "Issue: <label> — Status: Action needed — <one-sentence action> (<plane_ref>)"
+def slack_triage_alert(
+    function_name: str,
+    error: str,
+    plane_seq: int | None,
+    proposed_fix: str = "Pending",
+    risk: str = "Unknown",
+    category: str = "infra_bug",
+):
+    """Post one-line Slack alert to the routed team's channel.
+
+    Format: "Issue: <label> — Status: Action needed — <one-sentence action> (<plane_ref>)"
     """
     token = _load("slack_bot_token")
     if not token:
         log.error("triage: slack_bot_token not available")
         return
 
+    team_role, _, channel = _route_bug(category)
     plane_ref = f"KAI-{plane_seq}" if plane_seq else "Plane unreachable"
     label = _label(function_name)
 
@@ -148,11 +211,12 @@ def slack_triage_alert(function_name: str, error: str, plane_seq: int | None, pr
         httpx.post(
             "https://slack.com/api/chat.postMessage",
             headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#devops", "text": msg,
-                  "username": "KAI DevOps", "icon_emoji": ":rotating_light:"},
+            json={"channel": channel, "text": msg,
+                  "username": f"KAI {team_role.capitalize()}",
+                  "icon_emoji": ":rotating_light:"},
             timeout=10,
         )
-        log.info("triage: Slack alert sent for %s (ticket %s)", function_name, plane_ref)
+        log.info("triage: Slack alert sent for %s (ticket %s) → %s", function_name, plane_ref, channel)
     except Exception as e:
         log.error("triage: Slack alert failed: %s", e)
 
@@ -160,24 +224,31 @@ def slack_triage_alert(function_name: str, error: str, plane_seq: int | None, pr
 _LITELLM_URL = "http://kai-litellm:4000"
 
 
-def _get_devops_analysis(function_name: str, error: str) -> tuple[str, str]:
+def _classify_and_analyze(function_name: str, error: str) -> tuple[str, str, str]:
     """Classify a scheduled-function failure via local qwen-mid through LiteLLM.
 
-    KAI-464 — first call-site retarget from Sonnet (via council /message) to
-    local Qwen. This is a structural classification task (extract proposed-fix
-    + risk from an error string) — exactly the monitoring class that the
-    KAI-459 local-first rule says belongs on Qwen. Cost: $0.
+    Returns (proposed_fix, risk, category). Category is the support-engineer's
+    triage call: code_bug / infra_bug / content_bug / unknown — used by
+    _route_bug to pick the assignee + Slack channel.
+
+    KAI-464 — Sonnet→Qwen retarget; structural classification belongs on Qwen
+    per the KAI-459 local-first rule. Cost: $0.
     """
     try:
         master_key_p = Path("/run/secrets/litellm_master_key")
         master_key = master_key_p.read_text().strip() if master_key_p.exists() else ""
 
         system_prompt = (
-            "You are KAI's DevOps triage classifier. Given a failed scheduled "
-            "function and its error message, respond in EXACTLY this format on "
-            "two lines, nothing else:\n"
+            "You are KAI's support-engineer triage classifier. Given a failed "
+            "scheduled function and its error message, respond in EXACTLY this "
+            "format on three lines, nothing else:\n"
             "PROPOSED FIX: <one concrete sentence>\n"
-            "RISK: <Low|Medium|High> — <one sentence justification>"
+            "RISK: <Low|Medium|High> — <one sentence justification>\n"
+            "CATEGORY: <code_bug|infra_bug|content_bug|unknown> — pick the team "
+            "that should own it. code_bug = application code in kai-council-api "
+            "/ kai-orchestrator / kai-web. infra_bug = containers, deployments, "
+            "scheduler, system health, databases, n8n, monitoring. content_bug "
+            "= copy, design, brand assets. unknown when none fits."
         )
         user_prompt = f"Function: {function_name}\nError: {error[:600]}"
         payload = {
@@ -186,7 +257,7 @@ def _get_devops_analysis(function_name: str, error: str) -> tuple[str, str]:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": 200,
+            "max_tokens": 240,
             "temperature": 0,
         }
         r = httpx.post(
@@ -197,33 +268,50 @@ def _get_devops_analysis(function_name: str, error: str) -> tuple[str, str]:
         r.raise_for_status()
         reply = r.json()["choices"][0]["message"]["content"]
 
-        proposed_fix = "See Plane ticket for DevOps analysis"
+        proposed_fix = "See Plane ticket for support-engineer analysis"
         risk = "Unknown"
+        category = "infra_bug"
         for line in reply.splitlines():
             stripped = line.strip()
-            if stripped.upper().startswith("PROPOSED FIX:"):
+            up = stripped.upper()
+            if up.startswith("PROPOSED FIX:"):
                 proposed_fix = stripped.split(":", 1)[1].strip()
-            elif stripped.upper().startswith("RISK:"):
+            elif up.startswith("RISK:"):
                 risk = stripped.split(":", 1)[1].strip()
-        log.info("DevOps analysis (qwen-mid): fix=%s risk=%s", proposed_fix[:60], risk[:30])
-        return proposed_fix, risk
+            elif up.startswith("CATEGORY:"):
+                raw = stripped.split(":", 1)[1].strip().split()[0].lower().rstrip(",")
+                if raw in _BUG_CATEGORIES:
+                    category = raw
+        log.info("classify (qwen-mid): cat=%s fix=%s risk=%s",
+                 category, proposed_fix[:60], risk[:30])
+        return proposed_fix, risk, category
     except Exception as e:
-        log.error("DevOps qwen-mid analysis failed: %s", e)
-        return "DevOps analysis failed — investigate manually", "Unknown"
+        log.error("classify qwen-mid failed: %s", e)
+        return "Support-engineer analysis failed — investigate manually", "Unknown", "infra_bug"
+
+
+def _default_category_for(function_name: str) -> str:
+    """Zero-evidence default — every scheduled function in this scheduler is
+    infra-class. Used when error is empty so we skip the qwen call.
+    """
+    return "infra_bug"
 
 
 def triage_failure(function_name: str, error: str):
-    """Full pipeline: DevOps analysis → Plane BUG → one-line Slack to Leo.
+    """Full pipeline: classify (support-engineer) → route → Plane BUG → Slack to routed team.
 
     Zero-evidence path: when `error` is empty (common for watchdog gap alerts
-    that only know a function didn't run, not why), skip the DevOps council
-    call — there's nothing for it to analyse and it just hallucinates.
+    that only know a function didn't run, not why), skip the qwen call — there's
+    nothing to analyse and it just hallucinates. Default to infra_bug.
     """
     log.error("TRIAGE ACTIVATED — %s: %s", function_name, error)
     if error:
-        proposed_fix, risk = _get_devops_analysis(function_name, error)
+        proposed_fix, risk, category = _classify_and_analyze(function_name, error)
     else:
         proposed_fix = "no error captured — inspect kai-scheduler logs"
         risk = "Unknown"
-    seq = create_plane_bug(function_name, error, proposed_fix=proposed_fix, risk=risk)
-    slack_triage_alert(function_name, error, seq, proposed_fix=proposed_fix, risk=risk)
+        category = _default_category_for(function_name)
+    seq = create_plane_bug(function_name, error, proposed_fix=proposed_fix,
+                           risk=risk, category=category)
+    slack_triage_alert(function_name, error, seq, proposed_fix=proposed_fix,
+                       risk=risk, category=category)

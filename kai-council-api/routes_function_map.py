@@ -42,6 +42,21 @@ def bug_owner(category: str):
     return {"category": category, "owner": owner}
 
 
+@router.get("/team_assignee/{team}")
+def team_assignee(team: str):
+    uuid = fm.get_team_assignee(team)
+    return {
+        "team": team,
+        "assignee_uuid": uuid,
+        "fallback_to_devops": uuid is None,
+    }
+
+
+@router.get("/team_slack/{team}")
+def team_slack(team: str):
+    return {"team": team, "channel": fm.get_team_slack_channel(team)}
+
+
 @router.get("/specialists")
 def specialists(director: str | None = None):
     if director:

@@ -908,6 +908,7 @@ def check_container_warnings():
                     error=f"[{w['level']}] {w['message'][:300]}",
                     proposed_fix=cls["fix"][:200] or "Pending DevOps analysis",
                     risk=cls["category"],
+                    category="infra_bug",
                 )
                 if seq:
                     filed_count += 1

@@ -120,6 +120,21 @@ def get_bug_owner(category: str) -> str | None:
     return routing.get(category)
 
 
+def get_team_assignee(team: str) -> str | None:
+    """Plane user UUID for a team role (devops/dev/creative/kai). None means
+    no Plane user exists for that role yet — caller should fall back to devops.
+    """
+    om, _ = _load()
+    return om.get("governance", {}).get("team_assignees", {}).get(team)
+
+
+def get_team_slack_channel(team: str) -> str:
+    """Slack channel for triage notifications for a team role. Defaults to #devops."""
+    om, _ = _load()
+    channels = om.get("governance", {}).get("team_slack_channels", {})
+    return channels.get(team) or "#devops"
+
+
 # ── Specialists ───────────────────────────────────────────────────────────────
 
 def get_specialist(specialist_id: str) -> dict | None:
