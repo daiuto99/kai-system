@@ -121,9 +121,11 @@ def _register_workflows():
     from workflows.hello_world import HelloWorldWorkflow
     from workflows.wordpress_publish_homepage import PublishHomepageWorkflow
     from workflows.capability_chain import CapabilityChainWorkflow
+    from workflows.devops_self_modify import DevopsSelfModifyWorkflow
     WORKFLOW_REGISTRY["hello_world"] = HelloWorldWorkflow
     WORKFLOW_REGISTRY["capability_chain"] = CapabilityChainWorkflow
     WORKFLOW_REGISTRY["wordpress.publish_homepage"] = PublishHomepageWorkflow
+    WORKFLOW_REGISTRY["devops.self_modify"] = DevopsSelfModifyWorkflow
 
 def _resume_interrupted_jobs():
     conn = get_conn()
