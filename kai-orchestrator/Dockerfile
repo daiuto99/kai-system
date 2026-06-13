@@ -2,7 +2,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl openssh-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends curl openssh-client patch git && rm -rf /var/lib/apt/lists/*
+
+# git safe.directory for self-modify mounts (root-in-container vs leo-on-host)
+RUN git config --system --add safe.directory /kai-system && git config --system --add safe.directory /workspace
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

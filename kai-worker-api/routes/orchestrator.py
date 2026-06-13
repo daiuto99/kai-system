@@ -1,13 +1,7 @@
 """routes/orchestrator.py — worker-api proxy to kai-orchestrator workflows.
 
-M2-1.A scaffolds the devops self-modify entry point. The route accepts the
-pre-artifact ritual (gate §3 line, principle §5 line, retirement) plus the
-Plane ticket id and a unified diff, then starts the orchestrator's
-devops.self_modify workflow and returns the workflow_id.
-
-M2-1.A does NOT apply the diff — it only logs the proposal. M2-1.B adds the
-semantic verifier + apply/commit/Plane chain. M2-1.C adds the KAI-mediated
-approval prompt that replaces the binary Mode-Lock YES unlock.
+M2-1.B adds `target_root` to the request contract and bumps the stage label.
+The route still just proxies to /workflows/run; the workflow does the work.
 """
 import logging
 import os
@@ -23,24 +17,37 @@ ORCHESTRATOR_URL = os.environ.get("ORCHESTRATOR_URL",
                                   "http://kai-orchestrator:8003")
 ORCHESTRATOR_TIMEOUT_S = 30
 
+_TARGET_ROOT_ALLOWLIST = {"/kai-system", "/workspace"}
+
 
 class DevopsSelfModifyRequest(BaseModel):
     plane_ticket_id: str = Field(..., description="Plane issue id this self-modify resolves")
     gate: str = Field(..., description="JARVIS_DEFINITION §3 gate line moved toward")
     principle: str = Field(..., description="LSE_BUILD_PROFILE §5 operating principle invoked")
     retirement: str = Field(..., description="What gets retired or simplified alongside this change")
-    diff: str = Field(..., description="Unified diff to apply (NOT applied in M2-1.A)")
+    diff: str = Field(..., description="Unified diff to apply (paths relative to target_root)")
+    target_root: str = Field(
+        "/kai-system",
+        description="Root the diff applies inside. Must be in allowlist: /kai-system or /workspace.",
+    )
 
 
 @router.post("/orchestrator/devops_self_modify")
 def devops_self_modify(req: DevopsSelfModifyRequest):
     """Start the devops.self_modify workflow on the orchestrator.
 
-    Returns 200 with the orchestrator workflow_id (== job_id) on success.
-    The workflow logs a structured proposal record to
-    /vault/00_System/self_modify_proposals.jsonl. No diff is applied
-    in M2-1.A.
+    Returns 200 with the orchestrator workflow_id on success. The workflow
+    runs: log_proposal → verify_semantic → apply_diff → commit → update_plane.
+    Verifier reject (or any step fail) stops the chain; nothing after that
+    step runs.
     """
+    if req.target_root not in _TARGET_ROOT_ALLOWLIST:
+        raise HTTPException(
+            400,
+            f"target_root not allowed: {req.target_root!r}. "
+            f"Must be one of {sorted(_TARGET_ROOT_ALLOWLIST)}",
+        )
+
     payload = {
         "type": "devops.self_modify",
         "inputs": req.dict(),
@@ -68,6 +75,7 @@ def devops_self_modify(req: DevopsSelfModifyRequest):
         "ok": True,
         "workflow_id": workflow_id,
         "workflow_type": "devops.self_modify",
-        "stage": "M2-1.A",
+        "stage": "M2-1.B",
+        "target_root": req.target_root,
         "status": body.get("status", "started"),
     }

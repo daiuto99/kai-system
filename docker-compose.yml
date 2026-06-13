@@ -299,10 +299,14 @@ services:
     environment:
       - ORCHESTRATOR_INTERNAL_URL=http://kai-orchestrator:8003
       - COUNCIL_API_URL=http://kai-council-api:8002
+      - SELF_MODIFY_VERIFIER_MODEL=qwen-mid
+      - SELF_MODIFY_GIT_AUTHOR_NAME=kai-orchestrator
+      - SELF_MODIFY_GIT_AUTHOR_EMAIL=orchestrator@kai-system.local
     volumes:
       - orchestrator-data:/data/orchestrator
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
+      - /home/leo/kai-system:/kai-system:rw
       - /home/leo/kai-system/secrets:/run/wp_secrets:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
