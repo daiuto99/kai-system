@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import os
+import time
 from datetime import datetime as _sdt
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
@@ -27,8 +28,13 @@ def _slack_signing_secret() -> str:
 def _verify_slack_sig(raw_body: bytes, ts: str, sig: str) -> bool:
     secret = _slack_signing_secret()
     if not secret:
-        logger.warning("SLACK_SIGNING_SECRET not configured — skipping verification")
-        return True
+        # Fail closed — misconfigured instance must not accept unverified traffic (L5)
+        return False
+    try:
+        if abs(time.time() - float(ts)) > 300:
+            return False
+    except (ValueError, TypeError):
+        return False
     base = f"v0:{ts}:{raw_body.decode('utf-8', errors='replace')}".encode()
     expected = "v0=" + hmac.new(secret.encode(), base, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, sig)

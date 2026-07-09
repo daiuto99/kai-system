@@ -119,7 +119,9 @@ async def telegram_webhook(
     x_telegram_bot_api_secret_token: str = Header(default="")
 ):
     """Receive Telegram update, route to KAI council, reply via Telegram."""
-    if TELEGRAM_SECRET and x_telegram_bot_api_secret_token != TELEGRAM_SECRET:
+    if not TELEGRAM_SECRET:
+        raise HTTPException(503, "Telegram webhook not configured — TELEGRAM_SECRET unset")
+    if x_telegram_bot_api_secret_token != TELEGRAM_SECRET:
         raise HTTPException(403, "Invalid token")
 
     body = await request.json()
