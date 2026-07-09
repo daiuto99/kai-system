@@ -314,6 +314,43 @@ def inv_endpoint_contracts() -> tuple[bool, str]:
                   f"{data.get('elapsed_s',0)}s")
 
 
+def inv_no_secrets_in_vault_docs() -> tuple[bool, str]:
+    """S5R-15 — vault knowledge/history docs must not contain plaintext credentials.
+    Scans for base64-encoded basic-auth patterns and htpasswd constructs.
+    Excludes operational system files (CLAUDE.md, Dockerfile) that legitimately hold credentials.
+    Fails if any match found outside redaction markers.
+    """
+    import re
+    SECRET_PATTERNS = [
+        re.compile(r'Authorization[:\s]+Basic\s+[A-Za-z0-9+/]{16,}={0,2}'),
+        re.compile(r'htpasswd\s+-c\S*\s+\S+\s+\S+\s+\S{6,}'),
+        re.compile(r'curl\s+.*-u\s+\w+:[A-Za-z0-9!@#]{6,}'),
+    ]
+    # Operational files that legitimately contain the credential
+    EXCLUDED_NAMES = {'CLAUDE.md', 'Dockerfile'}
+    vault = Path('/vault')
+    hits = []
+    for md in vault.rglob('*.md'):
+        if md.name in EXCLUDED_NAMES:
+            continue
+        try:
+            text = md.read_text(errors='ignore')
+        except Exception:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if 'REDACTED' in line:
+                continue
+            for pat in SECRET_PATTERNS:
+                if pat.search(line):
+                    hits.append(f'{md.relative_to(vault)}:{lineno}')
+                    break
+    if hits:
+        sample = hits[:3]
+        return False, f'{len(hits)} potential secret(s) in vault docs — {sample}'
+    return True, 'ok — no plaintext credentials found in vault knowledge docs'
+
+
+
 # ── Engine ────────────────────────────────────────────────────────────────────
 
 INVARIANTS = [
@@ -329,6 +366,7 @@ INVARIANTS = [
     ("plane_api_health",              "Plane API Health",          inv_plane_api_health),
     ("persona_assembly",              "Persona Assembly",          inv_persona_assembly),
     ("endpoint_contracts",            "Endpoint Contracts",        inv_endpoint_contracts),
+    ("no_secrets_in_vault_docs",        "No Secrets in Vault Docs",  inv_no_secrets_in_vault_docs),
 ]
 
 
