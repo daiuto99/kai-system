@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#10b981"></span> v2.45.0 · 2026-07-09 — <strong style="color:#34d399">S5R-19 (tiered spend-cap) + 5R exit criteria #2/#3/#6 marked met</strong>. S5R-19: council_config.py 3-tier budget (INTERACTIVE_BUDGET_USD=4, ALERT_BUDGET_USD=1, WARN at 80%); interactive never hard-blocks, degrades to Haiku; alert traffic never blocked; hourly call cap stays as hard block; 15/15 tests pass; worker 246f573. LEO ACTION: sudo bash /tmp/relocate_docker.sh on worker to permanently move data-root to /mnt/storage.</div>
+  <div class="version"><span class="dot" style="color:#10b981"></span> v2.45.0 · 2026-07-09 — <strong style="color:#34d399">S5R-22 done (root 86%→47%); L16 + S5R-27 added (privilege boundary)</strong>. Docker Root Dir=/mnt/storage/docker; all containers healthy. L16: sessions never modify sudoers/shadow/SSH; Docker socket not for host writes outside declared volumes; blocked-by-privilege=STOP-and-ask. S5R-27 URGENT: AGENTS.md L16 sync + socket scoping.</div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -748,6 +748,10 @@ setInterval(function() {
 <!-- AUTO_DOCUMENTED: 2026-06-11 -->
 <div class="container-row">
   <div><div class="container-name">healthchecks_url</div><div class="container-meta">(auto-documented 2026-06-11 — description pending review) <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
+</div>
+<!-- AUTO_DOCUMENTED: 2026-07-09 -->
+<div class="container-row">
+  <div><div class="container-name">kai_web_password</div><div class="container-meta">(auto-documented 2026-07-09 — description pending review) <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
 </div>
 </div>
 
