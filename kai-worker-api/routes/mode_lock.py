@@ -452,25 +452,10 @@ def approval_status(request_id: str, consume: int = 0) -> ApprovalResponse:
         )
 
 
-@router.post("/mode_lock/slack_callback")
-async def slack_callback(request: Request):
-    """Slack interactivity endpoint. Receives block_actions payload as
-    form-urlencoded `payload=<json>`. Signature-verified per Slack convention."""
-    raw = await request.body()
-    ts = request.headers.get("X-Slack-Request-Timestamp", "")
-    sig = request.headers.get("X-Slack-Signature", "")
-    if not _verify_slack_sig(raw, ts, sig):
-        raise HTTPException(403, "Invalid Slack signature")
-
-    form = parse_qs(raw.decode("utf-8", errors="replace"))
-    payload_raw = (form.get("payload") or [""])[0]
-    if not payload_raw:
-        raise HTTPException(400, "missing payload")
-    try:
-        payload = json.loads(payload_raw)
-    except json.JSONDecodeError:
-        raise HTTPException(400, "payload not JSON")
-
+def _apply_block_actions(payload: dict) -> dict:
+    """Apply a Slack block_actions payload to mode_lock state.
+    Shared by /slack_callback (HTTP, sig-verified) and /slack_action_internal
+    (socket-mode bot forward, trusted by docker-internal-only exposure)."""
     if payload.get("type") != "block_actions":
         return {"ok": True, "ignored": payload.get("type")}
 
@@ -506,7 +491,6 @@ async def slack_callback(request: Request):
             return {"ok": False, "error": "request not found"}
 
         if entry.get("status") != "pending":
-            # Already decided — idempotent no-op
             return {
                 "ok": True,
                 "already_decided": True,
@@ -534,7 +518,6 @@ async def slack_callback(request: Request):
         save()
         snapshot = dict(entry)
 
-    # Update Slack message OUTSIDE lock
     decided_summary = {
         "approved_once":    f"✅ *Allowed once* by {user} — tool will retry now.",
         "denied":           f"❌ *Denied* by {user}.",
@@ -550,6 +533,40 @@ async def slack_callback(request: Request):
                           header, decided_summary)
 
     return {"ok": True, "status": new_status, "request_id": request_id}
+
+
+@router.post("/mode_lock/slack_callback")
+async def slack_callback(request: Request):
+    """Slack interactivity endpoint (HTTP mode). Receives block_actions payload
+    as form-urlencoded `payload=<json>`. Signature-verified per Slack convention.
+    Unused while app runs in Socket Mode — kept for the eventual HTTP cutover."""
+    raw = await request.body()
+    ts = request.headers.get("X-Slack-Request-Timestamp", "")
+    sig = request.headers.get("X-Slack-Signature", "")
+    if not _verify_slack_sig(raw, ts, sig):
+        raise HTTPException(403, "Invalid Slack signature")
+
+    form = parse_qs(raw.decode("utf-8", errors="replace"))
+    payload_raw = (form.get("payload") or [""])[0]
+    if not payload_raw:
+        raise HTTPException(400, "missing payload")
+    try:
+        payload = json.loads(payload_raw)
+    except json.JSONDecodeError:
+        raise HTTPException(400, "payload not JSON")
+    return _apply_block_actions(payload)
+
+
+@router.post("/mode_lock/slack_action_internal")
+async def slack_action_internal(request: Request):
+    """Forwarded block_actions payload from kai-slack-bot (Socket Mode).
+    No signature check — endpoint not exposed publicly (nginx port-8080 webhook
+    block omits it; port-80 has basic auth). Bot reaches via docker network."""
+    body = await request.json()
+    payload = body.get("payload") if isinstance(body, dict) else None
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "missing payload object")
+    return _apply_block_actions(payload)
 
 
 @router.get("/mode_lock/sessions")

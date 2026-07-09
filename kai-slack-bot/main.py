@@ -127,6 +127,27 @@ def post_as_advisor(client, channel_id: str, advisor: str, reply: str, thread_ts
     client.chat_postMessage(**kwargs)
 
 
+# ── KAI Mode Lock — block_actions forward (Socket Mode bridge) ────────────────
+# App runs in Socket Mode, so Slack delivers button taps via websocket, not the
+# Interactivity Request URL. We forward the parsed payload to the worker so the
+# existing mode_lock decision logic stays in one place.
+
+def _forward_mode_lock_action(ack, body, logger):
+    ack()
+    try:
+        r = httpx.post(
+            f"{WORKER_API}/mode_lock/slack_action_internal",
+            json={"payload": body},
+            timeout=10,
+        )
+        logger.info(f"mode_lock forward: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        logger.exception(f"mode_lock forward error: {e}")
+
+for _aid in ("mode_lock_allow_once", "mode_lock_deny", "mode_lock_allow_session"):
+    app.action(_aid)(_forward_mode_lock_action)
+
+
 # ── T2 Approval Gate ───────────────────────────────────────────────────────────
 
 def extract_t2_id_from_text(text: str) -> str | None:
