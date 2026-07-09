@@ -1,0 +1,375 @@
+services:
+
+  kai-worker-api:
+    build: ./kai-worker-api
+    container_name: kai-worker-api
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    ports:
+      - "8001:8001"
+    volumes:
+      - /home/leo/vault:/vault:rw
+      - /home/leo/sonicink:/workspace:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /home/leo/kai-system/secrets:/home/leo/kai-system/secrets:ro
+    env_file:
+      - .env
+    secrets:
+      - anthropic_api_key
+      - slack_bot_token
+      - todoist_api_key
+      - habitsync_password
+      - telegram_bot_token
+      - slack_signing_secret
+      - oura_token
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  kai-council-api:
+    build: ./kai-council-api
+    container_name: kai-council-api
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    ports:
+      - "8002:8002"
+    volumes:
+      - /home/leo/vault:/vault:rw
+      - /home/leo/sonicink:/workspace:ro
+      - /home/leo/kai-system/secrets:/run/wp_secrets:ro
+    env_file:
+      - .env
+    secrets:
+      - anthropic_api_key
+      - openai_api_key
+      - slack_bot_token
+      - tavily_api_key
+      - oura_token
+      - plane_api_token
+      - cloudways_ssh_key
+    depends_on:
+      kai-worker-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  kai-slack-bot:
+    build: ./kai-slack-bot
+    container_name: kai-slack-bot
+    restart: unless-stopped
+    secrets:
+      - slack_bot_token
+      - slack_app_token
+      - slack_bot_token_sky
+      - slack_app_token_sky
+      - slack_bot_token_roads
+      - slack_app_token_roads
+    depends_on:
+      kai-council-api:
+        condition: service_healthy
+
+  kai-web:
+    build: ./kai-web
+    container_name: kai-web
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+      - "8080:8080"
+    depends_on:
+      kai-worker-api:
+        condition: service_healthy
+      kai-council-api:
+        condition: service_healthy
+
+  kai-qdrant:
+    image: qdrant/qdrant:latest
+    container_name: kai-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+    healthcheck:
+      disable: true
+  kai-code-server:
+    image: codercom/code-server:latest
+    container_name: kai-code-server
+    restart: unless-stopped
+    ports:
+      - "8443:8080"
+    volumes:
+      - /home/leo:/home/coder:rw
+      - /home/leo/kai-system:/home/coder/kai-system:rw
+    environment:
+      - PASSWORD=
+    entrypoint: ["/bin/sh", "-c", "export PASSWORD=$(cat /run/secrets/codeserver_password) && export PATH=/home/coder/.nvm/versions/node/v20.20.2/bin:$PATH && /usr/bin/entrypoint.sh --bind-addr 0.0.0.0:8080 /home/coder"]
+    secrets:
+      - codeserver_password
+
+  kai-litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: kai-litellm
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    secrets:
+      - openai_api_key
+      - litellm_master_key
+    entrypoint: ["/bin/sh", "-c", "export OPENAI_API_KEY=$(cat /run/secrets/openai_api_key) && export LITELLM_MASTER_KEY=$(cat /run/secrets/litellm_master_key) && litellm --config /app/config.yaml --port 4000 --num_workers 2"]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4000/health/liveliness\", timeout=5)' 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  n8n:
+    image: n8nio/n8n:2.16.0
+    container_name: kai-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    volumes:
+      - ./n8n-data:/home/node/.n8n
+      - /home/leo/vault:/vault:rw
+    env_file:
+      - .env
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - N8N_PROXY_HOPS=1
+      - WEBHOOK_URL=https://n8n.sonicink.space
+      - N8N_EDITOR_BASE_URL=https://n8n.sonicink.space
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=kai
+      - N8N_SECURE_COOKIE=false
+      - GENERIC_TIMEZONE=America/New_York
+      - TZ=America/New_York
+    entrypoint: ["/bin/sh", "-c", "export N8N_BASIC_AUTH_PASSWORD=$(cat /run/secrets/n8n_basic_auth_password) && export N8N_ENCRYPTION_KEY=$(cat /run/secrets/n8n_encryption_key) && exec tini -- /docker-entrypoint.sh"]
+    secrets:
+      - n8n_basic_auth_password
+      - n8n_encryption_key
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  cloudflare-tunnel:
+    image: cloudflare/cloudflared:2026.3.0
+    container_name: cloudflare-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    secrets:
+      - cloudflare_tunnel_token
+    environment:
+      - TUNNEL_TOKEN_FILE=/run/secrets/cloudflare_tunnel_token
+    depends_on:
+      kai-worker-api:
+        condition: service_healthy
+      kai-council-api:
+        condition: service_healthy
+
+
+  kai-mcp-api:
+    build: ./kai-mcp-api
+    container_name: kai-mcp-api
+    restart: unless-stopped
+    depends_on:
+      kai-worker-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8003/health\", timeout=5)' 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  kai-scheduler:
+    build: ./kai-scheduler
+    container_name: kai-scheduler
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    environment:
+      - TZ=America/New_York
+    volumes:
+      - /home/leo/vault:/vault:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /home/leo/plane:/home/leo/plane:ro
+      - /home/leo/backups:/backups:ro
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    secrets:
+      - anthropic_api_key
+      - slack_bot_token
+      - todoist_api_key
+      - telegram_bot_token
+      - slack_signing_secret
+      - oura_token
+      - plane_api_token
+      - litellm_master_key
+      - healthchecks_url
+    depends_on:
+      kai-worker-api:
+        condition: service_healthy
+
+  kai-habitsync:
+    image: ghcr.io/jofoerster/habitsync:latest
+    container_name: kai-habitsync
+    restart: unless-stopped
+    env_file:
+      - .env.habitsync
+    ports:
+      - "6842:6842"
+    volumes:
+      - habitsync_data:/data
+
+  kai-ollama:
+    image: ollama/ollama:latest
+    container_name: kai-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: kai-tailscale
+    hostname: kai-worker
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - tailscale-data:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+      - /home/leo/kai-system/secrets:/secrets:ro
+    environment:
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_HOSTNAME=kai-worker
+      - TS_AUTHKEY_FILE=/secrets/tailscale_authkey.txt
+    restart: unless-stopped
+
+
+
+  kai-orchestrator:
+    build: ./kai-orchestrator
+    container_name: kai-orchestrator
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    environment:
+      - ORCHESTRATOR_INTERNAL_URL=http://kai-orchestrator:8003
+      - COUNCIL_API_URL=http://kai-council-api:8002
+      - SELF_MODIFY_VERIFIER_MODEL=qwen-mid
+      - SELF_MODIFY_GIT_AUTHOR_NAME=kai-orchestrator
+      - SELF_MODIFY_GIT_AUTHOR_EMAIL=orchestrator@kai-system.local
+      - SELF_MODIFY_ENABLED=false
+    volumes:
+      - orchestrator-data:/data/orchestrator
+      - /home/leo/vault:/vault:rw
+      - /home/leo/sonicink:/workspace:ro
+      - /home/leo/kai-system:/kai-system:rw
+      - /home/leo/kai-system/secrets:/run/wp_secrets:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    secrets:
+      - cloudways_ssh_key
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  qdrant-data:
+  n8n_data:
+  habitsync_data:
+  ollama_data:
+  tailscale-data:
+  orchestrator-data:
+
+secrets:
+  anthropic_api_key:
+    file: ./secrets/anthropic_api_key.txt
+  slack_bot_token:
+    file: ./secrets/slack_bot_token.txt
+  slack_app_token:
+    file: ./secrets/slack_app_token.txt
+  cloudflare_tunnel_token:
+    file: ./secrets/cloudflare_tunnel_token.txt
+  todoist_api_key:
+    file: ./secrets/todoist_api_key.txt
+  habitsync_password:
+    file: ./secrets/habitsync_password.txt
+  openai_api_key:
+    file: ./secrets/openai_api_key.txt
+  telegram_bot_token:
+    file: ./secrets/telegram_bot_token.txt
+  slack_signing_secret:
+    file: ./secrets/slack_signing_secret.txt
+  tavily_api_key:
+    file: ./secrets/tavily_api_key.txt
+  plane_api_token:
+    file: ./secrets/plane_api_token.txt
+  oura_token:
+    file: ./secrets/oura_token.txt
+  cloudways_ssh_key:
+    file: ./secrets/cloudways_ssh_key
+  slack_bot_token_sky:
+    file: ./secrets/slack_bot_token_sky.txt
+  slack_app_token_sky:
+    file: ./secrets/slack_app_token_sky.txt
+  slack_bot_token_roads:
+    file: ./secrets/slack_bot_token_roads.txt
+  slack_app_token_roads:
+    file: ./secrets/slack_app_token_roads.txt
+  litellm_master_key:
+    file: ./secrets/litellm_master_key.txt
+  codeserver_password:
+    file: ./secrets/codeserver_password.txt
+  n8n_basic_auth_password:
+    file: ./secrets/n8n_basic_auth_password.txt
+  n8n_encryption_key:
+    file: ./secrets/n8n_encryption_key.txt
+  healthchecks_url:
+    file: ./secrets/healthchecks_url.txt
