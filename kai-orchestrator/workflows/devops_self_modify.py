@@ -15,6 +15,7 @@ target_root must be in the allowlist (see capabilities/self_modify.py).
 """
 import json
 import logging
+import os
 
 from workflow_base import Workflow
 from models import StepDef, CapabilityResult
@@ -22,6 +23,8 @@ from db import get_conn
 from capabilities import get_capability
 
 logger = logging.getLogger(__name__)
+
+_SELF_MODIFY_ENABLED = os.environ.get("SELF_MODIFY_ENABLED", "false").lower() == "true"
 
 
 class DevopsSelfModifyWorkflow(Workflow):
@@ -71,6 +74,12 @@ class DevopsSelfModifyWorkflow(Workflow):
         return None
 
     def execute_step(self, step_def: StepDef, step: dict) -> CapabilityResult:
+        if not _SELF_MODIFY_ENABLED:
+            return CapabilityResult(
+                ok=False, status="failed_permanent",
+                error={"type": "self_modify_disabled",
+                       "reason": "SELF_MODIFY_ENABLED=false — workflow parked until 5R exits (S5R-21)"},
+            )
         inputs = self._inputs()
         name = step_def.name
 

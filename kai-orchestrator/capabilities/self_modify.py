@@ -43,6 +43,8 @@ _VERIFIER_MODEL = os.environ.get("SELF_MODIFY_VERIFIER_MODEL", "qwen-mid")
 _VERIFIER_TIMEOUT_S = 60
 
 _WORKER_API_URL = os.environ.get("WORKER_API_URL", "http://kai-worker-api:8001")
+_SELF_MODIFY_ENABLED = os.environ.get("SELF_MODIFY_ENABLED", "false").lower() == "true"
+
 
 _VERIFIER_SYSTEM = (
     "You are a semantic verifier for KAI's self-modify workflow. You receive a "
@@ -62,6 +64,17 @@ _VERIFIER_SYSTEM = (
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+
+def _gate_check() -> CapabilityResult | None:
+    if _SELF_MODIFY_ENABLED:
+        return None
+    return CapabilityResult(
+        ok=False, status="failed_permanent",
+        error={"type": "self_modify_disabled",
+               "reason": "SELF_MODIFY_ENABLED=false — capabilities parked until 5R exits (S5R-21)"},
+    )
 
 
 def _validate(inputs: dict) -> tuple[bool, list[str]]:
@@ -99,6 +112,8 @@ def _safe_target_root(target_root: str | None) -> str | None:
 @capability("self_modify.propose")
 def propose(**inputs) -> CapabilityResult:
     """Record a self-modify proposal. Does not apply, verify, or commit."""
+    if (r := _gate_check()) is not None:
+        return r
     ok, missing = _validate(inputs)
     if not ok:
         return CapabilityResult(
@@ -230,6 +245,8 @@ def _call_verifier(ritual: dict, diff: str) -> tuple[bool, dict, str]:
 @capability("self_modify.verify")
 def verify(**inputs) -> CapabilityResult:
     """Semantic verifier — calls LiteLLM with ritual + diff, expects {pass, reason}."""
+    if (r := _gate_check()) is not None:
+        return r
     ok, missing = _validate(inputs)
     if not ok:
         return CapabilityResult(
@@ -299,6 +316,8 @@ def apply(target_root: str, diff: str, **_) -> CapabilityResult:
     target_root must be in the allowlist (/kai-system or /workspace).
     Returns the list of files the patch touched.
     """
+    if (r := _gate_check()) is not None:
+        return r
     root = _safe_target_root(target_root)
     if root is None:
         return CapabilityResult(
@@ -377,6 +396,8 @@ def commit(target_root: str, plane_ticket_id: str, gate: str, principle: str,
     Does NOT push. Uses git identity from env (commit.author.*) with safe
     fallback so the orchestrator can commit even on a fresh container.
     """
+    if (r := _gate_check()) is not None:
+        return r
     root = _safe_target_root(target_root)
     if root is None:
         return CapabilityResult(
@@ -472,6 +493,8 @@ def update_plane(plane_ticket_id: str, commit_sha: str | None = None,
     mapping; we only update description, not state (state change is M2-1.C
     territory — KAI-mediated approval).
     """
+    if (r := _gate_check()) is not None:
+        return r
     if not plane_ticket_id:
         return CapabilityResult(
             ok=False, status="failed_permanent",
