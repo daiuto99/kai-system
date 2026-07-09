@@ -1,12 +1,25 @@
 services:
 
+  docker-socket-proxy:
+    build: ./docker-socket-proxy
+    container_name: docker-socket-proxy
+    restart: unless-stopped
+    group_add:
+      - "999"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 2375 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
   kai-worker-api:
     build: ./kai-worker-api
     container_name: kai-worker-api
     restart: unless-stopped
     user: "1000:1000"
-    group_add:
-      - "999"
     logging:
       driver: json-file
       options:
@@ -17,10 +30,14 @@ services:
     volumes:
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - /home/leo/kai-system/secrets:/home/leo/kai-system/secrets:ro
+    environment:
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
     env_file:
       - .env
+    depends_on:
+      docker-socket-proxy:
+        condition: service_healthy
     secrets:
       - anthropic_api_key
       - slack_bot_token
@@ -227,7 +244,7 @@ services:
       - TZ=America/New_York
     volumes:
       - /home/leo/vault:/vault:rw
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # S5R-27: documented remaining surface — needs docker compose up for watchdog
       - /home/leo/plane:/home/leo/plane:ro
       - /home/leo/backups:/backups:ro
     env_file:

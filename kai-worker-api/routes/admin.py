@@ -34,7 +34,7 @@ def redeploy_service(service: str, authorization: str | None = Header(default=No
         raise HTTPException(400, f"Unknown service '{service}'. Allowed: {sorted(ALLOWED_SERVICES)}")
     audit_before("/admin/redeploy/{service}", {"service": service}, body.operator, body.reason)
     try:
-        client = docker_sdk.DockerClient(base_url="unix:///var/run/docker.sock")
+        client = docker_sdk.DockerClient.from_env()
         container = client.containers.get(service)
         container.restart()
         logger.info("redeploy: restarted %s", service)
@@ -51,7 +51,7 @@ def list_services(authorization: str | None = Header(default=None)):
     """List running KAI service containers and their status."""
     _check_auth(authorization)
     try:
-        client = docker_sdk.DockerClient(base_url="unix:///var/run/docker.sock")
+        client = docker_sdk.DockerClient.from_env()
         result = {}
         for name in ALLOWED_SERVICES:
             try:
