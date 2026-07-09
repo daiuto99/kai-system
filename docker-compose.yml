@@ -99,6 +99,8 @@ services:
         condition: service_healthy
       kai-council-api:
         condition: service_healthy
+    secrets:
+      - kai_web_password
 
   kai-qdrant:
     image: qdrant/qdrant:latest
@@ -381,3 +383,5 @@ secrets:
     file: ./secrets/n8n_encryption_key.txt
   healthchecks_url:
     file: ./secrets/healthchecks_url.txt
+  kai_web_password:
+    file: ./secrets/kai_web_password.txt
