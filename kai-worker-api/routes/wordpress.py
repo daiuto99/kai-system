@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
+from routes._destructive_audit import DestructiveRequest, audit_before
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -411,7 +412,8 @@ def publish_post(site_id: str, post_id: int, post_type: str = "posts"):
 
 
 @router.delete("/wordpress/{site_id}/posts/{post_id}")
-def delete_post(site_id: str, post_id: int, post_type: str = "posts", force: bool = False):
+def delete_post(site_id: str, post_id: int, body: DestructiveRequest = Body(...), post_type: str = "posts", force: bool = False):
+    audit_before("/wordpress/{site_id}/posts/{post_id}", {"site_id": site_id, "post_id": post_id, "force": force}, body.operator, body.reason)
     site = _get_site(site_id)
     endpoint = "pages" if post_type == "pages" else "posts"
     try:

@@ -1,5 +1,6 @@
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
+from routes._destructive_audit import DestructiveRequest, audit_before
 from pydantic import BaseModel
 from services.todoist import (
     get_inbox, get_today, get_week, get_backlog, create_task, update_task, search_tasks,
@@ -83,7 +84,8 @@ def api_complete_task(task_id: str):
 
 
 @router.delete("/tasks/{task_id}")
-def api_delete_task(task_id: str):
+def api_delete_task(task_id: str, body: DestructiveRequest = Body(...)):
+    audit_before("/tasks/{task_id}", {"task_id": task_id}, body.operator, body.reason)
     ok = delete_task(task_id)
     return {"ok": ok}
 
@@ -103,5 +105,6 @@ def api_create_project(req: ProjectCreateRequest):
 
 
 @router.delete("/tasks/projects/{project_id}")
-def api_delete_project(project_id: str):
+def api_delete_project(project_id: str, body: DestructiveRequest = Body(...)):
+    audit_before("/tasks/projects/{project_id}", {"project_id": project_id}, body.operator, body.reason)
     return {"ok": delete_todoist_project(project_id)}

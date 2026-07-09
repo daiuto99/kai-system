@@ -1,6 +1,7 @@
 import logging
 import docker as docker_sdk
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Body
+from routes._destructive_audit import DestructiveRequest, audit_before
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -26,12 +27,12 @@ def _check_auth(token: str | None):
 
 
 @router.post("/admin/redeploy/{service}")
-def redeploy_service(service: str, authorization: str | None = Header(default=None)):
+def redeploy_service(service: str, authorization: str | None = Header(default=None), body: DestructiveRequest = Body(...)):
     """Trigger docker pull + restart for a named compose service."""
     _check_auth(authorization)
     if service not in ALLOWED_SERVICES:
         raise HTTPException(400, f"Unknown service '{service}'. Allowed: {sorted(ALLOWED_SERVICES)}")
-
+    audit_before("/admin/redeploy/{service}", {"service": service}, body.operator, body.reason)
     try:
         client = docker_sdk.DockerClient(base_url="unix:///var/run/docker.sock")
         container = client.containers.get(service)

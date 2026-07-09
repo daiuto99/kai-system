@@ -1,7 +1,8 @@
 import json
 import logging
 from datetime import date as _wd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
+from routes._destructive_audit import DestructiveRequest, audit_before
 from pydantic import BaseModel
 from config import VAULT_PATH
 
@@ -45,7 +46,8 @@ def upsert_workflow(w: WorkflowModel):
 
 
 @router.delete("/workflows/{workflow_id}")
-def delete_workflow_endpoint(workflow_id: str):
+def delete_workflow_endpoint(workflow_id: str, body: DestructiveRequest = Body(...)):
+    audit_before("/workflows/{workflow_id}", {"workflow_id": workflow_id}, body.operator, body.reason)
     if not WORKFLOWS_FILE.exists():
         return {"ok": True}
     workflows = [w for w in json.loads(WORKFLOWS_FILE.read_text()) if w["id"] != workflow_id]

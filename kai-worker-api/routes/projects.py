@@ -3,7 +3,8 @@ import logging
 import re
 from datetime import datetime as _cdt
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
+from routes._destructive_audit import DestructiveRequest, audit_before
 from pydantic import BaseModel
 from config import VAULT_PATH, safe_path
 from safe_http import safe_json
@@ -154,13 +155,14 @@ def patch_project(project_id: str, body: ProjectPatch):
 
 
 @router.delete("/projects/{project_id}")
-def delete_project(project_id: str):
+def delete_project(project_id: str, body: DestructiveRequest = Body(...)):
     if not PROJECTS_FILE.exists():
         raise HTTPException(404, "projects file not found")
     projects = json.loads(PROJECTS_FILE.read_text())
     remaining = [p for p in projects if p["id"] != project_id]
     if len(remaining) == len(projects):
         raise HTTPException(404, "project not found")
+    audit_before("/projects/{project_id}", {"project_id": project_id}, body.operator, body.reason)
     PROJECTS_FILE.write_text(json.dumps(remaining, indent=2))
     return {"ok": True}
 
