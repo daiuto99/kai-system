@@ -544,13 +544,28 @@ def _post_oauth_escalation(token: str, service: str, detail: str):
 
 
 def _try_fix_disk() -> str:
-    """Auto-remediate disk pressure: prune Docker build cache + vacuum journal logs.
+    """Auto-remediate disk pressure: prune unused Docker images + build cache + vacuum logs.
 
     Safe operations only — no running containers or data are touched.
-    Runs without sudo (journalctl vacuum works without it for user-owned journals).
-    Reports freed space. Escalates to Leo if still above threshold after cleanup.
+    Runs without sudo. Reports actual freed bytes per step.
+    Escalates to Leo if still above threshold after cleanup.
     """
     freed_parts = []
+
+    # Prune unused images first — largest potential win when images accumulate
+    try:
+        result = subprocess.run(
+            ["docker", "image", "prune", "-a", "--force"],
+            capture_output=True, text=True, timeout=180,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if line.strip().lower().startswith("total reclaimed space:"):
+                    freed_parts.append(f"images: {line.split(':', 1)[1].strip()}")
+                    break
+    except Exception as e:
+        log.warning("disk remediation: docker image prune failed: %s", e)
+
     try:
         result = subprocess.run(
             ["docker", "builder", "prune", "--force"],
@@ -704,7 +719,7 @@ CANT_FIX_REASON = {
     "todoist":           ("hardlimit", "Task list unavailable — Todoist API down or token expired"),
     "google_calendar":   ("hardlimit", "OAuth token expired — cannot auto-renew"),
     "plane_ce":          ("system",    "Project management unavailable — sprint tracking broken"),
-    "disk":              ("autofixed", "Storage high — DevOps auto-cleanup runs (build cache prune + journal vacuum)"),
+    "disk":              ("autofixed", "Storage high — attempting: unused image prune + build cache prune + log vacuum"),
     "backup":            ("system",    "Vault and Plane data not protected"),
     "cert_expiry":       ("hardlimit", "SSL cert expired — all HTTPS services unreachable from web"),
     "component_currency":("autofixed", "Stale KAI containers — DevOps auto-rebuilds and restarts them"),
