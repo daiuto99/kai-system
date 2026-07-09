@@ -664,6 +664,17 @@ def _try_fix_components() -> str:
     if not stale_services:
         return "no stale components found ✅"
 
+    # Compose dir is a host path — not mounted inside the container.
+    # Return an actionable string so the caller gets a normal result instead
+    # of a FileNotFoundError that bypasses dedup and spams TRIAGE every tick.
+    if not KAI_COMPOSE_DIR.exists():
+        names = ", ".join(stale_services)
+        svcs = " ".join(stale_services)
+        return (
+            f"stale images detected ({names}) — auto-rebuild unavailable inside container. "
+            f"Run on host: cd ~/kai-system && docker compose build {svcs} && docker compose up -d {svcs}"
+        )
+
     rebuilt = []
     failed = []
     for svc in stale_services:
