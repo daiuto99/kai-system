@@ -4,6 +4,9 @@ services:
     build: ./kai-worker-api
     container_name: kai-worker-api
     restart: unless-stopped
+    user: "1000:1000"
+    group_add:
+      - "999"
     logging:
       driver: json-file
       options:
@@ -37,6 +40,7 @@ services:
     build: ./kai-council-api
     container_name: kai-council-api
     restart: unless-stopped
+    user: "1000:1000"
     logging:
       driver: json-file
       options:
@@ -209,6 +213,9 @@ services:
     build: ./kai-scheduler
     container_name: kai-scheduler
     restart: unless-stopped
+    user: "1000:1000"
+    group_add:
+      - "999"
     logging:
       driver: json-file
       options:
@@ -291,6 +298,7 @@ services:
     build: ./kai-orchestrator
     container_name: kai-orchestrator
     restart: unless-stopped
+    user: "1000:1000"
     logging:
       driver: json-file
       options:
