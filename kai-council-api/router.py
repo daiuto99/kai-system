@@ -338,8 +338,13 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     if auto:
         return auto
 
-    # Rate limit check
-    rl = _check_rate_limit(advisor)
+    # Rate limit check — tiered budget (S5R-19)
+    _traffic_type = (
+        "interactive"
+        if req.trigger_source.startswith(("slack:dm", "telegram:dm", "dashboard:chat"))
+        else "alert"
+    )
+    rl = _check_rate_limit(advisor, traffic_type=_traffic_type)
     if rl["blocked"]:
         return {"advisor": advisor, "channel": channel, "reply": rl["reason"],
                 "insights_logged": 0, "input_tokens": 0, "output_tokens": 0,
@@ -418,6 +423,10 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
 
     if _force_privacy:
         adv_cfg = {"provider": "ollama", "model": "qwen2.5:3b"}
+
+    # Budget degradation (S5R-19): interactive sub-budget exhausted → cap to Haiku
+    if rl.get("degrade") and adv_cfg.get("provider") == "anthropic":
+        adv_cfg = dict(adv_cfg, model="claude-haiku-4-5-20251001")
 
     provider = adv_cfg.get("provider", "anthropic")
     model    = adv_cfg.get("model", "claude-sonnet-4-6")

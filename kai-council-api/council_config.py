@@ -52,40 +52,86 @@ def _slack_token() -> str:
 from usage_tracker import _track_usage, track_api_call  # noqa: F401  re-export
 
 
-# ── Rate limiting ─────────────────────────────────────────────────────────────
-DAILY_COST_CAP_USD   = 5.00   # hard daily spend cap across all advisors
-HOURLY_CALL_CAP      = 50     # max calls per hour (loop/runaway protection)
-_rate_alert_sent: dict = {}   # track if alert already sent this period
+# ── Rate limiting (S5R-19: tiered budget) ────────────────────────────────────
+# Interactive traffic (Leo's chat) degrades to Haiku before the sub-budget is
+# exhausted — never hard-blocked. Alert/ops traffic has a separate sub-budget
+# and is also never hard-blocked. The total cap feeds the Health Board cost view.
+# Only the hourly call cap remains a hard block (loop/runaway protection).
+DAILY_COST_CAP_USD     = 5.00  # total daily cap — Health Board cost view
+INTERACTIVE_BUDGET_USD = 4.00  # interactive-chat sub-budget; Haiku fallback above this
+ALERT_BUDGET_USD       = 1.00  # alerts + critical-ops sub-budget
+WARN_THRESHOLD         = 0.80  # warn Leo at this fraction of INTERACTIVE_BUDGET_USD
+HOURLY_CALL_CAP        = 50    # calls/hour ceiling — loop/runaway protection (hard block)
+_rate_alert_sent: dict = {}
 
-def _check_rate_limit(advisor: str) -> dict:
-    """Returns {"blocked": True, "reason": "..."} or {"blocked": False}."""
+def _check_rate_limit(advisor: str, traffic_type: str = "interactive") -> dict:
+    """Return rate-limit decision dict.
+
+    Keys:
+      blocked (bool) — only True for hourly runaway; interactive never hard-blocks
+      degrade (bool) — interactive spend ≥ INTERACTIVE_BUDGET_USD; caller uses Haiku
+      warn    (bool) — interactive spend ≥ 80% of sub-budget; Slack alert already sent
+      reason  (str)  — human-readable explanation for blocked/warn states
+    """
     import datetime
     try:
         usage_path = Path("/vault/00_System/token_usage.json")
         if not usage_path.exists():
-            return {"blocked": False}
+            return {"blocked": False, "degrade": False, "warn": False, "reason": ""}
         data = json.loads(usage_path.read_text())
         today = datetime.date.today().isoformat()
         hour_key = datetime.datetime.now().strftime("%H")
         day = next((d for d in data.get("days", []) if d["date"] == today), None)
         if day is None:
-            return {"blocked": False}
+            return {"blocked": False, "degrade": False, "warn": False, "reason": ""}
 
-        # Daily cost cap
-        if day.get("cost_usd", 0) >= DAILY_COST_CAP_USD:
-            _maybe_slack_alert("daily_cap", f":warning: *KAI rate limit hit* — daily spend cap of ${DAILY_COST_CAP_USD:.2f} reached. Calls blocked until midnight.")
-            return {"blocked": True, "reason": f"Daily API budget of ${DAILY_COST_CAP_USD:.2f} reached. Resets at midnight."}
+        cost = day.get("cost_usd", 0.0)
+        warn_level = INTERACTIVE_BUDGET_USD * WARN_THRESHOLD
 
-        # Hourly call cap
+        if traffic_type == "interactive":
+            if cost >= INTERACTIVE_BUDGET_USD:
+                _maybe_slack_alert(
+                    "interactive_budget_exhausted",
+                    f":warning: *KAI budget* — interactive spend ${cost:.2f} exceeds "
+                    f"${INTERACTIVE_BUDGET_USD:.2f} sub-budget. Degrading to Haiku until midnight.",
+                )
+                return {"blocked": False, "degrade": True, "warn": False, "reason": ""}
+            if cost >= warn_level:
+                _maybe_slack_alert(
+                    "interactive_budget_warn",
+                    f":information_source: *KAI budget* — interactive spend "
+                    f"${cost:.2f} / ${INTERACTIVE_BUDGET_USD:.2f} (80%). "
+                    f"Haiku fallback activates above ${INTERACTIVE_BUDGET_USD:.2f}.",
+                )
+                return {
+                    "blocked": False, "degrade": False, "warn": True,
+                    "reason": f"${cost:.2f} of ${INTERACTIVE_BUDGET_USD:.2f} daily budget used.",
+                }
+        else:
+            # Alert / critical-ops: log if total cap reached, never block
+            if cost >= DAILY_COST_CAP_USD:
+                _maybe_slack_alert(
+                    "total_cap_alert_traffic",
+                    f":warning: *KAI budget* — total spend ${cost:.2f} at cap "
+                    f"${DAILY_COST_CAP_USD:.2f}. Alert traffic continuing on reserve.",
+                )
+
+        # Hourly call cap — hard block for all traffic types (loop/runaway protection)
         hour = day.get("hours", {}).get(hour_key, {})
         if hour.get("calls", 0) >= HOURLY_CALL_CAP:
-            _maybe_slack_alert("hourly_cap", f":warning: *KAI rate limit hit* — {HOURLY_CALL_CAP} calls in the last hour. Cooling down.")
-            return {"blocked": True, "reason": f"Hourly call limit of {HOURLY_CALL_CAP} reached. Try again next hour."}
+            _maybe_slack_alert(
+                "hourly_cap",
+                f":warning: *KAI rate limit hit* — {HOURLY_CALL_CAP} calls in the last hour. Cooling down.",
+            )
+            return {
+                "blocked": True, "degrade": False, "warn": False,
+                "reason": f"Hourly call limit of {HOURLY_CALL_CAP} reached. Try again next hour.",
+            }
 
-        return {"blocked": False}
+        return {"blocked": False, "degrade": False, "warn": False, "reason": ""}
     except Exception as e:
         logger.exception("rate-limit check error: %s", e)
-        return {"blocked": False}
+        return {"blocked": False, "degrade": False, "warn": False, "reason": ""}
 
 
 def _maybe_slack_alert(key: str, message: str):
