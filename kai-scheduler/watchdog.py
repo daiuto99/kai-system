@@ -671,6 +671,12 @@ OAUTH_SERVICES = {
     "google_calendar": "Google Calendar",
 }
 
+# Checks intentionally skipped — not failures, not alerts, not counted in failure state.
+# Remove the key when the deferral is resolved.
+DEFERRED_CHECKS: dict[str, str] = {
+    "google_calendar": "Deliberately deferred — n8n OAuth intentionally dead until S7-9 (n8n retirement + calendar transport rebuild)",
+}
+
 
 # Why KAI can't auto-fix each failure and what it affects
 CANT_FIX_REASON = {
@@ -989,6 +995,9 @@ def run_watchdog_checks():
     fixed = []
 
     for key, label, fn in CHECKS:
+        if key in DEFERRED_CHECKS:
+            log.info("watchdog: skipping deferred check %s — %s", key, DEFERRED_CHECKS[key])
+            continue
         try:
             ok, detail = fn()
         except Exception as e:
