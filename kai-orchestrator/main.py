@@ -1,5 +1,5 @@
 """kai-orchestrator — FastAPI entrypoint."""
-import json, logging, os, threading, time
+import json, logging, os, threading, time  # noqa: E401
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from db import init_db, get_conn
@@ -585,7 +585,7 @@ def list_proposals():
 
 # ── Capability endpoint + quality gates ──────────────────────────────────────
 
-import time as _time
+import time as _time  # noqa: E402
 
 _RATE_LIMITS: dict = {
     "slack.post": {"window": 60, "max": 5},   # 5 per minute
@@ -636,7 +636,7 @@ def _check_rate_limit(name: str) -> str | None:
 def list_capabilities():
     """List all registered capabilities with gate metadata including autonomy policy."""
     from capabilities import _registry
-    from policy.autonomy import list_policies, AUTONOMY_POLICIES
+    from policy.autonomy import list_policies, AUTONOMY_POLICIES  # noqa: F401
     policy_map = {p["capability"]: p for p in list_policies()}
     caps = []
     for name in sorted(_registry.keys()):

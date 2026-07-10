@@ -154,7 +154,7 @@ def _update_location_from_calendar():
         if loc_file.exists():
             _cur = _j.loads(loc_file.read_text())
             current_tz = _cur.get("timezone", current_tz)
-            current_city = _cur.get("city", "")
+            current_city = _cur.get("city", "")  # noqa: F841
 
         # Fetch Google Calendar events (today + tomorrow)
         try:

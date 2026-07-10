@@ -10,7 +10,7 @@ def test_no_direct_status_writes_outside_engine():
         capture_output=True, text=True,
         cwd="/app"
     )
-    hits = [l for l in result.stdout.splitlines() if l.strip()]
+    hits = [l for l in result.stdout.splitlines() if l.strip()]  # noqa: E741
     assert not hits, (
         "Direct SQL status writes found outside engine.py:\n" + "\n".join(hits)
     )
@@ -24,7 +24,7 @@ def test_no_direct_sql_status_writes_in_workflows():
         capture_output=True, text=True,
         cwd="/app"
     )
-    hits = [l for l in result.stdout.splitlines() if l.strip()]
+    hits = [l for l in result.stdout.splitlines() if l.strip()]  # noqa: E741
     assert not hits, (
         "Raw SQL status writes in workflow files:\n" + "\n".join(hits)
     )

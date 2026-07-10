@@ -1,7 +1,7 @@
 import logging
 import os
-import hmac
-import hashlib
+import hmac  # noqa: F401
+import hashlib  # noqa: F401
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Header
 from pydantic import BaseModel

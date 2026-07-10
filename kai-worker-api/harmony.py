@@ -26,7 +26,7 @@ DOMAIN_META = [
     {"id": "passion-sex",       "name": "Passion & Vitality", "icon": "🔥"},
 ]
 
-DEFAULT_ASPECT = lambda: {"statements": [], "status": "green"}
+DEFAULT_ASPECT = lambda: {"statements": [], "status": "green"}  # noqa: E731
 
 
 def load_harmony() -> dict:

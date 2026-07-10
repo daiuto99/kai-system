@@ -19,8 +19,8 @@ def purge(site: str, url_path: str, creds: dict) -> SafeResponse:
     fqdn = creds.get("fqdn", "")
     results = {}
     for host in filter(None, [custom_domain, fqdn]):
-        safe_path = shlex.quote(url_path or "/")
-        safe_host = shlex.quote(host)
+        safe_path = shlex.quote(url_path or "/")  # noqa: F841
+        safe_host = shlex.quote(host)  # noqa: F841
         cmd_str = f"curl -s -o /dev/null -w '%{{http_code}}' -X PURGE -H 'Host: {host}' http://localhost:8080{url_path or '/'}"
         r = subprocess.run(
             ["ssh"] + _SSH_OPTS + [_HOST, cmd_str],

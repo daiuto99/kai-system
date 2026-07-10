@@ -15,12 +15,12 @@ Steps:
   12. devops_review        — council.gate (dev) final sign-off
   13. complete             — finalize
 """
-import json, logging
+import json, logging  # noqa: E401
 from pathlib import Path
 from workflow_base import Workflow
 from models import StepDef, CapabilityResult
-from db import get_conn, new_id
-from engine import engine
+from db import get_conn, new_id  # noqa: F401
+from engine import engine  # noqa: F401
 
 log = logging.getLogger(__name__)
 

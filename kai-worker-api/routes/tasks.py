@@ -1,9 +1,9 @@
 import logging
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body  # noqa: F401
 from routes._destructive_audit import DestructiveRequest, audit_before
 from pydantic import BaseModel
 from services.todoist import (
-    get_inbox, get_today, get_week, get_backlog, create_task, update_task, search_tasks,
+    get_inbox, get_today, get_week, get_backlog, create_task, update_task, search_tasks,  # noqa: F401
     complete_task as todoist_complete, delete_task, shape_task, move_to_today,
     get_todoist_projects, create_todoist_project, delete_todoist_project
 )

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Body
 from routes._destructive_audit import DestructiveRequest, audit_before
 from pydantic import BaseModel
 from config import VAULT_PATH, safe_path
-from safe_http import safe_json
+from safe_http import safe_json  # noqa: F401
 
 try:
     import yaml as _yaml
@@ -144,11 +144,11 @@ def patch_project(project_id: str, body: ProjectPatch):
     projects = json.loads(PROJECTS_FILE.read_text())
     for p in projects:
         if p["id"] == project_id:
-            if body.pinned is not None: p["pinned"] = body.pinned
-            if body.status:             p["status"]  = body.status
-            if body.next:               p["next"]    = body.next
-            if body.milestone:          p["milestone"] = body.milestone
-            if body.milestone_pct is not None: p["milestone_pct"] = body.milestone_pct
+            if body.pinned is not None: p["pinned"] = body.pinned  # noqa: E701
+            if body.status:             p["status"]  = body.status  # noqa: E701
+            if body.next:               p["next"]    = body.next  # noqa: E701
+            if body.milestone:          p["milestone"] = body.milestone  # noqa: E701
+            if body.milestone_pct is not None: p["milestone_pct"] = body.milestone_pct  # noqa: E701
             PROJECTS_FILE.write_text(json.dumps(projects, indent=2))
             return {"ok": True, "project": p}
     raise HTTPException(404, "project not found")

@@ -1,9 +1,9 @@
 """Tests for S5R-19: tiered spend-cap — interactive never hard-blocks."""
 import json
 import datetime
-import pytest
+import pytest  # noqa: F401
 from unittest.mock import patch, MagicMock
-from pathlib import Path
+from pathlib import Path  # noqa: F401
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────

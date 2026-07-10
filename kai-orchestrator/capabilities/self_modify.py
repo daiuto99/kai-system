@@ -425,7 +425,7 @@ def commit(target_root: str, plane_ticket_id: str, gate: str, principle: str,
 
     # Bail if nothing actually staged (patch may have been a no-op)
     rc, out, _ = _git(["diff", "--cached", "--name-only"], root)
-    staged = [l for l in out.splitlines() if l]
+    staged = [l for l in out.splitlines() if l]  # noqa: E741
     if not staged:
         return CapabilityResult(
             ok=False, status="failed_permanent",

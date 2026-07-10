@@ -282,8 +282,8 @@ def _complete_intake(advisor: str, channel_id: str = "") -> dict:
         pos = summary["annotations"].get("positive", [])
         neg = summary["annotations"].get("negative", [])
         parts = []
-        if pos: parts.append(f"*Like:* {'; '.join(pos[:3])}")
-        if neg: parts.append(f"*Avoid:* {'; '.join(neg[:3])}")
+        if pos: parts.append(f"*Like:* {'; '.join(pos[:3])}")  # noqa: E701
+        if neg: parts.append(f"*Avoid:* {'; '.join(neg[:3])}")  # noqa: E701
         _post_slack(channel_id,
             f"✓ *{summary['filename']}* saved as *{summary['verdict']}* "
             f"under _{', '.join(cat_labels)}_.\n" + ("\n".join(parts) if parts else ""))
@@ -337,7 +337,7 @@ def start_intake(advisor: str, body: dict):
         "queue": all_files,
     }
 
-    prompt = f"Is this a *reference* example (direction to follow) or an *avoid* example (what not to do)?"
+    prompt = f"Is this a *reference* example (direction to follow) or an *avoid* example (what not to do)?"  # noqa: F541
     _post_slack(channel_id, f"Starting Creative intake for *{filename}*\n\n{prompt}")
     return {"ok": True, "stage": "q1", "prompt": prompt}
 
@@ -451,7 +451,7 @@ def scan_resources(body: dict, background_tasks: BackgroundTasks):
             f"Drop files into `~/vault/60_Council/{advisor}/resources/` and try again.")
         return {"found": 0, "files": []}
 
-    result = start_intake(advisor, {"filename": files[0], "channel_id": channel_id})
+    result = start_intake(advisor, {"filename": files[0], "channel_id": channel_id})  # noqa: F841
     if len(files) > 1:
         _post_slack(channel_id, f"_{len(files) - 1} more file(s) queued after this one._")
     return {"found": len(files), "files": files, "started": files[0]}

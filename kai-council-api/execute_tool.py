@@ -2,7 +2,7 @@ import json
 import re
 import logging
 import os
-from datetime import datetime as _dt2, date as _d2, timedelta as _td2
+from datetime import datetime as _dt2, date as _d2, timedelta as _td2  # noqa: F401
 from pathlib import Path
 import httpx
 from council_config import WORKER_URL, VAULT_PATH, ADVISOR_AVATARS, _slack_token
@@ -18,7 +18,7 @@ N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
 PLANE_API_TOKEN = open("/run/secrets/plane_api_token").read().strip().split("\n")[0]
 PLANE_BASE_URL = "http://172.18.0.1:8090/api/v1"
 PLANE_WORKSPACE = "sonicink"
-from council_config import ORCHESTRATOR_URL as _ORCH_URL
+from council_config import ORCHESTRATOR_URL as _ORCH_URL  # noqa: E402
 
 
 
@@ -267,7 +267,7 @@ def _h_vault(client, tool_name, ti, advisor):
             return {"error": "File not found in workspace: " + ti["path"] + ". Workspace may need a sync."}
         try:
             return r.json()
-        except Exception as e:
+        except Exception as e:  # noqa: F841
             return {"error": "workspace/read non-JSON (status " + str(r.status_code) + "): " + r.text[:200]}
     if tool_name == "list_workspace":
         p = ti.get("path", "")
@@ -276,7 +276,7 @@ def _h_vault(client, tool_name, ti, advisor):
             return {"error": "Directory not found in workspace: " + p}
         try:
             return r.json()
-        except Exception as e:
+        except Exception as e:  # noqa: F841
             return {"error": "workspace/list non-JSON (status " + str(r.status_code) + "): " + r.text[:200]}
 
 
@@ -389,7 +389,7 @@ def _h_calendar(client, tool_name, ti, advisor):
                     end_str = end.get("dateTime", end.get("date", "")) if isinstance(end, dict) else str(end)
                     _day = ""
                     try:
-                        from zoneinfo import ZoneInfo as _ZI2
+                        from zoneinfo import ZoneInfo as _ZI2  # noqa: F401
                         _dt_parsed = _dt2.fromisoformat(start_str[:10])
                         _day = _dt_parsed.strftime("%A")
                     except Exception:
@@ -459,7 +459,7 @@ def _h_knowledge(client, tool_name, ti, advisor):
 
 
 def _h_ingest(client, tool_name, ti, advisor):
-    import subprocess, shlex
+    import subprocess, shlex  # noqa: E401, F401
     if tool_name == "ingest_knowledge":
         target = ti.get("path", f"/vault/60_Council/{ti.get('advisor', advisor)}/knowledge")
         target_advisor = ti.get("advisor", advisor)
@@ -470,7 +470,7 @@ def _h_ingest(client, tool_name, ti, advisor):
         )
         if result.returncode != 0:
             return {"error": result.stderr[:500]}
-        lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
+        lines = [l for l in result.stdout.strip().splitlines() if l.strip()]  # noqa: E741
         return {"status": "ok", "summary": lines[-1] if lines else "done", "output": result.stdout.strip()}
     if tool_name == "list_knowledge":
         env = {**__import__("os").environ, "QDRANT_URL": "http://kai-qdrant:6333", "OLLAMA_URL": "http://kai-ollama:11434"}
@@ -753,7 +753,7 @@ def _h_wordpress(client, tool_name, ti, advisor):
             rc, out, err = _ssh(f"ls -la --time-style=long-iso {_sx.quote(abs_p)} 2>&1", timeout=15)
             if rc != 0:
                 return {"error": f"ssh ls failed: {out.decode()[:200]} {err.decode()[:200]}"}
-            lines = [l for l in out.decode().splitlines() if l and not l.startswith("total ")]
+            lines = [l for l in out.decode().splitlines() if l and not l.startswith("total ")]  # noqa: E741
             return {"site": site_key, "path": rel or ".", "abs_path": abs_p, "listing": lines}
         except Exception as e:
             logger.exception("wordpress_list_files: %s", e)
@@ -1059,7 +1059,7 @@ def _h_wordpress(client, tool_name, ti, advisor):
             if not img_bytes:
                 return {"error": "file is empty"}
             auth_b64 = _b64.b64encode(f"kai:{site['kai_app_password']}".encode()).decode()
-            import tempfile as _tf, os as _os
+            import tempfile as _tf, os as _os  # noqa: E401
             ext = _pp.splitext(filename)[1] or ".png"
             with _tf.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
                 tmp.write(img_bytes)

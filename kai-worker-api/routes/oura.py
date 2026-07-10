@@ -30,7 +30,7 @@ def oura_today():
                       headers=headers, timeout=15)
         data = r.json().get("data", [])
         if data:
-            l = data[-1]
+            l = data[-1]  # noqa: E741
             c = l.get("contributors", {})
             result["readiness"] = {"score": l.get("score"), "hrv_balance": c.get("hrv_balance"),
                                    "rhr": c.get("resting_heart_rate"), "recovery_index": c.get("recovery_index")}
@@ -42,7 +42,7 @@ def oura_today():
                       headers=headers, timeout=15)
         data = r.json().get("data", [])
         if data:
-            l = data[-1]
+            l = data[-1]  # noqa: E741
             c = l.get("contributors", {})
             result["sleep"] = {"score": l.get("score"), "total": c.get("total_sleep"),
                                "rem": c.get("rem_sleep"), "deep": c.get("deep_sleep"),

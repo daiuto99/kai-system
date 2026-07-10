@@ -79,10 +79,10 @@ def create_task(content: str, due_date: str = None, priority: int = 4,
 def update_task(task_id: str, content: str = None, due_date: str = None,
                 priority: int = None, description: str = None) -> dict:
     body = {}
-    if content is not None:    body["content"] = content
-    if due_date is not None:   body["due_date"] = due_date
-    if priority is not None:   body["priority"] = priority
-    if description is not None: body["description"] = description
+    if content is not None:    body["content"] = content  # noqa: E701
+    if due_date is not None:   body["due_date"] = due_date  # noqa: E701
+    if priority is not None:   body["priority"] = priority  # noqa: E701
+    if description is not None: body["description"] = description  # noqa: E701
     with httpx.Client(timeout=15) as c:
         r = c.post(f"{TODOIST_API}/tasks/{task_id}", headers=_headers(), json=body)
         r.raise_for_status()

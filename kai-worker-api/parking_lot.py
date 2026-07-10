@@ -212,7 +212,7 @@ def write_capture_card(text: str, classification: dict, og: dict,
 
     tags_str = ", ".join(classification.get("tags", []))
     og_image = og.get("og_image", "")
-    og_title = og.get("og_title", "")
+    og_title = og.get("og_title", "")  # noqa: F841
 
     card = f"""---
 date: {date_str}

@@ -19,11 +19,11 @@ def _write_session_summary(channel: str, title: str, topics: list, decisions: li
 
     lines = [
         f"# Session — {channel} — {ts.strftime('%Y-%m-%d')}",
-        f"",
+        f"",  # noqa: F541
         f"**Title:** {title}  ",
         f"**Channel:** {channel}  ",
         f"**Date:** {ts.strftime('%Y-%m-%d %H:%M')} UTC  ",
-        f"",
+        f"",  # noqa: F541
     ]
     if topics:
         lines += ["## Topics", ""] + [f"- {t}" for t in topics] + [""]

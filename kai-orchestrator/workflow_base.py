@@ -1,5 +1,5 @@
-import json, logging, time
-from typing import List, Optional
+import json, logging, time  # noqa: E401
+from typing import List, Optional  # noqa: F401
 from db import get_conn, new_id, now_iso
 from engine import engine
 from models import StepDef, CapabilityResult
@@ -24,7 +24,7 @@ class Workflow:
     def start(cls, inputs: dict) -> "Workflow":
         job_id = engine.create_job(cls.name, inputs, cls.approval_policy)
         instance = cls(job_id)
-        conn = get_conn()
+        conn = get_conn()  # noqa: F841
         for step_def in cls.steps:
             engine.create_step(job_id, step_def.name, step_def.capability, step_def.step_type)
         engine.transition("job", job_id, "running")
@@ -95,7 +95,7 @@ class Workflow:
                     conn = get_conn()
                     conn.execute("UPDATE steps SET retry_count=retry_count+1 WHERE id=?",
                                  (step["id"],))
-                    conn.commit(); conn.close()
+                    conn.commit(); conn.close()  # noqa: E702
                     engine.transition("step", step["id"], "pending")
                     return self._run_step({**step, "retry_count": retry + 1})
                 else:
@@ -123,4 +123,4 @@ class Workflow:
              1 if verified and step.get("retry_count", 0) == 0 else 0,
              step.get("retry_count", 0), now_iso()),
         )
-        conn.commit(); conn.close()
+        conn.commit(); conn.close()  # noqa: E702

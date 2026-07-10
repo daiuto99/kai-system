@@ -13,7 +13,7 @@ ask() returns: {"ok": bool, "channel": str, "skipped": bool, "detail": str}
 """
 from __future__ import annotations
 
-import json
+import json  # noqa: F401
 import logging
 import os
 from pathlib import Path

@@ -403,7 +403,7 @@ def _process_gate(req: GateRequest):
             logger.warning("Unknown gate_type %r — notifying Leo", gate_type)
             _persist_artifact(req.gate_id, "brief", json.dumps(brief, indent=2))
             summary        = f"*Subject:* (unknown gate type `{gate_type}`)\n*Chain:* none — Leo must decide"
-            kai_assessment = f"Unknown gate type — see brief.md"
+            kai_assessment = f"Unknown gate type — see brief.md"  # noqa: F541
 
         # Move to pending_leo: post to Slack, wait for Leo's response
         _GATES_STORE[req.gate_id]["status"]         = "pending_leo"

@@ -45,14 +45,14 @@ def get_transports(site: str, operation: str) -> list[str]:
 
 
 # Auto-register all capability modules on package import
-from . import wordpress as _wp    # noqa: F401
-from . import council as _council  # noqa: F401
+from . import wordpress as _wp  # noqa: E402, F401
+from . import council as _council  # noqa: E402, F401
 
-from . import slack as _slack    # noqa: F401
-from . import plane as _plane    # noqa: F401
-from . import vault as _vault        # noqa: F401
-from . import workspace as _workspace  # noqa: F401
-from . import calendar as _calendar    # noqa: F401
-from . import session as _session    # noqa: F401
-from . import model_peer as _model_peer  # noqa: F401
-from . import self_modify as _self_modify  # noqa: F401
+from . import slack as _slack  # noqa: E402, F401
+from . import plane as _plane  # noqa: E402, F401
+from . import vault as _vault  # noqa: E402, F401
+from . import workspace as _workspace  # noqa: E402, F401
+from . import calendar as _calendar  # noqa: E402, F401
+from . import session as _session  # noqa: E402, F401
+from . import model_peer as _model_peer  # noqa: E402, F401
+from . import self_modify as _self_modify  # noqa: E402, F401

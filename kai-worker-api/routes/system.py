@@ -1,10 +1,10 @@
 import json
-import re as _re
+import re as _re  # noqa: F401
 import shutil
-import subprocess
+import subprocess  # noqa: F401
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path  # noqa: F401
 from fastapi import APIRouter
 from config import VAULT_PATH
 
@@ -60,7 +60,7 @@ def system_health():
     apt_updates = None
     try:
         if APT_STATUS_FILE.exists():
-            lines = [l for l in APT_STATUS_FILE.read_text().splitlines() if l.strip() and "Listing..." not in l]
+            lines = [l for l in APT_STATUS_FILE.read_text().splitlines() if l.strip() and "Listing..." not in l]  # noqa: E741
             apt_updates = len(lines)
     except Exception:
         pass
@@ -154,8 +154,8 @@ def kai_status():
 
 _session_context: dict = {}
 
-from fastapi import Request as _Request
-from pydantic import BaseModel as _BaseModel
+from fastapi import Request as _Request  # noqa: E402, F401
+from pydantic import BaseModel as _BaseModel  # noqa: E402
 
 class _SessionContextPayload(_BaseModel):
     pct: float

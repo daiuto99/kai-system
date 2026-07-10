@@ -31,7 +31,7 @@ def set_option(site: str, option: str, value: str, creds: dict) -> SafeResponse:
         f"echo get_option({safe_opt});"
     )
 
-    host = f"master_vvbwxpwpcc@134.209.166.23"
+    host = f"master_vvbwxpwpcc@134.209.166.23"  # noqa: F541
     cmd = ["ssh"] + _SSH_OPTS + [host, f"php -r {shlex.quote(php)}"]
 
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)

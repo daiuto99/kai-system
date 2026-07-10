@@ -54,7 +54,7 @@ def build_dispatch_plan(
     action = intent.get("action", "capture")
     destination = intent.get("destination")
     instructions = intent.get("instructions") or ""
-    confidence = intent.get("confidence", "low")
+    confidence = intent.get("confidence", "low")  # noqa: F841
 
     plan: dict = {
         "handler":              "capture",

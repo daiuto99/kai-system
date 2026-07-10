@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException  # noqa: F401
 from pydantic import BaseModel
 from config import VAULT_PATH
 

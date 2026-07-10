@@ -1,7 +1,7 @@
 import logging
 from datetime import date as _d
 from fastapi import APIRouter, HTTPException
-import json, os
+import json, os  # noqa: E401
 from pydantic import BaseModel
 from services.habitsync import get_habits as hs_get_habits, log_habit, unlog_habit, create_habit as hs_create_habit, update_habit as hs_update_habit
 

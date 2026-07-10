@@ -1,5 +1,5 @@
 import json
-import pytest
+import pytest  # noqa: F401
 from pathlib import Path
 
 

@@ -17,9 +17,9 @@ Route categorization:
 
 Payload: DOT_DOT (%2e%2e) — single encoded ".." that reaches the handler.
 Raw ../ in URL path → 404 (HTTP stack normalizes before handler; safe by design).
-"""
+"""  # noqa: W291
 import httpx
-import json
+import json  # noqa: F401
 import sys
 
 BASE = "http://localhost:8001"
@@ -128,7 +128,7 @@ def run():
     print(f"Group B (external API ID):   {b_pass}/{b_total} return 4xx")
 
     if failures:
-        print(f"\n[FAIL] Group A routes not returning expected code:")
+        print(f"\n[FAIL] Group A routes not returning expected code:")  # noqa: F541
         for method, path, group, status, expected in failures:
             print(f"  {method} {path} → got {status}, expected {expected} ({group})")
         sys.exit(1)
@@ -139,3 +139,8 @@ def run():
 
 if __name__ == "__main__":
     run()
+
+
+def test_ec5_traversal():
+    """EC#5: all filesystem routes reject traversal payload with correct 4xx codes."""
+    run()  # sys.exit(1) on any Group-A failure -> pytest FAIL; clean return -> PASS

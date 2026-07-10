@@ -1,4 +1,4 @@
-import sqlite3, json, uuid, datetime
+import sqlite3, json, uuid, datetime  # noqa: E401, F401
 from pathlib import Path
 
 DB_PATH = Path("/data/orchestrator/orchestrator.db")

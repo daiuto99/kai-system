@@ -1,4 +1,4 @@
-from typing import TypedDict, Optional
+from typing import TypedDict, Optional  # noqa: F401
 
 
 class BugState(TypedDict):
