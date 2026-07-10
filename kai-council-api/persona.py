@@ -42,6 +42,20 @@ def load_persona(advisor: str, channel: str = None) -> str:
     if not persona_file.exists():
         raise HTTPException(status_code=404, detail=f"Persona not found: {advisor}")
 
+    keystone_file = VAULT_PATH / '00_System' / 'KEYSTONE.md'
+    bp_file = VAULT_PATH / '00_System' / 'business_profile.md'
+    ctx_parts = []
+    if keystone_file.exists(): ctx_parts.append(keystone_file.read_text(encoding='utf-8'))
+    if bp_file.exists(): ctx_parts.append(bp_file.read_text(encoding='utf-8'))
+    parts = []
+    if ctx_parts:
+        combined = '\n\n---\n\n'.join(ctx_parts)
+        parts.append('<background_context>\n' + combined + '\n</background_context>')
+
+    # CONTEXT_SPEC.md finding 2.3.2 / F6: minute-granularity datetime must sit
+    # below the cache_control breakpoint (router.py splits after
+    # </background_context>) — placing it at position 0 voided the cache nearly
+    # every turn.
     now = datetime.now(ZoneInfo('America/New_York'))
     from datetime import timedelta
     date_map_lines = []
@@ -54,16 +68,8 @@ def load_persona(advisor: str, channel: str = None) -> str:
     date_ref += f"Today is {now.strftime('%A, %B %d, %Y')}. Use ONLY this table for day names — never calculate:\n"
     date_ref += "\n".join(date_map_lines)
     date_ref += "\n</date_reference>"
-    parts = [f'<current_datetime>{now.strftime("%A, %B %d, %Y at %I:%M %p ET")}</current_datetime>', date_ref]
-
-    keystone_file = VAULT_PATH / '00_System' / 'KEYSTONE.md'
-    bp_file = VAULT_PATH / '00_System' / 'business_profile.md'
-    ctx_parts = []
-    if keystone_file.exists(): ctx_parts.append(keystone_file.read_text(encoding='utf-8'))
-    if bp_file.exists(): ctx_parts.append(bp_file.read_text(encoding='utf-8'))
-    if ctx_parts:
-        combined = '\n\n---\n\n'.join(ctx_parts)
-        parts.append('<background_context>\n' + combined + '\n</background_context>')
+    parts.append(f'<current_datetime>{now.strftime("%A, %B %d, %Y at %I:%M %p ET")}</current_datetime>')
+    parts.append(date_ref)
 
     # KAI always gets live system state — knows what's broken before Leo asks.
     # KAI-466: catch structural loader failures here explicitly; record degraded
