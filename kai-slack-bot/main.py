@@ -52,10 +52,9 @@ def load_secret(name: str) -> str:
 
 bot_token = load_secret("slack_bot_token")
 app_token = load_secret("slack_app_token")
+signing_secret = load_secret("slack_signing_secret")
 
-app = App(token=bot_token)
-
-_history: dict[str, list[dict]] = {}
+app = App(token=bot_token, signing_secret=signing_secret)
 
 BOT_ID: str = ""
 
@@ -76,25 +75,21 @@ def channel_name(channel_id: str) -> str:
         return ""
 
 
-def thread_key(channel: str, ts: str) -> str:
-    return f"{channel}:{ts}"
-
-
 def call_council(channel: str, message: str, user_id: str, ts: str,
                  trigger_source: str = "") -> str:
-    key = thread_key(channel, ts)
-    history = _history.get(key, [])
+    """No history field — memory is server-owned (CONTEXT_SPEC §4.1); a
+    client-supplied history field is rejected with 400. thread_ts scopes the
+    conversation key server-side (§4.2), so the Slack thread stays coherent
+    without this bot maintaining its own copy of the transcript."""
     try:
         r = httpx.post(
             f"{COUNCIL_API}/council/message",
             json={"channel": channel, "message": message, "user_id": user_id,
-                  "history": history, "thread_ts": ts,
-                  "trigger_source": trigger_source},
+                  "thread_ts": ts, "trigger_source": trigger_source},
             timeout=60.0,
         )
         r.raise_for_status()
         data = r.json()
-        _history[key] = data.get("history", history)
         return data.get("reply", "(no reply)")
     except Exception as e:
         log.error(f"Council API error: {e}")
@@ -336,7 +331,7 @@ def make_advisor_handler(advisor: str) -> SocketModeHandler | None:
         log.warning(f"Advisor bot {advisor}: missing tokens — skipping")
         return None
 
-    advisor_app = App(token=bot_tok)
+    advisor_app = App(token=bot_tok, signing_secret=signing_secret)
 
     _advisor = advisor
     _client = advisor_app.client

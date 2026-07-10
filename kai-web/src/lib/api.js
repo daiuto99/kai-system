@@ -74,9 +74,10 @@ export const api = {
   getFocusBrief: () => get(`${BASE}/focus/today`),
   getTodayFocus: () => get(`${BASE}/focus/today`),
 
-  // Council — chat
-  sendMessage: (message, channel = 'kai', history = []) =>
-    post(`${COUNCIL}/message`, { message, channel, history,
+  // Council — chat. No history param: memory is server-owned (CONTEXT_SPEC
+  // §4.1) — a client-supplied history field is rejected with 400.
+  sendMessage: (message, channel = 'kai') =>
+    post(`${COUNCIL}/message`, { message, channel,
       trigger_source: `dashboard:chat:${channel}` }),
 
   // Council — history

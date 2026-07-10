@@ -96,6 +96,7 @@ services:
     secrets:
       - slack_bot_token
       - slack_app_token
+      - slack_signing_secret
       - slack_bot_token_sky
       - slack_app_token_sky
       - slack_bot_token_roads

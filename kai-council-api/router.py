@@ -8,7 +8,6 @@ from council_config import ADVISOR_CHANNELS, WORKER_URL, ORCHESTRATOR_URL, _trac
 from complexity import _classify_complexity, _get_advisor_config
 from persona import assemble_prompt, load_persona
 import function_map as fm
-from history import _append_history
 from insights import extract_and_strip_insights, append_insights_to_vault
 from execute_tool import execute_tool
 from providers import get_anthropic_client, _call_ollama, _call_openai, _call_litellm
@@ -384,9 +383,10 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
             logger.info("router: domain_hint channel=%s domain=%s advisor=%s kw=%s",
                         channel, _dh["domain"], _dh["advisor"], _dh["matched_keyword"])
     if req.history:
-        logger.warning(
-            "council_message: client sent history field (%d items) — CONTEXT_SPEC §4.1 "
-            "deprecation shim: logged and dropped (channel=%s)", len(req.history), channel
+        raise HTTPException(
+            status_code=400,
+            detail="history is server-owned — see CONTEXT_SPEC §4.1. Do not send a history "
+                   "field; the service assembles context server-side via assemble()/record_turn().",
         )
 
     # Memory Service (CONTEXT_SPEC §4/§5/§13 Phase 1) — server-owned Tier 1 + Tier 2,
@@ -566,11 +566,8 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     else:
         clean_reply = raw_reply
 
-    # Log conversation history
-    _append_history(channel, "user", req.message)
     from insights import strip_markdown
     clean_reply = strip_markdown(clean_reply)
-    _append_history(channel, "assistant", clean_reply)
 
     if _package is not None:
         try:

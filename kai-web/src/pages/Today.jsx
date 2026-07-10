@@ -899,11 +899,10 @@ function ChatWidget() {
     const text = (overrideText ?? input).trim()
     if (!text || thinking) return
     setInput('')
-    const history = messages.map(m => ({ role: m.role, content: m.content }))
     setMessages(p => [...p, { role: 'user', content: text, ts: String(Date.now() / 1000) }])
     setThinking(true)
     try {
-      const d = await api.sendMessage(text, advisor.channel, history)
+      const d = await api.sendMessage(text, advisor.channel)
       setMessages(p => [...p, { role: 'assistant', content: d.reply || d.message || '', ts: String(Date.now() / 1000), provider: d.provider, model: d.model }])
     } catch (err) {
       setMessages(p => [...p, { role: 'assistant', content: 'Error: ' + (err?.message || err?.toString() || 'Unknown error'), error: true, ts: String(Date.now() / 1000) }])

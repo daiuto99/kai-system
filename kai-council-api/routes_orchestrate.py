@@ -8,7 +8,6 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from graphs.graph import get_graph
-from history import _append_history
 from insights import extract_and_strip_insights, append_insights_to_vault, strip_markdown
 
 logger = logging.getLogger(__name__)
@@ -65,10 +64,7 @@ def orchestrate(req: OrchestrationRequest):
 
     clean_reply = strip_markdown(clean_reply)
 
-    # History
     channel = req.channel.lstrip("#")
-    _append_history(channel, "user", req.message)
-    _append_history(channel, "assistant", clean_reply)
 
     # Audit log
     AUDIT_DIR.mkdir(parents=True, exist_ok=True)
