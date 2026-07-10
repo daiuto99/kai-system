@@ -1,5 +1,6 @@
 import logging
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from config import VAULT_PATH, WORKSPACE_PATH
 
 logger = logging.getLogger(__name__)
@@ -29,13 +30,17 @@ def read_file(path: str):
     return {"path": path, "content": target.read_text(encoding="utf-8")}
 
 
+class _WriteBody(BaseModel):
+    content: str
+
+
 @router.post("/vault/write")
-def write_file(path: str, content: str):
+def write_file(path: str, body: _WriteBody):
     target = VAULT_PATH / path
     if not target.resolve().is_relative_to(VAULT_PATH):
         raise HTTPException(status_code=400, detail="Path traversal not allowed")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
+    target.write_text(body.content, encoding="utf-8")
     return {"status": "written", "path": path}
 
 
