@@ -1034,15 +1034,21 @@ def run_watchdog_checks():
 
         # Tier 1: auto-remediate known fixable failures
         if key in REMEDIATABLE:
-            remedy = REMEDIATABLE[key]()
-            log.info("watchdog remediation: %s → %s", label, remedy)
-            if "✅" in remedy:
-                fixed.append(f"  • *{label}*: {remedy}")
-                _clear_alert(key)
-                _record_success(key)  # remediation succeeded = recovery
-                continue  # fixed — skip alert
+            try:
+                remedy = REMEDIATABLE[key]()
+            except Exception as _rem_err:
+                # Handler crash must not take down the whole watchdog — log and fall through to alert.
+                log.error("watchdog remediation error for %s: %s", label, _rem_err)
+                remediations.append(f"  • {label}: remediation error: {_rem_err}")
             else:
-                remediations.append(f"  • {label}: {remedy}")
+                log.info("watchdog remediation: %s → %s", label, remedy)
+                if "✅" in remedy:
+                    fixed.append(f"  • *{label}*: {remedy}")
+                    _clear_alert(key)
+                    _record_success(key)  # remediation succeeded = recovery
+                    continue  # fixed — skip alert
+                else:
+                    remediations.append(f"  • {label}: {remedy}")
 
         # Tier 2: OAuth credential failures — "re-authenticate" page.
         # Classification already excluded transient, so this is genuinely an
