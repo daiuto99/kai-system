@@ -1,8 +1,9 @@
 """
-KAI Invariant Engine — 10 core system invariants.
+KAI Invariant Engine — S5-2 core + first batch (19 invariants).
 Runs every 30 min via scheduler. Writes /vault/00_System/invariants.json.
-Posts Slack digest once daily + alerts on pass→fail transitions.
-Set INVARIANT_RUNNER_ENABLED=false to suppress Slack alerts (still logs + writes JSON).
+Posts Slack + files Plane issue on pass→fail transition. Deduped: one Plane
+issue per failure period (cleared on recovery). Kill switch: set
+INVARIANT_RUNNER_ENABLED=false to skip all checks entirely (exit immediately).
 """
 import json
 import logging
@@ -24,12 +25,21 @@ COUNCIL_API      = "http://kai-council-api:8002"
 ORCHESTRATOR_API = "http://kai-orchestrator:8003"
 OLLAMA_API       = "http://kai-ollama:11434"
 
-# Rollback switch — set INVARIANT_RUNNER_ENABLED=false to suppress Slack alerts
+# Kill switch — INVARIANT_RUNNER_ENABLED=false skips all checks entirely (kill-switch-first)
 _RUNNER_ENABLED = os.environ.get("INVARIANT_RUNNER_ENABLED", "true").lower() != "false"
 
-# State tracking for pass→fail transition alerts
+# State tracking for pass→fail / fail→pass transition detection
 _prev_state: dict[str, bool] = {}
 _daily_digest_sent: str = ""   # date string (YYYY-MM-DD)
+
+# Dedup: one Plane issue per failure period per invariant (cleared on recovery)
+_violation_issue_ids: dict[str, int] = {}  # key → Plane sequence_id
+
+# Plane constants (mirrors triage.py)
+_PLANE_API = "http://host.docker.internal:8090/api/v1"
+_PLANE_WS  = "sonicink"
+_KAI_PROJECT = "78c49227-82d4-477d-a920-66b08cb91c56"
+_plane_backlog_state_id: str | None = None
 
 
 def _load_secret(name: str) -> str:
@@ -48,6 +58,65 @@ def _slack_post(token: str, text: str):
         )
     except Exception as e:
         log.error("invariant slack post failed: %s", e)
+
+
+def _get_plane_backlog_state() -> str | None:
+    global _plane_backlog_state_id
+    if _plane_backlog_state_id:
+        return _plane_backlog_state_id
+    token = _load_secret("plane_api_token")
+    if not token:
+        return None
+    try:
+        r = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/states/",
+            headers={"X-API-Key": token}, timeout=10
+        )
+        for s in r.json().get("results", []):
+            if s["group"] == "backlog":
+                _plane_backlog_state_id = s["id"]
+                return _plane_backlog_state_id
+    except Exception as e:
+        log.warning("invariants: could not resolve Plane backlog state: %s", e)
+    return None
+
+
+def _file_invariant_issue(key: str, label: str, detail: str) -> None:
+    """File a Plane bug for an invariant violation. Deduped: no-op if issue already open."""
+    if key in _violation_issue_ids:
+        log.info("invariants: dedup — %s already has open issue KAI-%s", key, _violation_issue_ids[key])
+        return
+    token = _load_secret("plane_api_token")
+    if not token:
+        log.error("invariants: plane_api_token not available — cannot file issue for %s", key)
+        return
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    body: dict = {
+        "name": f"[INV] {label} — {now_str}",
+        "description_html": (
+            f"<p><strong>Invariant:</strong> <code>{key}</code></p>"
+            f"<p><strong>Failure detail:</strong> {detail[:500]}</p>"
+            f"<p><strong>Detected:</strong> {now_str}</p>"
+            f"<p>Auto-filed by KAI Invariant Engine. Resolve when the invariant "
+            f"passes consistently. No duplicate will be filed while this issue is open.</p>"
+        ),
+        "priority": "high",
+    }
+    state_id = _get_plane_backlog_state()
+    if state_id:
+        body["state_id"] = state_id
+    try:
+        r = httpx.post(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/issues/",
+            headers={"X-API-Key": token, "Content-Type": "application/json"},
+            json=body, timeout=15,
+        )
+        r.raise_for_status()
+        seq = r.json().get("sequence_id")
+        _violation_issue_ids[key] = seq
+        log.info("invariants: filed Plane issue KAI-%s for %s", seq, key)
+    except Exception as e:
+        log.error("invariants: failed to file Plane issue for %s: %s", key, e)
 
 
 # ── Invariant definitions ─────────────────────────────────────────────────────
@@ -350,10 +419,148 @@ def inv_no_secrets_in_vault_docs() -> tuple[bool, str]:
     return True, 'ok — no plaintext credentials found in vault knowledge docs'
 
 
+# ── S5-2 first batch — six new invariants ────────────────────────────────────
+
+def inv_ledger_pointer_consistent() -> tuple[bool, str]:
+    """S5-1 — next_action.json must exist in vault, be < 48h old, and have a non-empty action.
+    Guards against session-pointer drift (NEXT naming a done task or no NEXT set).
+    """
+    p = VAULT_PATH / "00_System" / "next_action.json"
+    if not p.exists():
+        return False, "next_action.json not found in vault — no session order set"
+    try:
+        data = json.loads(p.read_text())
+    except Exception as e:
+        return False, f"next_action.json unreadable: {e}"
+    action = data.get("action", "").strip()
+    if not action:
+        return False, "next_action.json has no action field — session pointer missing"
+    try:
+        written_at = datetime.fromisoformat(data.get("written_at", ""))
+        age_h = (datetime.now(timezone.utc) - written_at).total_seconds() / 3600
+        if age_h > 48:
+            return False, f"next_action.json stale: {age_h:.0f}h since last write — session pointer drifted?"
+    except Exception:
+        pass
+    return True, f"ok — action set ({action[:60]})"
+
+
+def inv_secret_files_permissions() -> tuple[bool, str]:
+    """S5-3 — all Docker secrets files must have mode 600 (not world/group-readable)."""
+    secrets_dir = Path("/run/secrets")
+    if not secrets_dir.exists():
+        return False, "/run/secrets not mounted"
+    bad = []
+    ok_count = 0
+    for f in sorted(secrets_dir.iterdir()):
+        if not f.is_file():
+            continue
+        mode_oct = oct(f.stat().st_mode)[-3:]
+        if mode_oct != "600":
+            bad.append(f"{f.name}:{mode_oct}")
+        else:
+            ok_count += 1
+    if bad:
+        return False, f"insecure permissions on {len(bad)} secret(s): {', '.join(bad)}"
+    return True, f"ok — {ok_count} secret file(s) all mode 600"
+
+
+def inv_no_wp_password_in_vault_json() -> tuple[bool, str]:
+    """S5-3 — vault JSON files must not contain plaintext credentials (complement to vault_docs scan).
+    Catches passwords embedded in JSON config files, not just markdown docs.
+    """
+    import re
+    JSON_CRED_PATTERNS = [
+        re.compile(r'"password"\s*:\s*"[^"]{6,}"'),
+        re.compile(r'"api_key"\s*:\s*"[^"]{10,}"'),
+        re.compile(r'"secret"\s*:\s*"[^"]{8,}"'),
+        re.compile(r'"Authorization"\s*:\s*"Basic\s+[A-Za-z0-9+/]{16,}'),
+    ]
+    EXCLUDED_NAMES = {"invariants.json", "contract_test_results.json"}
+    hits = []
+    for jf in VAULT_PATH.rglob("*.json"):
+        if jf.name in EXCLUDED_NAMES:
+            continue
+        try:
+            text = jf.read_text(errors="ignore")
+        except Exception:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if "REDACTED" in line or "placeholder" in line.lower():
+                continue
+            for pat in JSON_CRED_PATTERNS:
+                if pat.search(line):
+                    hits.append(f"{jf.relative_to(VAULT_PATH)}:{lineno}")
+                    break
+    if hits:
+        return False, f"{len(hits)} potential credential(s) in vault JSON: {hits[:3]}"
+    return True, "ok — no plaintext credentials found in vault JSON files"
+
+
+def inv_capability_transports_healthy() -> tuple[bool, str]:
+    """S5-3 — key external capability transports must be reachable.
+    Checks Todoist REST API (core task capability) using mounted todoist_api_key.
+    """
+    token = _load_secret("todoist_api_key")
+    if not token:
+        return False, "todoist_api_key not mounted — Todoist transport unchecked"
+    try:
+        r = httpx.get(
+            "https://api.todoist.com/rest/v2/projects",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            count = len(r.json())
+            return True, f"ok — Todoist: {count} project(s)"
+        return False, f"Todoist API HTTP {r.status_code}"
+    except Exception as e:
+        return False, f"Todoist transport unreachable: {type(e).__name__}: {e}"
+
+
+def inv_vault_backup_skip_manifest() -> tuple[bool, str]:
+    """S5R-23 — backup skip manifest must not contain 00_System or 60_Council paths.
+    A skip of system-critical vault paths is a backup integrity gap.
+    """
+    manifest = Path("/backups/skip_manifest.txt")
+    if not manifest.exists():
+        return True, "ok — no skip manifest (no files skipped in last backup)"
+    try:
+        lines = [l.strip() for l in manifest.read_text().splitlines() if l.strip()]
+    except Exception as e:
+        return False, f"skip manifest unreadable: {e}"
+    critical = [l for l in lines if "00_System" in l or "60_Council" in l or "00_system" in l]
+    if critical:
+        return False, f"{len(critical)} critical path(s) skipped in backup: {critical[0]}"
+    return True, f"ok — {len(lines)} skip(s), none in critical paths"
+
+
+def inv_audit_log_integrity() -> tuple[bool, str]:
+    """S5R-3 — capability audit log must exist and not be empty (destructive op trail).
+    The log is written by the destructive-op guard on every operator action.
+    Absence means the guard is not firing or the audit trail was deleted.
+    """
+    audit_log = VAULT_PATH / "00_System" / "capability_audit.jsonl"
+    if not audit_log.exists():
+        return False, "capability_audit.jsonl not found — destructive op audit trail missing"
+    try:
+        lines = [l for l in audit_log.read_text().splitlines() if l.strip()]
+    except Exception as e:
+        return False, f"audit log unreadable: {e}"
+    if not lines:
+        return False, "capability_audit.jsonl is empty — no ops have been audited"
+    try:
+        last = json.loads(lines[-1])
+        ts = last.get("timestamp", last.get("ts", "unknown"))
+    except Exception:
+        ts = "unparseable"
+    return True, f"ok — {len(lines)} audit entry(ies), last: {str(ts)[:19]}"
+
 
 # ── Engine ────────────────────────────────────────────────────────────────────
 
 INVARIANTS = [
+    # S5-2 batch 0: infrastructure health (original 13)
     ("container_health",              "Container Health",          inv_container_health),
     ("vault_writability",             "Vault Writability",         inv_vault_writability),
     ("council_api_latency",           "Council API Latency",       inv_council_api_latency),
@@ -366,13 +573,30 @@ INVARIANTS = [
     ("plane_api_health",              "Plane API Health",          inv_plane_api_health),
     ("persona_assembly",              "Persona Assembly",          inv_persona_assembly),
     ("endpoint_contracts",            "Endpoint Contracts",        inv_endpoint_contracts),
-    ("no_secrets_in_vault_docs",        "No Secrets in Vault Docs",  inv_no_secrets_in_vault_docs),
+    ("no_secrets_in_vault_docs",      "No Secrets in Vault Docs",  inv_no_secrets_in_vault_docs),
+    # S5-2 batch 1: first six (S5-3 + S5-1)
+    ("ledger_pointer_consistent",     "Ledger Pointer Consistent", inv_ledger_pointer_consistent),
+    ("secret_files_permissions",      "Secret Files Permissions",  inv_secret_files_permissions),
+    ("no_wp_password_in_vault_json",  "No Password in Vault JSON", inv_no_wp_password_in_vault_json),
+    ("capability_transports_healthy", "Capability Transports",     inv_capability_transports_healthy),
+    ("vault_backup_skip_manifest",    "Backup Skip Manifest",      inv_vault_backup_skip_manifest),
+    ("audit_log_integrity",           "Audit Log Integrity",       inv_audit_log_integrity),
 ]
 
 
 def run_invariants(send_daily_digest: bool = False):
-    """Run all invariants. Write results to vault. Alert on transitions."""
+    """Run all invariants. Write results to vault. Alert on pass→fail transitions.
+
+    Kill switch first: if INVARIANT_RUNNER_ENABLED=false, returns immediately
+    without running any checks (safe fallback for bad-state deploys).
+    Deduped Plane filing: one issue filed per failure period; cleared on recovery.
+    """
     global _prev_state, _daily_digest_sent
+
+    # ── Kill switch — MUST be first ──────────────────────────────────────────
+    if not _RUNNER_ENABLED:
+        log.info("invariants: INVARIANT_RUNNER_ENABLED=false — skipping all checks")
+        return True, {}
 
     now_utc = datetime.now(timezone.utc)
     results: dict[str, dict] = {}
@@ -396,17 +620,22 @@ def run_invariants(send_daily_digest: bool = False):
         if not passed:
             all_pass = False
 
-        # Transition detection (pass→fail only — fail→pass is noise-free)
+        # Transition detection: pass→fail and fail→pass
         prev = _prev_state.get(key)
         if prev is True and not passed:
             transitions.append(f"  :x: *{label}*: `{detail}`")
+            _file_invariant_issue(key, label, detail)   # deduped Plane filing
+        elif prev is False and passed:
+            recoveries.append(f"  :white_check_mark: *{label}*")
+            _violation_issue_ids.pop(key, None)         # clear dedup on recovery
         _prev_state[key] = passed
 
-    # Write to vault
+    # Write to vault (includes open_issue_ids for observability)
     payload = {
         "updated_at": now_utc.isoformat(),
         "all_pass":   all_pass,
         "runner_enabled": _RUNNER_ENABLED,
+        "open_issue_ids": dict(_violation_issue_ids),
         "invariants": results,
     }
     try:
@@ -415,8 +644,8 @@ def run_invariants(send_daily_digest: bool = False):
     except Exception as e:
         log.error("invariants: failed to write %s: %s", RESULT_PATH, e)
 
-    # JARVIS §6 alerts (suppressed if rollback switch is off)
-    if transitions and token and _RUNNER_ENABLED:
+    # JARVIS §6 Slack alerts
+    if transitions and token:
         body = "; ".join(t.lstrip("•").strip() for t in transitions)
         msg = (
             f"CRITICAL — KAI invariant failure at {now_utc.strftime('%H:%M UTC')}. "
@@ -424,10 +653,8 @@ def run_invariants(send_daily_digest: bool = False):
         )
         _slack_post(token, msg)
         log.warning("invariants: posted transition alert (%d failures)", len(transitions))
-    elif transitions and not _RUNNER_ENABLED:
-        log.warning("invariants: %d transition(s) suppressed (INVARIANT_RUNNER_ENABLED=false)", len(transitions))
 
-    if recoveries and token and _RUNNER_ENABLED:
+    if recoveries and token:
         body = "; ".join(r.lstrip("•").strip() for r in recoveries)
         msg = (
             f"System Issue Corrected: {body} — corrected by DevOps at "
@@ -435,8 +662,6 @@ def run_invariants(send_daily_digest: bool = False):
         )
         _slack_post(token, msg)
         log.info("invariants: posted recovery alert (%d recovered)", len(recoveries))
-
-    # Daily digest removed — transition and recovery alerts cover all state changes
 
     status = "all_pass" if all_pass else f"{sum(1 for r in results.values() if not r['pass'])} failing"
     log.info("invariants: %s (runner_enabled=%s)", status, _RUNNER_ENABLED)

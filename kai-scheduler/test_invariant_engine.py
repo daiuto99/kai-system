@@ -1,0 +1,226 @@
+"""S5-2 — Invariant engine: seeded violation + dedup Plane filing tests.
+
+Proves:
+1. Kill switch (INVARIANT_RUNNER_ENABLED=false) exits before running ANY check.
+2. A seeded pass→fail transition is detected and Plane filing is attempted.
+3. A second run with the same failure is deduped (Plane NOT filed again).
+4. Recovery (fail→pass) clears the dedup, so the NEXT failure will refile.
+
+Run on the worker:
+    python3 ~/kai-system/kai-scheduler/test_invariant_engine.py
+"""
+from __future__ import annotations
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+
+def _fresh_invariants():
+    """Import invariants with a temp RESULT_PATH and cleared module state."""
+    import importlib
+    if "invariants" in sys.modules:
+        del sys.modules["invariants"]
+    import invariants as inv  # type: ignore
+    # Point RESULT_PATH to a temp file so tests don't touch /vault
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
+    tmp.close()
+    inv.RESULT_PATH = Path(tmp.name)
+    inv.VAULT_PATH = Path(tempfile.mkdtemp())
+    # Ensure 00_System dir exists for next_action.json writes
+    (inv.VAULT_PATH / "00_System").mkdir(parents=True, exist_ok=True)
+    # Reset module state
+    inv._prev_state.clear()
+    inv._violation_issue_ids.clear()
+    inv._RUNNER_ENABLED = True
+    return inv, Path(tmp.name)
+
+
+class KillSwitchTests(unittest.TestCase):
+
+    def test_kill_switch_skips_all_checks(self):
+        """INVARIANT_RUNNER_ENABLED=false must exit before running any invariant."""
+        inv, _ = _fresh_invariants()
+        inv._RUNNER_ENABLED = False
+        call_count = [0]
+
+        def _spy_fn():
+            call_count[0] += 1
+            return True, "should not run"
+
+        orig = inv.INVARIANTS
+        inv.INVARIANTS = [("test_inv", "Test", _spy_fn)]
+        try:
+            ok, results = inv.run_invariants()
+        finally:
+            inv.INVARIANTS = orig
+
+        self.assertTrue(ok)
+        self.assertEqual(results, {})
+        self.assertEqual(call_count[0], 0, "kill switch must prevent any invariant from running")
+
+
+class SeededViolationTests(unittest.TestCase):
+
+    def setUp(self):
+        self.inv, self.result_path = _fresh_invariants()
+
+    def tearDown(self):
+        try:
+            self.result_path.unlink()
+        except FileNotFoundError:
+            pass
+
+    def _make_checks(self, fail_key: str, fail_detail: str) -> list:
+        checks = []
+        for key, label, fn in self.inv.INVARIANTS:
+            if key == fail_key:
+                def _fail(d=fail_detail):
+                    return False, d
+                checks.append((key, label, _fail))
+            else:
+                def _pass():
+                    return True, "ok"
+                checks.append((key, label, _pass))
+        return checks
+
+    def test_seeded_failure_detected_on_transition(self):
+        """Seed backup_integrity as passing, then failing: transition must be detected."""
+        key = "backup_integrity"
+        self.inv._prev_state[key] = True  # seed prior pass
+
+        with mock.patch.object(self.inv, "_slack_post") as slack, \
+             mock.patch.object(self.inv, "_file_invariant_issue") as plane_file, \
+             mock.patch.object(self.inv, "_load_secret", return_value="fake-token"):
+            checks = self._make_checks(key, "seeded test failure — backup.log not found")
+            with mock.patch.object(self.inv, "INVARIANTS", checks):
+                ok, results = self.inv.run_invariants()
+
+        self.assertFalse(ok)
+        self.assertFalse(results[key]["pass"])
+        self.assertEqual(results[key]["detail"], "seeded test failure — backup.log not found")
+        # Transition detected → Slack fired
+        slack.assert_called_once()
+        slack_msg = slack.call_args[0][1]
+        self.assertIn("Backup Integrity", slack_msg)
+        # Plane filing attempted
+        plane_file.assert_called_once_with(key, "Backup Integrity", "seeded test failure — backup.log not found")
+
+    def test_plane_filing_deduped_on_second_failure(self):
+        """Same invariant failing twice: Plane must be filed exactly once (dedup)."""
+        key = "backup_integrity"
+        self.inv._prev_state[key] = True  # seed prior pass
+
+        filed_count = [0]
+
+        def _count_file(k, label, detail):
+            filed_count[0] += 1
+            self.inv._violation_issue_ids[k] = 9999  # simulate filed
+
+        with mock.patch.object(self.inv, "_slack_post"), \
+             mock.patch.object(self.inv, "_file_invariant_issue", side_effect=_count_file), \
+             mock.patch.object(self.inv, "_load_secret", return_value="fake-token"):
+            checks = self._make_checks(key, "seeded failure run 1")
+            with mock.patch.object(self.inv, "INVARIANTS", checks):
+                self.inv.run_invariants()  # run 1: transition detected, filed
+            # run 2: still failing, but deduped (key already in _violation_issue_ids)
+            checks2 = self._make_checks(key, "seeded failure run 2")
+            with mock.patch.object(self.inv, "INVARIANTS", checks2):
+                self.inv.run_invariants()
+
+        self.assertEqual(filed_count[0], 1, "Plane issue must be filed exactly once (dedup)")
+
+    def test_recovery_clears_dedup_so_next_failure_refiles(self):
+        """After recovery: dedup cleared, so next failure period refiles a new issue."""
+        key = "backup_integrity"
+        self.inv._prev_state[key] = True
+        self.inv._violation_issue_ids[key] = 7777  # simulate open issue from prior period
+
+        filed_count = [0]
+
+        def _count_file(k, label, detail):
+            filed_count[0] += 1
+            self.inv._violation_issue_ids[k] = 8888
+
+        with mock.patch.object(self.inv, "_slack_post"), \
+             mock.patch.object(self.inv, "_file_invariant_issue", side_effect=_count_file), \
+             mock.patch.object(self.inv, "_load_secret", return_value="fake-token"):
+            # Run 1: recovery (fail→pass) — clears dedup
+            self.inv._prev_state[key] = False
+            checks_pass = self._make_checks("__none__", "")  # all pass
+            with mock.patch.object(self.inv, "INVARIANTS", checks_pass):
+                self.inv.run_invariants()
+            self.assertNotIn(key, self.inv._violation_issue_ids, "dedup must clear on recovery")
+
+            # Run 2: new failure period — must refile
+            self.inv._prev_state[key] = True
+            checks_fail = self._make_checks(key, "new failure after recovery")
+            with mock.patch.object(self.inv, "INVARIANTS", checks_fail):
+                self.inv.run_invariants()
+
+        self.assertEqual(filed_count[0], 1, "New failure after recovery must refile exactly once")
+
+    def test_vault_write_includes_open_issue_ids(self):
+        """invariants.json must include open_issue_ids for dashboard observability."""
+        key = "backup_integrity"
+        self.inv._prev_state[key] = True
+        self.inv._violation_issue_ids[key] = 1234
+
+        with mock.patch.object(self.inv, "_slack_post"), \
+             mock.patch.object(self.inv, "_file_invariant_issue"), \
+             mock.patch.object(self.inv, "_load_secret", return_value="fake-token"):
+            checks = self._make_checks(key, "test")
+            with mock.patch.object(self.inv, "INVARIANTS", checks):
+                self.inv.run_invariants()
+
+        data = json.loads(self.result_path.read_text())
+        self.assertIn("open_issue_ids", data)
+        self.assertEqual(data["open_issue_ids"].get(key), 1234)
+
+
+class NewInvariantSmokeTests(unittest.TestCase):
+    """Smoke tests — confirm each new invariant returns (bool, str) without crashing."""
+
+    def setUp(self):
+        self.inv, _ = _fresh_invariants()
+        # Seed a valid next_action.json in the temp vault
+        na = self.inv.VAULT_PATH / "00_System" / "next_action.json"
+        na.write_text(json.dumps({
+            "action": "Test action for smoke test",
+            "written_at": "2026-07-10T12:00:00Z",
+        }))
+
+    def _check_inv(self, fn_name: str):
+        fn = getattr(self.inv, fn_name)
+        result = fn()
+        self.assertIsInstance(result, tuple, f"{fn_name} must return tuple")
+        self.assertEqual(len(result), 2, f"{fn_name} must return 2-tuple")
+        self.assertIsInstance(result[0], bool, f"{fn_name}[0] must be bool")
+        self.assertIsInstance(result[1], str, f"{fn_name}[1] must be str")
+
+    def test_inv_ledger_pointer_consistent(self):
+        self._check_inv("inv_ledger_pointer_consistent")
+
+    def test_inv_secret_files_permissions(self):
+        self._check_inv("inv_secret_files_permissions")
+
+    def test_inv_no_wp_password_in_vault_json(self):
+        self._check_inv("inv_no_wp_password_in_vault_json")
+
+    def test_inv_capability_transports_healthy(self):
+        self._check_inv("inv_capability_transports_healthy")
+
+    def test_inv_vault_backup_skip_manifest(self):
+        self._check_inv("inv_vault_backup_skip_manifest")
+
+    def test_inv_audit_log_integrity(self):
+        self._check_inv("inv_audit_log_integrity")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
