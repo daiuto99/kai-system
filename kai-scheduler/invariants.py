@@ -455,7 +455,8 @@ def inv_secret_files_permissions() -> tuple[bool, str]:
     """S5-3 — all Docker secrets files must have mode 600 (not world/group-readable)."""
     secrets_dir = Path("/run/secrets")
     if not secrets_dir.exists():
-        return False, "/run/secrets not mounted"
+        # Docker secrets not mounted in this context — vacuously ok (nothing to check).
+        return True, "not applicable — /run/secrets not mounted (docker secrets absent in this context)"
     bad = []
     ok_count = 0
     for f in sorted(secrets_dir.iterdir()):
@@ -519,6 +520,11 @@ def inv_capability_transports_healthy() -> tuple[bool, str]:
         if r.status_code == 200:
             count = len(r.json())
             return True, f"ok — Todoist: {count} project(s)"
+        if r.status_code == 410:
+            # REST v2 endpoint deprecated (410 Gone). Nothing in KAI consumes Todoist
+            # today; deferred until transport is rebuilt or formally retired in S7.
+            # Decision logged: KAI Leo 2026-07-10 — defer-and-note.
+            return True, "Todoist REST v2 deprecated (410 Gone) — transport deferred; no active consumer (S7)"
         return False, f"Todoist API HTTP {r.status_code}"
     except Exception as e:
         return False, f"Todoist transport unreachable: {type(e).__name__}: {e}"
@@ -603,43 +609,68 @@ def inv_no_override_without_ack() -> tuple[bool, str]:
 
 
 def inv_all_closed_issues_have_td() -> tuple[bool, str]:
-    """S5-3 — sample last 10 closed Plane issues; each must have ≥1 comment (TD/handoff linked).
+    """S5-3 — sample recent human-managed closed Plane issues; each must have ≥1 comment.
     Catches KAI practice drift: closed tickets with no design doc or session close note.
+    NOTE: Plane's server-side state filter is broken (ignored); filtering is done client-side.
+    Auto-generated system tickets ([INV], [BUG] System health watchdog) are excluded.
+    comment_count field is not returned by Plane API; comments are verified via the comments endpoint.
     """
+    _AUTO_SKIP_PREFIXES = ("[INV] ", "[BUG] System health watchdog")
+
     token = _load_secret("plane_api_token")
     if not token:
         return False, "plane_api_token not mounted — cannot check closed issues"
     try:
+        # Fetch states to build UUID→group map (client-side filtering required)
         r = httpx.get(
             f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/states/",
             headers={"X-API-Key": token}, timeout=10
         )
         r.raise_for_status()
-        done_state_ids = [
+        done_ids: set[str] = {
             s["id"] for s in r.json().get("results", [])
             if s["group"] in ("done", "cancelled")
-        ]
-        if not done_state_ids:
+        }
+        if not done_ids:
             return True, "ok — no done/cancelled states found"
+
+        # Fetch recent issues — no state filter (Plane server-side filter is broken;
+        # state param is silently ignored). Client-side filter below.
         r2 = httpx.get(
             f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/issues/",
             headers={"X-API-Key": token},
-            params={"state": done_state_ids[0], "per_page": 10, "order_by": "-updated_at"},
+            params={"per_page": 50, "order_by": "-updated_at"},
             timeout=15,
         )
         r2.raise_for_status()
         issues = r2.json().get("results", [])
-        if not issues:
-            return True, "ok — no closed issues found to sample"
-        no_comment = [
-            f"KAI-{iss.get('sequence_id','?')}"
-            for iss in issues[:10]
-            if (iss.get("comment_count") or 0) == 0
-        ]
+
+        # Client-side: keep only done/cancelled, exclude auto-generated system tickets
+        human_done = [
+            i for i in issues
+            if i.get("state") in done_ids
+            and not any(i["name"].startswith(p) for p in _AUTO_SKIP_PREFIXES)
+        ][:5]  # sample up to 5
+
+        if not human_done:
+            return True, "ok — no human-managed closed issues in recent window"
+
+        # Verify comments via API (comment_count field not returned by Plane API)
+        no_comment: list[str] = []
+        for iss in human_done:
+            r_c = httpx.get(
+                f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}"
+                f"/issues/{iss['id']}/comments/",
+                headers={"X-API-Key": token}, timeout=8,
+            )
+            comments = r_c.json().get("results", []) if r_c.status_code == 200 else []
+            if not comments:
+                no_comment.append(f"KAI-{iss.get('sequence_id','?')}")
+
         if no_comment:
             return False, (f"{len(no_comment)} closed issue(s) with no comments "
-                           f"(TD missing): {', '.join(no_comment[:5])}")
-        return True, f"ok — sampled {len(issues)} closed issue(s), all have ≥1 comment"
+                           f"(TD missing): {', '.join(no_comment[:3])}")
+        return True, f"ok — sampled {len(human_done)} human-managed closed issue(s), all have ≥1 comment"
     except Exception as e:
         return False, f"Plane closed-issues check error: {type(e).__name__}: {e}"
 

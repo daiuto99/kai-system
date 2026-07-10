@@ -1,7 +1,7 @@
 import logging
 import urllib.request as ur
 import json
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
 from pathlib import Path
@@ -25,35 +25,51 @@ def _req(path):
         return json.loads(resp.read())
 
 @router.get("/plane/issues")
-def get_plane_issues():
+def get_plane_issues(
+    include_done: bool = Query(False, description="Include completed/cancelled issues"),
+    project_id: Optional[str] = Query(None, description="Filter to specific project UUID"),
+):
+    """Return Plane issues across all projects.
+
+    NOTE: Plane's server-side state filter param is broken (silently ignored).
+    State filtering is done client-side using the states list for each project.
+    By default, only open issues (not completed/cancelled) are returned.
+    Set include_done=true to include done/cancelled issues as well.
+    """
     try:
-        projects = _req("projects/")
-        results = projects.get("results", projects) if isinstance(projects, dict) else projects
+        projects_raw = _req("projects/")
+        all_projects = projects_raw.get("results", projects_raw) if isinstance(projects_raw, dict) else projects_raw
+        if project_id:
+            all_projects = [p for p in all_projects if p["id"] == project_id]
         out = []
-        for p in results:
-            state_map_raw = _req(f"projects/{p['id']}/states/")
+        for p in all_projects:
+            # States — per_page=50 ensures we get all states (Plane projects rarely exceed 10)
+            state_map_raw = _req(f"projects/{p['id']}/states/?per_page=50")
             states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
             state_map = {s["id"]: s for s in states}
+            # Issues — server-side state filter is broken; fetch all and filter client-side
             issues_raw = _req(f"projects/{p['id']}/issues/?per_page=100")
             issues = issues_raw.get("results", issues_raw) if isinstance(issues_raw, dict) else issues_raw
-            open_issues = []
+            matched = []
             for i in issues:
                 s = state_map.get(i.get("state", ""), {})
-                if s.get("group") not in ("completed", "cancelled"):
-                    open_issues.append({
-                        "id": i["id"],
-                        "name": i["name"],
-                        "state": s.get("name", "?"),
-                        "state_group": s.get("group", "?"),
-                        "priority": i.get("priority", "none"),
-                        "created_at": i.get("created_at", ""),
-                    })
-            if open_issues:
+                is_closed = s.get("group") in ("completed", "cancelled")
+                if is_closed and not include_done:
+                    continue
+                matched.append({
+                    "id": i["id"],
+                    "name": i["name"],
+                    "state": s.get("name", "?"),
+                    "state_group": s.get("group", "?"),
+                    "priority": i.get("priority", "none"),
+                    "created_at": i.get("created_at", ""),
+                })
+            if matched:
                 out.append({
                     "id": p["id"],
                     "name": p["name"],
                     "identifier": p["identifier"],
-                    "issues": open_issues,
+                    "issues": matched,
                 })
         return {"projects": out}
     except Exception as e:
@@ -93,6 +109,32 @@ def create_plane_issue(body: NewIssue):
         logger.error(f"Plane create issue error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+@router.get("/plane/issues/{issue_id}")
+def get_plane_issue(issue_id: str, project_id: Optional[str] = Query(None)):
+    """Get a single Plane issue with state resolved to name (not raw UUID)."""
+    try:
+        pid = project_id or KAI_PROJECT_ID
+        state_map_raw = _req(f"projects/{pid}/states/?per_page=50")
+        states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
+        state_map = {s["id"]: s for s in states}
+        i = _req(f"projects/{pid}/issues/{issue_id}/")
+        s = state_map.get(i.get("state", ""), {})
+        return {
+            "id": i["id"],
+            "name": i["name"],
+            "state": s.get("name", "?"),
+            "state_group": s.get("group", "?"),
+            "state_id": i.get("state", ""),
+            "priority": i.get("priority", "none"),
+            "sequence_id": i.get("sequence_id"),
+            "created_at": i.get("created_at", ""),
+            "updated_at": i.get("updated_at", ""),
+        }
+    except Exception as e:
+        logger.error(f"Plane get issue error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class IssueUpdate(BaseModel):
@@ -151,6 +193,12 @@ def patch_plane_issue(issue_id: str, body: IssueUpdate):
         if not payload:
             raise HTTPException(status_code=400, detail="no updatable fields provided")
 
+        # Ensure we have the state map to resolve UUIDs in the response
+        if not (body.state is not None or body.state_group is not None):
+            state_map_raw = _req(f"projects/{pid}/states/?per_page=50")
+            states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
+        state_uuid_to_name = {s["id"]: s["name"] for s in states}
+
         url = f"{PLANE_BASE}/projects/{pid}/issues/{issue_id}/"
         req = ur.Request(
             url,
@@ -160,10 +208,12 @@ def patch_plane_issue(issue_id: str, body: IssueUpdate):
         )
         with ur.urlopen(req, timeout=10) as resp:
             result = json.loads(resp.read())
+        raw_state_uuid = result.get("state", "")
         return {
             "id": result.get("id"),
             "name": result.get("name"),
-            "state": result.get("state"),
+            "state": state_uuid_to_name.get(raw_state_uuid, raw_state_uuid),
+            "state_id": raw_state_uuid,
             "priority": result.get("priority"),
         }
     except HTTPException:
