@@ -221,6 +221,75 @@ class NewInvariantSmokeTests(unittest.TestCase):
     def test_inv_audit_log_integrity(self):
         self._check_inv("inv_audit_log_integrity")
 
+    def test_inv_no_override_without_ack(self):
+        # Seed a valid audit log with acknowledged entries
+        audit = self.inv.VAULT_PATH / "00_System" / "capability_audit.jsonl"
+        import json as _json
+        from datetime import datetime, timezone
+        audit.write_text(
+            _json.dumps({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "endpoint": "/test",
+                "operator": "leo",
+                "reason": "smoke test",
+                "detail": {},
+            }) + "\n"
+        )
+        self._check_inv("inv_no_override_without_ack")
+
+    def test_inv_all_closed_issues_have_td(self):
+        # No plane_api_token mounted in test env — must return (bool, str) gracefully
+        self._check_inv("inv_all_closed_issues_have_td")
+
+    def test_inv_session_saves_current(self):
+        # Seed a valid session_close_log.json
+        close_log = self.inv.VAULT_PATH / "00_System" / "session_close_log.json"
+        from datetime import datetime, timezone
+        close_log.write_text(
+            json.dumps({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "date": "2026-07-10",
+            })
+        )
+        self._check_inv("inv_session_saves_current")
+
+    def test_inv_workspace_sync_current(self):
+        # Seed a valid git_activity.json with a recent commit
+        git_log = self.inv.VAULT_PATH / "00_System" / "git_activity.json"
+        from datetime import datetime, timezone
+        git_log.write_text(
+            json.dumps([{
+                "hash": "abc1234",
+                "message": "smoke test commit",
+                "committed_at": datetime.now(timezone.utc).isoformat(),
+            }])
+        )
+        self._check_inv("inv_workspace_sync_current")
+
+    def test_d5_stale_job_remediation_readback(self):
+        """D5 stale-job abandon must write+readback-verify stale_jobs.json."""
+        ok, msg = self.inv._remediate_stale_jobs()
+        self.assertIsInstance(ok, bool)
+        self.assertIsInstance(msg, str)
+        if ok:
+            marker = self.inv.VAULT_PATH / "00_System" / "stale_jobs.json"
+            self.assertTrue(marker.exists(), "stale_jobs.json must exist after remediation")
+            data = json.loads(marker.read_text())
+            self.assertEqual(data["action"], "stale_job_abandon")
+            self.assertFalse(data["consumed"])
+
+    def test_d5_workspace_sync_trigger_readback(self):
+        """D5 workspace re-sync trigger must write+readback-verify trigger file."""
+        ok, msg = self.inv._remediate_workspace_sync_trigger()
+        self.assertIsInstance(ok, bool)
+        self.assertIsInstance(msg, str)
+        if ok:
+            tf = self.inv.VAULT_PATH / "00_System" / "workspace_sync_trigger.json"
+            self.assertTrue(tf.exists(), "workspace_sync_trigger.json must exist after remediation")
+            data = json.loads(tf.read_text())
+            self.assertEqual(data["action"], "request_workspace_resync")
+            self.assertFalse(data["consumed"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

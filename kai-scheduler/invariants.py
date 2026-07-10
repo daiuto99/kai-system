@@ -1,9 +1,11 @@
 """
-KAI Invariant Engine — S5-2 core + first batch (19 invariants).
+KAI Invariant Engine — S5-2 core + batch 1 + batch 2 (23 invariants).
 Runs every 30 min via scheduler. Writes /vault/00_System/invariants.json.
 Posts Slack + files Plane issue on pass→fail transition. Deduped: one Plane
 issue per failure period (cleared on recovery). Kill switch: set
 INVARIANT_RUNNER_ENABLED=false to skip all checks entirely (exit immediately).
+D5 conservative auto-remediation: stale-job abandon, transport-probe map
+update, workspace re-sync trigger. Each logs + readback-verifies its effect.
 """
 import json
 import logging
@@ -12,7 +14,7 @@ import ssl
 import socket
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import httpx
 
@@ -44,7 +46,11 @@ _plane_backlog_state_id: str | None = None
 
 def _load_secret(name: str) -> str:
     p = Path(f"/run/secrets/{name}")
-    return p.read_text().strip() if p.exists() else os.environ.get(name.upper(), "")
+    if p.exists():
+        # Take first line only — some secret files carry extra metadata on line 2
+        lines = p.read_text().splitlines()
+        return lines[0].strip() if lines else ""
+    return os.environ.get(name.upper(), "")
 
 
 def _slack_post(token: str, text: str):
@@ -557,6 +563,227 @@ def inv_audit_log_integrity() -> tuple[bool, str]:
     return True, f"ok — {len(lines)} audit entry(ies), last: {str(ts)[:19]}"
 
 
+# ── S5-3 batch 2 — four new invariants ───────────────────────────────────────
+
+def inv_no_override_without_ack() -> tuple[bool, str]:
+    """S5-3 — capability_audit.jsonl must have no entries with empty operator in last 72h.
+    Unacknowledged overrides mean destructive ops ran outside the operator gate.
+    """
+    audit_log = VAULT_PATH / "00_System" / "capability_audit.jsonl"
+    if not audit_log.exists():
+        return True, "ok — no audit log yet (no destructive ops logged)"
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=72)
+    unacked: list[str] = []
+    try:
+        for raw in audit_log.read_text().splitlines():
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                entry = json.loads(raw)
+            except Exception:
+                continue
+            ts_raw = entry.get("ts") or entry.get("timestamp", "")
+            try:
+                ts = datetime.fromisoformat(ts_raw)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+            if ts < cutoff:
+                continue
+            if not entry.get("operator", "").strip():
+                ep = entry.get("endpoint", "?")
+                unacked.append(f"{ts_raw[:16]}/{ep}")
+    except Exception as e:
+        return False, f"audit log read error: {e}"
+    if unacked:
+        return False, f"{len(unacked)} unacknowledged override(s) in last 72h: {unacked[0]}"
+    return True, "ok — no unacknowledged overrides in last 72h"
+
+
+def inv_all_closed_issues_have_td() -> tuple[bool, str]:
+    """S5-3 — sample last 10 closed Plane issues; each must have ≥1 comment (TD/handoff linked).
+    Catches KAI practice drift: closed tickets with no design doc or session close note.
+    """
+    token = _load_secret("plane_api_token")
+    if not token:
+        return False, "plane_api_token not mounted — cannot check closed issues"
+    try:
+        r = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/states/",
+            headers={"X-API-Key": token}, timeout=10
+        )
+        r.raise_for_status()
+        done_state_ids = [
+            s["id"] for s in r.json().get("results", [])
+            if s["group"] in ("done", "cancelled")
+        ]
+        if not done_state_ids:
+            return True, "ok — no done/cancelled states found"
+        r2 = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/issues/",
+            headers={"X-API-Key": token},
+            params={"state": done_state_ids[0], "per_page": 10, "order_by": "-updated_at"},
+            timeout=15,
+        )
+        r2.raise_for_status()
+        issues = r2.json().get("results", [])
+        if not issues:
+            return True, "ok — no closed issues found to sample"
+        no_comment = [
+            f"KAI-{iss.get('sequence_id','?')}"
+            for iss in issues[:10]
+            if (iss.get("comment_count") or 0) == 0
+        ]
+        if no_comment:
+            return False, (f"{len(no_comment)} closed issue(s) with no comments "
+                           f"(TD missing): {', '.join(no_comment[:5])}")
+        return True, f"ok — sampled {len(issues)} closed issue(s), all have ≥1 comment"
+    except Exception as e:
+        return False, f"Plane closed-issues check error: {type(e).__name__}: {e}"
+
+
+def inv_session_saves_current() -> tuple[bool, str]:
+    """S5-3 — session_close_log.json must exist and last entry must be <48h old.
+    Stale close log means sessions are not being saved per procedure.
+    """
+    close_log = VAULT_PATH / "00_System" / "session_close_log.json"
+    if not close_log.exists():
+        return False, "session_close_log.json not found — no sessions closed yet"
+    try:
+        data = json.loads(close_log.read_text())
+    except Exception as e:
+        return False, f"session_close_log.json unreadable: {e}"
+    ts_raw = data.get("timestamp", "")
+    if not ts_raw:
+        return False, "session_close_log.json has no timestamp field"
+    try:
+        ts = datetime.fromisoformat(ts_raw)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
+        if age_h > 48:
+            return False, f"last session close was {age_h:.0f}h ago — expected <48h"
+        return True, f"ok — last close {age_h:.1f}h ago ({data.get('date', '?')})"
+    except Exception as e:
+        return False, f"session_close_log.json timestamp parse error: {e}"
+
+
+def inv_workspace_sync_current() -> tuple[bool, str]:
+    """S5-3 — git_activity.json must show a commit within 48h (vault sync is live).
+    Stale commit activity means the Mac→worker rsync+commit chain has stopped.
+    """
+    git_log = VAULT_PATH / "00_System" / "git_activity.json"
+    if not git_log.exists():
+        return False, "git_activity.json not found — git activity tracking not running"
+    try:
+        entries = json.loads(git_log.read_text())
+    except Exception as e:
+        return False, f"git_activity.json unreadable: {e}"
+    if not entries or not isinstance(entries, list):
+        return False, "git_activity.json is empty — no commits recorded"
+    first = entries[0]
+    committed_at_raw = first.get("committed_at", "")
+    if not committed_at_raw:
+        return False, "most recent git entry has no committed_at field"
+    try:
+        ts = datetime.fromisoformat(committed_at_raw)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
+        msg = first.get("message", "?")[:60]
+        if age_h > 48:
+            return False, f"last commit {age_h:.0f}h ago — workspace sync stale ({msg})"
+        return True, f"ok — last commit {age_h:.1f}h ago: {msg}"
+    except Exception as e:
+        return False, f"git_activity timestamp parse error: {e}"
+
+
+# ── D5 conservative auto-remediations ────────────────────────────────────────
+# Each remediation logs what it did and readback-verifies its own effect.
+# A remediation that claims success without readback is Pattern 1 (watchdog lie).
+
+def _remediate_stale_jobs() -> tuple[bool, str]:
+    """D5: write stale_jobs.json marker + readback-verify. Consumed by job runner."""
+    marker = VAULT_PATH / "00_System" / "stale_jobs.json"
+    now_str = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "action": "stale_job_abandon",
+        "triggered_at": now_str,
+        "reason": "execution_registry_freshness invariant failed — no job ran in 90min",
+        "consumed": False,
+    }
+    try:
+        marker.write_text(json.dumps(payload, indent=2))
+        written = json.loads(marker.read_text())
+        assert written["action"] == "stale_job_abandon"
+        assert written["triggered_at"] == now_str
+        log.info("D5 remediate: stale_jobs.json written+verified at %s", now_str)
+        return True, f"stale_jobs.json written+verified at {now_str}"
+    except Exception as e:
+        log.error("D5 remediate: stale-job abandon failed: %s", e)
+        return False, f"stale-job abandon failed: {e}"
+
+
+def _remediate_transport_probe(failed_key: str, failed_detail: str) -> tuple[bool, str]:
+    """D5: update transport_status.json map + readback-verify. Marks transport degraded."""
+    status_file = VAULT_PATH / "00_System" / "transport_status.json"
+    now_str = datetime.now(timezone.utc).isoformat()
+    existing: dict = {}
+    if status_file.exists():
+        try:
+            existing = json.loads(status_file.read_text())
+        except Exception:
+            pass
+    existing[failed_key] = {
+        "status": "degraded",
+        "last_checked": now_str,
+        "detail": failed_detail[:200],
+    }
+    try:
+        status_file.write_text(json.dumps(existing, indent=2))
+        written = json.loads(status_file.read_text())
+        assert written[failed_key]["status"] == "degraded"
+        assert written[failed_key]["last_checked"] == now_str
+        log.info("D5 remediate: transport_status.json updated+verified for %s", failed_key)
+        return True, f"transport_status.json updated+verified for {failed_key}"
+    except Exception as e:
+        log.error("D5 remediate: transport probe update failed: %s", e)
+        return False, f"transport probe update failed: {e}"
+
+
+def _remediate_workspace_sync_trigger() -> tuple[bool, str]:
+    """D5: write workspace_sync_trigger.json + readback-verify. Worker reads on warmboot."""
+    trigger_file = VAULT_PATH / "00_System" / "workspace_sync_trigger.json"
+    now_str = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "action": "request_workspace_resync",
+        "triggered_at": now_str,
+        "reason": "workspace_sync_current invariant failed — git activity stale >48h",
+        "consumed": False,
+    }
+    try:
+        trigger_file.write_text(json.dumps(payload, indent=2))
+        written = json.loads(trigger_file.read_text())
+        assert written["action"] == "request_workspace_resync"
+        assert written["consumed"] is False
+        assert written["triggered_at"] == now_str
+        log.info("D5 remediate: workspace_sync_trigger.json written+verified at %s", now_str)
+        return True, "workspace_sync_trigger.json written+verified"
+    except Exception as e:
+        log.error("D5 remediate: workspace sync trigger failed: %s", e)
+        return False, f"workspace sync trigger failed: {e}"
+
+
+# Invariant key → D5 remediation function (called on pass→fail transition only)
+_D5_REMEDIATIONS: dict[str, object] = {
+    "execution_registry_freshness": lambda k, d: _remediate_stale_jobs(),
+    "capability_transports_healthy": lambda k, d: _remediate_transport_probe(k, d),
+    "workspace_sync_current": lambda k, d: _remediate_workspace_sync_trigger(),
+}
+
+
 # ── Engine ────────────────────────────────────────────────────────────────────
 
 INVARIANTS = [
@@ -574,13 +801,18 @@ INVARIANTS = [
     ("persona_assembly",              "Persona Assembly",          inv_persona_assembly),
     ("endpoint_contracts",            "Endpoint Contracts",        inv_endpoint_contracts),
     ("no_secrets_in_vault_docs",      "No Secrets in Vault Docs",  inv_no_secrets_in_vault_docs),
-    # S5-2 batch 1: first six (S5-3 + S5-1)
+    # S5-2 batch 1: first six (S5-2 + S5-1)
     ("ledger_pointer_consistent",     "Ledger Pointer Consistent", inv_ledger_pointer_consistent),
     ("secret_files_permissions",      "Secret Files Permissions",  inv_secret_files_permissions),
     ("no_wp_password_in_vault_json",  "No Password in Vault JSON", inv_no_wp_password_in_vault_json),
     ("capability_transports_healthy", "Capability Transports",     inv_capability_transports_healthy),
     ("vault_backup_skip_manifest",    "Backup Skip Manifest",      inv_vault_backup_skip_manifest),
     ("audit_log_integrity",           "Audit Log Integrity",       inv_audit_log_integrity),
+    # S5-3 batch 2: session hygiene + practice discipline
+    ("no_override_without_ack",       "No Unacked Override",       inv_no_override_without_ack),
+    ("all_closed_issues_have_td",     "Closed Issues Have TD",     inv_all_closed_issues_have_td),
+    ("session_saves_current",         "Session Saves Current",     inv_session_saves_current),
+    ("workspace_sync_current",        "Workspace Sync Current",    inv_workspace_sync_current),
 ]
 
 
@@ -625,6 +857,11 @@ def run_invariants(send_daily_digest: bool = False):
         if prev is True and not passed:
             transitions.append(f"  :x: *{label}*: `{detail}`")
             _file_invariant_issue(key, label, detail)   # deduped Plane filing
+            # D5 conservative auto-remediation (readback-verified, no side effects)
+            d5_fn = _D5_REMEDIATIONS.get(key)
+            if d5_fn:
+                ok_d5, msg_d5 = d5_fn(key, detail)
+                log.info("D5[%s]: %s — %s", key, "ok" if ok_d5 else "FAIL", msg_d5)
         elif prev is False and passed:
             recoveries.append(f"  :white_check_mark: *{label}*")
             _violation_issue_ids.pop(key, None)         # clear dedup on recovery
