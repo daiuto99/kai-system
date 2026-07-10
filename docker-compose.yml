@@ -233,8 +233,6 @@ services:
     container_name: kai-scheduler
     restart: unless-stopped
     user: "1000:1000"
-    group_add:
-      - "999"
     logging:
       driver: json-file
       options:
@@ -242,9 +240,9 @@ services:
         max-file: "5"
     environment:
       - TZ=America/New_York
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
     volumes:
       - /home/leo/vault:/vault:rw
-      - /var/run/docker.sock:/var/run/docker.sock:ro  # S5R-27: documented remaining surface — needs docker compose up for watchdog
       - /home/leo/plane:/home/leo/plane:ro
       - /home/leo/backups:/backups:ro
     env_file:
@@ -262,6 +260,8 @@ services:
       - litellm_master_key
       - healthchecks_url
     depends_on:
+      docker-socket-proxy:
+        condition: service_healthy
       kai-worker-api:
         condition: service_healthy
 

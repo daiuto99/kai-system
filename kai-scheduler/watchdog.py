@@ -366,25 +366,11 @@ RESTARTABLE = {
     "ollama":       "kai-ollama",
 }
 
-# Services that need full container recreation (not just restart) to recover
+# S5R-28: plane-api recreation escalated to Leo — containers/create blocked by
+# docker-socket-proxy (L16). Run manually on host:
+#   cd ~/plane && docker compose rm -sf api && docker compose up -d api
 def _try_recreate_plane_api() -> str:
-    """Recreate plane-api from scratch to clear stale writable layer (staticfiles.json)."""
-    try:
-        rm = subprocess.run(
-            ["docker", "compose", "rm", "-sf", "api"],
-            capture_output=True, text=True, timeout=30, cwd=PLANE_COMPOSE_DIR,
-        )
-        if rm.returncode != 0:
-            return f"rm failed: {rm.stderr[:120]}"
-        up = subprocess.run(
-            ["docker", "compose", "up", "-d", "api"],
-            capture_output=True, text=True, timeout=60, cwd=PLANE_COMPOSE_DIR,
-        )
-        if up.returncode == 0:
-            return "plane-api recreated ✅"
-        return f"up failed: {up.stderr[:120]}"
-    except Exception as e:
-        return f"recreate error: {e}"
+    return "plane-api needs recreation — containers/create blocked by socket proxy (L16). Run on host: cd ~/plane && docker compose rm -sf api && docker compose up -d api"
 
 
 # ── Main runner ───────────────────────────────────────────────────────────────
@@ -664,47 +650,14 @@ def _try_fix_components() -> str:
     if not stale_services:
         return "no stale components found ✅"
 
-    # Compose dir is a host path — not mounted inside the container.
-    # Return an actionable string so the caller gets a normal result instead
-    # of a FileNotFoundError that bypasses dedup and spams TRIAGE every tick.
-    if not KAI_COMPOSE_DIR.exists():
-        names = ", ".join(stale_services)
-        svcs = " ".join(stale_services)
-        return (
-            f"stale images detected ({names}) — auto-rebuild unavailable inside container. "
-            f"Run on host: cd ~/kai-system && docker compose build {svcs} && docker compose up -d {svcs}"
-        )
-
-    rebuilt = []
-    failed = []
-    for svc in stale_services:
-        build = subprocess.run(
-            ["docker", "compose", "build", svc],
-            capture_output=True, text=True, timeout=300,
-            cwd=str(KAI_COMPOSE_DIR),
-        )
-        if build.returncode != 0:
-            failed.append(f"{svc} (build failed)")
-            continue
-        up = subprocess.run(
-            ["docker", "compose", "up", "-d", svc],
-            capture_output=True, text=True, timeout=60,
-            cwd=str(KAI_COMPOSE_DIR),
-        )
-        if up.returncode == 0:
-            rebuilt.append(svc)
-        else:
-            failed.append(f"{svc} (restart failed)")
-
-    parts = []
-    if rebuilt:
-        parts.append(f"rebuilt: {', '.join(rebuilt)}")
-    if failed:
-        parts.append(f"failed: {', '.join(failed)}")
-
-    if rebuilt and not failed:
-        return f"{', '.join(parts)} ✅"
-    return f"{', '.join(parts)} ⚠️"
+    # S5R-28: containers/create blocked by docker-socket-proxy (L16).
+    # Auto-rebuild not possible from inside the container — escalate to Leo.
+    names = ", ".join(stale_services)
+    svcs = " ".join(stale_services)
+    return (
+        f"stale images detected ({names}) — auto-rebuild unavailable (socket proxy blocks create). "
+        f"Run on host: cd ~/kai-system && docker compose build {svcs} && docker compose up -d {svcs}"
+    )
 
 
 REMEDIATABLE = {
