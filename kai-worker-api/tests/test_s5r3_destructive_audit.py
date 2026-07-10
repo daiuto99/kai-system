@@ -6,9 +6,9 @@ Verifies:
   3. Valid body → audit record written to JSONL before the operation returns.
 """
 import json
-import tempfile  # noqa: F401
-from pathlib import Path  # noqa: F401
-from unittest.mock import MagicMock, patch  # noqa: F401
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -84,7 +84,7 @@ def test_delete_project_writes_audit_before_execution(client, tmp_path, monkeypa
     assert r.status_code == 200, r.text
 
     # JSONL written
-    lines = [json.loads(l) for l in tmp_audit.read_text().splitlines() if l.strip()]  # noqa: E741
+    lines = [json.loads(l) for l in tmp_audit.read_text().splitlines() if l.strip()]
     assert len(lines) == 1
     rec = lines[0]
     assert rec['operator'] == 'leo'
@@ -106,6 +106,6 @@ def test_delete_workflow_writes_audit(client, tmp_path, monkeypatch, tmp_audit):
     })
     assert r.status_code == 200, r.text
 
-    lines = [json.loads(l) for l in tmp_audit.read_text().splitlines() if l.strip()]  # noqa: E741
+    lines = [json.loads(l) for l in tmp_audit.read_text().splitlines() if l.strip()]
     assert lines[0]['endpoint'] == '/workflows/{workflow_id}'
     assert lines[0]['detail']['workflow_id'] == 'w1'

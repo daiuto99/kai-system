@@ -20,7 +20,7 @@ import os
 sys.path.insert(0, "/app")
 os.chdir("/app")
 
-from execute_tool import execute_tool  # noqa: E402
+from execute_tool import execute_tool
 
 print("=" * 60)
 print("EC#1 — run_capability round-trip via council dispatch")

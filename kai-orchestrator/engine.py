@@ -1,7 +1,7 @@
-import json, logging  # noqa: E401
+import json, logging
 from typing import Optional
 from db import get_conn, new_id, now_iso
-from models import CapabilityResult  # noqa: F401
+from models import CapabilityResult
 
 logger = logging.getLogger(__name__)
 

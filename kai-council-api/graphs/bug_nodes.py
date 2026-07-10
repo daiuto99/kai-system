@@ -2,9 +2,9 @@ import json
 import logging
 import urllib.request as ur
 from datetime import datetime, timezone
-from pathlib import Path  # noqa: F401
+from pathlib import Path
 
-from council_config import VAULT_PATH, _slack_token  # noqa: F401
+from council_config import VAULT_PATH, _slack_token
 from persona import load_persona
 from router import _run_agentic_loop
 from graphs.bug_state import BugState
@@ -154,7 +154,7 @@ CONCERNS:
 [Any issues with the approach, or "None" if you approve cleanly]
 
 If you REJECT, be specific about what needs to change.
-"""  # noqa: W291
+"""
 
     messages = [{"role": "user", "content": prompt}]
     reply, _, _ = _run_agentic_loop(messages, [], MODEL, system, "lse")

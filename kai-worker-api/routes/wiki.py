@@ -1,5 +1,5 @@
 import logging
-from pathlib import Path  # noqa: F401
+from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from config import VAULT_PATH
 

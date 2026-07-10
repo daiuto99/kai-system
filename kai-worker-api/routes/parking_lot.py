@@ -14,7 +14,7 @@ from parking_lot import (
     capture as pl_capture,
     enrich_text,
     gather_capture_context,
-    write_capture_card,  # noqa: F401
+    write_capture_card,
     load_secret,
 )
 
@@ -48,9 +48,9 @@ def _parse_card(path: Path) -> dict:
     meta, content_lines, in_fm, fm_done = {}, [], False, False
     for i, line in enumerate(text.strip().splitlines()):
         if i == 0 and line == "---":
-            in_fm = True; continue  # noqa: E702
+            in_fm = True; continue
         if in_fm and line == "---":
-            in_fm = False; fm_done = True; continue  # noqa: E702, F841
+            in_fm = False; fm_done = True; continue
         if in_fm:
             if ":" in line:
                 k, v = line.split(":", 1)
@@ -64,7 +64,7 @@ def _parse_card(path: Path) -> dict:
     body_title = ""
     for line in content_lines:
         if line.startswith("# "):
-            body_title = line[2:].strip(); break  # noqa: E702
+            body_title = line[2:].strip(); break
     is_url_title = fm_title.startswith("http") or fm_title.startswith("share.")
     title = (fm_title if fm_title and not is_url_title else None) or \
             (body_title if body_title and not body_title.startswith("http") else None) or \
@@ -73,9 +73,9 @@ def _parse_card(path: Path) -> dict:
     summary = ""
     past = False
     for line in content_lines:
-        if line.startswith("# "): past = True; continue  # noqa: E701, E702
+        if line.startswith("# "): past = True; continue
         if past and line.strip() and not line.startswith("#"):
-            summary = line.strip(); break  # noqa: E702
+            summary = line.strip(); break
 
     url = meta.get("url", "")
     if not url:
@@ -501,17 +501,17 @@ class TriageRequest(BaseModel):
 @router.post("/parking-lot/{slug}/triage")
 def parking_lot_triage(slug: str, req: TriageRequest):
     """Dispatch a lot item to its exit path."""
-    import httpx as _hx  # noqa: F401
+    import httpx as _hx
     path = LOT_DIR / f"{slug}.md"
     if not path.exists():
         raise HTTPException(404, "Not found")
 
-    item_text = path.read_text()  # noqa: F841
+    item_text = path.read_text()
     card = _parse_card(path)
     title   = card.get("title") or slug
     summary = card.get("summary") or ""
     url     = card.get("url") or ""
-    tags    = card.get("tags") or []  # noqa: F841
+    tags    = card.get("tags") or []
     context_note = req.notes or card.get("why_saved") or card.get("next_action") or ""
 
     action = req.action.lower().strip()
@@ -519,9 +519,9 @@ def parking_lot_triage(slug: str, req: TriageRequest):
     if action == "task":
         from services.todoist import create_task as _create_task
         desc_parts = []
-        if summary: desc_parts.append(summary)  # noqa: E701
-        if url: desc_parts.append(url)  # noqa: E701
-        if context_note: desc_parts.append(context_note)  # noqa: E701
+        if summary: desc_parts.append(summary)
+        if url: desc_parts.append(url)
+        if context_note: desc_parts.append(context_note)
         _create_task(title, description="\n".join(desc_parts))
         # Mark item as triaged
         _update_field(path, "status", "triaged")
@@ -577,9 +577,9 @@ def _write_to_inbox(slug, title, summary, url, context_note, route, action):
         f"# {title}",
         "\n> IMPORTANT: The summary below was pre-captured at save time. Work from this content only. Do NOT attempt to fetch or visit the URL — it may be paywalled, require authentication, or block bots.",
     ]
-    if summary: body_parts.append(f"\n## Captured Summary\n\n{summary}")  # noqa: E701
-    if url: body_parts.append(f"\nOriginal source (do not fetch): {url}")  # noqa: E701
-    if context_note: body_parts.append(f"\nLeo's notes: {context_note}")  # noqa: E701
+    if summary: body_parts.append(f"\n## Captured Summary\n\n{summary}")
+    if url: body_parts.append(f"\nOriginal source (do not fetch): {url}")
+    if context_note: body_parts.append(f"\nLeo's notes: {context_note}")
     content = (
         f"---\nroute: {route}\naction: {action}\n"
         f"context: From Parking Lot — {title}\n---\n\n"

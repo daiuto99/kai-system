@@ -155,7 +155,7 @@ def _dispatch_share(plan: dict, content: dict, intent: dict, *,
 
 def _short_summary_id() -> str:
     """4-char base32 id like S-7K3M, easy to read back to KAI from a Slack message."""
-    import secrets, string  # noqa: E401
+    import secrets, string
     alphabet = string.ascii_uppercase + "2345679"  # no 0/1/8/I/O — readability
     return "S-" + "".join(secrets.choice(alphabet) for _ in range(4))
 

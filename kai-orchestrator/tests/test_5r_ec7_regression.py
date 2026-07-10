@@ -12,9 +12,9 @@ Categories (4 queries each):
   C — Calendar / Plane operations
   D — WordPress operations
   E — System / Cross-capability
-"""  # noqa: W291
+"""
 import httpx
-import json  # noqa: F401
+import json
 import sys
 
 ORCH = "http://kai-orchestrator:8003"
@@ -131,7 +131,7 @@ def e1():
             r = c.get("/capabilities")
             d = r.json()
             return len(d.get("capabilities", [])) >= 10
-    except:  # noqa: E722
+    except:
         return False
 
 def e2():
@@ -207,9 +207,3 @@ def run():
 
 if __name__ == "__main__":
     sys.exit(run())
-
-
-def test_ec7_regression():
-    """EC#7: capability regression suite, gate >= 18/20."""
-    rc = run()
-    assert rc == 0

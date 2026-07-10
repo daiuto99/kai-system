@@ -4,10 +4,10 @@ import threading
 import time
 import uuid
 import urllib.request as ur
-from datetime import datetime, timezone  # noqa: F401
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException  # noqa: F401
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from graphs.bug_graph import get_bug_graph

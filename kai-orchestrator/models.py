@@ -1,5 +1,5 @@
-from dataclasses import dataclass, field  # noqa: F401
-from typing import Optional, Any  # noqa: F401
+from dataclasses import dataclass, field
+from typing import Optional, Any
 
 @dataclass
 class Job:

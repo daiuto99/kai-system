@@ -1,14 +1,14 @@
 import json
 import logging
 import os
-import time  # noqa: F401
+import time
 from datetime import datetime
 from pathlib import Path
 import httpx
 from fastapi import APIRouter, HTTPException
 from council_config import VAULT_PATH
 from complexity import _load_model_config
-from providers import get_anthropic_client  # noqa: F401
+from providers import get_anthropic_client
 
 logger = logging.getLogger(__name__)
 models_router = APIRouter()
@@ -102,7 +102,7 @@ def get_benchmarks():
 
 @models_router.post("/models/benchmarks/run")
 def run_benchmark(body: dict):
-    import time  # noqa: F811
+    import time
     model = body.get("model")
     if not model:
         raise HTTPException(status_code=400, detail="model required")
@@ -188,10 +188,10 @@ def get_model_catalog():
     for m in ollama_installed:
         b = benchmarks.get(m["name"]) or benchmarks.get(m["name"].split(":")[0])
         if b and b.get("avg_ms"):
-            m["speed_ms"] = b["avg_ms"]; m["tokens_per_sec"] = b.get("tokens_per_sec")  # noqa: E702
-            m["speed_label"] = f"{b['avg_ms']//1000}s"; m["last_benchmarked"] = b.get("last_run", "")[:16]  # noqa: E702
+            m["speed_ms"] = b["avg_ms"]; m["tokens_per_sec"] = b.get("tokens_per_sec")
+            m["speed_label"] = f"{b['avg_ms']//1000}s"; m["last_benchmarked"] = b.get("last_run", "")[:16]
         else:
-            m["speed_ms"] = None; m["speed_label"] = "Not tested"  # noqa: E702
+            m["speed_ms"] = None; m["speed_label"] = "Not tested"
     cfg = _load_model_config()
     advisor_configs = cfg.get("advisors", {})
     FUNCTION_MAP = [

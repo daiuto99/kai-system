@@ -11,3 +11,6 @@ __pycache__/
 *.bak2
 
 .log
+
+# Syncthing temp files
+.syncthing.*.tmp

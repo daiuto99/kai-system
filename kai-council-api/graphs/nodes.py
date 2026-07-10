@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path  # noqa: F401
+from pathlib import Path
 
 from council_config import VAULT_PATH, _track_usage
 from complexity import _classify_complexity, _get_advisor_config

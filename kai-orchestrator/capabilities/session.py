@@ -45,7 +45,7 @@ def _parse_sprint_history() -> dict:
         return {"title": f"Session {_date_str()}", "items": []}
     block = m.group(1).strip().split("\n")
     title = block[0].replace("## ", "").strip()
-    items = [l.lstrip("- ").strip() for l in block[1:] if l.strip().startswith("-")]  # noqa: E741
+    items = [l.lstrip("- ").strip() for l in block[1:] if l.strip().startswith("-")]
     return {"title": title, "items": items}
 
 
@@ -59,7 +59,7 @@ def _parse_sotu() -> dict:
     m2 = re.search(r"\*\*Open:\*\*\n(.*?)(?=\n\*\*|\Z)", text, re.DOTALL)
     open_items = []
     if m2:
-        open_items = [l.lstrip("- ").strip() for l in m2.group(1).split("\n") if l.strip().startswith("-")]  # noqa: E741
+        open_items = [l.lstrip("- ").strip() for l in m2.group(1).split("\n") if l.strip().startswith("-")]
     return {"whats_next": whats_next, "open_items": open_items}
 
 
@@ -147,7 +147,7 @@ def close(mode: str = "manual", context_pct: str = "", **_) -> CapabilityResult:
         content = (
             f"# KAI Session — {title}\n**Date:** {date_str}\n**Close:** {mode_tag}\n\n"
             f"## Completed\n" + ("\n".join(f"- {i}" for i in items) or "- (none captured)") + "\n\n"
-            f"## Open\n" + ("\n".join(f"- {o}" for o in open_items) or "- See Plane board") + "\n\n"  # noqa: F541
+            f"## Open\n" + ("\n".join(f"- {o}" for o in open_items) or "- See Plane board") + "\n\n"
             f"## What's Next\n{whats_next}\n"
         )
         try:

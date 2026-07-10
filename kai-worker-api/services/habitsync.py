@@ -43,7 +43,7 @@ def get_habits() -> list:
         r.raise_for_status()
         habits = r.json()
 
-        today = date.today()  # noqa: F841
+        today = date.today()
         epoch_to = _today_epoch()
         epoch_from = epoch_to - 6
 

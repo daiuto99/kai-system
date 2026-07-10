@@ -49,7 +49,7 @@ def _slack_token() -> str:
     return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
 
 
-from usage_tracker import _track_usage, track_api_call  # noqa: E402, F401
+from usage_tracker import _track_usage, track_api_call  # noqa: F401  re-export
 
 
 # ── Rate limiting (S5R-19: tiered budget) ────────────────────────────────────

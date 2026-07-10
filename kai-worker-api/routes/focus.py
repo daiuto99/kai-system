@@ -1,11 +1,11 @@
 import logging
 import os
-from pathlib import Path  # noqa: F401
+from pathlib import Path
 from datetime import date as _date
 from fastapi import APIRouter
 from pydantic import BaseModel
 from config import VAULT_PATH, load_secret
-from focus import run_focus_brief, get_todoist_tasks  # noqa: F401
+from focus import run_focus_brief, get_todoist_tasks
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

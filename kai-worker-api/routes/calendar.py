@@ -1,12 +1,12 @@
 import json
 import logging
-import re  # noqa: F401
+import re
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 from zoneinfo import ZoneInfo
 _ET = ZoneInfo("America/New_York")
-from fastapi import APIRouter, HTTPException  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
-from config import VAULT_PATH  # noqa: E402
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from config import VAULT_PATH
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -153,7 +153,7 @@ def gcal_auth_code(req: GCalCodeRequest):
 
 def _gcal_via_n8n(days: int) -> dict:
     try:
-        import httpx as _hx, json as _j  # noqa: E401
+        import httpx as _hx, json as _j
         feeds_path = VAULT_PATH / "00_System" / "n8n_workflows.json"
         reg = _j.loads(feeds_path.read_text()) if feeds_path.exists() else {}
         entry = reg.get("kai-calendar-events")

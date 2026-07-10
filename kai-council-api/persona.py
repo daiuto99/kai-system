@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from pathlib import Path  # noqa: F401
+from pathlib import Path
 from fastapi import HTTPException
 from council_config import VAULT_PATH, COUNCIL_PATH
 from load_context import load_session_memory, load_system_state, load_org_model_context
@@ -59,8 +59,8 @@ def load_persona(advisor: str, channel: str = None) -> str:
     keystone_file = VAULT_PATH / '00_System' / 'KEYSTONE.md'
     bp_file = VAULT_PATH / '00_System' / 'business_profile.md'
     ctx_parts = []
-    if keystone_file.exists(): ctx_parts.append(keystone_file.read_text(encoding='utf-8'))  # noqa: E701
-    if bp_file.exists(): ctx_parts.append(bp_file.read_text(encoding='utf-8'))  # noqa: E701
+    if keystone_file.exists(): ctx_parts.append(keystone_file.read_text(encoding='utf-8'))
+    if bp_file.exists(): ctx_parts.append(bp_file.read_text(encoding='utf-8'))
     if ctx_parts:
         combined = '\n\n---\n\n'.join(ctx_parts)
         parts.append('<background_context>\n' + combined + '\n</background_context>')

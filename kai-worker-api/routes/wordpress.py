@@ -549,7 +549,7 @@ class WPTaskRequest(BaseModel):
 
 @router.post("/wordpress/tasks")
 def create_wp_task(req: WPTaskRequest):
-    import datetime, uuid  # noqa: E401
+    import datetime, uuid
     tasks = _load_tasks()
     task = {
         "id": f"wpt-{uuid.uuid4().hex[:8]}",

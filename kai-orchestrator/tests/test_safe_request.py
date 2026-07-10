@@ -1,4 +1,4 @@
-import pytest  # noqa: F401
+import pytest
 from transports.base import SafeResponse, safe_request
 
 

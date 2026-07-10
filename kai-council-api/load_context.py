@@ -1,6 +1,6 @@
 import logging
-from pathlib import Path  # noqa: F401
-from council_config import COUNCIL_PATH, VAULT_PATH, WORKER_URL  # noqa: F401
+from pathlib import Path
+from council_config import COUNCIL_PATH, VAULT_PATH, WORKER_URL
 import function_map as fm
 
 logger = logging.getLogger(__name__)
