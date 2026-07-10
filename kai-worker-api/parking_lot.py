@@ -120,7 +120,9 @@ def summarize_article(url: str, fallback: str, api_key: str) -> str:
         )
         _track_usage("parking_lot", resp.usage.input_tokens, resp.usage.output_tokens,
                      provider="anthropic", model="claude-haiku-4-5-20251001",
-                     trigger_source="worker:parking_lot_enrich")
+                     trigger_source="worker:parking_lot_enrich",
+                     cache_read_tokens=getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
+                     cache_creation_tokens=getattr(resp.usage, "cache_creation_input_tokens", 0) or 0)
         return resp.content[0].text.strip()
     except Exception:
         return fallback
@@ -154,7 +156,9 @@ TAGS: [2-4 comma-separated lowercase tags]"""
     )
     _track_usage("parking_lot", response.usage.input_tokens, response.usage.output_tokens,
                  provider="anthropic", model="claude-haiku-4-5-20251001",
-                 trigger_source="worker:parking_lot_capture")
+                 trigger_source="worker:parking_lot_capture",
+                 cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+                 cache_creation_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0)
 
     raw = response.content[0].text.strip()
     result = {"type": "note", "title": og_title or text[:50], "summary": og_description or text[:100], "tags": []}

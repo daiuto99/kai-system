@@ -117,7 +117,9 @@ def parse_intent(
     )
     _track_usage("intent_parser", resp.usage.input_tokens, resp.usage.output_tokens,
                  provider="anthropic", model=MODEL,
-                 trigger_source="worker:intent_parse")
+                 trigger_source="worker:intent_parse",
+                 cache_read_tokens=getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
+                 cache_creation_tokens=getattr(resp.usage, "cache_creation_input_tokens", 0) or 0)
     raw = resp.content[0].text.strip()
 
     parsed = _extract_json(raw)

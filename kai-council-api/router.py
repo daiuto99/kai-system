@@ -222,10 +222,12 @@ def _handle_auto_capture(message: str, advisor: str) -> dict | None:
 
 
 def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: str, advisor: str) -> tuple:
-    """Run Anthropic agentic loop. Returns (reply, input_tokens, output_tokens)."""
+    """Run Anthropic agentic loop. Returns (reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens)."""
     client = get_anthropic_client()
     total_input_tokens = 0
     total_output_tokens = 0
+    total_cache_read_tokens = 0
+    total_cache_creation_tokens = 0
     raw_reply = ""
 
     # Prompt caching: mark the stable background_context (KEYSTONE + business_profile)
@@ -253,8 +255,10 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
             kwargs["tools"] = cached_tools
 
         response = client.messages.create(**kwargs)
-        total_input_tokens  += response.usage.input_tokens
-        total_output_tokens += response.usage.output_tokens
+        total_input_tokens          += response.usage.input_tokens
+        total_output_tokens         += response.usage.output_tokens
+        total_cache_read_tokens     += getattr(response.usage, "cache_read_input_tokens", 0) or 0
+        total_cache_creation_tokens += getattr(response.usage, "cache_creation_input_tokens", 0) or 0
 
         if response.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": response.content})
@@ -275,7 +279,7 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
         )
         break
 
-    return raw_reply, total_input_tokens, total_output_tokens
+    return raw_reply, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens
 
 
 
@@ -401,6 +405,8 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
 
     total_input_tokens = 0
     total_output_tokens = 0
+    total_cache_read_tokens = 0
+    total_cache_creation_tokens = 0
     raw_reply = ""
 
     # Privacy mode: ember/doc always local, or explicit flag
@@ -439,7 +445,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
 
     if provider == "anthropic":
         tools = KAI_TOOLS if advisor == "kai" else []
-        raw_reply, total_input_tokens, total_output_tokens = _run_agentic_loop(
+        raw_reply, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens = _run_agentic_loop(
             messages, tools, model, system_prompt, advisor
         )
 
@@ -464,8 +470,10 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
                 system=system_prompt + f"\n\n[Note: Local model unavailable ({ollama_err}), using cloud fallback]",
                 messages=messages,
             )
-            total_input_tokens  = response.usage.input_tokens
-            total_output_tokens = response.usage.output_tokens
+            total_input_tokens          = response.usage.input_tokens
+            total_output_tokens         = response.usage.output_tokens
+            total_cache_read_tokens     = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+            total_cache_creation_tokens = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
             raw_reply = next((b.text for b in response.content if hasattr(b, "text")), "")
 
     elif provider in ("openai", "litellm", "gemini"):
@@ -484,8 +492,10 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
                 system=system_prompt + f"\n\n[Note: LiteLLM unavailable ({oai_err}), using Anthropic fallback]",
                 messages=messages,
             )
-            total_input_tokens  = response.usage.input_tokens
-            total_output_tokens = response.usage.output_tokens
+            total_input_tokens          = response.usage.input_tokens
+            total_output_tokens         = response.usage.output_tokens
+            total_cache_read_tokens     = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+            total_cache_creation_tokens = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
             raw_reply = next((b.text for b in response.content if hasattr(b, "text")), "")
     else:
         raise HTTPException(400, f"Unknown provider: {provider}")
@@ -507,7 +517,9 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     # Track token usage
     effective_trigger = req.trigger_source or f"council:message:{channel}"
     _track_usage(advisor, total_input_tokens, total_output_tokens, actual_provider, actual_model,
-                 trigger_source=effective_trigger)
+                 trigger_source=effective_trigger,
+                 cache_read_tokens=total_cache_read_tokens,
+                 cache_creation_tokens=total_cache_creation_tokens)
 
     # Auto-summarize in background
     if background_tasks:

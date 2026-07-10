@@ -90,6 +90,8 @@ def advisor_node(state: KAIState) -> KAIState:
     reply = ""
     input_tokens = 0
     output_tokens = 0
+    cache_read_tokens = 0
+    cache_creation_tokens = 0
 
     if provider == "anthropic":
         org = _load_org()
@@ -101,7 +103,7 @@ def advisor_node(state: KAIState) -> KAIState:
             tools = DIRECTOR_TOOLS
         else:
             tools = []
-        reply, input_tokens, output_tokens = _run_agentic_loop(
+        reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens = _run_agentic_loop(
             messages, tools, model, system_prompt, advisor
         )
 
@@ -116,7 +118,7 @@ def advisor_node(state: KAIState) -> KAIState:
                 fallback = adv_cfg.get("fallback_model", "claude-sonnet-4-6")
                 actual_provider = "anthropic"
                 actual_model = fallback
-                reply, input_tokens, output_tokens = _run_agentic_loop(
+                reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens = _run_agentic_loop(
                     messages, [], fallback,
                     system_prompt + f"\n\n[Note: Ollama unavailable ({e}), using cloud fallback]",
                     advisor,
@@ -130,12 +132,14 @@ def advisor_node(state: KAIState) -> KAIState:
             fallback = adv_cfg.get("fallback_model", "claude-sonnet-4-6")
             actual_provider = "anthropic"
             actual_model = fallback
-            reply, input_tokens, output_tokens = _run_agentic_loop(
+            reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens = _run_agentic_loop(
                 messages, [], fallback, system_prompt, advisor
             )
 
     _track_usage(advisor, input_tokens, output_tokens, actual_provider, actual_model,
-                 trigger_source=f"graph:advisor_node:{advisor}")
+                 trigger_source=f"graph:advisor_node:{advisor}",
+                 cache_read_tokens=cache_read_tokens,
+                 cache_creation_tokens=cache_creation_tokens)
 
     ts = datetime.now(timezone.utc).isoformat()
     return {

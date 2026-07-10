@@ -109,7 +109,9 @@ Keep it tight. No preamble. Just the brief."""
     )
     _track_usage("focus", response.usage.input_tokens, response.usage.output_tokens,
                  provider="anthropic", model="claude-haiku-4-5-20251001",
-                 trigger_source="worker:focus")
+                 trigger_source="worker:focus",
+                 cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+                 cache_creation_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0)
     return response.content[0].text
 
 

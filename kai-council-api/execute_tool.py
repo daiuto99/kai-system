@@ -138,11 +138,13 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
     try:
         messages = [{"role": "user", "content": user_msg}]
         # Specialists are end-of-chain — no tools, no further delegation
-        reply, input_tokens, output_tokens = _run_agentic_loop(
+        reply, input_tokens, output_tokens, cache_read_tok, cache_creation_tok = _run_agentic_loop(
             messages, [], "claude-sonnet-4-6", system, specialist_id
         )
         _track_usage("specialist", input_tokens, output_tokens,
-                     trigger_source=f"tool:consult_specialist:{specialist_id}")
+                     trigger_source=f"tool:consult_specialist:{specialist_id}",
+                     cache_read_tokens=cache_read_tok,
+                     cache_creation_tokens=cache_creation_tok)
         return {
             "specialist": spec["name"],
             "domain": spec["domain"],

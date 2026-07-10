@@ -139,7 +139,9 @@ def _auto_summarize(channel: str, advisor: str):
         )
         marker_file.write_text(str(current_count))
         _track_usage(advisor, response.usage.input_tokens, response.usage.output_tokens,
-                     trigger_source="council:auto_summarize")
+                     trigger_source="council:auto_summarize",
+                     cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+                     cache_creation_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0)
     except Exception as e:
         logger.exception("auto_summarize error: %s", e)
 

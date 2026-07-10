@@ -116,12 +116,20 @@ def _bump(d: dict, key: str, calls: int, cost: float,
 def _track_usage(advisor: str, input_tokens: int, output_tokens: int,
                  provider: str = "anthropic",
                  model: str = "claude-sonnet-4-6",
-                 trigger_source: str | None = None) -> None:
-    """Record a token-based LLM call. Cost computed from COSTS; unknown
-    models default to Sonnet pricing (3/15)."""
+                 trigger_source: str | None = None,
+                 cache_read_tokens: int = 0,
+                 cache_creation_tokens: int = 0) -> None:
+    """Record a token-based LLM call. Cost computed from COSTS.
+    Cache-read tokens cost 10% of input rate; cache-creation tokens cost 125% of input rate.
+    Unknown models default to Sonnet pricing (3/15)."""
     try:
         in_rate, out_rate = COSTS.get(model, (3.0, 15.0))
-        cost = (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000
+        cost = (
+            input_tokens            * in_rate
+            + output_tokens         * out_rate
+            + cache_read_tokens     * in_rate * 0.1
+            + cache_creation_tokens * in_rate * 1.25
+        ) / 1_000_000
         pkey = f"{provider}/{model}"
         trigger = trigger_source or "unknown"
 
@@ -137,6 +145,8 @@ def _track_usage(advisor: str, input_tokens: int, output_tokens: int,
         day["output"] += output_tokens
         day["cost_usd"] = round(day["cost_usd"] + cost, 6)
         day["calls"] += 1
+        day["cache_read"]     = day.get("cache_read", 0)     + cache_read_tokens
+        day["cache_creation"] = day.get("cache_creation", 0) + cache_creation_tokens
 
         _bump(day["by_advisor"],  advisor, 1, cost, input_tokens, output_tokens)
         _bump(day["by_provider"], pkey,    1, cost, input_tokens, output_tokens)
@@ -155,6 +165,8 @@ def _track_usage(advisor: str, input_tokens: int, output_tokens: int,
         t["output"] += output_tokens
         t["cost_usd"] = round(t["cost_usd"] + cost, 6)
         t["calls"] += 1
+        t["cache_read"]     = t.get("cache_read", 0)     + cache_read_tokens
+        t["cache_creation"] = t.get("cache_creation", 0) + cache_creation_tokens
         _bump(t["by_advisor"],  advisor, 1, cost, input_tokens, output_tokens)
         _bump(t["by_provider"], pkey,    1, cost, input_tokens, output_tokens)
         _bump(t["by_model"],    pkey,    1, cost, input_tokens, output_tokens)
