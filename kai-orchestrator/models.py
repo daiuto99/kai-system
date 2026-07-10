@@ -46,6 +46,11 @@ class CapabilityResult:
     verification: Optional[dict] = None
     transport_used: Optional[str] = None
     error: Optional[dict] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    cost_usd: float = 0.0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
 
 @dataclass
 class StepDef:

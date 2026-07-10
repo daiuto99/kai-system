@@ -532,6 +532,8 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
         "insights_logged": insights_logged,
         "input_tokens": total_input_tokens,
         "output_tokens": total_output_tokens,
+        "cache_read_tokens": total_cache_read_tokens,
+        "cache_creation_tokens": total_cache_creation_tokens,
         "provider": actual_provider,
         "model": actual_model,
     }

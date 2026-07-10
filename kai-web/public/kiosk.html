@@ -489,10 +489,11 @@
         <span class="cost-total-label">Token MTD</span>
         <span class="cost-total-val" style="color:var(--warn)">${fmtUSD(tokenMTD)}</span>
       </div>
-      <div class="partial-floor-badge">
-        <strong>⚠ PARTIAL FLOOR</strong>
-        Most per-call spend not yet captured — _record_metric callers not fully wired.
-        This number under-reports actual token cost.
+      <div class="partial-floor-badge" style="background:rgba(34,197,94,0.1);border-color:#22c55e;color:#86efac">
+        <strong style="color:#22c55e">✓ COST WIRED</strong>
+        Token cost from all active LLM paths (council router + model_peer peer reviews).
+        workflow_metrics rows include provider/model/cost_usd.
+        Async council.gate judgment steps: coverage deferred (no live workflows use this path yet).
       </div>
     `;
   }

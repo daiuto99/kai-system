@@ -94,6 +94,9 @@ def _peer_review(model: str, system: str, reviewer: str, content: str, topic: st
         return CapabilityResult(ok=False, status="failed_recoverable",
                                 error={"type": "litellm_error", "detail": text})
 
+    _in_rates = {"o4-mini": 1.10, "gpt-4o": 2.50}
+    _out_rates = {"o4-mini": 4.40, "gpt-4o": 10.0}
+    _cost_usd = (input_tokens * _in_rates.get(model, 2.50) + output_tokens * _out_rates.get(model, 10.0)) / 1_000_000
     _track_usage(reviewer, input_tokens, output_tokens, "openai", model,
                  trigger_source=f"orchestrator:peer_review:{reviewer}")
     # Strip markdown fences if model wrapped the JSON
@@ -122,6 +125,7 @@ def _peer_review(model: str, system: str, reviewer: str, content: str, topic: st
 
     return CapabilityResult(
         ok=True, status="succeeded",
+        provider="openai", model=model, cost_usd=_cost_usd,
         data={
             "topic": topic,
             "reviewer": reviewer,

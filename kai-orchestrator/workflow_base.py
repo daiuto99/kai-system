@@ -87,7 +87,11 @@ class Workflow:
                 engine.transition("step", step["id"], "succeeded",
                                   verification=verification,
                                   result=result.data)
-                self._record_metric(step, step_def, result, latency_ms, verified=True)
+                self._record_metric(step, step_def, result, latency_ms, verified=True,
+                                   provider=result.provider, model=result.model,
+                                   cost_usd=result.cost_usd,
+                                   cache_read_tokens=result.cache_read_tokens,
+                                   cache_creation_tokens=result.cache_creation_tokens)
                 return True
             else:
                 retry = step.get("retry_count", 0)
