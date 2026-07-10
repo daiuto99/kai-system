@@ -163,6 +163,8 @@ def deliver_asset(req: DeliverAssetRequest):
 @router.get("/council/advisor/{advisor}/recent_dms")
 def get_advisor_recent_dms(advisor: str, n: int = 20):
     """Return recent DM exchanges for Sky/Roads (KAI awareness mechanism)."""
+    if ".." in advisor:
+        raise HTTPException(404, "Advisor not found")
     advisor = advisor.lower()
     log_file = VAULT_PATH / "60_Council" / advisor / "dm_log.jsonl"
     if not log_file.exists():

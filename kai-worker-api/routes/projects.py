@@ -210,6 +210,8 @@ def list_templates():
 
 @router.get("/templates/{version}/{filename}")
 def get_template(version: str, filename: str):
+    if ".." in version or ".." in filename:
+        raise HTTPException(400, "Invalid path")
     tpl_file = TEMPLATES_PATH / version / filename
     if not tpl_file.exists():
         raise HTTPException(404, f"Template {version}/{filename} not found")
@@ -355,6 +357,8 @@ pinned: false
 @router.post("/projects/{project_id}/teardown")
 def teardown_project(project_id: str):
     """Full project removal: projects.json + vault folder archive."""
+    if ".." in project_id or not project_id.strip():
+        raise HTTPException(400, "Invalid project_id")
     results = {"project_id": project_id, "steps": [], "errors": []}
 
     # 1. Remove from projects.json

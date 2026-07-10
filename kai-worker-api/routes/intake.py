@@ -6,7 +6,7 @@ from datetime import datetime as _dt
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -295,6 +295,8 @@ def _complete_intake(advisor: str, channel_id: str = "") -> dict:
 
 @router.get("/intake/resources/{advisor}")
 def list_resources(advisor: str):
+    if ".." in advisor:
+        raise HTTPException(400, "Invalid advisor")
     resources_dir = _resources_dir(advisor)
     resources_dir.mkdir(parents=True, exist_ok=True)
     processed_dir = resources_dir / "processed"

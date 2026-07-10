@@ -318,6 +318,8 @@ def parking_lot_edit(slug: str, body: dict):
 
 @router.delete("/parking-lot/{slug}")
 def parking_lot_delete(slug: str):
+    if ".." in slug or "/" in slug:
+        raise HTTPException(400, "Invalid slug")
     path = LOT_DIR / f"{slug}.md"
     if path.exists():
         path.unlink()

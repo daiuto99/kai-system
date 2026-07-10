@@ -30,8 +30,13 @@ def _safe_path(name: str, filename: str) -> Path:
     return safe
 
 
+def _validate_name(name: str) -> None:
+    if ".." in name or "/" in name:
+        raise HTTPException(403, "Invalid path")
+
+
 def _load_assets(name: str) -> dict:
-    assets_file = COUNCIL_DIR / name / "assets.json"
+    assets_file = _safe_path(name, "assets.json")
     if assets_file.exists():
         try:
             return json.loads(assets_file.read_text())
@@ -58,6 +63,8 @@ def get_org():
 @router.get("/org/{tier}")
 def get_org_by_tier(tier: str):
     """Members filtered by tier: orchestrator / director / advisor / specialist."""
+    if ".." in tier:
+        raise HTTPException(400, "Invalid tier")
     members = [m for m in _load_org() if m.get("tier") == tier]
     return {"tier": tier, "members": members}
 
@@ -92,6 +99,7 @@ def list_advisors():
 
 @router.get("/advisors/{name}")
 def get_advisor(name: str):
+    _validate_name(name)
     member = _get_member(name)
     if not member:
         raise HTTPException(404, f"Member {name} not found")
@@ -107,6 +115,7 @@ class AdvisorUpdateRequest(BaseModel):
 
 @router.put("/advisors/{name}")
 def update_advisor(name: str, req: AdvisorUpdateRequest):
+    _validate_name(name)
     member = _get_member(name)
     if not member:
         raise HTTPException(404, f"Member {name} not found")
@@ -138,6 +147,7 @@ def update_assets(name: str, body: dict):
 @router.get("/advisors/{name}/team")
 def get_team(name: str):
     """Specialists that report to this director."""
+    _validate_name(name)
     team = [m for m in _load_org() if m.get("reports_to") == name and m.get("tier") == "specialist"]
     result = []
     for s in team:

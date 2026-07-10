@@ -58,6 +58,8 @@ def list_decisions():
 
 @router.get("/knowledge/decisions/{month}")
 def read_decisions_month(month: str):
+    if ".." in month:
+        raise HTTPException(400, "Invalid month")
     target = safe_path(DECISIONS_DIR, f"{month}.md")
     if target is None:
         raise HTTPException(400, "Invalid path")

@@ -21,6 +21,8 @@ def get_habits_endpoint():
 
 @router.post("/habits/{habit_id}/complete")
 def complete_habit(habit_id: str):
+    if ".." in habit_id:
+        raise HTTPException(400, "Invalid habit_id")
     try:
         result = log_habit(habit_id)
         return {"ok": True, "habit_id": habit_id, **result}

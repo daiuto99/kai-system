@@ -4,7 +4,7 @@ import os
 import re
 from datetime import datetime as _dt
 from pathlib import Path
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from config import VAULT_PATH, safe_path
 from safe_http import safe_json
@@ -154,6 +154,8 @@ def get_checkin():
 
 @router.get("/checkin/questions/{checkin_type}")
 def get_questions(checkin_type: str):
+    if ".." in checkin_type:
+        raise HTTPException(400, "Invalid type")
     if checkin_type not in QUESTION_SETS:
         return {"questions": []}
     return {"questions": QUESTION_SETS[checkin_type], "type": checkin_type}
