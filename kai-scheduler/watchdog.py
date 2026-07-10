@@ -702,7 +702,7 @@ ACTION_NEEDED = {
     "disk":              "Free space: ssh kai 'df -h' then clear logs/old Docker images",
     "backup":            "Auto-trigger queued. If still failing: ssh kai 'bash ~/kai-system/backup.sh'",
     "cert_expiry":       "Renew cert: ssh kai 'docker exec kai-nginx certbot renew --force-renewal'",
-    "component_currency":"Rebuild stale containers: ssh kai 'cd ~/kai-system && docker compose pull && docker compose up -d'",
+    "component_currency":"Host-side rebuild required (socket proxy blocks container-side): ssh kai 'cd ~/sonicink/kai-system && docker compose build <service> && docker compose up -d <service>'",
 }
 
 

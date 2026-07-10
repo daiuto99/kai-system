@@ -169,6 +169,7 @@ def get_team(name: str):
 def create_advisor(req: AdvisorUpdateRequest, name: str = ""):
     if not name:
         raise HTTPException(400, "name required")
+    _validate_name(name)  # H-2: guard before mkdir + suffix-append _safe_path
     advisor_dir = COUNCIL_DIR / name
     advisor_dir.mkdir(exist_ok=True)
     persona_file = _safe_path(name, f"{name.upper()}.md")

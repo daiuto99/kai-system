@@ -12,7 +12,7 @@ from history import _append_history
 from insights import extract_and_strip_insights, append_insights_to_vault
 from knowledge_layer import _auto_summarize
 from execute_tool import execute_tool
-from providers import get_anthropic_client, _call_ollama, _call_openai, _call_litellm  # noqa: F401
+from providers import get_anthropic_client, _call_ollama, _call_openai, _call_litellm
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -287,7 +287,7 @@ def _maybe_resolve_gate(message: str, user_id: str) -> str | None:
     if not approve_m and not reject_m:
         return None
     try:
-        from routes_council_gate import router as _gate_router, _GATES_STORE, _fire_callback, _persist_gate_record  # noqa: F401
+        from routes_council_gate import router as _gate_router, _GATES_STORE, _fire_callback, _persist_gate_record
         from datetime import datetime, timezone
         if approve_m:
             gate_id = approve_m.group(1)
@@ -298,9 +298,9 @@ def _maybe_resolve_gate(message: str, user_id: str) -> str | None:
 
         entry = _GATES_STORE.get(gate_id)
         if entry is None:
-            return f"Gate  not found — it may have expired or already been resolved."  # noqa: F541
+            return f"Gate  not found — it may have expired or already been resolved."
         if entry["status"] not in ("pending_leo", "processing"):
-            return f"Gate  is already in state ."  # noqa: F541
+            return f"Gate  is already in state ."
 
         resolution = {
             "approved":   approved,
@@ -339,10 +339,14 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
         return auto
 
     # Rate limit check — tiered budget (S5R-19)
+    # Non-interactive sources (scheduler, orchestrator, webhooks) are explicitly labelled;
+    # unlabelled traffic defaults to "interactive" so it is never silently exempted from
+    # the interactive budget cap (H-1 / S5R-29).
+    _NON_INTERACTIVE = ("scheduler:", "orchestrator:", "webhook:", "n8n:", "cron:")
     _traffic_type = (
-        "interactive"
-        if req.trigger_source.startswith(("slack:dm", "telegram:dm", "dashboard:chat"))
-        else "alert"
+        "alert"
+        if req.trigger_source and req.trigger_source.startswith(_NON_INTERACTIVE)
+        else "interactive"
     )
     rl = _check_rate_limit(advisor, traffic_type=_traffic_type)
     if rl["blocked"]:
@@ -374,7 +378,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
                         channel, _dh["domain"], _dh["advisor"], _dh["matched_keyword"])
     messages = req.history[-10:]
     if req.attachments:
-        import base64 as _b64  # noqa: F401
+        import base64 as _b64
         user_content = []
         for att in req.attachments:
             if att.get("type") == "document":
@@ -551,7 +555,7 @@ def get_context(advisor: str):
 @router.post("/council/ingest")
 def ingest_file_endpoint(body: dict):
     """Called by worker API after saving a file to vault — runs ingest.py on the path."""
-    import subprocess, os  # noqa: E401
+    import subprocess, os
     path = body.get("path")
     advisor = body.get("advisor", "kai")
     if not path:
@@ -563,7 +567,7 @@ def ingest_file_endpoint(body: dict):
     )
     if result.returncode != 0:
         return {"ok": False, "error": result.stderr[:500]}
-    lines = [l for l in result.stdout.strip().splitlines() if l.strip()]  # noqa: E741
+    lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
     return {"ok": True, "advisor": advisor, "path": path, "summary": lines[-1] if lines else "done"}
 
 

@@ -111,6 +111,8 @@ def _parse_answers(text: str, questions: list) -> dict:
 
 
 def _save_checkin_data(checkin_type: str, answers: dict):
+    if ".." in checkin_type or "/" in checkin_type:  # H-2: explicit guard before suffix-append safe_path
+        raise HTTPException(400, "Invalid checkin_type")
     today = _dt.utcnow().strftime("%Y-%m-%d")
     CHECKIN_FILE.parent.mkdir(parents=True, exist_ok=True)
 
