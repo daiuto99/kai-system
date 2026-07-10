@@ -1,5 +1,5 @@
 """kai-orchestrator — FastAPI entrypoint."""
-import json, logging, os, threading, time  # noqa: E401
+import json, logging, os, threading, time
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from db import init_db, get_conn
@@ -489,6 +489,88 @@ def reviews_summary():
 
 
 
+@app.get("/cost-summary")
+def cost_summary():
+    """Cost aggregation from token_usage.json (by advisor/model) + fixed costs config."""
+    import json as _json
+    from datetime import date as _date
+
+    usage_path = Path("/vault/00_System/token_usage.json")
+    config_path = Path("/vault/00_System/pricing_config.json")
+
+    today = _date.today().isoformat()
+    this_month = today[:7]
+
+    usage_data: dict = {}
+    if usage_path.exists():
+        try:
+            usage_data = _json.loads(usage_path.read_text())
+        except Exception as e:
+            log.warning("cost-summary: token_usage.json read error: %s", e)
+
+    pricing: dict = {}
+    if config_path.exists():
+        try:
+            pricing = _json.loads(config_path.read_text())
+        except Exception as e:
+            log.warning("cost-summary: pricing_config.json read error: %s", e)
+
+    today_day = next((d for d in usage_data.get("days", []) if d.get("date") == today), {})
+
+    # Month aggregation across days
+    month_cost = 0.0
+    month_calls = 0
+    by_advisor_month: dict = {}
+    by_model_month: dict = {}
+    for d in usage_data.get("days", []):
+        if not d.get("date", "").startswith(this_month):
+            continue
+        month_cost += d.get("cost_usd", 0)
+        month_calls += d.get("calls", 0)
+        for adv, v in d.get("by_advisor", {}).items():
+            e = by_advisor_month.setdefault(adv, {"calls": 0, "cost_usd": 0.0, "input": 0, "output": 0})
+            e["calls"] += v.get("calls", 0)
+            e["cost_usd"] = round(e["cost_usd"] + v.get("cost_usd", 0), 6)
+            e["input"] += v.get("input", 0)
+            e["output"] += v.get("output", 0)
+        for mdl, v in d.get("by_model", {}).items():
+            e = by_model_month.setdefault(mdl, {"calls": 0, "cost_usd": 0.0, "input": 0, "output": 0})
+            e["calls"] += v.get("calls", 0)
+            e["cost_usd"] = round(e["cost_usd"] + v.get("cost_usd", 0), 6)
+            e["input"] += v.get("input", 0)
+            e["output"] += v.get("output", 0)
+
+    fixed_monthly = pricing.get("fixed_monthly", {})
+    fixed_total = sum(v.get("usd", 0) for v in fixed_monthly.values() if isinstance(v, dict))
+    month_total = round(month_cost + fixed_total, 2)
+
+    return {
+        "ok": True,
+        "today": {
+            "date": today,
+            "cost_usd": round(today_day.get("cost_usd", 0), 4),
+            "calls": today_day.get("calls", 0),
+            "by_advisor": today_day.get("by_advisor", {}),
+            "by_model": today_day.get("by_model", {}),
+        },
+        "month": {
+            "month": this_month,
+            "token_cost_usd": round(month_cost, 4),
+            "fixed_cost_usd": round(fixed_total, 2),
+            "total_usd": month_total,
+            "calls": month_calls,
+            "by_advisor": by_advisor_month,
+            "by_model": by_model_month,
+            "fixed_monthly": fixed_monthly,
+        },
+        "all_time": {
+            "cost_usd": round(usage_data.get("total", {}).get("cost_usd", 0), 2),
+            "calls": usage_data.get("total", {}).get("calls", 0),
+            "by_advisor": usage_data.get("total", {}).get("by_advisor", {}),
+        },
+    }
+
+
 @app.get("/workflow-metrics")
 def workflow_metrics_summary():
     """Return per-step workflow metrics from workflow_metrics table."""
@@ -585,7 +667,7 @@ def list_proposals():
 
 # ── Capability endpoint + quality gates ──────────────────────────────────────
 
-import time as _time  # noqa: E402
+import time as _time
 
 _RATE_LIMITS: dict = {
     "slack.post": {"window": 60, "max": 5},   # 5 per minute
@@ -636,7 +718,7 @@ def _check_rate_limit(name: str) -> str | None:
 def list_capabilities():
     """List all registered capabilities with gate metadata including autonomy policy."""
     from capabilities import _registry
-    from policy.autonomy import list_policies, AUTONOMY_POLICIES  # noqa: F401
+    from policy.autonomy import list_policies, AUTONOMY_POLICIES
     policy_map = {p["capability"]: p for p in list_policies()}
     caps = []
     for name in sorted(_registry.keys()):

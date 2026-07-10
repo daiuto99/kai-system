@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#10b981"></span> v2.45.1 · 2026-07-10 — <strong style="color:#34d399">S5R-28 done — L16 escalation path fully closed. kai-scheduler direct socket removed; routes through docker-socket-proxy (blocks containers/create+exec). 3/3 evidence tests pass. Consolidation session next.</strong></div>
+  <div class="version"><span class="dot" style="color:#10b981"></span> v2.45.0 · 2026-07-10 — <strong style="color:#34d399">S5R-28 done — L16 escalation path fully closed. kai-scheduler direct socket removed; routes through docker-socket-proxy (blocks containers/create+exec). 3/3 evidence tests pass. Consolidation session next.</strong></div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -233,8 +233,43 @@ function loadMetrics() {
     .catch(e => { document.getElementById('wm-cap-tbody').innerHTML = '<tr><td colspan="5" style="color:#f87171;padding:12px 8px">Fetch error: ' + e + '</td></tr>'; });
 }
 setInterval(function() {
-  if (document.getElementById('panel-metrics') && document.getElementById('panel-metrics').classList.contains('active')) loadMetrics();
+  if (document.getElementById('panel-metrics') && document.getElementById('panel-metrics').classList.contains('active')) {
+    loadMetrics(); loadCost();
+  }
 }, 60000);
+
+function loadCost() {
+  fetch('/orchestrator/cost-summary')
+    .then(r => r.json())
+    .then(resp => {
+      if (!resp.ok) { document.getElementById('cost-summary-grid').innerHTML = '<div style="color:#f87171">Error loading cost data</div>'; return; }
+      const m = resp.month;
+      const at = resp.all_time;
+      document.getElementById('cost-updated').textContent = m.month;
+      document.getElementById('cost-summary-grid').innerHTML = [
+        _metricCard('Token Cost (mo)', '$' + (m.token_cost_usd||0).toFixed(2), '#818cf8'),
+        _metricCard('Fixed Cost (mo)', '$' + (m.fixed_cost_usd||0).toFixed(2), '#94a3b8'),
+        _metricCard('Total (mo)', '$' + (m.total_usd||0).toFixed(2), '#34d399'),
+        _metricCard('All-Time Spend', '$' + (at.cost_usd||0).toFixed(2), '#64748b'),
+      ].join('');
+      const advisors = Object.entries(m.by_advisor||{}).sort((a,b) => b[1].cost_usd - a[1].cost_usd);
+      document.getElementById('cost-advisor-tbody').innerHTML = advisors.length ? advisors.map(([name, v]) =>
+        '<tr style="border-bottom:1px solid #f1f5f9">'
+        + '<td style="padding:5px 6px;color:#1e293b">' + name + '</td>'
+        + '<td style="padding:5px 6px;text-align:right;color:#818cf8">$' + (v.cost_usd||0).toFixed(4) + '</td>'
+        + '<td style="padding:5px 6px;text-align:right;color:#94a3b8">' + (v.calls||0) + '</td>'
+        + '</tr>'
+      ).join('') : '<tr><td colspan="3" style="color:#64748b;padding:8px 6px">No advisor data for this month yet.</td></tr>';
+      const fixed = Object.entries(m.fixed_monthly||{});
+      document.getElementById('cost-fixed-tbody').innerHTML = fixed.length ? fixed.map(([key, v]) =>
+        '<tr style="border-bottom:1px solid #f1f5f9">'
+        + '<td style="padding:5px 6px;color:#1e293b">' + (v.label||key) + '</td>'
+        + '<td style="padding:5px 6px;text-align:right;color:' + (v.usd>0?'#fbbf24':'#64748b') + '">$' + (v.usd||0).toFixed(2) + '</td>'
+        + '</tr>'
+      ).join('') : '<tr><td colspan="2" style="color:#64748b;padding:8px 6px">No fixed costs configured.</td></tr>';
+    })
+    .catch(e => { document.getElementById('cost-summary-grid').innerHTML = '<div style="color:#f87171">Fetch error: ' + e + '</div>'; });
+}
 </script>
 
 <div class="content">
@@ -752,6 +787,14 @@ setInterval(function() {
 <!-- AUTO_DOCUMENTED: 2026-07-09 -->
 <div class="container-row">
   <div><div class="container-name">kai_web_password</div><div class="container-meta">(auto-documented 2026-07-09 — description pending review) <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
+</div>
+<!-- AUTO_DOCUMENTED: 2026-07-10 -->
+<div class="container-row">
+  <div><div class="container-name">test_invariant_engine</div><div class="container-meta">S5-2 — Invariant engine: seeded violation + dedup Plane filing tests. <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
+</div>
+<!-- AUTO_DOCUMENTED: 2026-07-10 -->
+<div class="container-row">
+  <div><div class="container-name">safe_path</div><div class="container-meta">Shared path safety helper — single implementation for the whole service (L4/S5R-13). <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
 </div>
 </div>
 
@@ -1741,6 +1784,7 @@ setInterval(function() {
           <th style="text-align:center;padding:6px 8px;color:#64748b;font-weight:500">Status</th>
           <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Detail</th>
           <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Last Check</th>
+          <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:500">Issue</th>
         </tr>
       </thead>
       <tbody id="inv-tbody">
@@ -1788,10 +1832,45 @@ setInterval(function() {
 </div>
 
 <div id="panel-metrics" class="panel">
-  <h2 style="color:#1e293b;margin-bottom:16px">Workflow Metrics</h2>
+  <h2 style="color:#1e293b;margin-bottom:16px">Metrics &amp; Cost</h2>
+
+  <!-- Cost summary -->
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <strong style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em">Cost This Month</strong>
+      <span id="cost-updated" style="color:#64748b;font-size:12px">loading...</span>
+    </div>
+    <div id="cost-summary-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px">
+      <div style="color:#64748b">Loading...</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">By Advisor (month)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid #1e293b">
+            <th style="text-align:left;padding:4px 6px;color:#64748b;font-weight:500">Advisor</th>
+            <th style="text-align:right;padding:4px 6px;color:#64748b;font-weight:500">Cost</th>
+            <th style="text-align:right;padding:4px 6px;color:#64748b;font-weight:500">Calls</th>
+          </tr></thead>
+          <tbody id="cost-advisor-tbody"><tr><td colspan="3" style="color:#64748b;padding:8px 6px">Loading...</td></tr></tbody>
+        </table>
+      </div>
+      <div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Fixed Costs (monthly)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid #1e293b">
+            <th style="text-align:left;padding:4px 6px;color:#64748b;font-weight:500">Item</th>
+            <th style="text-align:right;padding:4px 6px;color:#64748b;font-weight:500">$/mo</th>
+          </tr></thead>
+          <tbody id="cost-fixed-tbody"><tr><td colspan="2" style="color:#64748b;padding:8px 6px">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <p style="color:#475569;font-size:11px;margin-top:12px">Source: /orchestrator/cost-summary · token data from /vault/00_System/token_usage.json</p>
+  </div>
 
   <div class="card" style="margin-bottom:16px">
-    <strong style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:12px">Summary</strong>
+    <strong style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:12px">Workflow Step Summary</strong>
     <div id="wm-summary-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px"><div style="color:#64748b">Loading...</div></div>
   </div>
 
@@ -1923,23 +2002,28 @@ function loadHealth() {
   fetch('/orchestrator/invariants/state')
     .then(r => r.json())
     .then(resp => {
-      if (!resp.ok) { document.getElementById('inv-tbody').innerHTML = '<tr><td colspan="4" style="color:#f87171;padding:12px 8px">Error: ' + (resp.error||'unknown') + '</td></tr>'; return; }
+      if (!resp.ok) { document.getElementById('inv-tbody').innerHTML = '<tr><td colspan="5" style="color:#f87171;padding:12px 8px">Error: ' + (resp.error||'unknown') + '</td></tr>'; return; }
       const d = resp.data;
       document.getElementById('inv-updated').textContent = 'Updated: ' + (d.updated_at||'?').replace('T',' ').substring(0,16) + ' UTC' + (d.runner_enabled===false ? ' | RUNNER DISABLED' : '');
+      const openIds = d.open_issue_ids || {};
       const rows = Object.entries(d.invariants||{}).map(([k,v]) => {
+        const isDeferred = v.deferred === true;
         const pass = v.pass;
-        const icon = pass ? '&#x2705;' : '&#x274C;';
+        const icon = isDeferred ? '&#x23F8;' : (pass ? '&#x2705;' : '&#x274C;');
+        const detailColor = isDeferred ? '#94a3b8' : (pass ? '#86efac' : '#fca5a5');
         const ts = (v.checked_at||'').replace('T',' ').substring(11,16) + ' UTC';
-        return '<tr style="border-bottom:1px solid #f1f5f9">'
-          + '<td style="padding:7px 8px;color:#1e293b">' + (v.label||k) + '</td>'
+        const issueId = openIds[k] ? 'KAI-' + openIds[k] : '';
+        return '<tr style="border-bottom:1px solid #f1f5f9' + (isDeferred ? ';opacity:0.6' : '') + '">'
+          + '<td style="padding:7px 8px;color:#1e293b">' + (v.label||k) + (isDeferred ? ' <span style="font-size:10px;color:#64748b">(deferred)</span>' : '') + '</td>'
           + '<td style="padding:7px 8px;text-align:center">' + icon + '</td>'
-          + '<td style="padding:7px 8px;color:' + (pass?'#86efac':'#fca5a5') + ';font-family:monospace;font-size:12px">' + (v.detail||'-') + '</td>'
+          + '<td style="padding:7px 8px;color:' + detailColor + ';font-family:monospace;font-size:12px">' + (v.detail||'-') + '</td>'
           + '<td style="padding:7px 8px;color:#64748b;font-size:12px">' + ts + '</td>'
+          + '<td style="padding:7px 8px;color:#f59e0b;font-size:12px;font-family:monospace">' + issueId + '</td>'
           + '</tr>';
       });
-      document.getElementById('inv-tbody').innerHTML = rows.join('') || '<tr><td colspan="4" style="color:#64748b;padding:12px 8px">No invariants recorded yet.</td></tr>';
+      document.getElementById('inv-tbody').innerHTML = rows.join('') || '<tr><td colspan="5" style="color:#64748b;padding:12px 8px">No invariants recorded yet.</td></tr>';
     })
-    .catch(e => { document.getElementById('inv-tbody').innerHTML = '<tr><td colspan="4" style="color:#f87171;padding:12px 8px">Fetch error: ' + e + '</td></tr>'; });
+    .catch(e => { document.getElementById('inv-tbody').innerHTML = '<tr><td colspan="5" style="color:#f87171;padding:12px 8px">Fetch error: ' + e + '</td></tr>'; });
 
   fetch('/orchestrator/metrics/summary')
     .then(r => r.json())
@@ -1969,6 +2053,7 @@ var _origShow = show;
 show = function(tab) {
   _origShow(tab);
   if (tab === 'health') loadHealth();
+  if (tab === 'metrics') { loadMetrics(); loadCost(); }
 };
 
 </script>

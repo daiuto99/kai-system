@@ -8,4 +8,5 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = ["destructive: kills/restarts containers, run manually only"]

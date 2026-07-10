@@ -1,4 +1,4 @@
-import sqlite3, json, uuid, datetime  # noqa: E401, F401
+import sqlite3, json, uuid, datetime
 from pathlib import Path
 
 DB_PATH = Path("/data/orchestrator/orchestrator.db")
@@ -48,16 +48,21 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE TABLE IF NOT EXISTS workflow_metrics (
-    id                 TEXT PRIMARY KEY,
-    job_id             TEXT NOT NULL REFERENCES jobs(id),
-    step_name          TEXT NOT NULL,
-    capability         TEXT,
-    transport_used     TEXT,
-    tokens_used        INTEGER DEFAULT 0,
-    latency_ms         INTEGER,
-    verified_first_try INTEGER DEFAULT 0,
-    retry_count        INTEGER DEFAULT 0,
-    created_at         TEXT NOT NULL
+    id                    TEXT PRIMARY KEY,
+    job_id                TEXT NOT NULL REFERENCES jobs(id),
+    step_name             TEXT NOT NULL,
+    capability            TEXT,
+    transport_used        TEXT,
+    tokens_used           INTEGER DEFAULT 0,
+    latency_ms            INTEGER,
+    verified_first_try    INTEGER DEFAULT 0,
+    retry_count           INTEGER DEFAULT 0,
+    provider              TEXT,
+    model                 TEXT,
+    cost_usd              REAL DEFAULT 0.0,
+    cache_read_tokens     INTEGER DEFAULT 0,
+    cache_creation_tokens INTEGER DEFAULT 0,
+    created_at            TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS gates (
@@ -106,6 +111,16 @@ def get_conn() -> sqlite3.Connection:
 def init_db():
     conn = get_conn()
     conn.executescript(SCHEMA)
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(workflow_metrics)").fetchall()}
+    for col, col_def in [
+        ("provider",               "TEXT"),
+        ("model",                  "TEXT"),
+        ("cost_usd",               "REAL DEFAULT 0.0"),
+        ("cache_read_tokens",      "INTEGER DEFAULT 0"),
+        ("cache_creation_tokens",  "INTEGER DEFAULT 0"),
+    ]:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE workflow_metrics ADD COLUMN {col} {col_def}")
     conn.commit()
     conn.close()
 

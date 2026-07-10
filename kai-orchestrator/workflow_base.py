@@ -1,5 +1,5 @@
-import json, logging, time  # noqa: E401
-from typing import List, Optional  # noqa: F401
+import json, logging, time
+from typing import List, Optional
 from db import get_conn, new_id, now_iso
 from engine import engine
 from models import StepDef, CapabilityResult
@@ -24,7 +24,7 @@ class Workflow:
     def start(cls, inputs: dict) -> "Workflow":
         job_id = engine.create_job(cls.name, inputs, cls.approval_policy)
         instance = cls(job_id)
-        conn = get_conn()  # noqa: F841
+        conn = get_conn()
         for step_def in cls.steps:
             engine.create_step(job_id, step_def.name, step_def.capability, step_def.step_type)
         engine.transition("job", job_id, "running")
@@ -95,7 +95,7 @@ class Workflow:
                     conn = get_conn()
                     conn.execute("UPDATE steps SET retry_count=retry_count+1 WHERE id=?",
                                  (step["id"],))
-                    conn.commit(); conn.close()  # noqa: E702
+                    conn.commit(); conn.close()
                     engine.transition("step", step["id"], "pending")
                     return self._run_step({**step, "retry_count": retry + 1})
                 else:
@@ -112,15 +112,21 @@ class Workflow:
         """Override in subclass to implement step logic."""
         raise NotImplementedError(f"execute_step not implemented for {step_def.name}")
 
-    def _record_metric(self, step, step_def, result, latency_ms, verified):
+    def _record_metric(self, step, step_def, result, latency_ms, verified,
+                       provider=None, model=None, cost_usd=0.0,
+                       cache_read_tokens=0, cache_creation_tokens=0):
         conn = get_conn()
         conn.execute(
             """INSERT INTO workflow_metrics
-               (id,job_id,step_name,capability,transport_used,latency_ms,verified_first_try,retry_count,created_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+               (id,job_id,step_name,capability,transport_used,latency_ms,verified_first_try,
+                retry_count,provider,model,cost_usd,cache_read_tokens,cache_creation_tokens,created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (new_id(), self.job_id, step["name"], step_def.capability,
              result.transport_used, latency_ms,
              1 if verified and step.get("retry_count", 0) == 0 else 0,
-             step.get("retry_count", 0), now_iso()),
+             step.get("retry_count", 0),
+             provider, model, cost_usd or 0.0,
+             cache_read_tokens or 0, cache_creation_tokens or 0,
+             now_iso()),
         )
-        conn.commit(); conn.close()  # noqa: E702
+        conn.commit(); conn.close()

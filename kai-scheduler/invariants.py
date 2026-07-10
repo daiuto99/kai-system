@@ -815,6 +815,20 @@ INVARIANTS = [
     ("workspace_sync_current",        "Workspace Sync Current",    inv_workspace_sync_current),
 ]
 
+# S5-4: Deliberately deferred invariants — excluded from active checks, shown as
+# "deferred" state on dashboard. Remove entry when deferral resolves.
+# Host-side seeding note: to test violation+filing without real infra failure,
+# write a stale timestamp to the relevant vault file (e.g. session_close_log.json
+# with timestamp >48h ago) and run the scheduler manually — do NOT restart the
+# container or call the worker API, which would update the real file. Restore
+# the original file immediately after confirming filing+dedup+recovery.
+DEFERRED_INVARIANTS: dict[str, tuple[str, str]] = {
+    "google_calendar": (
+        "Google Calendar",
+        "Deliberately deferred: n8n OAuth intentionally dead until S7-9 (n8n retirement + calendar transport rebuild)",
+    ),
+}
+
 
 def run_invariants(send_daily_digest: bool = False):
     """Run all invariants. Write results to vault. Alert on pass→fail transitions.
@@ -867,7 +881,18 @@ def run_invariants(send_daily_digest: bool = False):
             _violation_issue_ids.pop(key, None)         # clear dedup on recovery
         _prev_state[key] = passed
 
-    # Write to vault (includes open_issue_ids for observability)
+    # Append deferred entries — shown as distinct state on dashboard (not pass/fail)
+    for key, (label, reason) in DEFERRED_INVARIANTS.items():
+        results[key] = {
+            "label":      label,
+            "pass":       None,
+            "deferred":   True,
+            "detail":     reason,
+            "checked_at": now_utc.isoformat(),
+        }
+
+    # Write to vault (includes open_issue_ids per invariant for dashboard display)
+    # open_issue_ids: {invariant_key: plane_sequence_id} — set on violation, cleared on recovery
     payload = {
         "updated_at": now_utc.isoformat(),
         "all_pass":   all_pass,
