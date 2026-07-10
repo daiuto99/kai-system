@@ -255,6 +255,52 @@ def get_conversation(key: dict, limit: int = 50) -> dict:
         conn.close()
 
 
+def record_cache_shape(package_id: str, stable_prefix_hash: str, cache_breakpoint_after: int,
+                        cache_read_tokens: int = 0, cache_creation_tokens: int = 0) -> dict:
+    """§7/§8 Phase 2 — attach cache shape to an already-logged package. Router.py
+    calls this after the model response, once cache_read/creation tokens are known."""
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE assembly_log SET stable_prefix_hash=?, cache_breakpoint_after=?, "
+            "cache_read_tokens=?, cache_creation_tokens=? WHERE package_id=?",
+            (stable_prefix_hash, cache_breakpoint_after, cache_read_tokens, cache_creation_tokens, package_id),
+        )
+        conn.commit()
+        return {"ok": True, "package_id": package_id}
+    finally:
+        conn.close()
+
+
+def check_inv_context_cache(hours: int = 24, max_changes: int = 2) -> dict:
+    """inv_context_cache (§8): stable_prefix_hash changing more than max_changes
+    times in the window for one advisor is a warning — something volatile likely
+    leaked into the stable prefix, or a config edit is happening more often than
+    the 'deliberate, occasional' assumption the cache economics depend on."""
+    conn = get_conn()
+    try:
+        cutoff_row = conn.execute("SELECT datetime('now', ?)", (f'-{hours} hours',)).fetchone()
+        cutoff = cutoff_row[0] if cutoff_row else None
+        rows = conn.execute(
+            "SELECT c.advisor, al.stable_prefix_hash, al.ts FROM assembly_log al "
+            "JOIN conversations c ON c.id = al.conversation_id "
+            "WHERE al.stable_prefix_hash IS NOT NULL AND al.ts > ? "
+            "ORDER BY c.advisor, al.ts ASC",
+            (cutoff,),
+        ).fetchall()
+        by_advisor: dict = {}
+        for r in rows:
+            by_advisor.setdefault(r["advisor"], []).append(r["stable_prefix_hash"])
+        warnings = []
+        for advisor, hashes in by_advisor.items():
+            changes = sum(1 for i in range(1, len(hashes)) if hashes[i] != hashes[i - 1])
+            if changes > max_changes:
+                warnings.append({"advisor": advisor, "changes": changes, "samples": len(hashes)})
+        return {"ok": len(warnings) == 0, "window_hours": hours, "warnings": warnings}
+    finally:
+        conn.close()
+
+
 def check_inv_context_t1(sample: int = 50) -> dict:
     """On-demand invariant check over the last N packages — same rule assemble()
     enforces live; exposed separately so it can be polled independent of traffic."""

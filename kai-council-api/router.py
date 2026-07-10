@@ -6,11 +6,10 @@ from pydantic import BaseModel
 import httpx
 from council_config import ADVISOR_CHANNELS, WORKER_URL, ORCHESTRATOR_URL, _track_usage, _check_rate_limit
 from complexity import _classify_complexity, _get_advisor_config
-from persona import load_persona
+from persona import assemble_prompt, load_persona
 import function_map as fm
 from history import _append_history
 from insights import extract_and_strip_insights, append_insights_to_vault
-from knowledge_layer import _auto_summarize
 from execute_tool import execute_tool
 from providers import get_anthropic_client, _call_ollama, _call_openai, _call_litellm
 
@@ -221,7 +220,8 @@ def _handle_auto_capture(message: str, advisor: str) -> dict | None:
     return None
 
 
-def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: str, advisor: str) -> tuple:
+def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: str, advisor: str,
+                       cache_breakpoint_chars: int = 0) -> tuple:
     """Run Anthropic agentic loop. Returns (reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens)."""
     client = get_anthropic_client()
     total_input_tokens = 0
@@ -230,13 +230,15 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
     total_cache_creation_tokens = 0
     raw_reply = ""
 
-    # Prompt caching: mark the stable background_context (KEYSTONE + business_profile)
-    # as ephemeral cache. Dynamic parts (datetime, session memory) stay uncached.
-    if "<background_context>" in system_prompt and "</background_context>" in system_prompt:
-        split = system_prompt.index("</background_context>") + len("</background_context>")
+    # Prompt caching (CONTEXT_SPEC §7): cache_breakpoint_chars is the length of
+    # persona.assemble_prompt()'s stable prefix — an explicit index, not a
+    # substring search. Everything after it (datetime, system_state,
+    # session_memory, knowledge_context, conversation_summary, Tier 1 messages)
+    # stays uncached by construction.
+    if cache_breakpoint_chars > 0:
         system: list | str = [
-            {"type": "text", "text": system_prompt[:split], "cache_control": {"type": "ephemeral"}},
-            {"type": "text", "text": system_prompt[split:].strip()},
+            {"type": "text", "text": system_prompt[:cache_breakpoint_chars], "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": system_prompt[cache_breakpoint_chars:].strip()},
         ]
     else:
         system = system_prompt
@@ -358,7 +360,8 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
                 "insights_logged": 0, "input_tokens": 0, "output_tokens": 0,
                 "provider": "rate-limit", "model": "rate-limit"}
 
-    system_prompt = load_persona(advisor, channel)
+    system_prompt, _stable_prefix, _stable_prefix_hash = assemble_prompt(advisor, channel)
+    _cache_breakpoint_chars = len(_stable_prefix)
     qdrant_ctx = _query_qdrant(req.message, advisor, top_k=3)
     if qdrant_ctx:
         system_prompt += f"\n\n<knowledge_context>\n{qdrant_ctx}\n</knowledge_context>"
@@ -482,7 +485,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     if provider == "anthropic":
         tools = KAI_TOOLS if advisor == "kai" else []
         raw_reply, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens = _run_agentic_loop(
-            messages, tools, model, system_prompt, advisor
+            messages, tools, model, system_prompt, advisor, cache_breakpoint_chars=_cache_breakpoint_chars
         )
 
     elif provider == "ollama":
@@ -536,6 +539,25 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     else:
         raise HTTPException(400, f"Unknown provider: {provider}")
 
+    # Cache shape logging (CONTEXT_SPEC §7/§8) — Anthropic-specific (cache_control
+    # is an Anthropic feature; the stable/volatile ordering costs nothing on other
+    # providers but there's nothing to correlate cache tokens against there).
+    if _package is not None and provider == "anthropic":
+        try:
+            httpx.post(
+                f"{ORCHESTRATOR_URL}/context/cache-shape",
+                json={
+                    "package_id": _package["package_id"],
+                    "stable_prefix_hash": _stable_prefix_hash,
+                    "cache_breakpoint_after": _cache_breakpoint_chars,
+                    "cache_read_tokens": total_cache_read_tokens,
+                    "cache_creation_tokens": total_cache_creation_tokens,
+                },
+                timeout=10,
+            )
+        except Exception as e:
+            logger.exception("context.cache_shape recording failed: %s", e)
+
     # Insight extraction
     insights_logged = 0
     if advisor == "ember":
@@ -567,10 +589,6 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
                  trigger_source=effective_trigger,
                  cache_read_tokens=total_cache_read_tokens,
                  cache_creation_tokens=total_cache_creation_tokens)
-
-    # Auto-summarize in background
-    if background_tasks:
-        background_tasks.add_task(_auto_summarize, channel, advisor)
 
     return {
         "advisor": advisor,

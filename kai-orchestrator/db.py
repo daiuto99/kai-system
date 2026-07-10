@@ -158,6 +158,18 @@ def init_db():
     ]:
         if col not in existing:
             conn.execute(f"ALTER TABLE workflow_metrics ADD COLUMN {col} {col_def}")
+
+    existing_al = {r[1] for r in conn.execute("PRAGMA table_info(assembly_log)").fetchall()}
+    for col, col_def in [
+        # CONTEXT_SPEC §7/§8 Phase 2 — cache shape per package.
+        ("stable_prefix_hash",     "TEXT"),
+        ("cache_breakpoint_after", "INTEGER"),
+        ("cache_read_tokens",      "INTEGER DEFAULT 0"),
+        ("cache_creation_tokens",  "INTEGER DEFAULT 0"),
+    ]:
+        if col not in existing_al:
+            conn.execute(f"ALTER TABLE assembly_log ADD COLUMN {col} {col_def}")
+
     conn.commit()
     conn.close()
 

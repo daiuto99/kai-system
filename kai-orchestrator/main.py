@@ -461,6 +461,30 @@ def context_invariant_t1(sample: int = 50):
     return context_service.check_inv_context_t1(sample=sample)
 
 
+@app.post("/context/cache-shape")
+def context_cache_shape(body: dict):
+    """§7/§8 Phase 2 — council-api reports cache shape for a package once the
+    model response is known (stable_prefix_hash, breakpoint, cache token counts)."""
+    import context_service
+    package_id = body.get("package_id")
+    if not package_id:
+        raise HTTPException(status_code=400, detail="package_id required")
+    return context_service.record_cache_shape(
+        package_id,
+        body.get("stable_prefix_hash", ""),
+        body.get("cache_breakpoint_after", 0),
+        cache_read_tokens=body.get("cache_read_tokens", 0),
+        cache_creation_tokens=body.get("cache_creation_tokens", 0),
+    )
+
+
+@app.get("/context/invariants/cache")
+def context_invariant_cache(hours: int = 24):
+    """inv_context_cache (§8) — stable_prefix_hash churn >2x/24h per advisor = warning."""
+    import context_service
+    return context_service.check_inv_context_cache(hours=hours)
+
+
 @app.post("/context/import-legacy")
 def context_import_legacy(body: dict):
     """§13 Phase 1 one-time migration: seed a conversation from an existing
@@ -579,9 +603,18 @@ def cost_summary():
 
     today_day = next((d for d in usage_data.get("days", []) if d.get("date") == today), {})
 
+    def _hit_rate(cache_read: float, cache_creation: float) -> float | None:
+        # CONTEXT_SPEC §7/§8.25 — fraction of cacheable-prefix requests that hit
+        # vs required a fresh cache write. None (not 0) when there's no cache
+        # traffic yet, so the Health Board can distinguish "no data" from "0%".
+        total = (cache_read or 0) + (cache_creation or 0)
+        return round(cache_read / total, 4) if total else None
+
     # Month aggregation across days
     month_cost = 0.0
     month_calls = 0
+    month_cache_read = 0
+    month_cache_creation = 0
     by_advisor_month: dict = {}
     by_model_month: dict = {}
     for d in usage_data.get("days", []):
@@ -589,6 +622,8 @@ def cost_summary():
             continue
         month_cost += d.get("cost_usd", 0)
         month_calls += d.get("calls", 0)
+        month_cache_read += d.get("cache_read", 0)
+        month_cache_creation += d.get("cache_creation", 0)
         for adv, v in d.get("by_advisor", {}).items():
             e = by_advisor_month.setdefault(adv, {"calls": 0, "cost_usd": 0.0, "input": 0, "output": 0})
             e["calls"] += v.get("calls", 0)
@@ -614,6 +649,7 @@ def cost_summary():
             "calls": today_day.get("calls", 0),
             "by_advisor": today_day.get("by_advisor", {}),
             "by_model": today_day.get("by_model", {}),
+            "cache_hit_rate": _hit_rate(today_day.get("cache_read", 0), today_day.get("cache_creation", 0)),
         },
         "month": {
             "month": this_month,
@@ -624,11 +660,16 @@ def cost_summary():
             "by_advisor": by_advisor_month,
             "by_model": by_model_month,
             "fixed_monthly": fixed_monthly,
+            "cache_hit_rate": _hit_rate(month_cache_read, month_cache_creation),
         },
         "all_time": {
             "cost_usd": round(usage_data.get("total", {}).get("cost_usd", 0), 2),
             "calls": usage_data.get("total", {}).get("calls", 0),
             "by_advisor": usage_data.get("total", {}).get("by_advisor", {}),
+            "cache_hit_rate": _hit_rate(
+                usage_data.get("total", {}).get("cache_read", 0),
+                usage_data.get("total", {}).get("cache_creation", 0),
+            ),
         },
     }
 
