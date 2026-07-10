@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KAI Health Board</title>
+  <style>
+    :root {
+      --bg: #08101e;
+      --surface: #0f1e32;
+      --border: #1e3050;
+      --pass: #10b981;
+      --fail: #ef4444;
+      --defer: #6366f1;
+      --warn: #f59e0b;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --dim: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+    /* ── Header ─────────────────────────────────────────────── */
+    #header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 28px;
+      background: var(--surface);
+      border-bottom: 2px solid var(--border);
+      gap: 24px;
+    }
+    #header .title {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: #c7d6f5;
+    }
+    #header .title span { color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 12px; }
+    #system-pill {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 14px;
+      border-radius: 24px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .pill.ok   { background: #052e16; color: var(--pass); border: 1px solid #065f46; }
+    .pill.fail { background: #2d0a0a; color: var(--fail); border: 1px solid #7f1d1d; }
+    .pill.all-ok { background: #052e16; color: var(--pass); border: 1px solid #065f46; }
+    #refresh-info {
+      text-align: right;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    #refresh-info strong { color: #94a3b8; }
+    #countdown { color: var(--warn); font-weight: 700; }
+    /* ── Main grid ───────────────────────────────────────────── */
+    #main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      grid-template-rows: 1fr auto;
+      gap: 0;
+      padding: 20px;
+      gap: 16px;
+    }
+    /* ── Invariants ──────────────────────────────────────────── */
+    #inv-panel {
+      grid-row: 1 / 3;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .panel-label {
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    #inv-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .inv-card {
+      background: var(--surface);
+      border-radius: 8px;
+      border-left: 4px solid var(--border);
+      padding: 9px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-height: 68px;
+    }
+    .inv-card.pass { border-left-color: var(--pass); }
+    .inv-card.fail { border-left-color: var(--fail); background: #1a0a0a; }
+    .inv-card.defer { border-left-color: var(--defer); background: #0e0e22; }
+    .inv-top {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .inv-icon { font-size: 14px; line-height: 1; }
+    .inv-name { font-size: 12px; font-weight: 600; color: var(--text); }
+    .inv-detail {
+      font-size: 10px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .inv-detail.fail { color: #fca5a5; }
+    .inv-detail.defer { color: #a5b4fc; font-style: italic; }
+    .inv-time {
+      font-size: 9px;
+      color: var(--dim);
+      margin-top: 2px;
+    }
+    .inv-issues {
+      font-size: 9px;
+      color: var(--warn);
+    }
+    /* ── Right column ────────────────────────────────────────── */
+    #right-col {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    /* ── Cost panel ──────────────────────────────────────────── */
+    #cost-panel {
+      background: var(--surface);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 16px;
+    }
+    .cost-section-title {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cost-total-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 10px;
+    }
+    .cost-total-label { font-size: 14px; color: #94a3b8; }
+    .cost-total-val { font-size: 26px; font-weight: 700; color: var(--text); }
+    .cost-total-basis { font-size: 10px; color: var(--muted); margin-left: 4px; }
+    .cost-line-items { margin-bottom: 12px; }
+    .cost-line {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      padding: 3px 0;
+      border-bottom: 1px solid #1e2a3a;
+    }
+    .cost-line-name { color: #94a3b8; }
+    .cost-line-val { color: var(--text); font-weight: 600; }
+    .cost-line-val.zero { color: var(--muted); }
+    .cost-divider {
+      border: none;
+      border-top: 1px dashed var(--border);
+      margin: 10px 0;
+    }
+    .partial-floor-badge {
+      background: #292014;
+      border: 1px solid #78350f;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 10px;
+      color: var(--warn);
+      margin-top: 6px;
+    }
+    .partial-floor-badge strong { display: block; margin-bottom: 3px; font-size: 11px; }
+    /* ── Jobs panel ──────────────────────────────────────────── */
+    #jobs-panel {
+      background: var(--surface);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 16px;
+    }
+    .jobs-active-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #052e16;
+      border: 1px solid #065f46;
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 12px;
+      color: var(--pass);
+      margin-bottom: 10px;
+    }
+    .jobs-active-badge.has-active {
+      background: #292014;
+      border-color: #78350f;
+      color: var(--warn);
+    }
+    .job-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+      border-bottom: 1px solid #1e2a3a;
+      font-size: 11px;
+    }
+    .job-row:last-child { border-bottom: none; }
+    .job-name { color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; }
+    .job-status-tag {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .job-status-tag.succeeded { background: #052e16; color: var(--pass); }
+    .job-status-tag.failed    { background: #2d0a0a; color: var(--fail); }
+    .job-status-tag.running   { background: #292014; color: var(--warn); }
+    .job-status-tag.pending   { background: #1a1a2e; color: var(--defer); }
+    /* ── Incident panel ──────────────────────────────────────── */
+    #incident-panel {
+      background: var(--surface);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 16px;
+    }
+    .incident-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 6px 0;
+      border-bottom: 1px solid #1e2a3a;
+      font-size: 11px;
+    }
+    .incident-row:last-child { border-bottom: none; }
+    .incident-icon { color: var(--fail); flex-shrink: 0; font-size: 13px; }
+    .incident-name { color: #fca5a5; font-weight: 600; }
+    .incident-detail { color: var(--muted); font-size: 10px; margin-top: 1px; }
+    .no-incidents { color: var(--pass); font-size: 12px; padding: 4px 0; }
+    /* ── Loading/error states ────────────────────────────────── */
+    .loading { color: var(--muted); font-size: 12px; padding: 12px; text-align: center; }
+    .error   { color: var(--fail);  font-size: 12px; padding: 12px; }
+    /* ── Footer ──────────────────────────────────────────────── */
+    #footer {
+      padding: 7px 28px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 10px;
+      color: var(--dim);
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────── -->
+<div id="header">
+  <div class="title">
+    KAI HEALTH BOARD
+    <span id="header-date"></span>
+  </div>
+  <div id="system-pill">
+    <div id="overall-pill" class="pill">…</div>
+    <div id="counts-pill" class="pill" style="background:var(--surface);border:1px solid var(--border);color:#94a3b8;font-size:12px"></div>
+  </div>
+  <div id="refresh-info">
+    Last update: <strong id="last-updated">—</strong><br>
+    Refresh in <span id="countdown">30</span>s
+  </div>
+</div>
+
+<!-- ── Main ───────────────────────────────────────────────────── -->
+<div id="main">
+
+  <!-- Left: Invariants -->
+  <div id="inv-panel">
+    <div class="panel-label">Invariants — 24 total (23 active · 1 deferred)</div>
+    <div id="inv-grid"><div class="loading">Loading invariants…</div></div>
+  </div>
+
+  <!-- Right column -->
+  <div id="right-col">
+
+    <!-- Cost -->
+    <div id="cost-panel">
+      <div class="panel-label">Cost</div>
+      <div id="cost-content"><div class="loading">Loading…</div></div>
+    </div>
+
+    <!-- Jobs -->
+    <div id="jobs-panel">
+      <div class="panel-label">Jobs in flight</div>
+      <div id="jobs-content"><div class="loading">Loading…</div></div>
+    </div>
+
+    <!-- Last incident -->
+    <div id="incident-panel">
+      <div class="panel-label">Active failures</div>
+      <div id="incident-content"><div class="loading">Loading…</div></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Footer ─────────────────────────────────────────────────── -->
+<div id="footer">
+  <span>Source: /kiosk-api/invariants/state · /kiosk-api/cost-summary · /kiosk-api/jobs</span>
+  <span>Tailscale-gated · no auth · auto-refresh 30s</span>
+</div>
+
+<script>
+  /* ── Utility helpers ─────────────────────────────────────── */
+  function relTime(isoStr) {
+    if (!isoStr) return '—';
+    const d = new Date(isoStr);
+    const diffM = Math.round((Date.now() - d.getTime()) / 60000);
+    if (diffM < 2)  return 'just now';
+    if (diffM < 60) return `${diffM}m ago`;
+    const h = Math.floor(diffM / 60);
+    if (h < 24)    return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  }
+
+  function escHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+    );
+  }
+
+  function fmtUSD(n) {
+    return '$' + Number(n || 0).toFixed(2);
+  }
+
+  /* ── Header date ─────────────────────────────────────────── */
+  function updateHeaderDate() {
+    const now = new Date();
+    document.getElementById('header-date').textContent =
+      now.toLocaleDateString('en-US', { weekday:'short', year:'numeric', month:'short', day:'numeric' });
+  }
+  updateHeaderDate();
+
+  /* ── Countdown ───────────────────────────────────────────── */
+  let countdownVal = 30;
+  setInterval(() => {
+    countdownVal--;
+    if (countdownVal <= 0) {
+      countdownVal = 30;
+      refresh();
+    }
+    document.getElementById('countdown').textContent = countdownVal;
+  }, 1000);
+
+  /* ── Invariant renderer ──────────────────────────────────── */
+  function renderInvariants(data) {
+    const invMap = data.data?.invariants || {};
+    let pass = 0, fail = 0, defer = 0;
+    const cards = [];
+
+    for (const [key, inv] of Object.entries(invMap)) {
+      const isDeferred = inv.deferred === true;
+      const isFail = !isDeferred && inv.pass === false;
+      const isPass = !isDeferred && inv.pass === true;
+
+      if (isDeferred) defer++;
+      else if (isFail) fail++;
+      else pass++;
+
+      const cls = isDeferred ? 'defer' : isFail ? 'fail' : 'pass';
+      const icon = isDeferred ? '⏸' : isFail ? '✗' : '✓';
+      const iconColor = isDeferred ? 'color:var(--defer)' : isFail ? 'color:var(--fail)' : 'color:var(--pass)';
+
+      const openIssues = (data.data?.open_issue_ids || {})[key];
+      const issueHtml = openIssues?.length
+        ? `<div class="inv-issues">↳ ${openIssues.map(id => escHtml(id)).join(', ')}</div>`
+        : '';
+
+      const detailClass = isDeferred ? 'defer' : isFail ? 'fail' : '';
+
+      cards.push(`
+        <div class="inv-card ${cls}">
+          <div class="inv-top">
+            <span class="inv-icon" style="${iconColor}">${icon}</span>
+            <span class="inv-name">${escHtml(inv.label || key)}</span>
+          </div>
+          <div class="inv-detail ${detailClass}">${escHtml(inv.detail || '—')}</div>
+          ${issueHtml}
+          <div class="inv-time">${relTime(inv.checked_at)}</div>
+        </div>
+      `);
+    }
+
+    document.getElementById('inv-grid').innerHTML = cards.join('') || '<div class="loading">No invariants recorded.</div>';
+
+    // overall pill
+    const overallOk = fail === 0;
+    const pill = document.getElementById('overall-pill');
+    pill.className = 'pill ' + (overallOk ? 'all-ok' : 'fail');
+    pill.innerHTML = overallOk ? '● SYSTEM OK' : `● ${fail} FAILING`;
+
+    const countPill = document.getElementById('counts-pill');
+    countPill.innerHTML = `
+      <span style="color:var(--pass)">✓ ${pass}</span>
+      <span style="color:var(--muted);margin:0 4px">·</span>
+      <span style="color:var(--fail)">✗ ${fail}</span>
+      <span style="color:var(--muted);margin:0 4px">·</span>
+      <span style="color:var(--defer)">⏸ ${defer}</span>
+    `;
+
+    // incident panel
+    const failures = Object.entries(invMap)
+      .filter(([, v]) => v.pass === false && !v.deferred)
+      .sort((a, b) => (b[1].checked_at || '').localeCompare(a[1].checked_at || ''));
+
+    const incEl = document.getElementById('incident-content');
+    if (failures.length === 0) {
+      incEl.innerHTML = '<div class="no-incidents">✓ No active failures</div>';
+    } else {
+      incEl.innerHTML = failures.map(([key, inv]) => `
+        <div class="incident-row">
+          <span class="incident-icon">✗</span>
+          <div>
+            <div class="incident-name">${escHtml(inv.label || key)}</div>
+            <div class="incident-detail">${escHtml(inv.detail || '')}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+  }
+
+  /* ── Cost renderer ───────────────────────────────────────── */
+  function renderCost(d) {
+    const m = d.month || {};
+    const fixed = m.fixed_monthly || {};
+    const tokenMTD = m.token_cost_usd || 0;
+    const fixedTotal = m.fixed_cost_usd || 0;
+    const monthLabel = m.month || '—';
+
+    // Fixed line items
+    const lineItems = Object.values(fixed).map(item => {
+      const isFree = (item.usd || 0) === 0;
+      return `
+        <div class="cost-line">
+          <span class="cost-line-name">${escHtml(item.label || '—')}</span>
+          <span class="cost-line-val ${isFree ? 'zero' : ''}">
+            ${isFree ? 'free' : fmtUSD(item.usd) + '/mo'}
+          </span>
+        </div>
+      `;
+    }).join('');
+
+    document.getElementById('cost-content').innerHTML = `
+      <div class="cost-section-title">Subscriptions — full month</div>
+      <div class="cost-total-row">
+        <span class="cost-total-label">Fixed/mo</span>
+        <span>
+          <span class="cost-total-val">${fmtUSD(fixedTotal)}</span>
+          <span class="cost-total-basis">/mo</span>
+        </span>
+      </div>
+      <div class="cost-line-items">${lineItems}</div>
+
+      <hr class="cost-divider">
+
+      <div class="cost-section-title">Token spend — ${escHtml(monthLabel)} MTD</div>
+      <div class="cost-total-row">
+        <span class="cost-total-label">Token MTD</span>
+        <span class="cost-total-val" style="color:var(--warn)">${fmtUSD(tokenMTD)}</span>
+      </div>
+      <div class="partial-floor-badge">
+        <strong>⚠ PARTIAL FLOOR</strong>
+        Most per-call spend not yet captured — _record_metric callers not fully wired.
+        This number under-reports actual token cost.
+      </div>
+    `;
+  }
+
+  /* ── Jobs renderer ───────────────────────────────────────── */
+  function renderJobs(statusData, jobsData) {
+    const activeJobs = statusData.active_jobs || 0;
+    const jobs = (jobsData.jobs || []).slice(0, 6);
+
+    const badgeCls = activeJobs > 0 ? 'jobs-active-badge has-active' : 'jobs-active-badge';
+    const badgeIcon = activeJobs > 0 ? '⚡' : '●';
+
+    const rows = jobs.map(j => {
+      const statusCls = { succeeded: 'succeeded', failed: 'failed', running: 'running', pending: 'pending' }[j.status] || 'pending';
+      return `
+        <div class="job-row">
+          <span class="job-name">${escHtml(j.title || j.type)}</span>
+          <span class="job-status-tag ${statusCls}">${escHtml(j.status)}</span>
+        </div>
+      `;
+    }).join('');
+
+    document.getElementById('jobs-content').innerHTML = `
+      <div class="${badgeCls}">${badgeIcon} ${activeJobs} active</div>
+      <div>${rows || '<div class="loading">No jobs found.</div>'}</div>
+    `;
+  }
+
+  /* ── Main refresh ────────────────────────────────────────── */
+  async function refresh() {
+    try {
+      const [invResp, costResp, statusResp, jobsResp] = await Promise.all([
+        fetch('/kiosk-api/invariants/state'),
+        fetch('/kiosk-api/cost-summary'),
+        fetch('/kiosk-api/status'),
+        fetch('/kiosk-api/jobs?limit=6'),
+      ]);
+
+      if (invResp.ok) {
+        const invData = await invResp.json();
+        renderInvariants(invData);
+      } else {
+        document.getElementById('inv-grid').innerHTML = `<div class="error">Error ${invResp.status} loading invariants</div>`;
+      }
+
+      if (costResp.ok) {
+        const costData = await costResp.json();
+        renderCost(costData);
+      } else {
+        document.getElementById('cost-content').innerHTML = `<div class="error">Error ${costResp.status}</div>`;
+      }
+
+      let statusData = { active_jobs: 0 };
+      let jobsData   = { jobs: [] };
+      if (statusResp.ok) statusData = await statusResp.json();
+      if (jobsResp.ok)   jobsData   = await jobsResp.json();
+      renderJobs(statusData, jobsData);
+
+      document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+      countdownVal = 30;
+    } catch (e) {
+      document.getElementById('inv-grid').innerHTML = `<div class="error">Fetch error: ${escHtml(e.message)}</div>`;
+    }
+  }
+
+  refresh();
+</script>
+</body>
+</html>
