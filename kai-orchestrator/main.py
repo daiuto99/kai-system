@@ -413,6 +413,68 @@ def list_jobs(limit: int = 20, status: str = ""):
     return {"jobs": jobs, "count": len(jobs)}
 
 
+@app.post("/context/assemble")
+def context_assemble(body: dict):
+    """Memory Service §4.1 — the mandatory first step of every judgment/creative
+    workflow and every council-api chat turn. Internal only (compose-network)."""
+    import context_service
+    key = body.get("key") or {}
+    for f in ("advisor", "device"):
+        if not key.get(f):
+            raise HTTPException(status_code=400, detail=f"ConversationKey.{f} is required")
+    package = context_service.assemble(
+        key, body.get("message", ""),
+        task_type=body.get("task_type"), project=body.get("project"),
+    )
+    return {"ok": True, "package": package}
+
+
+@app.post("/context/turn")
+def context_turn(body: dict):
+    """Memory Service §4.1 record_turn() — idempotent on turn_id."""
+    import context_service
+    key = body.get("key") or {}
+    role = body.get("role")
+    if role not in ("user", "assistant"):
+        raise HTTPException(status_code=400, detail="role must be 'user' or 'assistant'")
+    receipt = context_service.record_turn(
+        key, role, body.get("content", ""),
+        package_id=body.get("package_id"), turn_id=body.get("turn_id"),
+    )
+    return {"ok": True, "receipt": receipt}
+
+
+@app.get("/context/conversation")
+def context_get_conversation(advisor: str, device: str, place: str = None, thread: str = None, limit: int = 50):
+    """Read API (§13 Phase 1) — clients render history from here, never from
+    a client-maintained copy."""
+    import context_service
+    key = {"advisor": advisor, "device": device, "place": place, "thread": thread}
+    return {"ok": True, **context_service.get_conversation(key, limit=limit)}
+
+
+@app.get("/context/invariants/t1")
+def context_invariant_t1(sample: int = 50):
+    """inv_context_t1 (§8) — populated store + empty T1 on a recent package = CRITICAL.
+    assemble() also checks and alerts live on every call; this is the pollable form."""
+    import context_service
+    return context_service.check_inv_context_t1(sample=sample)
+
+
+@app.post("/context/import-legacy")
+def context_import_legacy(body: dict):
+    """§13 Phase 1 one-time migration: seed a conversation from an existing
+    `_history/{channel}.jsonl`, then that file stays frozen read-only."""
+    import context_service
+    channel = body.get("channel")
+    advisor = body.get("advisor", channel)
+    device = body.get("device", f"legacy:{channel}")
+    if not channel:
+        raise HTTPException(status_code=400, detail="channel required")
+    jsonl_path = Path(f"/vault/60_Council/_history/{channel}.jsonl")
+    return context_service.import_legacy_history(channel, advisor, device, jsonl_path)
+
+
 @app.get("/invariants/state")
 def invariants_state():
     """Return current invariant results from vault JSON."""

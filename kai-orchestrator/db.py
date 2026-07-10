@@ -99,6 +99,43 @@ CREATE INDEX IF NOT EXISTS idx_rate_counters ON rate_counters(capability, called
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_build
     ON jobs(json_extract(inputs,'$.site'), type)
     WHERE status IN ('queued','running','blocked','needs_approval','failed_recoverable');
+
+-- Memory Service Phase 1 (CONTEXT_SPEC.md §4/§5/§8/§13) — conversation store,
+-- Tier 1 verbatim turns, Tier 2 rolling summary, assembly log.
+CREATE TABLE IF NOT EXISTS conversations (
+    id                     TEXT PRIMARY KEY,
+    key_tuple              TEXT NOT NULL,
+    advisor                TEXT NOT NULL,
+    device                 TEXT NOT NULL,
+    place                  TEXT,
+    thread                 TEXT,
+    turns_since_compaction INTEGER NOT NULL DEFAULT 0,
+    summary                TEXT NOT NULL DEFAULT '',
+    last_compaction_ts     TEXT,
+    created_at             TEXT NOT NULL,
+    updated_at             TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_key ON conversations(key_tuple);
+
+CREATE TABLE IF NOT EXISTS turns (
+    id              TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id),
+    role            TEXT NOT NULL,
+    content         TEXT NOT NULL,
+    package_id      TEXT,
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_turns_conversation ON turns(conversation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS assembly_log (
+    package_id      TEXT PRIMARY KEY,
+    ts              TEXT NOT NULL,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id),
+    key_tuple       TEXT NOT NULL,
+    tiers           TEXT NOT NULL,
+    budget          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_assembly_log_conversation ON assembly_log(conversation_id, ts);
 """
 
 def get_conn() -> sqlite3.Connection:

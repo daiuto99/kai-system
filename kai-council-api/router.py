@@ -4,7 +4,7 @@ import re
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 import httpx
-from council_config import ADVISOR_CHANNELS, WORKER_URL, _track_usage, _check_rate_limit
+from council_config import ADVISOR_CHANNELS, WORKER_URL, ORCHESTRATOR_URL, _track_usage, _check_rate_limit
 from complexity import _classify_complexity, _get_advisor_config
 from persona import load_persona
 import function_map as fm
@@ -380,7 +380,32 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
             )
             logger.info("router: domain_hint channel=%s domain=%s advisor=%s kw=%s",
                         channel, _dh["domain"], _dh["advisor"], _dh["matched_keyword"])
-    messages = req.history[-10:]
+    if req.history:
+        logger.warning(
+            "council_message: client sent history field (%d items) — CONTEXT_SPEC §4.1 "
+            "deprecation shim: logged and dropped (channel=%s)", len(req.history), channel
+        )
+
+    # Memory Service (CONTEXT_SPEC §4/§5/§13 Phase 1) — server-owned Tier 1 + Tier 2,
+    # replacing client-supplied history (BUG e5e54431 / F1).
+    _device = req.trigger_source or req.user_id or f"unknown:{channel}"
+    _conv_key = {"advisor": advisor, "device": _device, "place": None, "thread": req.thread_ts or None}
+    _package = None
+    try:
+        _assemble_resp = httpx.post(
+            f"{ORCHESTRATOR_URL}/context/assemble",
+            json={"key": _conv_key, "message": req.message},
+            timeout=10,
+        )
+        _assemble_resp.raise_for_status()
+        _package = _assemble_resp.json()["package"]
+        messages = list(_package["messages"])
+        if _package.get("summary"):
+            system_prompt += f"\n\n<conversation_summary>\n{_package['summary']}\n</conversation_summary>"
+    except Exception as e:
+        logger.exception("context.assemble failed — falling back to empty context: %s", e)
+        messages = []
+
     if req.attachments:
         import base64 as _b64
         user_content = []
@@ -402,6 +427,17 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
         messages.append({"role": "user", "content": user_content})
     else:
         messages.append({"role": "user", "content": req.message})
+
+    if _package is not None:
+        try:
+            httpx.post(
+                f"{ORCHESTRATOR_URL}/context/turn",
+                json={"key": _conv_key, "role": "user", "content": req.message,
+                      "package_id": _package["package_id"]},
+                timeout=10,
+            )
+        except Exception as e:
+            logger.exception("context.record_turn (user) failed: %s", e)
 
     total_input_tokens = 0
     total_output_tokens = 0
@@ -514,6 +550,17 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     clean_reply = strip_markdown(clean_reply)
     _append_history(channel, "assistant", clean_reply)
 
+    if _package is not None:
+        try:
+            httpx.post(
+                f"{ORCHESTRATOR_URL}/context/turn",
+                json={"key": _conv_key, "role": "assistant", "content": clean_reply,
+                      "package_id": _package["package_id"]},
+                timeout=10,
+            )
+        except Exception as e:
+            logger.exception("context.record_turn (assistant) failed: %s", e)
+
     # Track token usage
     effective_trigger = req.trigger_source or f"council:message:{channel}"
     _track_usage(advisor, total_input_tokens, total_output_tokens, actual_provider, actual_model,
@@ -529,13 +576,14 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
         "advisor": advisor,
         "channel": channel,
         "reply": clean_reply,
+        "package_id": _package["package_id"] if _package else None,
         "insights_logged": insights_logged,
         "input_tokens": total_input_tokens,
         "output_tokens": total_output_tokens,
-        "cache_read_tokens": total_cache_read_tokens,
-        "cache_creation_tokens": total_cache_creation_tokens,
         "provider": actual_provider,
         "model": actual_model,
+        "cache_read_tokens": total_cache_read_tokens,
+        "cache_creation_tokens": total_cache_creation_tokens,
     }
 
 
