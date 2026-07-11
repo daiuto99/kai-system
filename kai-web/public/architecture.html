@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#10b981"></span> v2.45.2 · 2026-07-11 — <strong style="color:#34d399">S7-2 Phase 3: Tier 4 verified facts shipped — registry.get/registry.check read path (stub store, S7-1 still Backlog), &lt;verified_fact trust="verified"&gt; overrides &lt;recalled trust="untrusted"&gt; on conflict (live-demonstrated). Tier 5 next.</strong></div>
+  <div class="version"><span class="dot" style="color:#10b981"></span> v2.45.3 · 2026-07-11 — <strong style="color:#34d399">S7-2 Phase 3: Tier 5 standing context shipped — five-tier Memory Service architecturally complete. persona.py ceases to be an assembly point (load_persona() now a Memory Service client via GET /context/persona); S7-2 marked Done.</strong></div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -578,7 +578,7 @@ function loadCost() {
     <div style="font-size:12px;color:#64748b;margin-bottom:12px">Ubuntu 22.04 · 31GB RAM · 4 cores · 65GB free disk · Docker Compose v5.1.2</div>
 
     <div class="container-row">
-      <div><div class="container-name">kai-orchestrator</div><div class="container-meta">FastAPI · Job engine · capability_chain · Engine (SQLite) · gate system · peer review · OVERRIDE · 24 capabilities (incl. registry.get, registry.check) · POST /workflows/run · GET /jobs · council-api bridge · Memory Service (CONTEXT_SPEC.md v1.5): POST /context/assemble, /context/turn · Tier 1 verbatim + Tier 2 rolling summary + Tier 3 semantic recall (relevance-gated Qdrant top-k, threat-pattern-scanned, provenance-marked) + Tier 4 verified facts (registry.py read path, stub store — S7-1 Backlog, 800-token cap, stalest-first eviction, &lt;verified_fact&gt; overrides &lt;recalled&gt; on conflict) · assembly log · inv_context_t1/cache/scan</div></div>
+      <div><div class="container-name">kai-orchestrator</div><div class="container-meta">FastAPI · Job engine · capability_chain · Engine (SQLite) · gate system · peer review · OVERRIDE · 24 capabilities (incl. registry.get, registry.check) · POST /workflows/run · GET /jobs · council-api bridge · Memory Service (CONTEXT_SPEC.md v1.6, architecturally complete): POST /context/assemble, /context/turn, GET /context/persona · Tier 1 verbatim + Tier 2 rolling summary + Tier 3 semantic recall (relevance-gated Qdrant top-k, threat-pattern-scanned, provenance-marked) + Tier 4 verified facts (registry.py read path, stub store — S7-1 Backlog, 800-token cap, stalest-first eviction, &lt;verified_fact&gt; overrides &lt;recalled&gt; on conflict) + Tier 5 standing context (tier5_standing_context(): persona/voice + KEYSTONE/org/style + project STATUS, 28K-token stable cap / 1K volatile cap, pop-from-end eviction) · assembly log · inv_context_t1/cache/scan/t5</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8003 internal</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
@@ -827,6 +827,10 @@ function loadCost() {
 <!-- AUTO_DOCUMENTED: 2026-07-10 -->
 <div class="container-row">
   <div><div class="container-name">context_import_legacy</div><div class="container-meta">(auto-documented 2026-07-10 — description pending review) <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
+</div>
+<!-- AUTO_DOCUMENTED: 2026-07-11 -->
+<div class="container-row">
+  <div><div class="container-name">context_persona</div><div class="container-meta">(auto-documented 2026-07-11 — description pending review) <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
 </div>
 </div>
 
