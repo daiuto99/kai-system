@@ -1,0 +1,135 @@
+[
+  {
+    "id": "kai-01",
+    "advisor": "kai",
+    "source": "vault/60_Council/kai/KAI.md",
+    "timestamp": "2026-05-01",
+    "text": "KAI manages three teams: Creative (personal agency, Creative Director signs off on all creative output), Dev (engineering agency, LSE signs off on all engineering output), and DevOps (infrastructure team, autonomous on health and maintenance, escalates structural changes). KAI also has an advisor council: Beats (music), Doc (health), Coach (fitness), Sky (studio), Roads (gear), Ember (personal). System rules KAI enforces: everything worked on is in Plane, in a sprint or backlog, no exceptions; no work ships without LSE or Creative Director internal sign-off; low-risk deploys are autonomous plus Slack notify, high-risk requires Leo's approval."
+  },
+  {
+    "id": "kai-02",
+    "advisor": "kai",
+    "source": "vault/60_Council/decisions/2026-06.md (2026-06-08 #1)",
+    "timestamp": "2026-06-08",
+    "text": "Copywriting routes to creative, never to kai, regardless of topic. Leo corrected the intent parser when it routed a leadership/brand-themed blog request to kai. Rule: any written output (blog post, draft, copy, article) goes to creative. KAI orchestrates and persona-fronts; it does not own copywriting."
+  },
+  {
+    "id": "kai-03",
+    "advisor": "kai",
+    "source": "vault/60_Council/decisions/2026-06.md (2026-06-08 #12)",
+    "timestamp": "2026-06-08",
+    "text": "Don't use AskUserQuestion multi-choice menus for scope/approach decisions. Talk to Leo directly."
+  },
+  {
+    "id": "kai-04",
+    "advisor": "kai",
+    "source": "vault/60_Council/decisions/2026-06.md (2026-06-09 #10)",
+    "timestamp": "2026-06-09",
+    "text": "Leo gave the system a one-week deadline: 2026-06-16. Pattern across months: building infrastructure for the system, not value for the user. JARVIS-like presence, context, and felt usefulness has not materialized. Next sprint must invert priority — every shipped piece must produce something Leo uses that day, not something the system needs to function."
+  },
+  {
+    "id": "kai-05-stale",
+    "advisor": "kai",
+    "source": "vault/60_Council/decisions/2026-05.md",
+    "timestamp": "2026-05-15",
+    "text": "close_engine.py is the single verified close engine — auto_close and manual_close are thin wrappers only. Every step must execute, verify with a concrete check, retry once, and record to manifest. Silent failures are not acceptable."
+  },
+  {
+    "id": "kai-06-current",
+    "advisor": "kai",
+    "source": "vault/60_Council/decisions/2026-06.md (2026-06-09 #1)",
+    "timestamp": "2026-06-09",
+    "text": "Auto-close subsystem removed entirely (KAI-417). Original purpose was closing sessions before running out of context on the lower-tier Claude plan — gone after the Max plan move. Claude Code's built-in auto-compaction handles context limits gracefully. auto_close.py and project_close.py mothballed to scripts/_archived/. Trigger block removed from scripts/check_context.py. Stop hook is now warn-only. Run 'close session' manually."
+  },
+  {
+    "id": "kai-07-deletion-target",
+    "advisor": "kai",
+    "source": "vault/60_Council/decisions/2026-06.md (2026-06-08 #2)",
+    "timestamp": "2026-06-08",
+    "text": "Gap detection no longer files Plane bugs. A gap is a symptom, not a bug. watchdog.py:run_gap_checks logs only; real exceptions still file via the scheduler.py:_safe() path. (KAI-409)"
+  },
+  {
+    "id": "dev-01",
+    "advisor": "dev",
+    "source": "vault/60_Council/dev/DEV.md",
+    "timestamp": "2026-04-15",
+    "text": "The Lead Systems Engineer (LSE) is a director, not an implementer. When Leo brings a technical request, the LSE understands it, sets technical direction, and executes through the team via consult_specialist. Feature implementation and debugging go to the lead-developer specialist. System design and infrastructure architecture go to the architect specialist. Data pipelines and models go to the data-engineer specialist. QA and regression go to the test-engineer specialist. Project planning goes to the pm specialist. Research and technical evaluation go to the researcher specialist. The LSE's first move is always to brief, not to build — there is no request small enough to skip the team."
+  },
+  {
+    "id": "dev-02",
+    "advisor": "dev",
+    "source": "vault/60_Council/decisions/2026-06.md (2026-06-06 #2)",
+    "timestamp": "2026-06-06",
+    "text": "Claude opus-4-7 and opus-4-8 are both poor quality per Leo's direction. The system is pinned to claude-opus-4-6 as the high-complexity model. Do not upgrade to 4-7 or 4-8. Evaluate OpenAI as an alternative (KAI-401)."
+  },
+  {
+    "id": "dev-03",
+    "advisor": "dev",
+    "source": "vault/60_Council/dev/BUILD_PROFILE.md",
+    "timestamp": "2026-04-15",
+    "text": "Core engineering standards for the LSE: exceptional code quality (clean, readable, well-structured, strongly typed where appropriate), modular architecture (components/services/APIs designed for reuse and replacement), and security-first engineering (authentication, authorization, secrets management, least-privilege access, and secure defaults considered from the beginning)."
+  },
+  {
+    "id": "dev-04",
+    "advisor": "dev",
+    "source": "session brief 2026-07-10ac",
+    "timestamp": "2026-07-10",
+    "text": "S7-13 Phase 1.5 shipped: the old client-supplied history contract is fully retired with a hard 400, not a shim. Dashboard swapped to the Memory Service read path (GET /context/conversation via history.py proxy); a one-time seed import preserved existing dashboard history. All four surfaces (Telegram, Slack, CarPlay, dashboard) are confirmed on one server-owned memory path. Found and fixed a real production risk along the way: kai-slack-bot could not survive a restart because it was missing a slack_signing_secret mount (Plane f4506074, Done)."
+  },
+  {
+    "id": "devops-01",
+    "advisor": "devops",
+    "source": "vault/60_Council/devops/DEVOPS.md",
+    "timestamp": "2026-04-15",
+    "text": "Ops is the infrastructure lead for the KAI system and owns the worker at 192.168.68.30, all containers, backups, SSL, monitoring, and OS-level health. Ops operates quietly and is invisible by default — Leo only hears from Ops when something needs attention. T1 items (container restarts, health checks, disk/log cleanup, SSL renewal, security updates, backups, monitoring alerts) are executed directly. T2 items (major OS upgrades, new service deployments, network/firewall changes, anything with more than 5 minutes of estimated downtime, anything unclear) are escalated to Leo."
+  },
+  {
+    "id": "devops-02",
+    "advisor": "devops",
+    "source": "vault/60_Council/decisions/2026-06.md (2026-06-09 #8)",
+    "timestamp": "2026-06-09",
+    "text": "n8n and Google OAuth get resilience tooling (KAI-432). A 4-hour debug session is unacceptable as a recurring failure mode. Plan: kill the Cloudflare hang (DNS-only flip or Caddy direct), add an hourly OAuth health check, write a 30-second recovery runbook script, and pin the n8n image version."
+  },
+  {
+    "id": "devops-03",
+    "advisor": "devops",
+    "source": "vault/60_Council/decisions/2026-06.md (Layer 2 audit)",
+    "timestamp": "2026-06-11",
+    "text": "Layer 2 audit lives in the OS scheduler per machine, not inside the kai-scheduler container. Decided when checking architecture: the unlock-state source (kai_mode.json) lives on whichever machine runs Claude Code, and a containerized audit can't see Mac state. Final architecture is one Python stdlib script driven by a LaunchAgent on Mac and crontab on the worker."
+  },
+  {
+    "id": "creative-01",
+    "advisor": "creative",
+    "source": "vault/60_Council/creative/CREATIVE.md",
+    "timestamp": "2026-04-15",
+    "text": "The Creative Director is a director, not a producer. When Leo brings a brief, the Creative Director understands it, sets creative direction, and executes through the team via consult_specialist. Copy, taglines, messaging, and brand voice go to the copywriter specialist. UI/UX and web design go to the designer specialist. Visual assets, logos, and graphics go to the graphic-designer specialist. Brand strategy and positioning go to the strategist specialist. Architecture review and tech direction go to the architect specialist. The design philosophy is authentic, zen-like, minimalist, warm, human, and deeply intentional."
+  },
+  {
+    "id": "creative-02",
+    "advisor": "creative",
+    "source": "vault/60_Council/decisions/2026-06.md (2026-06-06 #1)",
+    "timestamp": "2026-06-06",
+    "text": "A creative brief must cover content requirements, not just aesthetic. The leodaiuto.com brief passed KAI review with a complete aesthetic spec but zero content requirements. Rule: a sixth section is required — Content Requirements — specifying assets, sections, links, copy constraints, and what NOT to include."
+  },
+  {
+    "id": "creative-03",
+    "advisor": "creative",
+    "source": "vault/60_Council/decisions/2026-06.md (2026-06-06 #3)",
+    "timestamp": "2026-06-06",
+    "text": "The WordPress path for leodaiuto.com is tabled, not ready. The HTML-first approach was the right call given the content brief failure. WordPress build resumes only after content direction is complete and a new gate is approved."
+  },
+  {
+    "id": "creative-04",
+    "advisor": "creative",
+    "source": "vault/60_Council/decisions/2026-06.md (2026-06-08 #7)",
+    "timestamp": "2026-06-08",
+    "text": "Sette-uno is the default blog when none is specified. Sprint A's clarification flow asks 'Which blog?' with sette-uno highlighted as the default; the user can override."
+  },
+  {
+    "id": "creative-05",
+    "advisor": "creative",
+    "source": "vault/60_Council/decisions/2026-06.md (2026-06-08 #8)",
+    "timestamp": "2026-06-08",
+    "text": "Blog posts always create as DRAFT, never publish. This is a hard requirement in Sprint A's routing engine."
+  }
+]

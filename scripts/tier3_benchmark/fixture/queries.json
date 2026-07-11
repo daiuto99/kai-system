@@ -1,0 +1,146 @@
+{
+  "normal": [
+    {
+      "id": "q1",
+      "advisor_scope": "kai",
+      "query": "Does copywriting route to kai or to creative?",
+      "expected_evidence_ids": ["kai-02"],
+      "expected_answer": "Creative — copywriting never routes to kai, regardless of topic."
+    },
+    {
+      "id": "q2",
+      "advisor_scope": "kai",
+      "query": "What's the rule about using AskUserQuestion multi-choice menus for scope decisions?",
+      "expected_evidence_ids": ["kai-03"],
+      "expected_answer": "Don't use them for scope/approach decisions — talk to Leo directly."
+    },
+    {
+      "id": "q3",
+      "advisor_scope": "kai",
+      "query": "What deadline did Leo give the system and why?",
+      "expected_evidence_ids": ["kai-04"],
+      "expected_answer": "2026-06-16 — because the system was building infrastructure for itself rather than shipping felt value to Leo."
+    },
+    {
+      "id": "q4",
+      "advisor_scope": "dev",
+      "query": "Who implements feature code — the LSE or a specialist?",
+      "expected_evidence_ids": ["dev-01"],
+      "expected_answer": "The lead-developer specialist, via consult_specialist. The LSE directs and reviews, it does not implement."
+    },
+    {
+      "id": "q5",
+      "advisor_scope": "dev",
+      "query": "Which Claude model is the LSE pinned to for high-complexity work, and why?",
+      "expected_evidence_ids": ["dev-02"],
+      "expected_answer": "claude-opus-4-6 — opus-4-7 and opus-4-8 were both judged poor quality; do not upgrade."
+    },
+    {
+      "id": "q6",
+      "advisor_scope": "dev",
+      "query": "What shipped in S7-13 Phase 1.5 and what production risk did it fix along the way?",
+      "expected_evidence_ids": ["dev-04"],
+      "expected_answer": "The old client-supplied history contract was retired (hard 400); dashboard moved to the Memory Service read path. Along the way, a kai-slack-bot restart-survival bug (missing slack_signing_secret mount) was found and fixed."
+    },
+    {
+      "id": "q7",
+      "advisor_scope": "devops",
+      "query": "What IP address does Ops own for the worker?",
+      "expected_evidence_ids": ["devops-01"],
+      "expected_answer": "192.168.68.30."
+    },
+    {
+      "id": "q8",
+      "advisor_scope": "devops",
+      "query": "What triggered the n8n/OAuth resilience ticket KAI-432?",
+      "expected_evidence_ids": ["devops-02"],
+      "expected_answer": "A 4-hour debug session judged unacceptable as a recurring failure mode."
+    },
+    {
+      "id": "q9",
+      "advisor_scope": "devops",
+      "query": "Why does the Layer 2 mode-lock audit run as an OS-scheduled script per machine instead of inside the kai-scheduler container?",
+      "expected_evidence_ids": ["devops-03"],
+      "expected_answer": "The unlock-state source (kai_mode.json) lives on whichever machine runs Claude Code; a containerized audit can't see Mac state."
+    },
+    {
+      "id": "q10",
+      "advisor_scope": "creative",
+      "query": "What's required in a creative brief beyond the aesthetic spec?",
+      "expected_evidence_ids": ["creative-02"],
+      "expected_answer": "A sixth section, Content Requirements: assets, sections, links, copy constraints, and what NOT to include."
+    },
+    {
+      "id": "q11",
+      "advisor_scope": "creative",
+      "query": "What blog is used by default when none is specified?",
+      "expected_evidence_ids": ["creative-04"],
+      "expected_answer": "Sette-uno, with the option for the user to override."
+    },
+    {
+      "id": "q12",
+      "advisor_scope": "creative",
+      "query": "Can blog posts be published directly by the routing engine?",
+      "expected_evidence_ids": ["creative-05"],
+      "expected_answer": "No — blog posts always create as DRAFT, never publish. Hard requirement."
+    }
+  ],
+  "namespace_leak": [
+    {
+      "id": "nl1",
+      "advisor_scope": "creative",
+      "query": "What IP address does the infrastructure run on?",
+      "forbidden_evidence_ids": ["devops-01"],
+      "note": "192.168.68.30 is a devops-only fact; must not surface under the creative advisor scope."
+    },
+    {
+      "id": "nl2",
+      "advisor_scope": "dev",
+      "query": "What IP address does the infrastructure run on?",
+      "forbidden_evidence_ids": ["devops-01"],
+      "note": "Same leak bait, dev scope."
+    },
+    {
+      "id": "nl3",
+      "advisor_scope": "devops",
+      "query": "Which specialist writes copy, taglines, and messaging?",
+      "forbidden_evidence_ids": ["creative-01"],
+      "note": "copywriter routing is a creative-only fact; must not surface under devops scope."
+    },
+    {
+      "id": "nl4",
+      "advisor_scope": "kai",
+      "query": "What blog is used by default when none is specified?",
+      "forbidden_evidence_ids": ["creative-04"],
+      "note": "sette-uno default is a creative-only fact; must not surface under kai scope."
+    },
+    {
+      "id": "nl5",
+      "advisor_scope": "devops",
+      "query": "Which Claude model is pinned for high-complexity work?",
+      "forbidden_evidence_ids": ["dev-02"],
+      "note": "opus-4-6 pin is a dev-only fact; must not surface under devops scope."
+    }
+  ],
+  "stale_contradictory": [
+    {
+      "id": "sc1",
+      "advisor_scope": "kai",
+      "query": "Is the auto-close subsystem still active?",
+      "current_evidence_id": "kai-06-current",
+      "stale_evidence_id": "kai-05-stale",
+      "expected_answer": "No — auto-close was removed entirely (KAI-417), mothballed to scripts/_archived/. The earlier 2026-05 fact describing auto_close as a thin wrapper around close_engine.py is superseded.",
+      "note": "Corpus deliberately contains both the 2026-05 fact (auto_close exists as a wrapper) and the 2026-06-09 fact (auto_close removed entirely). Passing means the current fact is surfaced and distinguishable from the stale one, not that the stale one is hidden."
+    }
+  ],
+  "deletion": [
+    {
+      "id": "del1",
+      "advisor_scope": "kai",
+      "target_evidence_id": "kai-07-deletion-target",
+      "delete_op": "delete_by_advisor_and_doc",
+      "verify_query": "Does gap detection file Plane bugs?",
+      "note": "kai-07-deletion-target is ingested, confirmed retrievable once, then deleted by advisor+doc id. verify_query is re-run post-deletion and must return no hit on kai-07-deletion-target."
+    }
+  ]
+}
