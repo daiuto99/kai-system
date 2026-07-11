@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import httpx
 from council_config import ADVISOR_CHANNELS, WORKER_URL, ORCHESTRATOR_URL, _track_usage, _check_rate_limit
 from complexity import _classify_complexity, _get_advisor_config
-from persona import assemble_prompt, load_persona
+from persona import load_persona
 import function_map as fm
 from insights import extract_and_strip_insights, append_insights_to_vault
 from execute_tool import execute_tool
@@ -192,10 +192,11 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
     raw_reply = ""
 
     # Prompt caching (CONTEXT_SPEC §7): cache_breakpoint_chars is the length of
-    # persona.assemble_prompt()'s stable prefix — an explicit index, not a
-    # substring search. Everything after it (datetime, system_state,
-    # session_memory, knowledge_context, conversation_summary, Tier 1 messages)
-    # stays uncached by construction.
+    # the Memory Service package's Tier 5 stable_text (context_service.
+    # tier5_standing_context(), §3/§13) — an explicit index, not a substring
+    # search. Everything after it (datetime, system_state, session_memory,
+    # conversation_summary, Tier 3/4 recall/facts, Tier 1 messages) stays
+    # uncached by construction.
     if cache_breakpoint_chars > 0:
         system: list | str = [
             {"type": "text", "text": system_prompt[:cache_breakpoint_chars], "cache_control": {"type": "ephemeral"}},
@@ -321,8 +322,47 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
                 "insights_logged": 0, "input_tokens": 0, "output_tokens": 0,
                 "provider": "rate-limit", "model": "rate-limit"}
 
-    system_prompt, _stable_prefix, _stable_prefix_hash = assemble_prompt(advisor, channel)
-    _cache_breakpoint_chars = len(_stable_prefix)
+    if req.history:
+        raise HTTPException(
+            status_code=400,
+            detail="history is server-owned — see CONTEXT_SPEC §4.1. Do not send a history "
+                   "field; the service assembles context server-side via assemble()/record_turn().",
+        )
+
+    # Memory Service (CONTEXT_SPEC §4/§5/§13) — single assemble() call now
+    # carries all five tiers: server-owned conversation state (Tier 1+2,
+    # replacing client-supplied history — BUG e5e54431/F1), Tier 3 recall,
+    # Tier 4 facts, and Tier 5 standing context (persona/voice, KEYSTONE/org/
+    # style, datetime, system_state) — migrated off the local
+    # persona.assemble_prompt() path per §3 ("persona.py ceases to be an
+    # assembly point"). Disclosed tradeoff: orchestrator downtime now fails
+    # the whole turn (no persona either), where previously persona assembly
+    # was local and survived a Memory Service outage degraded-but-functional.
+    # That's the intended effect of consolidating onto one assembly path, not
+    # a silent regression — Tier 1-4 already had this dependency; this
+    # extends it to persona/voice too, one motion instead of two.
+    _device = req.trigger_source or req.user_id or f"unknown:{channel}"
+    _conv_key = {"advisor": advisor, "device": _device, "place": None, "thread": req.thread_ts or None}
+    try:
+        _assemble_resp = httpx.post(
+            f"{ORCHESTRATOR_URL}/context/assemble",
+            json={"key": _conv_key, "message": req.message, "channel": channel},
+            timeout=15,
+        )
+    except httpx.HTTPError as e:
+        logger.exception("context.assemble unreachable: %s", e)
+        raise HTTPException(status_code=502, detail=f"Memory Service unreachable: {e}")
+    if _assemble_resp.status_code == 404:
+        raise HTTPException(status_code=404,
+                             detail=_assemble_resp.json().get("detail", f"Persona not found: {advisor}"))
+    _assemble_resp.raise_for_status()
+    _package = _assemble_resp.json()["package"]
+
+    system_prompt = _package["stable_text"] + (
+        "\n\n---\n\n" + _package["volatile_text"] if _package.get("volatile_text") else ""
+    )
+    _cache_breakpoint_chars = len(_package["stable_text"])
+    messages = list(_package["messages"])
 
     # KAI is PM; when she receives a message, classify the domain via the
     # function map and surface the matched advisor as a hint. KAI decides
@@ -341,53 +381,29 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
             )
             logger.info("router: domain_hint channel=%s domain=%s advisor=%s kw=%s",
                         channel, _dh["domain"], _dh["advisor"], _dh["matched_keyword"])
-    if req.history:
-        raise HTTPException(
-            status_code=400,
-            detail="history is server-owned — see CONTEXT_SPEC §4.1. Do not send a history "
-                   "field; the service assembles context server-side via assemble()/record_turn().",
-        )
 
-    # Memory Service (CONTEXT_SPEC §4/§5/§13 Phase 1) — server-owned Tier 1 + Tier 2,
-    # replacing client-supplied history (BUG e5e54431 / F1).
-    _device = req.trigger_source or req.user_id or f"unknown:{channel}"
-    _conv_key = {"advisor": advisor, "device": _device, "place": None, "thread": req.thread_ts or None}
-    _package = None
-    try:
-        _assemble_resp = httpx.post(
-            f"{ORCHESTRATOR_URL}/context/assemble",
-            json={"key": _conv_key, "message": req.message},
-            timeout=10,
-        )
-        _assemble_resp.raise_for_status()
-        _package = _assemble_resp.json()["package"]
-        messages = list(_package["messages"])
-        if _package.get("summary"):
-            system_prompt += f"\n\n<conversation_summary>\n{_package['summary']}\n</conversation_summary>"
-        # Tier 4 verified facts (CONTEXT_SPEC §5/§10) — placed before Tier 3 recall
-        # so a registry fact reads as authoritative ahead of a conflicting recalled
-        # snippet; facts_text carries its own <trust_rubric> stating that precedence
-        # explicitly (a position convention isn't reliable enough on its own). Per
-        # §7 Tier 4 should sit in the STABLE block (before the cache breakpoint,
-        # since verified facts change rarely) — it is not yet: cache_breakpoint_chars
-        # is computed by assemble_prompt() before this call, so facts_text lands in
-        # the volatile tail like Tier 2/3 today. Known deviation from §7, not a bug:
-        # moving it into the stable prefix needs persona.py's assemble_prompt() to
-        # accept registry facts ahead of the breakpoint calculation — out of scope
-        # for this increment, tracked as Tier 4 cache-shaping follow-on.
-        if _package.get("facts_text"):
-            system_prompt += f"\n\n{_package['facts_text']}"
-        # Tier 3 semantic recall (CONTEXT_SPEC §5/§10) — assembled server-side by
-        # context_service.assemble(), already relevance-gated, budget-capped, and
-        # wrapped in <recalled trust="untrusted"> provenance markers. Replaces the
-        # prior ad-hoc _query_qdrant()/<knowledge_context> path, which bypassed the
-        # assembly log and had no provenance marking (L7 — one path through the
-        # Memory Service interface, not two).
-        if _package.get("recall_text"):
-            system_prompt += f"\n\n{_package['recall_text']}"
-    except Exception as e:
-        logger.exception("context.assemble failed — falling back to empty context: %s", e)
-        messages = []
+    if _package.get("summary"):
+        system_prompt += f"\n\n<conversation_summary>\n{_package['summary']}\n</conversation_summary>"
+    # Tier 4 verified facts (CONTEXT_SPEC §5/§10) — placed before Tier 3 recall
+    # so a registry fact reads as authoritative ahead of a conflicting recalled
+    # snippet; facts_text carries its own <trust_rubric> stating that precedence
+    # explicitly (a position convention isn't reliable enough on its own). Per
+    # §7 Tier 4 should sit in the STABLE block (before the cache breakpoint,
+    # since verified facts change rarely) — it is not yet: cache_breakpoint_chars
+    # is computed from Tier 5's stable_text before facts_text is appended, so
+    # facts_text lands in the volatile tail like Tier 2/3 today. Known deviation
+    # from §7, not a bug (v1.5) — moving it into the stable prefix is tracked as
+    # the Tier 4 cache-shaping follow-on, out of scope for the Tier 5 increment.
+    if _package.get("facts_text"):
+        system_prompt += f"\n\n{_package['facts_text']}"
+    # Tier 3 semantic recall (CONTEXT_SPEC §5/§10) — assembled server-side by
+    # context_service.assemble(), already relevance-gated, budget-capped, and
+    # wrapped in <recalled trust="untrusted"> provenance markers. Replaces the
+    # prior ad-hoc _query_qdrant()/<knowledge_context> path, which bypassed the
+    # assembly log and had no provenance marking (L7 — one path through the
+    # Memory Service interface, not two).
+    if _package.get("recall_text"):
+        system_prompt += f"\n\n{_package['recall_text']}"
 
     if req.attachments:
         import base64 as _b64
@@ -528,7 +544,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
                 f"{ORCHESTRATOR_URL}/context/cache-shape",
                 json={
                     "package_id": _package["package_id"],
-                    "stable_prefix_hash": _stable_prefix_hash,
+                    "stable_prefix_hash": _package["stable_prefix_hash"],
                     "cache_breakpoint_after": _cache_breakpoint_chars,
                     "cache_read_tokens": total_cache_read_tokens,
                     "cache_creation_tokens": total_cache_creation_tokens,
@@ -632,10 +648,16 @@ def ingest_file_endpoint(body: dict):
 def internal_persona_check():
     """Diagnostic for KAI-458 Slice A persona-assembly invariant.
 
-    Exercises load_persona() for each named advisor while capturing any
-    warning/error log records emitted by the persona-load path. Reports
-    block presence + warnings + size so kai-scheduler can assert against
-    the expected shape of each persona prompt.
+    §3/§13 Tier 5 migration note: persona assembly now happens in the
+    orchestrator process (context_service.tier5_standing_context()), not this
+    one — the prior in-process logging.Handler capture of "persona"/
+    "load_context" loggers would go silently blind to real degraded-mode
+    warnings now that they're raised on the other side of the network. This
+    calls the orchestrator's /context/persona endpoint directly per advisor
+    and reads its `warnings` field instead, which is how tier5_standing_context()
+    now surfaces degraded-mode signals (org_model/system_state load failures,
+    budget truncation) — explicit response data, not a log-capture hack that
+    doesn't cross a process boundary.
     """
     advisors = ["kai", "dev", "creative", "doc", "coach", "sky", "roads", "ember", "beats"]
     blocks_to_check = [
@@ -648,37 +670,25 @@ def internal_persona_check():
         "<current_datetime>",
     ]
 
-    persona_logger = logging.getLogger("persona")
-    load_context_logger = logging.getLogger("load_context")
-    captured: list[tuple[str, str]] = []
-
-    class _Capture(logging.Handler):
-        def emit(self, record):
-            if record.levelno >= logging.WARNING:
-                captured.append((record.name, record.getMessage()))
-
-    handler = _Capture()
-    persona_logger.addHandler(handler)
-    load_context_logger.addHandler(handler)
-
     results: dict[str, dict] = {}
-    try:
-        for advisor in advisors:
-            captured.clear()
-            try:
-                prompt = load_persona(advisor)
-                results[advisor] = {
-                    "load_ok": True,
-                    "size": len(prompt),
-                    "blocks_present": {b: (b in prompt) for b in blocks_to_check},
-                    "warnings": [f"{src}: {msg}" for src, msg in captured],
-                }
-            except HTTPException as e:
-                results[advisor] = {"load_ok": False, "error": f"HTTP {e.status_code}: {e.detail}"}
-            except Exception as e:
-                results[advisor] = {"load_ok": False, "error": f"{type(e).__name__}: {e}"}
-    finally:
-        persona_logger.removeHandler(handler)
-        load_context_logger.removeHandler(handler)
+    for advisor in advisors:
+        try:
+            r = httpx.get(f"{ORCHESTRATOR_URL}/context/persona", params={"advisor": advisor}, timeout=30)
+            if r.status_code == 404:
+                results[advisor] = {"load_ok": False, "error": f"HTTP 404: {r.json().get('detail', 'Persona not found')}"}
+                continue
+            r.raise_for_status()
+            data = r.json()
+            prompt = data["stable_text"] + (
+                "\n\n---\n\n" + data["volatile_text"] if data.get("volatile_text") else ""
+            )
+            results[advisor] = {
+                "load_ok": True,
+                "size": len(prompt),
+                "blocks_present": {b: (b in prompt) for b in blocks_to_check},
+                "warnings": data.get("warnings", []),
+            }
+        except Exception as e:
+            results[advisor] = {"load_ok": False, "error": f"{type(e).__name__}: {e}"}
 
     return {"ok": True, "results": results}

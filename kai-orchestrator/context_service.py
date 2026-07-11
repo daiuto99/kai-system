@@ -1,19 +1,27 @@
 """Memory Service — Phase 1-3 (docs/CONTEXT_SPEC.md §4/§5/§8/§10/§13).
 
 Conversation store + Tier 1 verbatim turns + Tier 2 rolling summary + Tier 3
-semantic recall + Tier 4 verified facts + assembly log, behind the
-assemble()/record_turn() contract. Tier 5 (standing context/load_persona
-migration) remains Phase 3 follow-on scope — not built here.
+semantic recall + Tier 4 verified facts + Tier 5 standing context, behind the
+assemble()/record_turn() contract. Phase 3 is now architecturally complete —
+persona.py ceases to be an assembly point (§3): its former assemble_prompt()
+logic lives here as tier5_standing_context().
 """
 import json
 import logging
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+import function_map_read as fm
 import registry
 import threat_scan
 from db import get_conn, new_id, now_iso
 
 logger = logging.getLogger(__name__)
+
+VAULT_PATH = Path("/vault")
+COUNCIL_PATH = VAULT_PATH / "60_Council"
+WORKER_URL = "http://kai-worker-api:8001"
 
 TIER1_MAX_TURNS = 10
 TIER1_CHAR_CAP = 3000 * 4    # §6: 3,000-token ceiling, char/4 estimate (real tokenizer is §15 open Q2)
@@ -28,6 +36,21 @@ OLLAMA_EMBED_URL = "http://kai-ollama:11434"
 EMBED_MODEL = "nomic-embed-text"
 
 TIER4_CHAR_CAP = 800 * 4     # §6: 800-token ceiling for Tier 4 verified facts
+
+TIER5_STABLE_CHAR_CAP = 28000 * 4   # §6 v1.6 amendment: raised from the 8,000-token default —
+                                     # measured against real vault content (creative advisor:
+                                     # CreativeOrg.md 37,626c + BUILD_PROFILE.md 22,914c alone
+                                     # exceed the old cap before KEYSTONE/persona/style are even
+                                     # added; full creative stable content measures ~22.4K tokens),
+                                     # this was silently truncating required blocks
+                                     # (<organization_structure>, <build_profile>) that were
+                                     # always present, uncapped, pre-migration. §6 marks these
+                                     # "Defaults (tunable in config, versioned)" — tuned here to
+                                     # what the real advisor roster needs plus ~25% headroom;
+                                     # still a hard, enforced, logged ceiling, not unbounded.
+TIER5_VOLATILE_CHAR_CAP = 1000 * 4  # §6: datetime, day-state, system_state, project STATUS deltas
+_ORG_MODEL_ADVISOR = "kai"          # §7: org_model routing context is KAI-only, matches pre-migration behavior
+_ORG_FILE_MAP = {"creative": "CreativeOrg.md", "dev": "DevOrg.md"}
 
 # §4.2/L4 — advisor names are validated against this allowlist before ever
 # being interpolated into a Qdrant collection path. This is the same live
@@ -300,10 +323,359 @@ def _tier4_facts(advisor: str, task_type: str, project: str) -> dict:
     }
 
 
-def assemble(key: dict, message: str, task_type: str = None, project: str = None) -> dict:
-    """§4.1 assemble(). Phase 1-3 scope: Tier 1 (verbatim) + Tier 2 (rolling
-    summary) + Tier 3 (semantic recall) + Tier 4 (verified facts). Tier 5
-    (standing context) is not built yet — omitted from the package, not faked."""
+def _register_block(blocks: list, name: str, text: str, stability: str, warnings: list = None) -> None:
+    """§7 F6 enforcement, ported from persona.py's _register(): a stable block
+    can never be registered after a volatile one — the package builder asserts
+    rather than silently caching a volatile leak above the cache breakpoint."""
+    if not text:
+        return
+    if blocks and blocks[-1][2] == "volatile" and stability == "stable":
+        raise AssertionError(
+            "CONTEXT_SPEC §7/F6 violation: a stable Tier 5 block was registered "
+            "after a volatile one — the cache breakpoint would cache volatile "
+            "content. This is a code bug, not a data problem."
+        )
+    blocks.append((name, text, stability))
+
+
+def _tier5_org_model_context() -> str:
+    """Ported from kai-council-api/load_context.py::load_org_model_context() —
+    KAI-only (§7, matches pre-migration gating). Reads via function_map_read.py
+    (§13 note: mirrors kai-council-api/function_map.py; org_model.json stays
+    the single source of truth, this is a second in-process reader)."""
+    cd = (fm.get_governance("creative_agency") or {}).get("director", "creative")
+    ed = (fm.get_governance("engineering_agency") or {}).get("director", "dev")
+    bt = fm.get_first_receiver_for_bug()
+
+    lines = ["<org_model>"]
+    lines.append("You are the PM and system orchestrator. Leo is the client.")
+    lines.append(f"Creative agency director: {cd} (sign-off required before KAI review)")
+    lines.append(f"Engineering agency director: {ed} (sign-off required before KAI review)")
+    lines.append("DevOps: autonomous on health/maintenance. Escalates structural changes.")
+    lines.append(f"Bug triage: all bugs start at {bt} (KAI internal role — classifies + routes via bug.routing)")
+
+    lines.append("")
+    lines.append("Advisor domain routing — pull in the right advisor when working in their domain:")
+    for entry in fm.list_advisor_domains():
+        kw = ", ".join(entry["keywords"][:5])
+        lines.append(f"  {entry['domain']} -> {entry['advisor']} (triggers: {kw})")
+
+    direct = fm.list_direct_advisors()
+    if direct:
+        lines.append(f"Direct advisors (Leo also talks to them directly): {', '.join(direct)}")
+
+    lines.append("")
+    lines.append("Task routing:")
+    for rtype, rule in fm.list_routing_rules().items():
+        owner = rule.get("owner") or rule.get("pm") or rule.get("first_receiver", "")
+        gate = rule.get("gate", "none")
+        lines.append(f"  {rtype}: owner={owner}, gate={gate}")
+
+    lines.append("</org_model>")
+    return "\n".join(lines)
+
+
+def _tier5_system_state() -> str:
+    """Ported from kai-council-api/load_context.py::load_system_state() —
+    KAI-only. Network failures degrade to '' (logged); this migration folds
+    KAI-466's 'raise on structural failure' into the uniform degrade-and-log
+    philosophy Tier 3/4 already use, so one Tier 5 source failing degrades
+    that block, not the whole assemble() call — visibility is via the
+    `warnings` list returned by tier5_standing_context(), not an exception."""
+    import httpx
+    try:
+        r = httpx.get(f"{WORKER_URL}/system/ops-state", timeout=5)
+        if r.status_code != 200:
+            logger.warning("Tier 5 system_state: worker returned %s — degraded", r.status_code)
+            return ""
+        data = r.json()
+    except Exception as e:
+        logger.warning("Tier 5 system_state: unreachable/failed (%s) — degraded", e)
+        return ""
+
+    lines = ["<system_state>"]
+    failing = data.get("failing_invariants", {})
+    if failing:
+        lines.append(f"FAILING INVARIANTS ({len(failing)}):")
+        for k, detail in failing.items():
+            lines.append(f"  - {k}: {detail}")
+    else:
+        lines.append("All invariants passing.")
+
+    backup = data.get("backup", {})
+    b_status = backup.get("status", "unknown")
+    b_detail = backup.get("detail", "")
+    if b_status == "ok":
+        lines.append(f"Backup: OK — {b_detail}")
+    elif b_status in ("failing", "stale"):
+        lines.append(f"Backup: {b_status.upper()} — {b_detail}")
+        lines.append("  Use run_backup_now to trigger an immediate backup.")
+    else:
+        lines.append(f"Backup: {b_status}")
+
+    if data.get("backup_trigger_pending"):
+        lines.append("Backup: trigger pending — host cron will run within 5min.")
+    lines.append("</system_state>")
+    return "\n".join(lines)
+
+
+def _tier5_session_memory(channel: str, advisor: str, n: int = 2) -> str:
+    """Ported from kai-council-api/load_context.py::load_session_memory() —
+    the last n session-close write-ups for a channel (vault/60_Council/sessions/
+    {channel}/*.md). Distinct from the day-state note below: this is rolling
+    recent-session recall (any date), not today-scoped."""
+    sessions_dir = COUNCIL_PATH / "sessions" / (channel or advisor)
+    if not sessions_dir.exists():
+        return ""
+    all_files = list(sessions_dir.glob("*.md"))
+    if not all_files:
+        return ""
+    recent = sorted(all_files, key=lambda f: f.name)[-n:]
+    parts = [f.read_text(encoding="utf-8") for f in recent]
+    return "\n\n---\n\n".join(parts)
+
+
+def _tier5_day_state() -> str:
+    """§5/§6 Tier 5 — 'today's day-state note'. Leo's daily check-in
+    (intention/energy, vault/00_System/checkin.json) and current location
+    (current_location.json), included only when dated today (America/New_York).
+    Stale entries are omitted, not faked — the same 'below threshold, include
+    nothing' discipline Tier 3/4 already apply (§6 overflow rule), applied here
+    to freshness instead of relevance/verification."""
+    today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    lines = []
+
+    checkin_file = VAULT_PATH / "00_System" / "checkin.json"
+    if checkin_file.exists():
+        try:
+            data = json.loads(checkin_file.read_text())
+            if data.get("date") == today:
+                morning = data.get("morning") or {}
+                intention = morning.get("intention") or data.get("intention") or ""
+                energy = morning.get("energy", data.get("energy"))
+                if intention or energy is not None:
+                    lines.append(
+                        f"Today's check-in — intention: {intention or '(none)'}, "
+                        f"energy: {energy if energy is not None else '(none)'}/5"
+                    )
+        except Exception as e:
+            logger.warning("Tier 5 day-state: checkin.json read failed: %s", e)
+
+    location_file = VAULT_PATH / "00_System" / "current_location.json"
+    if location_file.exists():
+        try:
+            data = json.loads(location_file.read_text())
+            if str(data.get("updated", ""))[:10] == today:
+                lines.append(f"Current location: {data.get('city', '(unknown)')}")
+        except Exception as e:
+            logger.warning("Tier 5 day-state: current_location.json read failed: %s", e)
+
+    if not lines:
+        return ""
+    return "<day_state>\n" + "\n".join(lines) + "\n</day_state>"
+
+
+def _tier5_project_status(project: str) -> str:
+    """§7 item 5 (stable) — project standing context. Inert until a caller
+    passes `project` (same extension-point pattern as Tier 4's project/task_type
+    matching, v1.5 — not wired end-to-end from router.py this increment either).
+    Injects STATUS.md's header section, not the full file (§5: 'headers/deltas
+    where possible, not always-full-files' — headers chosen; delta-tracking
+    against a previously-seen STATUS state is unbuilt infrastructure, left for
+    a future increment rather than faked here)."""
+    if not project:
+        return ""
+    status_file = VAULT_PATH / "20_Projects" / project / "STATUS.md"
+    if not status_file.exists():
+        return ""
+    try:
+        text = status_file.read_text(encoding="utf-8")
+    except Exception as e:
+        logger.warning("Tier 5 project status read failed (project=%s): %s", project, e)
+        return ""
+    header = text.split("\n---\n")[0].strip()
+    if len(header) > 2000:
+        header = header[:2000].rstrip() + "\n…(truncated)"
+    return f'<project_status project="{project}">\n{header}\n</project_status>'
+
+
+def tier5_standing_context(advisor: str, channel: str = None, project: str = None) -> dict:
+    """§5 Tier 5 — standing context: KEYSTONE, day-state note, project STATUS
+    if relevant, persona/org/style (migrated from load_persona, §3 — persona.py
+    ceases to be an assembly point). §7 block order: persona+voice, KEYSTONE+
+    business profile+org model+style guide, project standing context (all
+    stable, cached) — then datetime, system_state, day-state (volatile,
+    uncached). §6: budget-capped (8,000 stable / 1,000 volatile tokens),
+    lowest-priority-block-first eviction on overflow, same pop-from-end
+    mechanic Tier 3/4 already use. High-trust like Tier 4 (curated, not
+    recalled) — provenance is the block's own registration, no <recalled>-style
+    wrapper needed since nothing here is retrieved/untrusted content."""
+    advisor_dir = COUNCIL_PATH / advisor
+    persona_file = advisor_dir / f"{advisor.upper()}.md"
+    if not persona_file.exists():
+        return {"error": f"Persona not found: {advisor}"}
+
+    warnings: list[str] = []
+    blocks: list[tuple[str, str, str]] = []
+
+    # ── STABLE (cached) — §7 items 2-3, 5 ──────────────────────────────────
+    keystone_file = VAULT_PATH / "00_System" / "KEYSTONE.md"
+    bp_file = VAULT_PATH / "00_System" / "business_profile.md"
+    ctx_parts = []
+    if keystone_file.exists():
+        ctx_parts.append(keystone_file.read_text(encoding="utf-8"))
+    if bp_file.exists():
+        ctx_parts.append(bp_file.read_text(encoding="utf-8"))
+    if ctx_parts:
+        combined = "\n\n---\n\n".join(ctx_parts)
+        _register_block(blocks, "background_context",
+                         "<background_context>\n" + combined + "\n</background_context>", "stable")
+
+    _register_block(blocks, "persona", persona_file.read_text(encoding="utf-8"), "stable")
+
+    org_file = _ORG_FILE_MAP.get(advisor)
+    if org_file and (advisor_dir / org_file).exists():
+        _register_block(blocks, "organization_structure",
+                         "<organization_structure>\n" + (advisor_dir / org_file).read_text(encoding="utf-8") +
+                         "\n</organization_structure>", "stable")
+
+    if advisor == _ORG_MODEL_ADVISOR:
+        try:
+            org_model_ctx = _tier5_org_model_context()
+            if org_model_ctx:
+                _register_block(blocks, "org_model", org_model_ctx, "stable")
+            else:
+                warnings.append("org_model_empty: loader returned empty — org_model.json missing")
+        except Exception as e:
+            logger.error("Tier 5: org_model_context raised — degraded: %s", e)
+            warnings.append(f"org_model_load_failed: {e}")
+
+    build_profile_file = advisor_dir / "BUILD_PROFILE.md"
+    if build_profile_file.exists():
+        _register_block(blocks, "build_profile",
+                         "<build_profile>\n" + build_profile_file.read_text(encoding="utf-8") +
+                         "\n</build_profile>", "stable")
+
+    style_guide = COUNCIL_PATH / "JARVIS_STYLE_GUIDE.md"
+    if style_guide.exists():
+        _register_block(blocks, "style_guide", style_guide.read_text(encoding="utf-8"), "stable")
+
+    context_file = advisor_dir / "context.md"
+    if context_file.exists():
+        _register_block(blocks, "context", context_file.read_text(encoding="utf-8"), "stable")
+
+    if channel == "beats-personal" and (advisor_dir / "deep.md").exists():
+        _register_block(blocks, "deep", (advisor_dir / "deep.md").read_text(encoding="utf-8"), "stable")
+
+    if advisor == "ember" and (advisor_dir / "insights.md").exists():
+        insights = (advisor_dir / "insights.md").read_text(encoding="utf-8")
+        if insights.strip():
+            _register_block(blocks, "insights", insights, "stable")
+
+    project_status = _tier5_project_status(project)
+    if project_status:
+        _register_block(blocks, "project_status", project_status, "stable")
+
+    # ── VOLATILE (uncached) — §7 items 6-7, §6 day-state ───────────────────
+    now = datetime.now(ZoneInfo("America/New_York"))
+    date_map_lines = []
+    for i in range(14):
+        d = (now + timedelta(days=i)).date()
+        label = "Today" if i == 0 else ("Tomorrow" if i == 1 else "")
+        suffix = f" ({label})" if label else ""
+        date_map_lines.append(f"  {d.isoformat()} = {d.strftime('%A')}{suffix}")
+    date_ref = "<date_reference>\n"
+    date_ref += f"Today is {now.strftime('%A, %B %d, %Y')}. Use ONLY this table for day names — never calculate:\n"
+    date_ref += "\n".join(date_map_lines)
+    date_ref += "\n</date_reference>"
+    _register_block(blocks, "current_datetime",
+                     f'<current_datetime>{now.strftime("%A, %B %d, %Y at %I:%M %p ET")}</current_datetime>',
+                     "volatile")
+    _register_block(blocks, "date_reference", date_ref, "volatile")
+
+    if advisor == _ORG_MODEL_ADVISOR:
+        try:
+            system_state = _tier5_system_state()
+            if system_state:
+                _register_block(blocks, "system_state", system_state, "volatile")
+            else:
+                warnings.append("system_state_empty: loader returned empty — worker degraded")
+        except Exception as e:
+            logger.error("Tier 5: system_state raised — degraded: %s", e)
+            warnings.append(f"system_state_load_failed: {e}")
+
+    session_memory = _tier5_session_memory(channel, advisor)
+    if session_memory:
+        _register_block(blocks, "session_memory",
+                         "<session_memory>\n" + session_memory + "\n</session_memory>", "volatile")
+
+    day_state = _tier5_day_state()
+    if day_state:
+        _register_block(blocks, "day_state", day_state, "volatile")
+
+    # §6 budget enforcement — stable and volatile capped independently (Tier
+    # interaction rule, §5: budgets are per-tier ceilings, not a shared pool).
+    # No overflow rule is named for Tier 5 in §6 (unlike T1 oldest-first, T3
+    # lowest-score-first, T4 stalest-first); registration order is priority
+    # order (persona/KEYSTONE first, project status last; datetime first,
+    # day-state last), so pop-from-end drops the lowest-priority block first —
+    # same mechanic as T3/T4's eviction loops, applied to Tier 5's own priority
+    # ordering instead of score/staleness.
+    # Truncation notices are kept OUT of `warnings` deliberately: `warnings` is
+    # the KAI-458/466 degraded-mode signal (a source failed to load) that
+    # kai-scheduler's inv_persona_assembly treats as a failure trigger — a
+    # correctly-functioning eviction of a low-priority block (session_memory,
+    # style_guide, ...) is expected §6 overflow behavior, not degradation, and
+    # must not false-alarm the same invariant a real load failure trips.
+    # Still fully visible: truncated_blocks below, and the t5 assembly-log entry.
+    truncated_blocks: list[str] = []
+
+    def _cap(entries: list, cap_chars: int) -> tuple[list, int]:
+        total = sum(len(t) for _, t, _ in entries)
+        dropped = 0
+        entries = list(entries)
+        while entries and total > cap_chars:
+            name, text, _ = entries.pop()
+            total -= len(text)
+            dropped += 1
+            truncated_blocks.append(name)
+        return entries, dropped
+
+    stable_entries = [b for b in blocks if b[2] == "stable"]
+    volatile_entries = [b for b in blocks if b[2] == "volatile"]
+    stable_entries, stable_truncated = _cap(stable_entries, TIER5_STABLE_CHAR_CAP)
+    volatile_entries, volatile_truncated = _cap(volatile_entries, TIER5_VOLATILE_CHAR_CAP)
+
+    stable_text = "\n\n---\n\n".join(t for _, t, _ in stable_entries)
+    volatile_text = "\n\n---\n\n".join(t for _, t, _ in volatile_entries)
+    import hashlib
+    stable_prefix_hash = hashlib.sha256(stable_text.encode("utf-8")).hexdigest()
+
+    return {
+        "stable_text": stable_text,
+        "volatile_text": volatile_text,
+        "blocks": [n for n, _, _ in stable_entries] + [n for n, _, _ in volatile_entries],
+        "tokens_stable": len(stable_text) // 4,
+        "tokens_volatile": len(volatile_text) // 4,
+        "truncated_by_budget": stable_truncated + volatile_truncated,
+        "truncated_blocks": truncated_blocks,
+        "stable_prefix_hash": stable_prefix_hash,
+        "warnings": warnings,
+    }
+
+
+def assemble(key: dict, message: str, task_type: str = None, project: str = None, channel: str = None) -> dict:
+    """§4.1 assemble(). Phase 3 is now architecturally complete: Tier 1
+    (verbatim) + Tier 2 (rolling summary) + Tier 3 (semantic recall) + Tier 4
+    (verified facts) + Tier 5 (standing context). Tier 5 is checked first
+    (persona-not-found is a fast-fail, same as the pre-migration
+    assemble_prompt() contract) — no conversation/DB work happens for an
+    invalid advisor."""
+    advisor = key.get("advisor")
+    tier5 = tier5_standing_context(advisor, channel=channel, project=project)
+    if tier5.get("error"):
+        return {"error": tier5["error"]}
+
     conn = get_conn()
     try:
         cid = _get_or_create_conversation(conn, key)
@@ -342,14 +714,20 @@ def assemble(key: dict, message: str, task_type: str = None, project: str = None
             "t3": {"hits": recall["hits"], "excluded_below_threshold": recall["excluded_below_threshold"],
                    "truncated_by_budget": recall["truncated_by_budget"], "tokens": recall["tokens"]},
             "t4": {"facts": facts["facts"], "excluded_stale": facts["excluded_stale"], "tokens": facts["tokens"]},
+            "t5": {"blocks": tier5["blocks"], "truncated_by_budget": tier5["truncated_by_budget"],
+                   "truncated_blocks": tier5["truncated_blocks"],
+                   "tokens_stable": tier5["tokens_stable"], "tokens_volatile": tier5["tokens_volatile"],
+                   "warnings": tier5["warnings"]},
         }
         threat_scan_log = {
             "scanned_blocks": recall["scanned"] + facts["scanned"],
             "hits": recall["threat_hits"] + facts["threat_hits"],
         }
         budget = {
-            "ceiling": (TIER1_CHAR_CAP + TIER2_CHAR_CAP + TIER3_CHAR_CAP + TIER4_CHAR_CAP) // 4,
-            "used": tiers["t1"]["tokens"] + tiers["t2"]["tokens"] + tiers["t3"]["tokens"] + tiers["t4"]["tokens"],
+            "ceiling": (TIER1_CHAR_CAP + TIER2_CHAR_CAP + TIER3_CHAR_CAP + TIER4_CHAR_CAP
+                        + TIER5_STABLE_CHAR_CAP + TIER5_VOLATILE_CHAR_CAP) // 4,
+            "used": (tiers["t1"]["tokens"] + tiers["t2"]["tokens"] + tiers["t3"]["tokens"] + tiers["t4"]["tokens"]
+                     + tiers["t5"]["tokens_stable"] + tiers["t5"]["tokens_volatile"]),
         }
 
         conn.execute(
@@ -380,6 +758,21 @@ def assemble(key: dict, message: str, task_type: str = None, project: str = None
         else:
             _write_invariant_state("inv_context_scan", True, f"last checked: package {package_id}, 0 hits")
 
+        # inv_context_t5 (§8, new this increment): a Tier 5 source degraded
+        # (org_model/system_state load failure) or the budget dropped a block —
+        # notice with detail, not CRITICAL (persona/voice content itself is
+        # always present — tier5_standing_context() already fast-failed on a
+        # genuinely missing persona before any of this ran).
+        if tier5["warnings"]:
+            _write_invariant_state(
+                "inv_context_t5", False,
+                f"package {package_id} (advisor={key.get('advisor')}): {len(tier5['warnings'])} "
+                f"warning(s) — {'; '.join(tier5['warnings'][:3])}",
+            )
+        else:
+            _write_invariant_state("inv_context_t5", True,
+                                    f"last checked: package {package_id}, {len(tier5['blocks'])} blocks, 0 warnings")
+
         return {
             "package_id": package_id,
             "key": key,
@@ -388,6 +781,9 @@ def assemble(key: dict, message: str, task_type: str = None, project: str = None
             "summary": summary,
             "facts_text": facts["text"],
             "recall_text": recall["text"],
+            "stable_text": tier5["stable_text"],
+            "volatile_text": tier5["volatile_text"],
+            "stable_prefix_hash": tier5["stable_prefix_hash"],
             "budget_report": tiers,
         }
     finally:
