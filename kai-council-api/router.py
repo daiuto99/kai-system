@@ -364,6 +364,19 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
         messages = list(_package["messages"])
         if _package.get("summary"):
             system_prompt += f"\n\n<conversation_summary>\n{_package['summary']}\n</conversation_summary>"
+        # Tier 4 verified facts (CONTEXT_SPEC §5/§10) — placed before Tier 3 recall
+        # so a registry fact reads as authoritative ahead of a conflicting recalled
+        # snippet; facts_text carries its own <trust_rubric> stating that precedence
+        # explicitly (a position convention isn't reliable enough on its own). Per
+        # §7 Tier 4 should sit in the STABLE block (before the cache breakpoint,
+        # since verified facts change rarely) — it is not yet: cache_breakpoint_chars
+        # is computed by assemble_prompt() before this call, so facts_text lands in
+        # the volatile tail like Tier 2/3 today. Known deviation from §7, not a bug:
+        # moving it into the stable prefix needs persona.py's assemble_prompt() to
+        # accept registry facts ahead of the breakpoint calculation — out of scope
+        # for this increment, tracked as Tier 4 cache-shaping follow-on.
+        if _package.get("facts_text"):
+            system_prompt += f"\n\n{_package['facts_text']}"
         # Tier 3 semantic recall (CONTEXT_SPEC §5/§10) — assembled server-side by
         # context_service.assemble(), already relevance-gated, budget-capped, and
         # wrapped in <recalled trust="untrusted"> provenance markers. Replaces the

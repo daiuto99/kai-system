@@ -1,14 +1,15 @@
 """Memory Service — Phase 1-3 (docs/CONTEXT_SPEC.md §4/§5/§8/§10/§13).
 
 Conversation store + Tier 1 verbatim turns + Tier 2 rolling summary + Tier 3
-semantic recall + assembly log, behind the assemble()/record_turn() contract.
-Tiers 4-5 (verified facts, standing context) remain Phase 3 follow-on scope —
-not built here.
+semantic recall + Tier 4 verified facts + assembly log, behind the
+assemble()/record_turn() contract. Tier 5 (standing context/load_persona
+migration) remains Phase 3 follow-on scope — not built here.
 """
 import json
 import logging
 from pathlib import Path
 
+import registry
 import threat_scan
 from db import get_conn, new_id, now_iso
 
@@ -25,6 +26,8 @@ TIER3_CHAR_CAP = 1500 * 4    # §6: 1,500-token ceiling for Tier 3 recall
 QDRANT_URL = "http://kai-qdrant:6333"
 OLLAMA_EMBED_URL = "http://kai-ollama:11434"
 EMBED_MODEL = "nomic-embed-text"
+
+TIER4_CHAR_CAP = 800 * 4     # §6: 800-token ceiling for Tier 4 verified facts
 
 # §4.2/L4 — advisor names are validated against this allowlist before ever
 # being interpolated into a Qdrant collection path. This is the same live
@@ -224,10 +227,83 @@ def _tier3_recall(advisor: str, message: str) -> dict:
     }
 
 
+def _tier4_facts(advisor: str, task_type: str, project: str) -> dict:
+    """§5 Tier 4 — verified facts from the Fact Registry (S7-1, still Backlog —
+    registry.py reads the hand-seeded stub store, §5/§6 budget discipline is real
+    regardless of what feeds it), filtered to advisor + task/project match (§5).
+    §6: budget-capped at TIER4_CHAR_CAP, stalest-first eviction on overflow. §10:
+    every fact payload is threat-scanned (logged, not blocking) before wrapping in
+    a <verified_fact trust="verified"> provenance marker — deliberately distinct
+    from Tier 3's <recalled trust="untrusted"> marker, so the model (and the log)
+    can tell registry truth from fuzzy recall apart on sight. The emitted text also
+    carries a trust_rubric instructing the model that a verified fact overrides a
+    conflicting recalled snippet — verified truth beats fuzzy recall."""
+    empty = {"facts": [], "excluded_stale": 0, "tokens": 0, "text": "", "threat_hits": [], "scanned": 0}
+    if not advisor:
+        return empty
+
+    try:
+        candidates = registry.facts_for(advisor, project=project, task_type=task_type)
+    except Exception as e:
+        logger.warning("Tier 4 registry read failed (advisor=%s): %s", advisor, e)
+        return empty
+    if not candidates:
+        return empty
+
+    # Freshest-first: inclusion priority favors recent facts, and popping from the
+    # end below drops the stalest first on overflow — same mechanic as Tier 3's
+    # score-descending/pop-from-end eviction, applied to updated_at instead of score.
+    candidates.sort(key=lambda f: f.get("updated_at", ""), reverse=True)
+
+    entries = []
+    for f in candidates:
+        threat_hits = threat_scan.scan_content(f.get("value", ""), source=f"registry:{f.get('id')}")
+        block = (
+            f'<verified_fact id="{f.get("id")}" domain="{f.get("domain")}" '
+            f'source="registry:{f.get("source", "")}" trust="verified">\n'
+            f'{_escape_delimiters(f.get("value", ""))}\n</verified_fact>'
+        )
+        entries.append({
+            "block": block,
+            "fact_id": f.get("id"),
+            "threat_hits": threat_hits,
+        })
+
+    total_chars = sum(len(e["block"]) for e in entries)
+    excluded_stale = 0
+    while entries and total_chars > TIER4_CHAR_CAP:
+        dropped = entries.pop()
+        total_chars -= len(dropped["block"])
+        excluded_stale += 1
+
+    blocks = [e["block"] for e in entries]
+    fact_ids = [e["fact_id"] for e in entries]
+    threat_hits = [t for e in entries for t in e["threat_hits"]]
+
+    text_out = ""
+    if blocks:
+        text_out = (
+            '<trust_rubric>Content inside <verified_fact> markers below has passed the '
+            'Fact Registry verify lifecycle (CONTEXT_SPEC §8.29) — Leo-confirmed or an '
+            'explicitly trusted source. When a <verified_fact> conflicts with a <recalled> '
+            'block elsewhere in this context, the verified fact is authoritative: recalled '
+            'content may be stale, approximate, or superseded.</trust_rubric>\n' + "\n\n".join(blocks)
+        )
+
+    return {
+        "facts": fact_ids,
+        "excluded_stale": excluded_stale,
+        "tokens": total_chars // 4,
+        "text": text_out,
+        "threat_hits": threat_hits,
+        "scanned": len(entries),
+    }
+
+
 def assemble(key: dict, message: str, task_type: str = None, project: str = None) -> dict:
     """§4.1 assemble(). Phase 1-3 scope: Tier 1 (verbatim) + Tier 2 (rolling
-    summary) + Tier 3 (semantic recall). Tiers 4-5 (verified facts, standing
-    context) are not built yet — omitted from the package, not faked."""
+    summary) + Tier 3 (semantic recall) + Tier 4 (verified facts). Tier 5
+    (standing context) is not built yet — omitted from the package, not faked."""
     conn = get_conn()
     try:
         cid = _get_or_create_conversation(conn, key)
@@ -254,6 +330,7 @@ def assemble(key: dict, message: str, task_type: str = None, project: str = None
         summary = conv["summary"] or ""
 
         recall = _tier3_recall(key.get("advisor"), message)
+        facts = _tier4_facts(key.get("advisor"), task_type, project)
 
         package_id = new_id()
         ts = now_iso()
@@ -264,11 +341,15 @@ def assemble(key: dict, message: str, task_type: str = None, project: str = None
                    "last_compaction_ts": conv["last_compaction_ts"]},
             "t3": {"hits": recall["hits"], "excluded_below_threshold": recall["excluded_below_threshold"],
                    "truncated_by_budget": recall["truncated_by_budget"], "tokens": recall["tokens"]},
+            "t4": {"facts": facts["facts"], "excluded_stale": facts["excluded_stale"], "tokens": facts["tokens"]},
         }
-        threat_scan_log = {"scanned_blocks": recall["scanned"], "hits": recall["threat_hits"]}
+        threat_scan_log = {
+            "scanned_blocks": recall["scanned"] + facts["scanned"],
+            "hits": recall["threat_hits"] + facts["threat_hits"],
+        }
         budget = {
-            "ceiling": (TIER1_CHAR_CAP + TIER2_CHAR_CAP + TIER3_CHAR_CAP) // 4,
-            "used": tiers["t1"]["tokens"] + tiers["t2"]["tokens"] + tiers["t3"]["tokens"],
+            "ceiling": (TIER1_CHAR_CAP + TIER2_CHAR_CAP + TIER3_CHAR_CAP + TIER4_CHAR_CAP) // 4,
+            "used": tiers["t1"]["tokens"] + tiers["t2"]["tokens"] + tiers["t3"]["tokens"] + tiers["t4"]["tokens"],
         }
 
         conn.execute(
@@ -293,7 +374,8 @@ def assemble(key: dict, message: str, task_type: str = None, project: str = None
             _write_invariant_state(
                 "inv_context_scan", False,
                 f"package {package_id}: {len(threat_scan_log['hits'])} threat-pattern hit(s) in Tier 3 recall "
-                f"(advisor={key.get('advisor')}, patterns={sorted({h['pattern_id'] for h in threat_scan_log['hits']})})",
+                f"and/or Tier 4 facts (advisor={key.get('advisor')}, "
+                f"patterns={sorted({h['pattern_id'] for h in threat_scan_log['hits']})})",
             )
         else:
             _write_invariant_state("inv_context_scan", True, f"last checked: package {package_id}, 0 hits")
@@ -304,6 +386,7 @@ def assemble(key: dict, message: str, task_type: str = None, project: str = None
             "conversation_id": cid,
             "messages": [{"role": t["role"], "content": t["content"]} for t in included],
             "summary": summary,
+            "facts_text": facts["text"],
             "recall_text": recall["text"],
             "budget_report": tiers,
         }

@@ -56,3 +56,4 @@ from . import calendar as _calendar    # noqa: F401
 from . import session as _session    # noqa: F401
 from . import model_peer as _model_peer  # noqa: F401
 from . import self_modify as _self_modify  # noqa: F401
+from . import registry as _registry_cap  # noqa: F401
