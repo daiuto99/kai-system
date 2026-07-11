@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "updated": "2026-07-11",
+  "note": "CONTEXT_SPEC.md §10 promptware defense — single threat-pattern source of truth. Consumed today by context_service.py's Tier 3 load-time scan; intended as the shared registry for future ingest-time scanning (S7-3) and tool-result guards so patterns are never forked per-consumer.",
+  "patterns": [
+    {"id": "ii-01", "category": "instruction_impersonation", "severity": "notice",
+     "pattern": "\\b(ignore|disregard)\\s+(all\\s+|the\\s+)?(previous|prior|above)\\s+instructions\\b"},
+    {"id": "ii-02", "category": "instruction_impersonation", "severity": "notice",
+     "pattern": "\\bnew\\s+instructions\\s*:"},
+    {"id": "ii-03", "category": "instruction_impersonation", "severity": "notice",
+     "pattern": "\\byou\\s+are\\s+now\\b"},
+    {"id": "ii-04", "category": "instruction_impersonation", "severity": "notice",
+     "pattern": "\\bforget\\s+(everything|all)\\s+(above|before)\\b"},
+    {"id": "ii-05", "category": "instruction_impersonation", "severity": "notice",
+     "pattern": "\\boverride\\s+(your|the)\\s+(instructions|system\\s+prompt)\\b"},
+    {"id": "spm-01", "category": "system_prompt_mimicry", "severity": "notice",
+     "pattern": "^\\s*(system|assistant)\\s*:\\s"},
+    {"id": "spm-02", "category": "system_prompt_mimicry", "severity": "notice",
+     "pattern": "\\[\\s*system\\s*\\]"},
+    {"id": "tcs-01", "category": "tool_call_syntax", "severity": "warn",
+     "pattern": "<\\s*(tool_use|invoke|function_calls?|antml:invoke)\\b"},
+    {"id": "df-01", "category": "delimiter_forgery", "severity": "warn",
+     "pattern": "</?\\s*(recalled|system_blocks?|conversation_summary|domain_hint)\\b"}
+  ]
+}

@@ -155,44 +155,6 @@ DIRECTOR_TOOLS = [t for t in KAI_TOOLS if t["name"] == "consult_specialist"]
 
 
 
-def _query_qdrant(query: str, advisor: str, top_k: int = 3) -> str:
-    """Embed query and search advisor Qdrant collection. Returns formatted context or empty string."""
-    try:
-        with httpx.Client(timeout=10) as hc:
-            r = hc.get(f"http://kai-qdrant:6333/collections/{advisor}")
-            if r.status_code != 200:
-                return ""
-            count = r.json().get("result", {}).get("points_count", 0)
-            if not count:
-                return ""
-            er = hc.post("http://kai-ollama:11434/api/embed",
-                json={"model": "nomic-embed-text", "input": query})
-            if er.status_code != 200:
-                return ""
-            vec = er.json().get("embeddings", [[]])[0]
-            if not vec:
-                return ""
-            sr = hc.post(f"http://kai-qdrant:6333/collections/{advisor}/points/search",
-                json={"vector": vec, "limit": top_k, "with_payload": True})
-            if sr.status_code != 200:
-                return ""
-            hits = sr.json().get("result", [])
-            if not hits:
-                return ""
-            parts = []
-            for h in hits:
-                score = h.get("score", 0)
-                if score < 0.5:
-                    continue
-                payload = h.get("payload", {})
-                title = payload.get("title", "")
-                text = payload.get("text", "")
-                parts.append("[" + title + "]\n" + text)
-            return "\n\n---\n\n".join(parts)
-    except Exception as e:
-        logger.warning("_query_qdrant failed: %s", e)
-        return ""
-
 def _handle_auto_capture(message: str, advisor: str) -> dict | None:
     """Returns CouncilResponse dict if auto-captured, else None."""
     _url_pattern = re.compile(r'^https?://\S+$')
@@ -361,9 +323,6 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
 
     system_prompt, _stable_prefix, _stable_prefix_hash = assemble_prompt(advisor, channel)
     _cache_breakpoint_chars = len(_stable_prefix)
-    qdrant_ctx = _query_qdrant(req.message, advisor, top_k=3)
-    if qdrant_ctx:
-        system_prompt += f"\n\n<knowledge_context>\n{qdrant_ctx}\n</knowledge_context>"
 
     # KAI is PM; when she receives a message, classify the domain via the
     # function map and surface the matched advisor as a hint. KAI decides
@@ -405,6 +364,14 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
         messages = list(_package["messages"])
         if _package.get("summary"):
             system_prompt += f"\n\n<conversation_summary>\n{_package['summary']}\n</conversation_summary>"
+        # Tier 3 semantic recall (CONTEXT_SPEC §5/§10) — assembled server-side by
+        # context_service.assemble(), already relevance-gated, budget-capped, and
+        # wrapped in <recalled trust="untrusted"> provenance markers. Replaces the
+        # prior ad-hoc _query_qdrant()/<knowledge_context> path, which bypassed the
+        # assembly log and had no provenance marking (L7 — one path through the
+        # Memory Service interface, not two).
+        if _package.get("recall_text"):
+            system_prompt += f"\n\n{_package['recall_text']}"
     except Exception as e:
         logger.exception("context.assemble failed — falling back to empty context: %s", e)
         messages = []

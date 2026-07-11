@@ -166,6 +166,8 @@ def init_db():
         ("cache_breakpoint_after", "INTEGER"),
         ("cache_read_tokens",      "INTEGER DEFAULT 0"),
         ("cache_creation_tokens",  "INTEGER DEFAULT 0"),
+        # CONTEXT_SPEC §8/§10 Phase 3 — promptware-defense scan record per package.
+        ("threat_scan",            "TEXT"),
     ]:
         if col not in existing_al:
             conn.execute(f"ALTER TABLE assembly_log ADD COLUMN {col} {col_def}")
