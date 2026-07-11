@@ -24,10 +24,42 @@ def _req(path):
     with ur.urlopen(r, timeout=10) as resp:
         return json.loads(resp.read())
 
+PARKED_LABEL = "parked-post-gate"
+
+def _req_paged(path):
+    """Fetch ALL results for a Plane list endpoint by following the cursor.
+
+    BUG-22 fix: a single per_page=100 call silently truncated projects with
+    >100 issues (KAI holds 700+), so this route reported a capped slice as the
+    full board. Loops until Plane signals no more pages.
+    """
+    out, cursor, guard = [], None, 0
+    sep = "&" if "?" in path else "?"
+    while True:
+        d = _req(path + sep + "per_page=100" + (f"&cursor={cursor}" if cursor else ""))
+        if isinstance(d, dict) and "results" in d:
+            out += d["results"]
+            if d.get("next_page_results") and d.get("next_cursor"):
+                cursor = d["next_cursor"]; guard += 1
+                if guard > 50:
+                    logger.warning(f"_req_paged({path}) hit 50-page guard — possible truncation")
+                    break
+                continue
+            break
+        out += d if isinstance(d, list) else []
+        break
+    return out
+
+def _parked_label_ids(pid):
+    raw = _req(f"projects/{pid}/labels/?per_page=100")
+    labels = raw.get("results", raw) if isinstance(raw, dict) else raw
+    return {l["id"] for l in labels if l.get("name") == PARKED_LABEL}
+
 @router.get("/plane/issues")
 def get_plane_issues(
     include_done: bool = Query(False, description="Include completed/cancelled issues"),
     project_id: Optional[str] = Query(None, description="Filter to specific project UUID"),
+    include_parked: bool = Query(False, description="Include issues labeled parked-post-gate (default: exclude — the working board)"),
 ):
     """Return Plane issues across all projects.
 
@@ -35,6 +67,12 @@ def get_plane_issues(
     State filtering is done client-side using the states list for each project.
     By default, only open issues (not completed/cancelled) are returned.
     Set include_done=true to include done/cancelled issues as well.
+
+    Recovery Plan (2026-07-11) step 3: issues labeled `parked-post-gate` are open
+    but OUT of the working view. They are excluded by default so this route (and
+    the NEXT-UP derivation that reads it) shows the ~12 ON-PATH working board,
+    not the raw 200+. Set include_parked=true to see them. `parked_excluded`
+    reports how many were hidden per project so the shrink is honest, not silent.
     """
     try:
         projects_raw = _req("projects/")
@@ -47,15 +85,21 @@ def get_plane_issues(
             state_map_raw = _req(f"projects/{p['id']}/states/?per_page=50")
             states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
             state_map = {s["id"]: s for s in states}
-            # Issues — server-side state filter is broken; fetch all and filter client-side
-            issues_raw = _req(f"projects/{p['id']}/issues/?per_page=100")
-            issues = issues_raw.get("results", issues_raw) if isinstance(issues_raw, dict) else issues_raw
+            parked_label_ids = set() if include_parked else _parked_label_ids(p["id"])
+            # Issues — server-side state filter is broken; fetch ALL (paginated) and filter client-side
+            issues = _req_paged(f"projects/{p['id']}/issues/")
             matched = []
+            parked_excluded = 0
             for i in issues:
                 s = state_map.get(i.get("state", ""), {})
                 is_closed = s.get("group") in ("completed", "cancelled")
                 if is_closed and not include_done:
                     continue
+                if parked_label_ids:
+                    ilabels = {(l if isinstance(l, str) else l.get("id")) for l in (i.get("labels") or [])}
+                    if parked_label_ids & ilabels:
+                        parked_excluded += 1
+                        continue
                 matched.append({
                     "id": i["id"],
                     "name": i["name"],
@@ -64,12 +108,13 @@ def get_plane_issues(
                     "priority": i.get("priority", "none"),
                     "created_at": i.get("created_at", ""),
                 })
-            if matched:
+            if matched or parked_excluded:
                 out.append({
                     "id": p["id"],
                     "name": p["name"],
                     "identifier": p["identifier"],
                     "issues": matched,
+                    "parked_excluded": parked_excluded,
                 })
         return {"projects": out}
     except Exception as e:

@@ -163,7 +163,10 @@ def session_brief():
                 "timestamp": wm.get("timestamp", ""),
                 "stale": wb_stale,
                 "containers_down": wm.get("containers_down", []),
+                # plane_open_issues = the WORKING board (open AND NOT parked-post-gate).
+                # plane_parked = open issues hidden by the recovery-plan board shrink.
                 "plane_open_issues": wm.get("plane", {}).get("open_issues", None),
+                "plane_parked": wm.get("plane", {}).get("parked", None),
                 "reconciliation": wm.get("reconciliation", "unknown"),
                 "overall": wm.get("overall", "unknown"),
             }

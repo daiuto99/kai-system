@@ -34,9 +34,49 @@ def get_projects():
     return d.get("results", d) if isinstance(d, dict) else d
 
 
+PARKED_LABEL = "parked-post-gate"
+
+
 def get_issues(pid):
-    d = req("GET", f"projects/{pid}/issues/?per_page=100")
-    return d.get("results", d) if isinstance(d, dict) else d
+    """Fetch ALL issues for a project, paginating the Plane cursor.
+
+    BUG-22 fix: the prior single `per_page=100` call silently truncated any
+    project with >100 issues (KAI holds 700+), so open-issue counts and NEXT
+    derivation were computed over a capped slice and reported as complete
+    (Pattern 1 — success/completeness claimed without verification). This loops
+    the cursor until Plane reports no more pages.
+    """
+    out, cursor, guard = [], None, 0
+    while True:
+        path = f"projects/{pid}/issues/?per_page=100"
+        if cursor:
+            path += f"&cursor={cursor}"
+        d = req("GET", path)
+        if isinstance(d, dict) and "results" in d:
+            out += d["results"]
+            if d.get("next_page_results") and d.get("next_cursor"):
+                cursor = d["next_cursor"]
+                guard += 1
+                if guard > 50:  # safety cap: 50 pages * 100 = 5000 issues
+                    print(f"[WARN] get_issues({pid}) hit 50-page guard — possible truncation")
+                    break
+                continue
+            break
+        out += d if isinstance(d, list) else []
+        break
+    return out
+
+
+def get_parked_label_ids(pid):
+    """Return the set of label UUIDs named `parked-post-gate` for a project.
+    Empty set if the label was never created in that project."""
+    d = req("GET", f"projects/{pid}/labels/")
+    labels = d.get("results", d) if isinstance(d, dict) else d
+    return {l["id"] for l in labels if l.get("name") == PARKED_LABEL}
+
+
+def _label_ids(issue):
+    return {(l if isinstance(l, str) else l.get("id")) for l in (issue.get("labels") or [])}
 
 
 def get_state_map(pid):
@@ -272,7 +312,8 @@ def warmboot():
     try:
         projects = get_projects()
         print(f"\n=== KAI FACTORY WARMBOOT — {WS} | {len(projects)} projects ===")
-        total_open = 0
+        total_open = 0          # working board: open AND NOT parked-post-gate
+        total_parked = 0        # open AND parked-post-gate (recovery-plan step 3)
         by_project = []
         sprint_candidates = []  # (num, name, state_name, state_group, priority, project_identifier, issue_id)
         import re as _re
@@ -281,10 +322,17 @@ def warmboot():
         for p in projects:
             state_map = get_state_map(p["id"])
             completed_groups = {"completed", "cancelled"}
+            parked_ids = get_parked_label_ids(p["id"])
             issues = get_issues(p["id"])
-            open_issues = [i for i in issues if state_map.get(i.get("state", ""), {}).get("group") not in completed_groups]
+            open_all = [i for i in issues if state_map.get(i.get("state", ""), {}).get("group") not in completed_groups]
+            # Recovery Plan (2026-07-11) step 3: parked-post-gate issues are open
+            # but OUT of the working view. The brief/NEXT reads must exclude them,
+            # else the shrink is a label nothing reads.
+            open_issues = [i for i in open_all if not (parked_ids & _label_ids(i))]
+            parked_issues = [i for i in open_all if parked_ids & _label_ids(i)]
             if open_issues:
-                print(f"\n[{p['identifier']}] {p['name']} — {len(open_issues)} open")
+                print(f"\n[{p['identifier']}] {p['name']} — {len(open_issues)} open"
+                      + (f" ({len(parked_issues)} parked, hidden)" if parked_issues else ""))
                 for i in open_issues:
                     s = state_map.get(i.get("state", ""), {})
                     state_name = s.get("name", "?")
@@ -302,11 +350,18 @@ def warmboot():
                             p["identifier"],
                             i["id"],
                         ))
+            elif parked_issues:
+                print(f"\n[{p['identifier']}] {p['name']} — 0 open ({len(parked_issues)} parked, hidden)")
             total_open += len(open_issues)
-            by_project.append({"identifier": p["identifier"], "name": p["name"], "open": len(open_issues)})
+            total_parked += len(parked_issues)
+            by_project.append({"identifier": p["identifier"], "name": p["name"],
+                               "open": len(open_issues), "parked": len(parked_issues)})
         print("\n=================================================")
+        print(f"WORKING BOARD: {total_open} open · {total_parked} parked (hidden) · {total_open + total_parked} total open")
         wb["plane"]["projects"] = len(projects)
         wb["plane"]["open_issues"] = total_open
+        wb["plane"]["parked"] = total_parked
+        wb["plane"]["open_including_parked"] = total_open + total_parked
         wb["plane"]["by_project"] = by_project
         # Authoritative next-sprint derivation. Lowest-numbered [SPRINT] ticket in
         # backlog/unstarted state. Brief reads this from the warmboot manifest as
