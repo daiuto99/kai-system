@@ -5,7 +5,7 @@ import os
 from datetime import datetime as _dt2, date as _d2, timedelta as _td2
 from pathlib import Path
 import httpx
-from council_config import WORKER_URL, VAULT_PATH, ADVISOR_AVATARS, _slack_token
+from council_config import WORKER_URL, VAULT_PATH, ADVISOR_AVATARS, _slack_token, _worker_auth
 from knowledge_layer import _write_session_summary, _write_decision, _log_mission_deliverable
 from usage_tracker import track_api_call
 import function_map as fm
@@ -1526,7 +1526,12 @@ def execute_tool(tool_name: str, tool_input: dict, advisor: str = "kai") -> dict
     if not handler:
         return {"error": f"Unknown tool: {tool_name}"}
     try:
-        with httpx.Client(timeout=15) as client:
+        # Bug 48f85706/aec2d486: this shared client makes every council→worker
+        # tool call; the worker authenticates all routes. Attach the worker
+        # credential here so all worker-backed tools inherit it. The client is
+        # also used for kai-orchestrator calls (no auth middleware) which simply
+        # ignore the header — same internal trust domain.
+        with httpx.Client(timeout=15, auth=_worker_auth()) as client:
             return handler(client, tool_name, tool_input, advisor)
     except Exception as e:
         logger.exception("execute_tool %s: %s", tool_name, e)

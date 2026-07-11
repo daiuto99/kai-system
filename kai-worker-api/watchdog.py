@@ -12,6 +12,22 @@ WORKER_API  = "http://kai-worker-api:8001"
 COUNCIL_API = "http://kai-council-api:8002"
 OLLAMA_API  = "http://kai-ollama:11434"
 
+
+def _worker_auth():
+    """Basic-auth tuple for the worker's own self-checks (Bug 48f85706). Reads
+    the same credential the BasicAuthMiddleware validates against."""
+    for p in ("/run/secrets/kai_worker_auth", "/home/leo/kai-system/secrets/kai_worker_auth.txt"):
+        try:
+            raw = Path(p).read_text().strip()
+        except Exception:
+            continue
+        if ":" in raw:
+            u, pw = raw.split(":", 1)
+            return (u, pw)
+    log.warning("worker_auth: no kai_worker_auth credential found — self-check calls will 401")
+    return None
+
+
 # Alert dedup — store last alert time per check key
 _last_alert: dict = {}
 ALERT_INTERVAL_HOURS = 2  # re-alert if still failing after 2h
@@ -143,7 +159,7 @@ def check_todoist() -> tuple[bool, str]:
 def check_google_calendar() -> tuple[bool, str]:
     """Check calendar via worker API — if worker returns events or empty list it's healthy."""
     try:
-        r = httpx.get(f"{WORKER_API}/calendar/ics?days=1", timeout=10)
+        r = httpx.get(f"{WORKER_API}/calendar/ics?days=1", timeout=10, auth=_worker_auth())
         if r.status_code == 200:
             return True, "ok"
         return False, f"HTTP {r.status_code}"

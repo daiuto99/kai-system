@@ -50,6 +50,18 @@ def load_secret(name: str) -> str:
     return os.environ.get(name.upper(), "")
 
 
+def _worker_auth():
+    """Basic-auth tuple for internal calls to kai-worker-api (Bug 48f85706).
+    The worker authenticates every route; the credential is a mounted docker
+    secret. Returns None if unavailable — the call then 401s and is logged."""
+    raw = load_secret("kai_worker_auth")
+    if raw and ":" in raw:
+        u, pw = raw.split(":", 1)
+        return (u, pw)
+    log.warning("worker_auth: no kai_worker_auth credential mounted — worker calls will 401")
+    return None
+
+
 bot_token = load_secret("slack_bot_token")
 app_token = load_secret("slack_app_token")
 signing_secret = load_secret("slack_signing_secret")
@@ -134,6 +146,7 @@ def _forward_mode_lock_action(ack, body, logger):
             f"{WORKER_API}/mode_lock/slack_action_internal",
             json={"payload": body},
             timeout=10,
+            auth=_worker_auth(),
         )
         logger.info(f"mode_lock forward: {r.status_code} {r.text[:200]}")
     except Exception as e:
@@ -180,6 +193,7 @@ def handle_reaction(event, say):
             f"{WORKER_API}/t2/respond",
             json={"action_id": action_id, "approved": approved, "user_id": event.get("user")},
             timeout=15.0,
+            auth=_worker_auth(),
         )
         log.info(f"T2 {'approved' if approved else 'rejected'}: {action_id} → {r.status_code}")
         if approved and r.status_code == 200:
@@ -251,18 +265,20 @@ def handle_message(event, say):
                         f"{WORKER_API}/intake/scan",
                         json={"advisor": "creative", "channel_id": channel_id},
                         timeout=15,
+                        auth=_worker_auth(),
                     )
                 except Exception as e:
                     log.error(f"intake scan: {e}")
                 return
             # Route to active intake if one is running
             try:
-                r = httpx.get(f"{WORKER_API}/intake/active/creative", timeout=5)
+                r = httpx.get(f"{WORKER_API}/intake/active/creative", timeout=5, auth=_worker_auth())
                 if r.json().get("active"):
                     httpx.post(
                         f"{WORKER_API}/intake/reply/creative",
                         json={"text": text, "channel_id": channel_id},
                         timeout=30,
+                        auth=_worker_auth(),
                     )
                     return
             except Exception as e:

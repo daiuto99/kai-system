@@ -46,6 +46,7 @@ services:
       - telegram_bot_token
       - slack_signing_secret
       - oura_token
+      - kai_worker_auth
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
@@ -79,6 +80,7 @@ services:
       - oura_token
       - plane_api_token
       - cloudways_ssh_key
+      - kai_worker_auth
     depends_on:
       kai-worker-api:
         condition: service_healthy
@@ -101,6 +103,7 @@ services:
       - slack_app_token_sky
       - slack_bot_token_roads
       - slack_app_token_roads
+      - kai_worker_auth
     depends_on:
       kai-council-api:
         condition: service_healthy
@@ -220,6 +223,8 @@ services:
     build: ./kai-mcp-api
     container_name: kai-mcp-api
     restart: unless-stopped
+    secrets:
+      - kai_worker_auth
     depends_on:
       kai-worker-api:
         condition: service_healthy
@@ -260,6 +265,7 @@ services:
       - plane_api_token
       - litellm_master_key
       - healthchecks_url
+      - kai_worker_auth
     depends_on:
       docker-socket-proxy:
         condition: service_healthy
@@ -341,6 +347,7 @@ services:
       - "host.docker.internal:host-gateway"
     secrets:
       - cloudways_ssh_key
+      - kai_worker_auth
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
       interval: 30s
@@ -403,3 +410,5 @@ secrets:
     file: ./secrets/healthchecks_url.txt
   kai_web_password:
     file: ./secrets/kai_web_password.txt
+  kai_worker_auth:
+    file: ./secrets/kai_worker_auth.txt

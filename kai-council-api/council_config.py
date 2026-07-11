@@ -10,6 +10,31 @@ COUNCIL_PATH = VAULT_PATH / "60_Council"
 WORKER_URL = "http://kai-worker-api:8001"
 ORCHESTRATOR_URL = "http://kai-orchestrator:8003"
 
+
+def _worker_auth() -> tuple[str, str] | None:
+    """Basic-auth credential for internal calls to kai-worker-api.
+
+    Bug 48f85706 / aec2d486: the worker's BasicAuthMiddleware authenticates
+    every route (bar /health + webhooks). Internal callers attach the worker
+    credential they already hold as a Docker secret rather than relying on a
+    network-origin bypass or a growing exempt list. Reads /run/secrets first
+    (uniform docker-secret path), then the bind-mounted secrets dir fallbacks.
+    """
+    for p in (
+        "/run/secrets/kai_worker_auth",
+        "/run/wp_secrets/kai_worker_auth.txt",
+        "/home/leo/kai-system/secrets/kai_worker_auth.txt",
+    ):
+        try:
+            raw = Path(p).read_text().strip()
+        except Exception:
+            continue
+        if ":" in raw:
+            user, pw = raw.split(":", 1)
+            return (user, pw)
+    logger.warning("worker_auth: no kai_worker_auth credential found — internal worker calls will 401")
+    return None
+
 # Channel-name → advisor routing. Slim post-Slack-Sprint: only channels/DMs
 # that still exist in the workspace. Scheduler check-ins still address the
 # `council-*` aliases (resolved to KAI), so those stay.

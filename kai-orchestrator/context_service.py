@@ -23,6 +23,27 @@ VAULT_PATH = Path("/vault")
 COUNCIL_PATH = VAULT_PATH / "60_Council"
 WORKER_URL = "http://kai-worker-api:8001"
 
+
+def _worker_auth() -> tuple[str, str] | None:
+    """Basic-auth credential for internal calls to kai-worker-api (Bug
+    aec2d486/48f85706). The worker authenticates every route; callers attach
+    the worker credential they hold as a mounted secret. This is the fix for
+    Tier 5 system_state 401 — see _tier5_system_state()."""
+    for p in (
+        "/run/secrets/kai_worker_auth",
+        "/run/wp_secrets/kai_worker_auth.txt",
+        "/home/leo/kai-system/secrets/kai_worker_auth.txt",
+    ):
+        try:
+            raw = Path(p).read_text().strip()
+        except Exception:
+            continue
+        if ":" in raw:
+            user, pw = raw.split(":", 1)
+            return (user, pw)
+    logger.warning("worker_auth: no kai_worker_auth credential found — worker calls will 401")
+    return None
+
 TIER1_MAX_TURNS = 10
 TIER1_CHAR_CAP = 3000 * 4    # §6: 3,000-token ceiling, char/4 estimate (real tokenizer is §15 open Q2)
 TIER2_CHAR_CAP = 400 * 4     # §6: 400-token ceiling for the rolling summary
@@ -384,7 +405,7 @@ def _tier5_system_state() -> str:
     `warnings` list returned by tier5_standing_context(), not an exception."""
     import httpx
     try:
-        r = httpx.get(f"{WORKER_URL}/system/ops-state", timeout=5)
+        r = httpx.get(f"{WORKER_URL}/system/ops-state", timeout=5, auth=_worker_auth())
         if r.status_code != 200:
             logger.warning("Tier 5 system_state: worker returned %s — degraded", r.status_code)
             return ""

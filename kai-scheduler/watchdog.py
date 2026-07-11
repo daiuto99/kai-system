@@ -7,6 +7,8 @@ from pathlib import Path
 import httpx
 import time
 
+from worker_auth import worker_auth
+
 log = logging.getLogger(__name__)
 
 WORKER_API  = "http://kai-worker-api:8001"
@@ -269,7 +271,7 @@ def check_todoist() -> tuple[bool, str]:
 def check_google_calendar() -> tuple[bool, str]:
     """Check calendar via worker API — if worker returns events or empty list it's healthy."""
     try:
-        r = httpx.get(f"{WORKER_API}/calendar/ics?days=1", timeout=10)
+        r = httpx.get(f"{WORKER_API}/calendar/ics?days=1", timeout=10, auth=worker_auth())
         if r.status_code == 200:
             return True, "ok"
         return False, f"HTTP {r.status_code}"

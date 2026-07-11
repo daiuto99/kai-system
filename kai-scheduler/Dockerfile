@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir uv
 COPY requirements.txt .
 RUN uv pip install --system --no-cache -r requirements.txt
 
+COPY worker_auth.py .
 COPY scheduler.py .
 COPY watchdog.py .
 COPY security_watchdog.py .

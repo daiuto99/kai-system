@@ -18,6 +18,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import httpx
 
+from worker_auth import worker_auth
+
 log = logging.getLogger(__name__)
 
 VAULT_PATH       = Path("/vault")
@@ -451,6 +453,45 @@ def inv_ledger_pointer_consistent() -> tuple[bool, str]:
     return True, f"ok — action set ({action[:60]})"
 
 
+def inv_internal_worker_auth() -> tuple[bool, str]:
+    """Recovery-Plan Step 1 (Bug 48f85706/aec2d486) — regression guard for the
+    internal-auth class fix. Two conditions must both hold, so the board goes
+    RED if EITHER the worker stops enforcing auth OR the credential path breaks:
+
+      (1) An unauthenticated internal call to a protected worker route returns
+          401 — proves the fix was NOT a network-origin bypass / auth disable
+          (the failure mode BUG-18 warns about).
+      (2) The same route with the mounted worker credential returns 200 —
+          proves callers can still authenticate (credential is present and the
+          worker accepts it), i.e. internal service-to-service calls work.
+
+    'Fixed' means 'can't silently un-fix': if a future change disables the
+    middleware, this fails on (1); if the credential mount is lost, (2).
+    """
+    url = f"{WORKER_API}/system/ops-state"
+    try:
+        r_noauth = httpx.get(url, timeout=5)
+    except Exception as e:
+        return False, f"worker unreachable (no-auth probe): {type(e).__name__}: {e}"
+    if r_noauth.status_code != 401:
+        return False, (
+            f"SECURITY: unauthenticated {url} returned HTTP {r_noauth.status_code}, "
+            f"expected 401 — worker auth is NOT enforced (origin bypass / middleware off?)"
+        )
+
+    auth = worker_auth()
+    if auth is None:
+        return False, "kai_worker_auth credential not mounted in scheduler — internal callers cannot authenticate"
+    try:
+        r_auth = httpx.get(url, timeout=5, auth=auth)
+    except Exception as e:
+        return False, f"worker unreachable (auth probe): {type(e).__name__}: {e}"
+    if r_auth.status_code != 200:
+        return False, f"authenticated {url} returned HTTP {r_auth.status_code}, expected 200 — credential rejected"
+
+    return True, "ok — worker enforces auth (401 unauth) and accepts the mounted credential (200)"
+
+
 def inv_secret_files_permissions() -> tuple[bool, str]:
     """S5-3 — all Docker secrets files must have mode 600 (not world/group-readable)."""
     secrets_dir = Path("/run/secrets")
@@ -835,6 +876,7 @@ INVARIANTS = [
     # S5-2 batch 1: first six (S5-2 + S5-1)
     ("ledger_pointer_consistent",     "Ledger Pointer Consistent", inv_ledger_pointer_consistent),
     ("secret_files_permissions",      "Secret Files Permissions",  inv_secret_files_permissions),
+    ("internal_worker_auth",          "Internal Worker Auth",      inv_internal_worker_auth),
     ("no_wp_password_in_vault_json",  "No Password in Vault JSON", inv_no_wp_password_in_vault_json),
     ("capability_transports_healthy", "Capability Transports",     inv_capability_transports_healthy),
     ("vault_backup_skip_manifest",    "Backup Skip Manifest",      inv_vault_backup_skip_manifest),

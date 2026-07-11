@@ -4,6 +4,7 @@ Tools: calendar, tasks, vault_read, knowledge_sessions.
 Routes to kai-worker-api (http://kai-worker-api:8001) internally.
 """
 import logging
+from pathlib import Path
 from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -13,6 +14,22 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [mcp] %(message)s")
 log = logging.getLogger(__name__)
 
 WORKER_URL = "http://kai-worker-api:8001"
+
+
+def _worker_auth():
+    """Basic-auth tuple for internal calls to kai-worker-api (Bug 48f85706).
+    The worker authenticates every route; the credential is a mounted docker
+    secret. Returns None if unavailable — the call then 401s."""
+    for p in ("/run/secrets/kai_worker_auth", "/run/wp_secrets/kai_worker_auth.txt"):
+        try:
+            raw = Path(p).read_text().strip()
+        except Exception:
+            continue
+        if ":" in raw:
+            u, pw = raw.split(":", 1)
+            return (u, pw)
+    log.warning("worker_auth: no kai_worker_auth credential mounted — worker calls will 401")
+    return None
 app = FastAPI(title="KAI MCP Server", version="1.0.0")
 
 # ── Tool definitions ────────────────────────────────────────────────────────
@@ -74,7 +91,9 @@ TOOLS = [
 # ── Tool handlers ────────────────────────────────────────────────────────────
 
 async def _call_worker(client: httpx.AsyncClient, path: str, params: dict = None) -> Any:
-    r = await client.get(f"{WORKER_URL}{path}", params=params, timeout=15)
+    # Bug 48f85706: worker authenticates every route. Auth is attached at this
+    # single choke point through which all mcp→worker GETs flow.
+    r = await client.get(f"{WORKER_URL}{path}", params=params, timeout=15, auth=_worker_auth())
     r.raise_for_status()
     return r.json()
 

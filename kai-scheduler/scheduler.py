@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 import httpx
 import concurrent.futures
+from worker_auth import worker_auth
 from watchdog import run_watchdog_checks
 from security_watchdog import run_security_checks
 from invariants import run_invariants
@@ -224,7 +225,7 @@ def telegram_poll_loop():
 
 def check_worker_health():
     try:
-        r = httpx.get(f"{WORKER_API}/system/health", timeout=10)
+        r = httpx.get(f"{WORKER_API}/system/health", timeout=10, auth=worker_auth())
         if r.status_code != 200:
             return
         data = r.json()
@@ -333,6 +334,7 @@ def send_checkin(checkin_type: str):
             f"{WORKER_API}/checkin/send",
             json={"checkin_type": checkin_type, "channel": "devops"},
             timeout=20,
+            auth=worker_auth(),
         )
         result = r.json() if r.status_code == 200 else {}
         if result.get("ok"):
@@ -498,7 +500,7 @@ def main():
 
     def _inbox_job():
         try:
-            with httpx.Client(timeout=15) as hc:
+            with httpx.Client(timeout=15, auth=worker_auth()) as hc:
                 hc.post(f"{WORKER_API}/inbox/scan")
             reg_record("inbox_scan", "ok")
         except Exception as e:
@@ -521,7 +523,7 @@ def main():
 
     def _sprint_a_expire_job():
         try:
-            with httpx.Client(timeout=15) as hc:
+            with httpx.Client(timeout=15, auth=worker_auth()) as hc:
                 r = hc.post(
                     f"{WORKER_API}/sprint-a/expire-stale",
                     json={"expiry_hours": 24, "notify_channel": "#devops"},

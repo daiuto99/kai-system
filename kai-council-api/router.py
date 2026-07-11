@@ -4,7 +4,7 @@ import re
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 import httpx
-from council_config import ADVISOR_CHANNELS, WORKER_URL, ORCHESTRATOR_URL, _track_usage, _check_rate_limit
+from council_config import ADVISOR_CHANNELS, WORKER_URL, ORCHESTRATOR_URL, _track_usage, _check_rate_limit, _worker_auth
 from complexity import _classify_complexity, _get_advisor_config
 from persona import load_persona
 import function_map as fm
@@ -171,7 +171,8 @@ def _handle_auto_capture(message: str, advisor: str) -> dict | None:
             httpx.post(
                 f"{WORKER_URL}/parking-lot/quick",
                 json={"text": _msg_stripped},
-                timeout=10
+                timeout=10,
+                auth=_worker_auth(),  # Bug 48f85706: worker authenticates all routes
             )
             _track_usage(advisor, 0, 0, "anthropic", "auto-capture",
                          trigger_source="council:auto_capture")
