@@ -28,6 +28,7 @@ from pathlib import Path
 
 import httpx
 
+from context_service import _worker_auth
 from models import CapabilityResult
 from . import capability
 
@@ -515,7 +516,8 @@ def update_plane(plane_ticket_id: str, commit_sha: str | None = None,
     try:
         with httpx.Client(timeout=15) as client:
             g = client.get(f"{_WORKER_API_URL}/plane/issues",
-                           params={"limit": 500})
+                           params={"limit": 500},
+                           auth=_worker_auth())
     except httpx.RequestError as e:
         return CapabilityResult(
             ok=False, status="failed_recoverable",
@@ -558,6 +560,7 @@ def update_plane(plane_ticket_id: str, commit_sha: str | None = None,
             p = client.patch(
                 f"{_WORKER_API_URL}/plane/issues/{plane_ticket_id}",
                 json=payload,
+                auth=_worker_auth(),
             )
     except httpx.RequestError as e:
         return CapabilityResult(

@@ -1,6 +1,7 @@
 """calendar.get_events, calendar.create_event capabilities — via worker-api."""
 import httpx
 
+from context_service import _worker_auth
 from models import CapabilityResult
 from . import capability
 
@@ -15,6 +16,7 @@ def get_events(days: int = 7, **_) -> CapabilityResult:
             f"{_WORKER_BASE}/calendar/events",
             params={"days": days},
             timeout=15.0,
+            auth=_worker_auth(),
         )
         if r.status_code != 200:
             return CapabilityResult(ok=False, status="failed_recoverable",
@@ -51,6 +53,7 @@ def create_event(title: str, start: str, end: str,
             f"{_WORKER_BASE}/calendar/events",
             json=payload,
             timeout=15.0,
+            auth=_worker_auth(),
         )
         if r.status_code not in (200, 201):
             return CapabilityResult(ok=False, status="failed_recoverable",

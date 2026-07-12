@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 import httpx as _slhx
 from safe_http import safe_json
+from watchdog import _worker_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -192,6 +193,7 @@ def _handle_checkin_reply(thread_ts: str, channel_id: str, text: str):
             json={"checkin_type": matched_type, "text": text,
                   "thread_ts": thread_ts, "channel_id": channel_id},
             timeout=15,
+            auth=_worker_auth(),
         )
         logger.info("slack_events: checkin-reply result: %s", safe_json(r))
     except Exception as e:

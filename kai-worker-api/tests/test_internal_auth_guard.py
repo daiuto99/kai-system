@@ -1,5 +1,8 @@
 """Regression guard for the internal-auth class fix (Bug 48f85706 / aec2d486,
-Recovery-Plan Step 1).
+Recovery-Plan Step 1). Rewritten 2026-07-11 after independent review
+(docs/reviews/internal-auth-codex-review.md, finding F3) found the original
+guard evadable in five distinct ways. Every fix below cites the finding it
+closes.
 
 kai-worker-api authenticates every route (bar /health + webhooks). Every
 internal service-to-service call to the worker MUST carry the worker
@@ -8,6 +11,17 @@ regresses to sending no credential — "fixed" must mean "can't silently
 un-fix." It complements the runtime invariant `inv_internal_worker_auth`
 (kai-scheduler/invariants.py), which proves enforcement end-to-end at runtime.
 
+What this guard can and cannot see (stated explicitly, not silently):
+  * Scans every directory under kai-system root containing *.py files
+    (discovered dynamically — F3 bullet 1: no more fixed 6-dir allowlist that
+    misses future service directories).
+  * Cannot parse nginx.conf (kai-web's dashboard proxy) or the n8n workflow
+    database — those are not Python. The nginx proxy fix is verified by a
+    separate check (`test_no_bare_nginx_worker_proxy`, below, grep-based since
+    nginx config isn't an AST). n8n is an explicit, recorded accepted-risk
+    (see docs/reviews/internal-auth-rework-2026-07-11.md F2/n8n disposition)
+    intersecting the S7-9 retirement track — not hacked around here.
+
 Runnable two ways:
   * pytest:   pytest kai-worker-api/tests/test_internal_auth_guard.py
   * directly: python3 kai-worker-api/tests/test_internal_auth_guard.py
@@ -15,25 +29,30 @@ Runnable two ways:
                violation)
 """
 import ast
+import re
 from pathlib import Path
 
 # kai-system root (…/kai-system/kai-worker-api/tests/this_file)
 ROOT = Path(__file__).resolve().parents[2]
 
-# Services that make internal calls to the worker.
-SERVICE_DIRS = [
-    "kai-council-api",
-    "kai-orchestrator",
-    "kai-scheduler",
-    "kai-slack-bot",
-    "kai-mcp-api",
-    "kai-worker-api",
-]
+# Directories that are never service code, even though some contain stray
+# *.py files (e.g. a one-off script left in a data dir).
+_DIR_DENYLIST = {
+    ".git", ".claude", ".pytest_cache", ".ruff_cache", "__pycache__",
+    "secrets", "logs", "n8n-data", "n8n-workflows", "docs", "docker-socket-proxy",
+    "litellm", "kai-wordpress-plugin",
+}
 
-# Worker base-URL identifiers used in f-string call URLs.
-WORKER_URL_NAMES = {"WORKER_URL", "WORKER_API"}
+# Literal substrings that identify the worker's own network address. Matched
+# against reconstructed string content, not identifier names — this is what
+# catches literal URLs regardless of what variable (if any) they're assigned
+# to (F3 bullet 2).
+_WORKER_HOST_MARKERS = ("kai-worker-api", "localhost:8001", "127.0.0.1:8001")
 
 # Routes the worker exempts from auth (kai-worker-api/main.py::_NO_AUTH).
+# Matched by EXACT reconstructed path, never substring (F3 bullet 3 — the
+# committed guard's `p in path` check wrongly exempted /system/health because
+# it contains "/health").
 NO_AUTH_PATHS = {
     "/health",
     "/github/webhook",
@@ -45,39 +64,167 @@ NO_AUTH_PATHS = {
 HTTP_METHODS = {"get", "post", "put", "patch", "delete", "request", "stream"}
 
 
-def _url_references_worker(node: ast.AST) -> bool:
-    """True if an f-string URL contains a {WORKER_URL}/{WORKER_API} field."""
-    if not isinstance(node, ast.JoinedStr):
-        return False
-    for v in node.values:
-        if isinstance(v, ast.FormattedValue):
-            expr = v.value
-            if isinstance(expr, ast.Name) and expr.id in WORKER_URL_NAMES:
-                return True
+def _discover_service_dirs(root: Path) -> list[Path]:
+    """Every top-level directory under root that contains at least one .py
+    file, minus the denylist. Replaces the old fixed SERVICE_DIRS list so a
+    newly added service directory is covered automatically."""
+    dirs = []
+    for child in sorted(root.iterdir()):
+        if not child.is_dir() or child.name in _DIR_DENYLIST or child.name.startswith("."):
+            continue
+        if any(child.rglob("*.py")):
+            dirs.append(child)
+    return dirs
+
+
+# --------------------------------------------------------------------------
+# Worker-base-name alias resolution (F3 bullet 2: "_WORKER_BASE and
+# _WORKER_API_URL evade it, as do... aliases"). Instead of a hardcoded
+# {"WORKER_URL", "WORKER_API"} identifier set, discover every name in the
+# file whose value is (transitively) a literal worker URL: a direct string
+# literal containing a worker host marker, an os.environ.get(...) / getenv(
+# ...) call whose default argument is such a literal, string concatenation of
+# such parts, or a bare reference to another already-known worker name. Fixed
+# point over the whole file so arbitrary alias chains (A = "...", B = A,
+# C = B) all resolve.
+# --------------------------------------------------------------------------
+
+def _string_const(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _literal_is_worker_host(s: str) -> bool:
+    return any(marker in s for marker in _WORKER_HOST_MARKERS)
+
+
+def _expr_is_worker_base(node: ast.AST, known: set) -> bool:
+    s = _string_const(node)
+    if s is not None:
+        return _literal_is_worker_host(s)
+    if isinstance(node, ast.Name):
+        return node.id in known
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _expr_is_worker_base(node.left, known) or _expr_is_worker_base(node.right, known)
+    if isinstance(node, ast.JoinedStr):
+        return any(
+            (isinstance(v, ast.FormattedValue) and _expr_is_worker_base(v.value, known))
+            or (isinstance(v, ast.Constant) and isinstance(v.value, str) and _literal_is_worker_host(v.value))
+            for v in node.values
+        )
+    if isinstance(node, ast.Call):
+        func = node.func
+        is_getenv = (
+            (isinstance(func, ast.Attribute) and func.attr in ("get", "getenv"))
+            or (isinstance(func, ast.Name) and func.id == "getenv")
+        )
+        if is_getenv and len(node.args) >= 2:
+            return _expr_is_worker_base(node.args[1], known)
     return False
 
 
+def _assign_pairs_in(nodes) -> list:
+    return [
+        (t.id, n.value)
+        for n in nodes
+        if isinstance(n, ast.Assign)
+        for t in n.targets
+        if isinstance(t, ast.Name)
+    ]
+
+
+def _resolve_worker_base_names(assign_pairs: list, seed: set = frozenset()) -> set:
+    """Fixed-point pass over a given set of (name, value) assign pairs: every
+    NAME bound to a worker-base expression, given names already known (seed).
+    Scope-restricted by the caller (module-level assigns for the global set,
+    a single function's own assigns layered on top for a local set) — NOT
+    file-global. A file-global version of this specific resolution caused a
+    real false positive during development: an unrelated local variable named
+    `url` in one function was treated as worker-referencing because a
+    different function elsewhere in the same file also had a local `url`
+    that genuinely did reference the worker. Same class of bug as F3 bullet 5
+    (auth-tracking scope leakage) — fixed the same way, by scope isolation."""
+    known = set(seed)
+    changed = True
+    while changed:
+        changed = False
+        for name, value in assign_pairs:
+            if name not in known and _expr_is_worker_base(value, known):
+                known.add(name)
+                changed = True
+    return known
+
+
+def _url_references_worker(node: ast.AST, known: set) -> bool:
+    """True if a call's URL argument — f-string, literal, concatenation, or a
+    bare Name — resolves to the worker (F3 bullet 2: literal URLs and
+    concatenation, not just the exact-identifier f-string case)."""
+    return _expr_is_worker_base(node, known)
+
+
 def _static_path(node: ast.AST) -> str:
-    """Concatenate the literal parts of an f-string URL (for _NO_AUTH match)."""
-    if not isinstance(node, ast.JoinedStr):
-        return ""
-    return "".join(
-        v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str)
-    )
+    """Reconstruct the literal portion of a URL/path expression. Interpolated
+    (non-constant) segments are rendered as a `<expr>` placeholder rather than
+    silently dropped, so a dynamic path can never spuriously equal a static
+    NO_AUTH_PATHS entry (F3 bullet 3)."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        parts = []
+        for v in node.values:
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                parts.append(v.value)
+            elif isinstance(v, ast.FormattedValue):
+                parts.append("<expr>")
+        return "".join(parts)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _static_path(node.left) + _static_path(node.right)
+    return "<expr>"
 
 
-def _is_no_auth(node: ast.AST) -> bool:
-    path = _static_path(node)
-    return any(p in path for p in NO_AUTH_PATHS)
+def _is_no_auth_exact(full_path_with_base_stripped: str) -> bool:
+    """Exact match only — the old substring check (`p in path`) is exactly
+    the bug that let /system/health pass as exempt (F3 bullet 3)."""
+    return full_path_with_base_stripped in NO_AUTH_PATHS
+
+
+def _path_after_worker_base(node: ast.AST, known: set) -> str:
+    """Strip the worker-base prefix off a reconstructed path so NO_AUTH
+    matching compares just the route, e.g. f"{WORKER_URL}/health" -> "/health"."""
+    if isinstance(node, ast.JoinedStr):
+        parts = []
+        for v in node.values:
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                parts.append(v.value)
+            elif isinstance(v, ast.FormattedValue):
+                if isinstance(v.value, ast.Name) and v.value.id in known:
+                    continue  # the worker-base part itself — drop it
+                parts.append("<expr>")
+        return "".join(parts)
+    s = _string_const(node)
+    if s is not None:
+        for marker_host in ("http://kai-worker-api:8001", "http://localhost:8001", "http://127.0.0.1:8001"):
+            if s.startswith(marker_host):
+                return s[len(marker_host):]
+        return s
+    return _static_path(node)
+
+
+def _is_falsy_auth_value(value_node: ast.AST) -> bool:
+    """F3 bullet 4: `auth=False`, an empty string, or an empty tuple must be
+    treated as UNAUTHENTICATED, not accepted as any-non-None-passes."""
+    if isinstance(value_node, ast.Constant):
+        return value_node.value in (None, False, "")
+    if isinstance(value_node, (ast.Tuple, ast.List)) and not value_node.elts:
+        return True
+    return False
 
 
 def _has_auth_kwarg(call: ast.Call) -> bool:
     for kw in call.keywords:
         if kw.arg == "auth":
-            # auth=None is not authentication.
-            if isinstance(kw.value, ast.Constant) and kw.value.value is None:
-                return False
-            return True
+            return not _is_falsy_auth_value(kw.value)
     return False
 
 
@@ -97,83 +244,177 @@ def _client_created_with_auth(node: ast.AST) -> bool:
     return _has_auth_kwarg(node)
 
 
-def _collect_authed_client_vars(tree: ast.AST) -> set:
-    """Names bound to an httpx client that was created WITH auth.
+def _client_base_url_worker(node: ast.AST, known: set) -> bool:
+    """True if an httpx.Client(base_url=...) points at the worker — covers
+    the `client = httpx.Client(base_url=WORKER_URL); client.get("/tasks")`
+    wrapper pattern the committed guard couldn't see at all (F3 bullet 2)."""
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    is_httpx_client = (
+        isinstance(func, ast.Attribute)
+        and func.attr in ("Client", "AsyncClient")
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "httpx"
+    )
+    if not is_httpx_client:
+        return False
+    for kw in node.keywords:
+        if kw.arg == "base_url":
+            return _expr_is_worker_base(kw.value, known)
+    return False
 
-    Covers both `NAME = httpx.Client(auth=...)` and
-    `with httpx.Client(auth=...) as NAME:`.
-    """
+
+def _walk_scope(root: ast.AST):
+    """DFS over root's descendants that does NOT descend into nested
+    function/async-function bodies. Each function is scanned as its own
+    independent scope elsewhere — this is what fixes F3 bullet 5: the
+    committed guard collected authenticated-client variable names with a
+    single file-global `ast.walk(tree)`, so an authenticated `client` in one
+    handler silently "authenticated" a same-named bare `client` in another."""
+    out = []
+
+    def rec(node):
+        for child in ast.iter_child_nodes(node):
+            out.append(child)
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue  # nested/sibling scope — its body is walked separately
+            rec(child)
+
+    rec(root)
+    return out
+
+
+def _iter_scopes(tree: ast.Module):
+    """Module top-level (function bodies excluded — they're their own scope
+    below) plus every function/async function in the file, each isolated."""
+    yield tree
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield n
+
+
+def _collect_scope_client_vars(scope: ast.AST, known: set) -> tuple[set, dict]:
+    """Returns (authed_var_names, worker_base_var_names -> authed_bool),
+    both scoped to just this function/module — not the whole file."""
     authed = set()
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Assign) and _client_created_with_auth(n.value):
-            for t in n.targets:
-                if isinstance(t, ast.Name):
-                    authed.add(t.id)
-        if isinstance(n, (ast.With, ast.AsyncWith)):
+    worker_base = {}
+    for n in _walk_scope(scope):
+        creator = None
+        target_names = []
+        if isinstance(n, ast.Assign):
+            creator = n.value
+            target_names = [t.id for t in n.targets if isinstance(t, ast.Name)]
+        elif isinstance(n, (ast.With, ast.AsyncWith)):
             for item in n.items:
-                if _client_created_with_auth(item.context_expr) and isinstance(
-                    item.optional_vars, ast.Name
-                ):
-                    authed.add(item.optional_vars.id)
-    return authed
+                if isinstance(item.optional_vars, ast.Name):
+                    _record(item.context_expr, item.optional_vars.id, known, authed, worker_base)
+            continue
+        if creator is not None:
+            for name in target_names:
+                _record(creator, name, known, authed, worker_base)
+    return authed, worker_base
 
 
-def _iter_worker_calls(tree: ast.AST):
-    """Yield (call_node, receiver_name) for every httpx-style request whose URL
-    references the worker. receiver_name is 'httpx' for direct module calls, or
-    the client variable name for `client.get(...)` style calls."""
-    for n in ast.walk(tree):
+def _record(creator: ast.AST, name: str, known: set, authed: set, worker_base: dict):
+    if _client_created_with_auth(creator):
+        authed.add(name)
+    if _client_base_url_worker(creator, known):
+        worker_base[name] = name in authed
+
+
+def _iter_worker_calls_in_scope(scope: ast.AST, known: set, worker_base_vars: dict):
+    """Yield (call_node, receiver_name_or_None, path_node_or_None) for every
+    HTTP-verb call in this scope whose URL references the worker, either
+    directly (URL argument) or via a base_url= client (F3 bullet 2)."""
+    for n in _walk_scope(scope):
         if not isinstance(n, ast.Call):
             continue
         func = n.func
         if not isinstance(func, ast.Attribute) or func.attr not in HTTP_METHODS:
             continue
-        if not n.args:
-            continue
-        if not _url_references_worker(n.args[0]):
-            continue
-        recv = func.value.id if isinstance(func.value, ast.Name) else "<expr>"
-        yield n, recv
+        recv = func.value.id if isinstance(func.value, ast.Name) else None
+        if n.args and _url_references_worker(n.args[0], known):
+            yield n, recv, n.args[0]
+        elif recv is not None and recv in worker_base_vars:
+            yield n, recv, (n.args[0] if n.args else None)
+
+
+_INTENTIONAL_PROBE_MARKER = "# GUARD: intentional-unauthenticated-probe"
+
+
+def _is_intentional_probe(src_lines: list, lineno: int) -> bool:
+    """A call may deliberately send NO credential to prove the worker rejects
+    it (e.g. inv_internal_worker_auth's own boundary self-test) — that is the
+    invariant working as designed, not a caller regression. Recognized only
+    via an explicit, visible marker comment on the call's own line or the
+    line immediately above; never inferred, so it can't silently swallow a
+    real violation the way the old guard's blanket exemptions did."""
+    for ln in (lineno, lineno - 1):
+        if 1 <= ln <= len(src_lines) and _INTENTIONAL_PROBE_MARKER in src_lines[ln - 1]:
+            return True
+    return False
 
 
 def _scan():
-    """Return (verified, violations) call-site lists across all services."""
-    verified, violations = [], []
-    for svc in SERVICE_DIRS:
-        base = ROOT / svc
-        if not base.exists():
-            continue
+    """Return (verified, violations, skipped) across every discovered service dir."""
+    verified, violations, skipped = [], [], []
+    for base in _discover_service_dirs(ROOT):
         for py in sorted(base.rglob("*.py")):
-            if "/tests/" in str(py) or py.name.startswith("test_"):
+            rel = py.relative_to(ROOT)
+            if "/tests/" in f"/{rel}/" or py.name.startswith("test_") or "__pycache__" in py.parts:
                 continue
+            src = py.read_text()
             try:
-                tree = ast.parse(py.read_text())
-            except Exception:
+                tree = ast.parse(src)
+            except Exception as e:
+                # F3 bullet 6: surfaced, not silently dropped.
+                skipped.append(f"{rel}: {e}")
                 continue
-            authed_vars = _collect_authed_client_vars(tree)
-            for call, recv in _iter_worker_calls(tree):
-                loc = f"{py.relative_to(ROOT)}:{call.lineno}"
-                path = _static_path(call.args[0]) or "?"
-                if _is_no_auth(call.args[0]):
-                    verified.append(f"{loc}  {path}  [NO_AUTH exempt]")
-                elif _has_auth_kwarg(call):
-                    verified.append(f"{loc}  {path}  [per-call auth]")
-                elif recv in authed_vars:
-                    verified.append(f"{loc}  {path}  [authed client '{recv}']")
+            src_lines = src.splitlines()
+
+            global_known = _resolve_worker_base_names(_assign_pairs_in(_walk_scope(tree)))
+
+            for scope in _iter_scopes(tree):
+                if scope is tree:
+                    known = global_known
                 else:
-                    violations.append(
-                        f"{loc}  {path}  via '{recv}' — NO auth (bare internal worker call)"
+                    known = _resolve_worker_base_names(
+                        _assign_pairs_in(_walk_scope(scope)), seed=global_known
                     )
-    return verified, violations
+                authed_vars, worker_base_vars = _collect_scope_client_vars(scope, known)
+                for call, recv, path_node in _iter_worker_calls_in_scope(scope, known, worker_base_vars):
+                    loc = f"{rel}:{call.lineno}"
+                    path = _path_after_worker_base(path_node, known) if path_node is not None else "<relative>"
+                    if _is_no_auth_exact(path):
+                        verified.append(f"{loc}  {path}  [NO_AUTH exempt]")
+                    elif _has_auth_kwarg(call):
+                        verified.append(f"{loc}  {path}  [per-call auth]")
+                    elif recv is not None and recv in authed_vars:
+                        verified.append(f"{loc}  {path}  [authed client '{recv}']")
+                    elif recv is not None and worker_base_vars.get(recv):
+                        verified.append(f"{loc}  {path}  [authed base_url client '{recv}']")
+                    elif _is_intentional_probe(src_lines, call.lineno):
+                        verified.append(f"{loc}  {path}  [intentional no-auth probe]")
+                    else:
+                        violations.append(
+                            f"{loc}  {path}  via '{recv or '<expr>'}' — NO auth (bare internal worker call)"
+                        )
+    return verified, violations, skipped
 
 
 def test_no_bare_internal_worker_calls():
     """No internal call to kai-worker-api may omit the auth credential."""
-    verified, violations = _scan()
+    verified, violations, skipped = _scan()
     assert verified, "guard found zero worker call sites — scan is broken (wrong ROOT?)"
     assert not violations, (
         "Bare (unauthenticated) internal worker call(s) — attach auth=_worker_auth():\n  "
         + "\n  ".join(violations)
+    )
+    assert not skipped, (
+        "File(s) in a scanned service directory failed to parse — guard cannot "
+        "vouch for coverage until these are fixed or explicitly excluded:\n  "
+        + "\n  ".join(skipped)
     )
 
 
@@ -191,18 +432,101 @@ def test_council_shared_client_is_authenticated():
     assert ok, "execute_tool.py shared httpx.Client must be created with auth=_worker_auth()"
 
 
+def test_no_bare_nginx_worker_proxy():
+    """kai-web/nginx.conf's /api/ location must attach the worker credential
+    (F2 finding: this proxy previously forwarded nothing, so every protected
+    worker route 401'd through the dashboard). Not an AST check — nginx.conf
+    isn't Python — but the guard must still fail loudly if this regresses,
+    per the same 'un-evadable' standard as the Python scan."""
+    conf = (ROOT / "kai-web" / "nginx.conf").read_text()
+    api_block = re.search(r"location\s+/api/\s*\{([^}]*)\}", conf, re.DOTALL)
+    assert api_block, "kai-web/nginx.conf: no location /api/ block found — proxy config missing or renamed"
+    assert "proxy_set_header Authorization" in api_block.group(1), (
+        "kai-web/nginx.conf location /api/ does not attach a worker Authorization "
+        "header — dashboard calls to protected worker routes will 401/503"
+    )
+
+
+# --------------------------------------------------------------------------
+# Adversarial self-test — proves the four specific evasions Codex's review
+# demonstrated against the OLD guard no longer work (docs/reviews/
+# internal-auth-codex-review.md F3: literal_url_detected=False,
+# alias_detected=False, system_health_exempt=True, auth_false_accepted=True).
+# --------------------------------------------------------------------------
+
+def test_adversarial_probes_all_flip():
+    probes = {}
+
+    literal_url_src = (
+        "import httpx\n"
+        "def f():\n"
+        "    httpx.post('http://kai-worker-api:8001/tasks', json={})\n"
+    )
+    tree = ast.parse(literal_url_src)
+    known = _resolve_worker_base_names(_assign_pairs_in(_walk_scope(tree)))
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(getattr(n.func, "value", None), ast.Name) and n.func.value.id == "httpx" and n.func.attr == "post")
+    probes["literal_url_detected"] = _url_references_worker(call.args[0], known)
+
+    alias_src = (
+        "import os\n"
+        "_WORKER_BASE = os.environ.get('WORKER_API_URL', 'http://kai-worker-api:8001')\n"
+        "_ALIAS = _WORKER_BASE\n"
+        "import httpx\n"
+        "def f():\n"
+        "    httpx.get(f'{_ALIAS}/plane/issues')\n"
+    )
+    tree = ast.parse(alias_src)
+    known = _resolve_worker_base_names(_assign_pairs_in(_walk_scope(tree)))
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(getattr(n.func, "value", None), ast.Name) and n.func.value.id == "httpx" and n.func.attr == "get")
+    probes["alias_detected"] = _url_references_worker(call.args[0], known)
+
+    health_src = (
+        "WORKER_URL = 'http://kai-worker-api:8001'\n"
+        "import httpx\n"
+        "def f():\n"
+        "    httpx.get(f'{WORKER_URL}/system/health')\n"
+    )
+    tree = ast.parse(health_src)
+    known = _resolve_worker_base_names(_assign_pairs_in(_walk_scope(tree)))
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(getattr(n.func, "value", None), ast.Name) and n.func.value.id == "httpx" and n.func.attr == "get")
+    path = _path_after_worker_base(call.args[0], known)
+    probes["system_health_exempt"] = _is_no_auth_exact(path)
+
+    auth_false_src = (
+        "import httpx\n"
+        "def f():\n"
+        "    httpx.get('http://kai-worker-api:8001/tasks', auth=False)\n"
+    )
+    tree = ast.parse(auth_false_src)
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(getattr(n.func, "value", None), ast.Name) and n.func.value.id == "httpx" and n.func.attr == "get")
+    probes["auth_false_accepted"] = _has_auth_kwarg(call)
+
+    assert probes == {
+        "literal_url_detected": True,
+        "alias_detected": True,
+        "system_health_exempt": False,
+        "auth_false_accepted": False,
+    }, probes
+
+
 if __name__ == "__main__":
     import sys
 
-    verified, violations = _scan()
+    verified, violations, skipped = _scan()
     print(f"ROOT: {ROOT}")
     print(f"\nVERIFIED internal worker call sites ({len(verified)}):")
     for v in verified:
         print(f"  ✓ {v}")
+    if skipped:
+        print(f"\nSKIPPED (parse failures — coverage gap, not silently dropped) ({len(skipped)}):")
+        for s in skipped:
+            print(f"  ? {s}")
     if violations:
         print(f"\nVIOLATIONS ({len(violations)}):")
         for v in violations:
             print(f"  ✗ {v}")
+        sys.exit(1)
+    if skipped:
         sys.exit(1)
     print("\nOK — every internal worker call carries auth.")
     sys.exit(0)

@@ -27,6 +27,7 @@ RESULT_PATH      = VAULT_PATH / "00_System" / "invariants.json"
 WORKER_API       = "http://kai-worker-api:8001"
 COUNCIL_API      = "http://kai-council-api:8002"
 ORCHESTRATOR_API = "http://kai-orchestrator:8003"
+MCP_API          = "http://kai-mcp-api:8003"
 OLLAMA_API       = "http://kai-ollama:11434"
 
 # Kill switch — INVARIANT_RUNNER_ENABLED=false skips all checks entirely (kill-switch-first)
@@ -455,22 +456,43 @@ def inv_ledger_pointer_consistent() -> tuple[bool, str]:
 
 def inv_internal_worker_auth() -> tuple[bool, str]:
     """Recovery-Plan Step 1 (Bug 48f85706/aec2d486) — regression guard for the
-    internal-auth class fix. Two conditions must both hold, so the board goes
-    RED if EITHER the worker stops enforcing auth OR the credential path breaks:
+    internal-auth class fix. Broadened 2026-07-11 after independent review
+    (docs/reviews/internal-auth-codex-review.md, finding F4) found the
+    original version service-local: it proved only the worker boundary itself
+    plus the scheduler's own credential, and could stay green while any other
+    caller (e.g. orchestrator's calendar path) silently regressed to 401.
 
-      (1) An unauthenticated internal call to a protected worker route returns
-          401 — proves the fix was NOT a network-origin bypass / auth disable
-          (the failure mode BUG-18 warns about).
-      (2) The same route with the mounted worker credential returns 200 —
-          proves callers can still authenticate (credential is present and the
-          worker accepts it), i.e. internal service-to-service calls work.
+    Three legs, ALL must hold — the board goes RED if any caller class drops:
+
+      (1) Worker boundary — an unauthenticated call to a protected worker
+          route returns 401 (proves the fix isn't a network-origin bypass /
+          middleware disable — BUG-18's failure mode), and the SAME route
+          with the mounted credential returns 200 (scheduler can still
+          authenticate).
+      (2) Orchestrator caller — a live round trip through
+          kai-orchestrator's calendar.get_events CAPABILITY (not a direct
+          worker call — this exercises orchestrator's own auth wiring,
+          capabilities/calendar.py, end to end) returns ok=true. This is the
+          exact caller F2 fixed and Codex's review found live-401.
+      (3) MCP caller — a live round trip through kai-mcp-api's get_tasks
+          TOOL (its `_call_worker()` choke point) succeeds, not a JSON-RPC
+          error. Exercises a second, independent caller's credential mount.
+
+    Caller classes this invariant still cannot observe from a single runtime
+    probe (recorded, not silently assumed green): kai-slack-bot has no
+    inbound HTTP surface to trigger a round trip through (Socket Mode /
+    event-driven only — Codex's own review used a direct loader+transport
+    check instead, see internal-auth-codex-review.md); n8n is an explicit,
+    recorded accepted-risk pending S7-9 retirement, not probed here.
 
     'Fixed' means 'can't silently un-fix': if a future change disables the
-    middleware, this fails on (1); if the credential mount is lost, (2).
+    middleware, this fails on (1); if any caller's credential mount or wiring
+    breaks, it fails on (1), (2), or (3) respectively — not just (1) as
+    before.
     """
     url = f"{WORKER_API}/system/ops-state"
     try:
-        r_noauth = httpx.get(url, timeout=5)
+        r_noauth = httpx.get(url, timeout=5)  # GUARD: intentional-unauthenticated-probe
     except Exception as e:
         return False, f"worker unreachable (no-auth probe): {type(e).__name__}: {e}"
     if r_noauth.status_code != 401:
@@ -489,7 +511,38 @@ def inv_internal_worker_auth() -> tuple[bool, str]:
     if r_auth.status_code != 200:
         return False, f"authenticated {url} returned HTTP {r_auth.status_code}, expected 200 — credential rejected"
 
-    return True, "ok — worker enforces auth (401 unauth) and accepts the mounted credential (200)"
+    try:
+        r_orch = httpx.post(
+            f"{ORCHESTRATOR_API}/capability/calendar.get_events",
+            json={"days": 1}, timeout=10,
+        )
+    except Exception as e:
+        return False, f"orchestrator unreachable (calendar round-trip): {type(e).__name__}: {e}"
+    if r_orch.status_code != 200 or not r_orch.json().get("ok"):
+        return False, (
+            f"orchestrator calendar.get_events did not succeed (HTTP {r_orch.status_code}, "
+            f"body={r_orch.text[:200]}) — orchestrator's worker credential mount/wiring is broken"
+        )
+
+    try:
+        r_mcp = httpx.post(
+            f"{MCP_API}/",
+            json={"jsonrpc": "2.0", "id": "inv-internal-worker-auth", "method": "tools/call",
+                  "params": {"name": "get_tasks", "arguments": {}}},
+            timeout=10,
+        )
+    except Exception as e:
+        return False, f"kai-mcp-api unreachable (get_tasks round-trip): {type(e).__name__}: {e}"
+    if r_mcp.status_code != 200 or "error" in (r_mcp.json() or {}):
+        return False, (
+            f"kai-mcp-api get_tasks did not succeed (HTTP {r_mcp.status_code}, "
+            f"body={r_mcp.text[:200]}) — MCP's worker credential mount/wiring is broken"
+        )
+
+    return True, (
+        "ok — worker enforces auth (401 unauth / 200 auth), orchestrator calendar "
+        "round-trip authenticates, MCP get_tasks round-trip authenticates"
+    )
 
 
 def inv_secret_files_permissions() -> tuple[bool, str]:

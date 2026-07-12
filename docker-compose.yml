@@ -122,6 +122,7 @@ services:
         condition: service_healthy
     secrets:
       - kai_web_password
+      - kai_worker_auth
 
   kai-qdrant:
     image: qdrant/qdrant:latest

@@ -36,7 +36,13 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         cred = _load_credential()
         if cred is None:
-            return await call_next(request)  # no cred file → open (fail-safe for tests)
+            # No valid server credential (missing/empty/malformed) → fail CLOSED.
+            # Serving protected routes with no way to authenticate them is worse
+            # than an outage; deny everything non-exempt instead.
+            return Response(
+                status_code=503,
+                content="worker auth boundary misconfigured: no valid credential loaded",
+            )
         expected_user, expected_pw = cred
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Basic "):

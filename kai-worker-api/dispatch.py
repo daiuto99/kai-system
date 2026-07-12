@@ -28,6 +28,8 @@ from pathlib import Path
 
 import httpx
 
+from watchdog import _worker_auth
+
 logger = logging.getLogger(__name__)
 
 COUNCIL_API = os.environ.get("COUNCIL_API_URL", "http://kai-council-api:8002")
@@ -486,10 +488,10 @@ def _call_worker_wp_post(site_id: str, title: str, body_html: str, *,
     url = f"{WORKER_API}/wordpress/{site_id}/posts"
     try:
         if client is not None:
-            r = client.post(url, json=payload, timeout=60)
+            r = client.post(url, json=payload, timeout=60, auth=_worker_auth())
         else:
             with httpx.Client(timeout=60) as c:
-                r = c.post(url, json=payload)
+                r = c.post(url, json=payload, auth=_worker_auth())
     except httpx.HTTPError as e:
         return {"ok": False, "error": str(e)}
     if r.status_code not in (200, 201):
