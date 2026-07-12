@@ -1,4 +1,5 @@
 import asyncio
+import stat
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -98,6 +99,10 @@ class GateFailClosedTests(unittest.TestCase):
         second_process = gates.PersistentGateStore(self.root)
 
         self.assertEqual(second_process[req.gate_id], self.store[req.gate_id])
+        self.assertEqual(
+            stat.S_IMODE((self.root / req.gate_id / "state.json").stat().st_mode),
+            0o600,
+        )
 
     def test_receive_gate_is_immediately_durable(self):
         req = self.request()
