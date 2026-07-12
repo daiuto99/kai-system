@@ -1,7 +1,7 @@
-import json, logging
+import json
+import logging
 from typing import Optional
 from db import get_conn, new_id, now_iso
-from models import CapabilityResult
 
 logger = logging.getLogger(__name__)
 
@@ -205,10 +205,55 @@ class Engine:
             conn.close()
 
     def list_pending_gates(self) -> list:
+        """Return gates whose parent job/step can still be waiting on them.
+
+        A pending gate attached to a missing or terminal parent is orphaned
+        durable state, not a live council outage. Retire those rows here so one
+        abandoned workflow cannot wedge the fallback poller forever. Age is
+        deliberately not part of this decision: an old gate on an active job
+        and non-terminal step must still be polled and allowed to fail loud.
+        """
         conn = get_conn()
         try:
-            rows = conn.execute("SELECT * FROM gates WHERE status='pending'").fetchall()
-            return [dict(r) for r in rows]
+            rows = conn.execute(
+                """SELECT g.*, j.status AS job_status,
+                          s.status AS step_status, s.job_id AS step_job_id
+                   FROM gates g
+                   LEFT JOIN jobs j ON j.id = g.job_id
+                   LEFT JOIN steps s ON s.id = g.step_id
+                   WHERE g.status='pending'
+                   ORDER BY g.opened_at"""
+            ).fetchall()
+            pollable = []
+            for row in rows:
+                gate = dict(row)
+                reason = None
+                if gate["job_status"] is None:
+                    reason = "parent job missing"
+                elif gate["step_status"] is None:
+                    reason = "parent step missing"
+                elif gate["step_job_id"] != gate["job_id"]:
+                    reason = "parent step belongs to a different job"
+                elif gate["job_status"] in TERMINAL:
+                    reason = f"parent job is {gate['job_status']}"
+                elif gate["step_status"] in TERMINAL:
+                    reason = f"parent step is {gate['step_status']}"
+
+                if reason:
+                    ts = now_iso()
+                    resolution = json.dumps({"reason": reason})
+                    conn.execute(
+                        """UPDATE gates
+                           SET status='orphaned', resolution=?, resolved_at=?
+                           WHERE id=? AND status='pending'""",
+                        (resolution, ts, gate["id"]),
+                    )
+                    logger.warning("Gate %s retired as orphaned: %s", gate["id"], reason)
+                    continue
+
+                pollable.append(gate)
+            conn.commit()
+            return pollable
         finally:
             conn.close()
 
