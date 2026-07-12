@@ -223,9 +223,18 @@ def telegram_poll_loop():
             time.sleep(5)
 
 
+def _fetch_worker_health(timeout: float = 10):
+    """Real scheduler→worker transport used by the health job and invariant."""
+    return httpx.get(
+        f"{WORKER_API}/system/health",
+        timeout=timeout,
+        auth=worker_auth(),
+    )
+
+
 def check_worker_health():
     try:
-        r = httpx.get(f"{WORKER_API}/system/health", timeout=10, auth=worker_auth())
+        r = _fetch_worker_health()
         if r.status_code != 200:
             return
         data = r.json()

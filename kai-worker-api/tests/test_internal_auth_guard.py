@@ -6,19 +6,19 @@ closes.
 
 kai-worker-api authenticates every route (bar /health + webhooks). Every
 internal service-to-service call to the worker MUST carry the worker
-Basic-auth credential. This static AST guard fails the build if any call site
-regresses to sending no credential — "fixed" must mean "can't silently
-un-fix." It complements the runtime invariant `inv_internal_worker_auth`
+Basic-auth credential. This bounded static AST guard fails the build when a
+supported Python caller shape regresses to sending no credential. It does not
+claim that arbitrary program analysis is un-evadable. It complements the
+runtime invariant `inv_internal_worker_auth`
 (kai-scheduler/invariants.py), which proves enforcement end-to-end at runtime.
 
 What this guard can and cannot see (stated explicitly, not silently):
   * Scans every directory under kai-system root containing *.py files
     (discovered dynamically — F3 bullet 1: no more fixed 6-dir allowlist that
     misses future service directories).
-  * Cannot parse nginx.conf (kai-web's dashboard proxy) or the n8n workflow
-    database — those are not Python. The nginx proxy fix is verified by a
-    separate check (`test_no_bare_nginx_worker_proxy`, below, grep-based since
-    nginx config isn't an AST). n8n is an explicit, recorded accepted-risk
+  * Cannot parse nginx.conf, JavaScript, or the n8n workflow database. The
+    production nginx proxy is verified separately; the Vite worker proxy is
+    forbidden separately; n8n is an explicit, recorded accepted-risk
     (see docs/reviews/internal-auth-rework-2026-07-11.md F2/n8n disposition)
     intersecting the S7-9 retirement track — not hacked around here.
 
@@ -61,7 +61,7 @@ NO_AUTH_PATHS = {
     "/mode_lock/slack_callback",
 }
 
-HTTP_METHODS = {"get", "post", "put", "patch", "delete", "request", "stream"}
+HTTP_METHODS = {"get", "post", "put", "patch", "delete", "request", "stream", "urlopen"}
 
 
 def _discover_service_dirs(root: Path) -> list[Path]:
@@ -99,8 +99,28 @@ def _literal_is_worker_host(s: str) -> bool:
     return any(marker in s for marker in _WORKER_HOST_MARKERS)
 
 
-def _expr_is_worker_base(node: ast.AST, known: set) -> bool:
+def _constant_string(node: ast.AST) -> str | None:
+    """Fold literal-only string concatenation, including split host tokens."""
     s = _string_const(node)
+    if s is not None:
+        return s
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _constant_string(node.left)
+        right = _constant_string(node.right)
+        if left is not None and right is not None:
+            return left + right
+    if isinstance(node, ast.JoinedStr):
+        parts = []
+        for value in node.values:
+            if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+                return None
+            parts.append(value.value)
+        return "".join(parts)
+    return None
+
+
+def _expr_is_worker_base(node: ast.AST, known: set) -> bool:
+    s = _constant_string(node)
     if s is not None:
         return _literal_is_worker_host(s)
     if isinstance(node, ast.Name):
@@ -316,11 +336,42 @@ def _collect_scope_client_vars(scope: ast.AST, known: set) -> tuple[set, dict]:
     return authed, worker_base
 
 
+def _bound_names(scope: ast.AST) -> set[str]:
+    """Names local to a scope; inherited module clients with these names shadow."""
+    names = set()
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        names.update(arg.arg for arg in (*scope.args.posonlyargs, *scope.args.args, *scope.args.kwonlyargs))
+        if scope.args.vararg:
+            names.add(scope.args.vararg.arg)
+        if scope.args.kwarg:
+            names.add(scope.args.kwarg.arg)
+    for node in _walk_scope(scope):
+        if isinstance(node, ast.Assign):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            names.update(
+                item.optional_vars.id
+                for item in node.items
+                if isinstance(item.optional_vars, ast.Name)
+            )
+    return names
+
+
 def _record(creator: ast.AST, name: str, known: set, authed: set, worker_base: dict):
     if _client_created_with_auth(creator):
         authed.add(name)
     if _client_base_url_worker(creator, known):
         worker_base[name] = name in authed
+
+
+def _call_url_node(call: ast.Call) -> ast.AST | None:
+    """URL supplied positionally or as url= (requests/httpx/urllib)."""
+    if call.args:
+        return call.args[0]
+    for keyword in call.keywords:
+        if keyword.arg == "url":
+            return keyword.value
+    return None
 
 
 def _iter_worker_calls_in_scope(scope: ast.AST, known: set, worker_base_vars: dict):
@@ -334,10 +385,46 @@ def _iter_worker_calls_in_scope(scope: ast.AST, known: set, worker_base_vars: di
         if not isinstance(func, ast.Attribute) or func.attr not in HTTP_METHODS:
             continue
         recv = func.value.id if isinstance(func.value, ast.Name) else None
-        if n.args and _url_references_worker(n.args[0], known):
-            yield n, recv, n.args[0]
+        url_node = _call_url_node(n)
+        if url_node is not None and _url_references_worker(url_node, known):
+            yield n, recv, url_node
         elif recv is not None and recv in worker_base_vars:
-            yield n, recv, (n.args[0] if n.args else None)
+            yield n, recv, url_node
+
+
+def _discover_url_wrappers(tree: ast.Module) -> dict[str, list[tuple[int, str, bool]]]:
+    """Find one-hop local wrappers whose parameter becomes an HTTP URL.
+
+    This covers the demonstrated wrapper-parameter evasion. It is deliberately
+    bounded one-hop analysis, not a claim to solve arbitrary data flow.
+    """
+    wrappers = {}
+    for fn in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+        params = [*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs]
+        positions = {arg.arg: index for index, arg in enumerate(params)}
+        found = []
+        for call in (n for n in _walk_scope(fn) if isinstance(n, ast.Call)):
+            func = call.func
+            if not isinstance(func, ast.Attribute) or func.attr not in HTTP_METHODS:
+                continue
+            url_node = _call_url_node(call)
+            if isinstance(url_node, ast.Name) and url_node.id in positions:
+                found.append((positions[url_node.id], url_node.id, _has_auth_kwarg(call)))
+        if found:
+            wrappers[fn.name] = found
+    return wrappers
+
+
+def _iter_worker_wrapper_calls(scope: ast.AST, known: set, wrappers: dict):
+    for call in (n for n in _walk_scope(scope) if isinstance(n, ast.Call)):
+        if not isinstance(call.func, ast.Name) or call.func.id not in wrappers:
+            continue
+        for position, param_name, inner_has_auth in wrappers[call.func.id]:
+            actual = call.args[position] if len(call.args) > position else None
+            if actual is None:
+                actual = next((kw.value for kw in call.keywords if kw.arg == param_name), None)
+            if actual is not None and _url_references_worker(actual, known):
+                yield call, call.func.id, actual, inner_has_auth
 
 
 _INTENTIONAL_PROBE_MARKER = "# GUARD: intentional-unauthenticated-probe"
@@ -356,6 +443,64 @@ def _is_intentional_probe(src_lines: list, lineno: int) -> bool:
     return False
 
 
+def _scan_python_source(src: str, rel: str) -> tuple[list[str], list[str]]:
+    """Analyze one parsed Python source with bounded cross-scope data flow."""
+    tree = ast.parse(src)
+    src_lines = src.splitlines()
+    verified, violations = [], []
+    global_known = _resolve_worker_base_names(_assign_pairs_in(_walk_scope(tree)))
+    global_authed, global_worker_base = _collect_scope_client_vars(tree, global_known)
+    wrappers = _discover_url_wrappers(tree)
+
+    for scope in _iter_scopes(tree):
+        if scope is tree:
+            known = global_known
+            authed_vars = set(global_authed)
+            worker_base_vars = dict(global_worker_base)
+        else:
+            known = _resolve_worker_base_names(
+                _assign_pairs_in(_walk_scope(scope)), seed=global_known
+            )
+            local_bound = _bound_names(scope)
+            local_authed, local_worker_base = _collect_scope_client_vars(scope, known)
+            authed_vars = {name for name in global_authed if name not in local_bound} | local_authed
+            worker_base_vars = {
+                name: value
+                for name, value in global_worker_base.items()
+                if name not in local_bound
+            }
+            worker_base_vars.update(local_worker_base)
+
+        for call, recv, path_node in _iter_worker_calls_in_scope(scope, known, worker_base_vars):
+            loc = f"{rel}:{call.lineno}"
+            path = _path_after_worker_base(path_node, known) if path_node is not None else "<relative>"
+            if _is_no_auth_exact(path):
+                verified.append(f"{loc}  {path}  [NO_AUTH exempt]")
+            elif _has_auth_kwarg(call):
+                verified.append(f"{loc}  {path}  [per-call auth]")
+            elif recv is not None and recv in authed_vars:
+                verified.append(f"{loc}  {path}  [authed client '{recv}']")
+            elif recv is not None and worker_base_vars.get(recv):
+                verified.append(f"{loc}  {path}  [authed base_url client '{recv}']")
+            elif _is_intentional_probe(src_lines, call.lineno):
+                verified.append(f"{loc}  {path}  [intentional no-auth probe]")
+            else:
+                violations.append(
+                    f"{loc}  {path}  via '{recv or '<expr>'}' — NO auth (bare internal worker call)"
+                )
+
+        for call, wrapper, path_node, inner_has_auth in _iter_worker_wrapper_calls(scope, known, wrappers):
+            loc = f"{rel}:{call.lineno}"
+            path = _path_after_worker_base(path_node, known)
+            if inner_has_auth:
+                verified.append(f"{loc}  {path}  [authed one-hop wrapper '{wrapper}']")
+            else:
+                violations.append(
+                    f"{loc}  {path}  via wrapper '{wrapper}' — NO auth (bare internal worker call)"
+                )
+    return verified, violations
+
+
 def _scan():
     """Return (verified, violations, skipped) across every discovered service dir."""
     verified, violations, skipped = [], [], []
@@ -364,42 +509,14 @@ def _scan():
             rel = py.relative_to(ROOT)
             if "/tests/" in f"/{rel}/" or py.name.startswith("test_") or "__pycache__" in py.parts:
                 continue
-            src = py.read_text()
             try:
-                tree = ast.parse(src)
+                file_verified, file_violations = _scan_python_source(py.read_text(), str(rel))
             except Exception as e:
-                # F3 bullet 6: surfaced, not silently dropped.
+                # Parse/analysis failures are surfaced, never silently dropped.
                 skipped.append(f"{rel}: {e}")
                 continue
-            src_lines = src.splitlines()
-
-            global_known = _resolve_worker_base_names(_assign_pairs_in(_walk_scope(tree)))
-
-            for scope in _iter_scopes(tree):
-                if scope is tree:
-                    known = global_known
-                else:
-                    known = _resolve_worker_base_names(
-                        _assign_pairs_in(_walk_scope(scope)), seed=global_known
-                    )
-                authed_vars, worker_base_vars = _collect_scope_client_vars(scope, known)
-                for call, recv, path_node in _iter_worker_calls_in_scope(scope, known, worker_base_vars):
-                    loc = f"{rel}:{call.lineno}"
-                    path = _path_after_worker_base(path_node, known) if path_node is not None else "<relative>"
-                    if _is_no_auth_exact(path):
-                        verified.append(f"{loc}  {path}  [NO_AUTH exempt]")
-                    elif _has_auth_kwarg(call):
-                        verified.append(f"{loc}  {path}  [per-call auth]")
-                    elif recv is not None and recv in authed_vars:
-                        verified.append(f"{loc}  {path}  [authed client '{recv}']")
-                    elif recv is not None and worker_base_vars.get(recv):
-                        verified.append(f"{loc}  {path}  [authed base_url client '{recv}']")
-                    elif _is_intentional_probe(src_lines, call.lineno):
-                        verified.append(f"{loc}  {path}  [intentional no-auth probe]")
-                    else:
-                        violations.append(
-                            f"{loc}  {path}  via '{recv or '<expr>'}' — NO auth (bare internal worker call)"
-                        )
+            verified.extend(file_verified)
+            violations.extend(file_violations)
     return verified, violations, skipped
 
 
@@ -436,14 +553,30 @@ def test_no_bare_nginx_worker_proxy():
     """kai-web/nginx.conf's /api/ location must attach the worker credential
     (F2 finding: this proxy previously forwarded nothing, so every protected
     worker route 401'd through the dashboard). Not an AST check — nginx.conf
-    isn't Python — but the guard must still fail loudly if this regresses,
-    per the same 'un-evadable' standard as the Python scan."""
+    isn't Python — but the guard must still fail loudly if this regresses."""
     conf = (ROOT / "kai-web" / "nginx.conf").read_text()
     api_block = re.search(r"location\s+/api/\s*\{([^}]*)\}", conf, re.DOTALL)
     assert api_block, "kai-web/nginx.conf: no location /api/ block found — proxy config missing or renamed"
     assert "proxy_set_header Authorization" in api_block.group(1), (
         "kai-web/nginx.conf location /api/ does not attach a worker Authorization "
         "header — dashboard calls to protected worker routes will 401/503"
+    )
+
+
+def test_vite_worker_proxy_is_non_executable():
+    """F2: Vite must not expose a second bare /api→worker execution path.
+
+    Vite has no runtime Docker-secret wiring. The safe disposition is to omit
+    its worker proxy and use the authenticated production nginx endpoint for
+    UI integration tests.
+    """
+    vite = (ROOT / "kai-web" / "vite.config.js").read_text()
+    assert "kai-worker-api:8001" not in vite, (
+        "kai-web/vite.config.js must not target kai-worker-api directly; "
+        "the Vite dev server cannot attach the Docker worker credential"
+    )
+    assert not re.search(r"['\"]\/api['\"]\s*:\s*\{", vite), (
+        "kai-web/vite.config.js must not define an executable /api proxy"
     )
 
 
@@ -509,6 +642,53 @@ def test_adversarial_probes_all_flip():
     }, probes
 
 
+def _reviewer_evasion_results() -> dict[str, int]:
+    """Run the five concrete evasions from the 2026-07-11 Codex rejection."""
+    probes = {
+        "split_concat": (
+            "import httpx\n"
+            "httpx.get('http://' + 'kai-worker-' + 'api:8001/tasks')\n"
+        ),
+        "requests_url_keyword": (
+            "import requests\n"
+            "requests.get(url='http://kai-worker-api:8001/tasks')\n"
+        ),
+        "urllib_urlopen": (
+            "import urllib.request\n"
+            "urllib.request.urlopen('http://kai-worker-api:8001/tasks')\n"
+        ),
+        "module_base_url_cross_scope": (
+            "import httpx\n"
+            "WORKER = 'http://kai-worker-api:8001'\n"
+            "client = httpx.Client(base_url=WORKER)\n"
+            "def run():\n"
+            "    client.get('/tasks')\n"
+        ),
+        "wrapper_parameter": (
+            "import requests\n"
+            "WORKER = 'http://kai-worker-api:8001'\n"
+            "def fetch(target):\n"
+            "    return requests.get(target)\n"
+            "fetch(WORKER + '/tasks')\n"
+        ),
+    }
+    return {
+        name: len(_scan_python_source(source, f"probe/{name}.py")[1])
+        for name, source in probes.items()
+    }
+
+
+def test_reviewer_evasions_are_flagged():
+    results = _reviewer_evasion_results()
+    assert results == {
+        "split_concat": 1,
+        "requests_url_keyword": 1,
+        "urllib_urlopen": 1,
+        "module_base_url_cross_scope": 1,
+        "wrapper_parameter": 1,
+    }, results
+
+
 if __name__ == "__main__":
     import sys
 
@@ -528,5 +708,11 @@ if __name__ == "__main__":
         sys.exit(1)
     if skipped:
         sys.exit(1)
+    test_adversarial_probes_all_flip()
+    test_reviewer_evasions_are_flagged()
+    test_council_shared_client_is_authenticated()
+    test_no_bare_nginx_worker_proxy()
+    test_vite_worker_proxy_is_non_executable()
+    print(f"\nREVIEWER EVASIONS FLAGGED: {_reviewer_evasion_results()}")
     print("\nOK — every internal worker call carries auth.")
     sys.exit(0)

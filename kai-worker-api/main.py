@@ -25,6 +25,8 @@ def _load_credential() -> tuple[str, str] | None:
     try:
         raw = _AUTH_FILE.read_text().strip()
         user, pw = raw.split(":", 1)
+        if not user or not pw:
+            return None
         return user, pw
     except Exception:
         return None

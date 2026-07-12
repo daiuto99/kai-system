@@ -18,8 +18,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import httpx
 
-from worker_auth import worker_auth
-
 log = logging.getLogger(__name__)
 
 VAULT_PATH       = Path("/vault")
@@ -464,11 +462,13 @@ def inv_internal_worker_auth() -> tuple[bool, str]:
 
     Three legs, ALL must hold — the board goes RED if any caller class drops:
 
-      (1) Worker boundary — an unauthenticated call to a protected worker
-          route returns 401 (proves the fix isn't a network-origin bypass /
-          middleware disable — BUG-18's failure mode), and the SAME route
-          with the mounted credential returns 200 (scheduler can still
-          authenticate).
+      (1) Worker boundary + real scheduler caller — an unauthenticated call
+          to a protected worker route returns 401 (proves the fix isn't a
+          network-origin bypass / middleware disable — BUG-18's failure
+          mode), then scheduler._fetch_worker_health(), the same transport
+          used by the scheduled health job, returns 200. This deliberately
+          resolves worker_auth from scheduler.py, so a regression in
+          scheduler.worker_auth turns the invariant red.
       (2) Orchestrator caller — a live round trip through
           kai-orchestrator's calendar.get_events CAPABILITY (not a direct
           worker call — this exercises orchestrator's own auth wiring,
@@ -479,7 +479,10 @@ def inv_internal_worker_auth() -> tuple[bool, str]:
           error. Exercises a second, independent caller's credential mount.
 
     Caller classes this invariant still cannot observe from a single runtime
-    probe (recorded, not silently assumed green): kai-slack-bot has no
+    probe (recorded, not silently assumed green): calendar.create_event is a
+    mutating external write and is therefore NOT live-probed here; its worker
+    auth argument is held by the static internal-auth guard, while this runtime
+    leg covers only calendar.get_events. kai-slack-bot has no
     inbound HTTP surface to trigger a round trip through (Socket Mode /
     event-driven only — Codex's own review used a direct loader+transport
     check instead, see internal-auth-codex-review.md); n8n is an explicit,
@@ -501,15 +504,20 @@ def inv_internal_worker_auth() -> tuple[bool, str]:
             f"expected 401 — worker auth is NOT enforced (origin bypass / middleware off?)"
         )
 
-    auth = worker_auth()
-    if auth is None:
-        return False, "kai_worker_auth credential not mounted in scheduler — internal callers cannot authenticate"
     try:
-        r_auth = httpx.get(url, timeout=5, auth=auth)
+        # Import at call time: scheduler imports this module during startup.
+        # By invariant execution time the scheduler module is initialized, and
+        # this invokes the exact helper used by check_worker_health().
+        import scheduler
+
+        r_auth = scheduler._fetch_worker_health(timeout=5)
     except Exception as e:
-        return False, f"worker unreachable (auth probe): {type(e).__name__}: {e}"
+        return False, f"scheduler worker-health caller failed: {type(e).__name__}: {e}"
     if r_auth.status_code != 200:
-        return False, f"authenticated {url} returned HTTP {r_auth.status_code}, expected 200 — credential rejected"
+        return False, (
+            "scheduler._fetch_worker_health returned HTTP "
+            f"{r_auth.status_code}, expected 200 — scheduler caller auth is broken"
+        )
 
     try:
         r_orch = httpx.post(
@@ -540,8 +548,10 @@ def inv_internal_worker_auth() -> tuple[bool, str]:
         )
 
     return True, (
-        "ok — worker enforces auth (401 unauth / 200 auth), orchestrator calendar "
-        "round-trip authenticates, MCP get_tasks round-trip authenticates"
+        "ok — worker enforces auth (401 unauth), real scheduler health caller "
+        "authenticates (200), orchestrator calendar.get_events authenticates, "
+        "MCP get_tasks authenticates; calendar.create_event is NOT runtime-probed "
+        "(mutating write; static guard only)"
     )
 
 
