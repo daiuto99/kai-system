@@ -118,6 +118,29 @@ def test_guard_blocks_pat_in_git_url(tmp_path: Path) -> None:
     assert "github_pat_" not in result.stdout + result.stderr
 
 
+def test_guard_blocks_unknown_basic_literal(tmp_path: Path) -> None:
+    secret_dir = tmp_path / "secrets"
+    _write_secret(secret_dir)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(GUARD),
+            "--no-default-secret-dirs",
+            "--secret-dir",
+            str(secret_dir),
+            "--",
+            sys.executable,
+            "-c",
+            "print('kai:' + 'legacy-fixture-value')",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 86
+    assert "legacy-fixture-value" not in result.stdout + result.stderr
+
+
 def test_guard_preserves_clean_output_and_exit(tmp_path: Path) -> None:
     secret_dir = tmp_path / "secrets"
     _write_secret(secret_dir)

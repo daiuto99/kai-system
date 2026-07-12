@@ -25,6 +25,7 @@ PATTERNS = (
     re.compile(rb"sk-(?:proj-)?[A-Za-z0-9_-]{24,}"),
     re.compile(rb"tskey-[A-Za-z0-9_-]{20,}"),
     re.compile(rb"Basic\s+[A-Za-z0-9+/]{16,}={0,2}", re.I),
+    re.compile(rb"(?<![A-Za-z0-9_-])kai:[A-Za-z0-9!#$%&*+,._=?@^\-]{8,}"),
 )
 
 

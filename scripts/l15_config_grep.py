@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
@@ -15,8 +16,10 @@ INCLUDES = (
     "*.yml", "*.yaml", "*.conf", "*.json", "*.toml", "*.ini",
     "*.env", ".env*", "*.service", "*.properties", "*.config",
     "Dockerfile*", "*entrypoint*.sh", "config",
+    "*.html",
 )
 EXCLUDES = (".git", "secrets", "node_modules", "__pycache__", ".venv", "dist", "kai_mode")
+BASIC_LITERAL = re.compile(rb"(?<![A-Za-z0-9_-])(kai:[A-Za-z0-9!#$%&*+,._=?@^\-]{8,})")
 
 
 def main() -> int:
@@ -59,6 +62,19 @@ def main() -> int:
         print(f"CONFIG_CREDENTIAL_GREP=ERROR grep_exit={result.returncode}")
         return 2
     hits = [line.decode(errors="replace") for line in result.stdout.splitlines() if line]
+    generic_hits: set[str] = set()
+    for root in args.roots:
+        for path in root.rglob("*.html"):
+            if any(part in EXCLUDES for part in path.parts) or not path.is_file():
+                continue
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue
+            matches = BASIC_LITERAL.findall(data)
+            if any(value != b"kai:password" for value in matches):
+                generic_hits.add(str(path))
+    hits = sorted(set(hits) | generic_hits)
     print(f"CONFIG_FILES_WITH_PLAINTEXT_CREDENTIALS={len(hits)}")
     for hit in hits:
         print(f"CONFIG_HIT={hit}")
