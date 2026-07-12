@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#10b981"></span> v2.45.3 · 2026-07-11 — <strong style="color:#34d399">S7-2 Phase 3: Tier 5 standing context shipped — five-tier Memory Service architecturally complete. persona.py ceases to be an assembly point (load_persona() now a Memory Service client via GET /context/persona); S7-2 marked Done.</strong></div>
+  <div class="version"><span class="dot" style="color:#10b981"></span> v2.45.4 · 2026-07-11 — <strong style="color:#34d399">Recovery Plan Step 1 / trust repair #1: internal-auth class fix (48f85706 + aec2d486 Done). Every kai-worker-api route stays authenticated; internal callers send the worker credential (57 call sites, 0 violations). Guards: runtime inv_internal_worker_auth + static test_internal_auth_guard.py. Rider L8: 5 secret files 664→600.</strong></div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -831,6 +831,10 @@ function loadCost() {
 <!-- AUTO_DOCUMENTED: 2026-07-11 -->
 <div class="container-row">
   <div><div class="container-name">context_persona</div><div class="container-meta">(auto-documented 2026-07-11 — description pending review) <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
+</div>
+<!-- AUTO_DOCUMENTED: 2026-07-11 -->
+<div class="container-row">
+  <div><div class="container-name">kai_worker_auth</div><div class="container-meta">(auto-documented 2026-07-11 — description pending review) <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
 </div>
 </div>
 
