@@ -152,33 +152,76 @@ def _resume_interrupted_jobs():
         threading.Thread(target=_run, daemon=True).start()
 
 def _start_gate_poller():
-    import httpx
-
-    def poll():
-        while True:
-            time.sleep(30)
-            try:
-                pending = engine.list_pending_gates()
-                for gate in pending:
-                    try:
-                        r = httpx.get(
-                            f"{_COUNCIL_API_URL}/council/gate/{gate['id']}/state",
-                            timeout=5,
-                        )
-                        if r.status_code == 200:
-                            data = r.json()
-                            if data.get("status") == "resolved":
-                                resolution = data.get("resolution", {})
-                                info = engine.resolve_gate(gate["id"], resolution)
-                                if info:
-                                    _trigger_resume(info["job_id"], info["job_type"])
-                    except Exception:
-                        log.debug("Gate poll failed for %s", gate["id"])
-            except Exception:
-                log.exception("Gate poller error")
-
-    threading.Thread(target=poll, daemon=True, name="gate-poller").start()
+    threading.Thread(target=_gate_poller_loop, daemon=True, name="gate-poller").start()
     log.info("Gate poller started (30s interval)")
+
+
+_GATE_POLL_BASE_SECONDS = 30
+_GATE_POLL_MAX_SECONDS = 300
+_GATE_POLL_ALERT_AFTER = 3
+
+
+def _poll_gate_cycle(http_get=None):
+    """Poll every pending gate once; raise after collecting any failures."""
+    if http_get is None:
+        import httpx
+        http_get = httpx.get
+
+    failures = []
+    for gate in engine.list_pending_gates():
+        try:
+            response = http_get(
+                f"{_COUNCIL_API_URL}/council/gate/{gate['id']}/state",
+                timeout=5,
+            )
+            if response.status_code != 200:
+                raise RuntimeError(f"HTTP {response.status_code}")
+            data = response.json()
+            status = data.get("status")
+            if status == "resolved":
+                resolution = data.get("resolution", {})
+                info = engine.resolve_gate(gate["id"], resolution)
+                if info:
+                    _trigger_resume(info["job_id"], info["job_type"])
+            elif status not in ("processing", "pending_leo"):
+                raise RuntimeError(f"invalid council state {status!r}")
+        except Exception as exc:
+            failures.append(f"{gate['id']}: {exc}")
+    if failures:
+        raise RuntimeError(f"{len(failures)} gate poll failure(s): " + "; ".join(failures))
+
+
+def _gate_poller_loop(*, max_cycles=None, sleep_fn=time.sleep):
+    """Poll immediately, then back off on consecutive failed cycles."""
+    consecutive_failures = 0
+    cycles = 0
+    while True:
+        try:
+            _poll_gate_cycle()
+            consecutive_failures = 0
+            delay = _GATE_POLL_BASE_SECONDS
+        except Exception as exc:
+            consecutive_failures += 1
+            delay = min(
+                _GATE_POLL_BASE_SECONDS * (2 ** (consecutive_failures - 1)),
+                _GATE_POLL_MAX_SECONDS,
+            )
+            log.warning(
+                "Gate poll cycle failed (%d consecutive; retry in %ds): %s",
+                consecutive_failures,
+                delay,
+                exc,
+            )
+            if consecutive_failures == _GATE_POLL_ALERT_AFTER:
+                _post_slack(
+                    ":rotating_light: Council gate fallback polling failed "
+                    f"{consecutive_failures} consecutive times. Retrying with backoff."
+                )
+
+        cycles += 1
+        if max_cycles is not None and cycles >= max_cycles:
+            return
+        sleep_fn(delay)
 
 def _trigger_resume(job_id: str, job_type: str):
     wf_class = WORKFLOW_REGISTRY.get(job_type)

@@ -533,6 +533,11 @@ def _process_gate(req: GateRequest):
         _update_gate(req.gate_id, status="resolved", resolution=resolution)
         _persist_gate_record(req.gate_id, req.gate_type, req.brief, resolution)
         _fire_callback(req.callback_url, resolution)
+        _slack_post(
+            "#devops",
+            f":rotating_light: Gate `{req.gate_id}` reviewer failed closed. "
+            "Work was denied; retry is available after 60 seconds.",
+        )
 
 
 def _plan_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:

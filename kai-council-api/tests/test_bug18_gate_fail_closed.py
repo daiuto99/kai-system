@@ -57,6 +57,7 @@ class GateFailClosedTests(unittest.TestCase):
                 req = self.request(gate_id=f"bug18-{gate_type}", gate_type=gate_type)
                 self.seed(req)
                 callbacks = []
+                alerts = []
 
                 with (
                     mock.patch.object(
@@ -70,6 +71,11 @@ class GateFailClosedTests(unittest.TestCase):
                         side_effect=lambda _url, result: callbacks.append(result),
                     ),
                     mock.patch.object(gates, "_persist_gate_record"),
+                    mock.patch.object(
+                        gates,
+                        "_slack_post",
+                        side_effect=lambda channel, text: alerts.append((channel, text)),
+                    ),
                 ):
                     gates._process_gate(req)
 
@@ -78,6 +84,9 @@ class GateFailClosedTests(unittest.TestCase):
                 self.assertIs(state["resolution"]["approved"], False)
                 self.assertEqual(state["resolution"]["retry_after"], 60)
                 self.assertEqual(callbacks, [state["resolution"]])
+                self.assertEqual(len(alerts), 1)
+                self.assertEqual(alerts[0][0], "#devops")
+                self.assertIn(req.gate_id, alerts[0][1])
 
     def test_reviewer_wrappers_propagate_crashes(self):
         import graphs.graph
