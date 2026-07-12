@@ -21,6 +21,9 @@ runs it in a thread pool, preventing LangGraph graph.invoke() from blocking asyn
 import json
 import logging
 import os
+import re
+import tempfile
+import threading
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -32,13 +35,116 @@ import function_map as fm
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_GATES_STORE: dict[str, dict] = {}
 _VAULT_GATES = Path("/vault/00_System/gates")
 _VAULT_REFERENCES = Path("/vault/60_Council/creative/references")
 _BUILD_PROFILES = {
     "creative": Path("/vault/60_Council/creative/BUILD_PROFILE.md"),
     "dev":      Path("/vault/60_Council/dev/BUILD_PROFILE.md"),
 }
+_GATE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,128}$")
+
+
+class ReviewerUnavailable(RuntimeError):
+    """A required reviewer did not return a real verdict."""
+
+
+def _validated_gate_dir(root: Path, gate_id: str) -> Path:
+    if not _GATE_ID_RE.fullmatch(gate_id):
+        raise ValueError("gate_id must be 4-128 letters, numbers, underscores, or hyphens")
+    return root / gate_id
+
+
+class PersistentGateStore:
+    """Small atomic JSON store with an in-process read cache.
+
+    Each gate has its own state.json under the already-mounted vault. Returning
+    copies prevents nested dict mutation from bypassing persistence; callers
+    must write via __setitem__/_update_gate.
+    """
+
+    def __init__(self, root: Path):
+        self.root = root
+        self._cache: dict[str, dict] = {}
+        self._lock = threading.RLock()
+
+    def _path(self, gate_id: str) -> Path:
+        return _validated_gate_dir(self.root, gate_id) / "state.json"
+
+    @staticmethod
+    def _copy(value: dict) -> dict:
+        return json.loads(json.dumps(value))
+
+    def __setitem__(self, gate_id: str, value: dict) -> None:
+        if value.get("gate_id") != gate_id:
+            raise ValueError("gate payload gate_id does not match key")
+        payload = json.dumps(value, indent=2, sort_keys=True)
+        path = self._path(gate_id)
+        with self._lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp_name = tempfile.mkstemp(prefix=".state.", dir=path.parent)
+            tmp = Path(tmp_name)
+            try:
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(payload)
+                    handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(tmp, path)
+                dir_fd = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+                self._cache[gate_id] = self._copy(value)
+            finally:
+                tmp.unlink(missing_ok=True)
+
+    def __getitem__(self, gate_id: str) -> dict:
+        with self._lock:
+            if gate_id not in self._cache:
+                path = self._path(gate_id)
+                if not path.exists():
+                    raise KeyError(gate_id)
+                value = json.loads(path.read_text())
+                if not isinstance(value, dict) or value.get("gate_id") != gate_id:
+                    raise ValueError(f"invalid persisted gate state for {gate_id}")
+                self._cache[gate_id] = value
+            return self._copy(self._cache[gate_id])
+
+    def get(self, gate_id: str, default=None):
+        try:
+            return self[gate_id]
+        except KeyError:
+            return default
+
+    def __delitem__(self, gate_id: str) -> None:
+        with self._lock:
+            path = self._path(gate_id)
+            path.unlink(missing_ok=True)
+            self._cache.pop(gate_id, None)
+
+    def update(self, gate_id: str, **changes) -> dict:
+        with self._lock:
+            entry = self[gate_id]
+            entry.update(changes)
+            self[gate_id] = entry
+            return entry
+
+    def clear_cache(self) -> None:
+        """Model a process restart without deleting durable state."""
+        with self._lock:
+            self._cache.clear()
+
+
+_GATES_STORE = PersistentGateStore(_VAULT_GATES)
+
+
+def _update_gate(gate_id: str, **changes) -> dict:
+    try:
+        return _GATES_STORE.update(gate_id, **changes)
+    except KeyError:
+        raise KeyError(f"gate {gate_id} not found")
 
 
 def _load_references(property_name: str) -> str:
@@ -263,8 +369,7 @@ def resolve_gate(gate_id: str, req: GateResolve):
         "advisor":    req.resolver,
         "resolved_at": datetime.now(timezone.utc).isoformat(),
     }
-    entry["status"]     = "resolved"
-    entry["resolution"] = resolution
+    entry = _update_gate(gate_id, status="resolved", resolution=resolution)
 
     _persist_gate_record(gate_id, entry["gate_type"], entry["brief"], resolution)
     _fire_callback(entry["callback_url"], resolution)
@@ -394,8 +499,7 @@ def _process_gate(req: GateRequest):
             first_token = (kai_assessment.split() or [""])[0].rstrip(",.;:—-").upper()
             if first_token == "ROUTINE":
                 resolution = {"approved": True, "notes": kai_assessment, "advisor": "devops"}
-                _GATES_STORE[req.gate_id]["status"]     = "resolved"
-                _GATES_STORE[req.gate_id]["resolution"] = resolution
+                _update_gate(req.gate_id, status="resolved", resolution=resolution)
                 _persist_gate_record(req.gate_id, gate_type, brief, resolution)
                 _fire_callback(req.callback_url, resolution)
                 return
@@ -403,25 +507,32 @@ def _process_gate(req: GateRequest):
             logger.warning("Unknown gate_type %r — notifying Leo", gate_type)
             _persist_artifact(req.gate_id, "brief", json.dumps(brief, indent=2))
             summary        = f"*Subject:* (unknown gate type `{gate_type}`)\n*Chain:* none — Leo must decide"
-            kai_assessment = f"Unknown gate type — see brief.md"
+            kai_assessment = "Unknown gate type — see brief.md"
 
         # Move to pending_leo: post to Slack, wait for Leo's response
-        _GATES_STORE[req.gate_id]["status"]         = "pending_leo"
-        _GATES_STORE[req.gate_id]["summary"]        = summary
-        _GATES_STORE[req.gate_id]["kai_assessment"] = kai_assessment
+        _update_gate(
+            req.gate_id,
+            status="pending_leo",
+            summary=summary,
+            kai_assessment=kai_assessment,
+        )
         blocks, attachments = _gate_slack_message(req.gate_id, gate_type, summary, kai_assessment, "Awaiting Leo's approval")
         fallback = f"Gate {req.gate_id} ({gate_type}) needs your approval. Reply `approve {req.gate_id}` or `reject {req.gate_id}: reason`"
         _slack_post("#devops", fallback, blocks, attachments)
         logger.info("Gate %s posted to Slack — awaiting Leo", req.gate_id)
 
-    except Exception as e:
+    except Exception:
         logger.exception("Gate processing failed for %s", req.gate_id)
-        _GATES_STORE[req.gate_id]["status"] = "error"
-        _fire_callback(req.callback_url, {
+        resolution = {
             "approved": False,
-            "notes":    f"Gate processing error: {e}",
-            "advisor":  "system",
-        })
+            "notes": "Required reviewer unavailable; gate denied and may be retried",
+            "advisor": "system",
+            "retry_after": 60,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _update_gate(req.gate_id, status="resolved", resolution=resolution)
+        _persist_gate_record(req.gate_id, req.gate_type, req.brief, resolution)
+        _fire_callback(req.callback_url, resolution)
 
 
 def _plan_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
@@ -529,7 +640,7 @@ def _kai_validate_brief(produced_brief: str) -> tuple[bool, str]:
         return approved, reply
     except Exception as e:
         logger.exception("KAI brief validation failed: %s", e)
-        return False, f"[Brief validation unavailable: {e}]"
+        raise ReviewerUnavailable("KAI brief validation failed") from e
 
 
 def _creative_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
@@ -612,7 +723,7 @@ def _creative_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
         )
 
     # Store the approved brief on the gate record for use at resolution
-    _GATES_STORE[gate_id]["approved_brief"] = produced_brief
+    _update_gate(gate_id, approved_brief=produced_brief)
 
     return summary, verdict
 
@@ -670,10 +781,15 @@ def _call_advisor(advisor: str, message: str, thread_id: str) -> str:
             "audit_log":      [],
         }
         result = graph.invoke(state, config={"configurable": {"thread_id": thread_id or advisor}})
-        return result.get("final_reply", "")
+        reply = result.get("final_reply", "")
+        if not reply.strip():
+            raise ReviewerUnavailable(f"{advisor} reviewer returned no verdict")
+        return reply
     except Exception as e:
         logger.exception("Advisor call failed for %s: %s", advisor, e)
-        return f"[{advisor} unavailable: {e}]"
+        if isinstance(e, ReviewerUnavailable):
+            raise
+        raise ReviewerUnavailable(f"{advisor} reviewer failed") from e
 
 
 def _kai_quality_check(check_type: str, brief: dict, instruction: str) -> str:
@@ -711,17 +827,22 @@ def _kai_quality_check(check_type: str, brief: dict, instruction: str) -> str:
             "audit_log":      [],
         }
         result = graph.invoke(state, config={"configurable": {"thread_id": f"kai-qc-{check_type}"}})
-        return result.get("final_reply", "Quality check unavailable")
+        reply = result.get("final_reply", "")
+        if not reply.strip():
+            raise ReviewerUnavailable("KAI quality check returned no verdict")
+        return reply
     except Exception as e:
         logger.exception("KAI quality check failed: %s", e)
-        return f"[KAI quality check unavailable: {e}]"
+        if isinstance(e, ReviewerUnavailable):
+            raise
+        raise ReviewerUnavailable("KAI quality check failed") from e
 
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 
 def _gate_dir(gate_id: str) -> Path:
     """Per-gate artifact directory under the vault."""
-    return _VAULT_GATES / gate_id
+    return _validated_gate_dir(_VAULT_GATES, gate_id)
 
 
 def _persist_artifact(gate_id: str, artifact_type: str, content: str) -> str:

@@ -256,7 +256,12 @@ def _maybe_resolve_gate(message: str, user_id: str) -> str | None:
     if not approve_m and not reject_m:
         return None
     try:
-        from routes_council_gate import router as _gate_router, _GATES_STORE, _fire_callback, _persist_gate_record
+        from routes_council_gate import (
+            _GATES_STORE,
+            _fire_callback,
+            _persist_gate_record,
+            _update_gate,
+        )
         from datetime import datetime, timezone
         if approve_m:
             gate_id = approve_m.group(1)
@@ -267,9 +272,9 @@ def _maybe_resolve_gate(message: str, user_id: str) -> str | None:
 
         entry = _GATES_STORE.get(gate_id)
         if entry is None:
-            return f"Gate  not found — it may have expired or already been resolved."
+            return f"Gate {gate_id} not found — it may have expired or already been resolved."
         if entry["status"] not in ("pending_leo", "processing"):
-            return f"Gate  is already in state ."
+            return f"Gate {gate_id} is already in state {entry['status']}."
 
         resolution = {
             "approved":   approved,
@@ -277,13 +282,12 @@ def _maybe_resolve_gate(message: str, user_id: str) -> str | None:
             "advisor":    user_id,
             "resolved_at": datetime.now(timezone.utc).isoformat(),
         }
-        entry["status"]     = "resolved"
-        entry["resolution"] = resolution
+        entry = _update_gate(gate_id, status="resolved", resolution=resolution)
         _persist_gate_record(gate_id, entry["gate_type"], entry["brief"], resolution)
         _fire_callback(entry["callback_url"], resolution)
 
         action = "approved ✓" if approved else "rejected ✗"
-        return f"Gate  {action}. Workflow {'will continue.' if approved else f'stopped. Reason: {notes}'}"
+        return f"Gate {gate_id} {action}. Workflow {'will continue.' if approved else f'stopped. Reason: {notes}'}"
     except Exception as e:
         logger.exception("Gate resolve via message failed: %s", e)
         return f"Gate resolve failed: {e}"
