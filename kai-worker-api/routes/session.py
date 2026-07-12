@@ -260,17 +260,26 @@ def close_status():
         return {"status": "error", "message": str(e)}
 
 @router.post("/session/close")
-def trigger_close(background: bool = False):
+def trigger_close(issue_id: str, background: bool = False):
     """Trigger manual_close.py. Returns stdout/stderr and exit code."""
     script = Path("/home/leo/sonicink/scripts/manual_close.py")
     python = sys.executable
+
+    if not re.fullmatch(
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+        r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        issue_id,
+    ):
+        return {"ok": False, "error": "issue_id must be a full Plane issue UUID"}
+
+    command = [python, str(script), "--issue-id", issue_id]
 
     if not script.exists():
         return {"ok": False, "error": "manual_close.py not found", "path": str(script)}
 
     if background:
         subprocess.Popen(
-            [python, str(script)],
+            command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -279,7 +288,7 @@ def trigger_close(background: bool = False):
 
     try:
         result = subprocess.run(
-            [python, str(script)],
+            command,
             capture_output=True,
             text=True,
             timeout=300,
