@@ -17,15 +17,16 @@ Done. 1 vectors total.
 COMMAND: seed Tier 4 alpha facts
 {
   "ok": true,
-  "added": 1,
+  "added": 2,
   "added_ids": [
-    "m1-alpha-fact-001"
+    "m1-alpha-fact-001",
+    "m1-alpha-other-task-fact-001"
   ],
   "already_present": [],
   "facts_before": 3,
-  "facts_after": 4,
+  "facts_after": 5,
   "before_sha256": "d242d1927588875e2892854ffa55c514516536f2d1bbcf585c07a16c0eae0a72",
-  "after_sha256": "d8d40113be115d0efd36f38181f46c4d26e3080de9c040dfb66320ce03fd4410",
+  "after_sha256": "b67d090cef976542d03cac5c5aabae3e625384a5e872972497fd353ae67c1f79",
   "path": "/home/leo/vault/00_System/registry/facts.json"
 }
 COMMAND: seed Tier 4 beta facts
@@ -36,21 +37,22 @@ COMMAND: seed Tier 4 beta facts
     "m1-beta-fact-001"
   ],
   "already_present": [],
-  "facts_before": 4,
-  "facts_after": 5,
-  "before_sha256": "d8d40113be115d0efd36f38181f46c4d26e3080de9c040dfb66320ce03fd4410",
-  "after_sha256": "c2a0caf255ec95c70f60709ea5c543304f9d68627e5a6abb5ddb0c31ad437e19",
+  "facts_before": 5,
+  "facts_after": 6,
+  "before_sha256": "b67d090cef976542d03cac5c5aabae3e625384a5e872972497fd353ae67c1f79",
+  "after_sha256": "d168f33b8543d325ca80f674d3b347a4ab1d26a9ef996c02b926e7209bbc8afb",
   "path": "/home/leo/vault/00_System/registry/facts.json"
 }
 REGISTRY AFTER SEED
 {
   "path": "/home/leo/vault/00_System/registry/facts.json",
-  "sha256": "c2a0caf255ec95c70f60709ea5c543304f9d68627e5a6abb5ddb0c31ad437e19",
+  "sha256": "d168f33b8543d325ca80f674d3b347a4ab1d26a9ef996c02b926e7209bbc8afb",
   "valid_json": true,
-  "facts_count": 5,
+  "facts_count": 6,
   "pre_existing_fact_intact": true,
   "m1smoke_fact_ids": [
     "m1-alpha-fact-001",
+    "m1-alpha-other-task-fact-001",
     "m1-beta-fact-001"
   ]
 }
@@ -58,21 +60,21 @@ LIVE CHAT RESPONSE: alpha
 {
     "advisor": "m1smoke",
     "channel": "m1smoke",
-    "reply": "Amber-lantern-4102.",
-    "package_id": "6005f8ea-a734-4f4e-9aed-2a4156dedf6b",
+    "reply": "Amber-lantern-4102. That's the only verified marker in context.\n\nThe prior response citing \"violet-harbor-8396\" was fabricated \u2014 that string doesn't exist in the verified fact registry. I shouldn't have said it, and I shouldn't have compounded it by presenting both as real. Amber-lantern-4102 is the only one.",
+    "package_id": "607e322e-41f8-4f11-915e-10bdde1c3abf",
     "insights_logged": 0,
-    "input_tokens": 398,
-    "output_tokens": 12,
+    "input_tokens": 498,
+    "output_tokens": 84,
     "provider": "anthropic",
     "model": "claude-sonnet-4-6",
     "cache_read_tokens": 0,
     "cache_creation_tokens": 5006
 }
-ASSEMBLY LOG: scope=alpha package_id=6005f8ea-a734-4f4e-9aed-2a4156dedf6b
+ASSEMBLY LOG: scope=alpha package_id=607e322e-41f8-4f11-915e-10bdde1c3abf
 {
     "budget": {
         "ceiling": 34700,
-        "used": 4816
+        "used": 4884
     },
     "cache_breakpoint_after": 18528,
     "cache_creation_tokens": 5006,
@@ -84,7 +86,7 @@ ASSEMBLY LOG: scope=alpha package_id=6005f8ea-a734-4f4e-9aed-2a4156dedf6b
         null,
         null
     ],
-    "package_id": "6005f8ea-a734-4f4e-9aed-2a4156dedf6b",
+    "package_id": "607e322e-41f8-4f11-915e-10bdde1c3abf",
     "stable_prefix_hash": "daf9810ffe4c95b20fd438038eef207492d82cf5411a67842633a5f80b889d38",
     "threat_scan": {
         "hits": [],
@@ -92,10 +94,10 @@ ASSEMBLY LOG: scope=alpha package_id=6005f8ea-a734-4f4e-9aed-2a4156dedf6b
     },
     "tiers": {
         "t1": {
-            "tokens": 0,
+            "tokens": 68,
             "truncated": false,
-            "turns_available": 0,
-            "turns_included": 0
+            "turns_available": 6,
+            "turns_included": 6
         },
         "t2": {
             "last_compaction_ts": null,
@@ -130,27 +132,27 @@ ASSEMBLY LOG: scope=alpha package_id=6005f8ea-a734-4f4e-9aed-2a4156dedf6b
             "warnings": []
         }
     },
-    "ts": "2026-07-13T14:32:31.998108Z"
+    "ts": "2026-07-13T14:40:04.508644Z"
 }
 LIVE CHAT RESPONSE: beta
 {
     "advisor": "m1smoke",
     "channel": "m1smoke",
-    "reply": "violet-harbor-8396",
-    "package_id": "73fd4a07-afb8-4cff-83e6-26a268011de6",
+    "reply": "violet-harbor-8396\n\nThat's what's in the verified fact block. The answer I gave two turns ago calling it fabricated was wrong \u2014 I was second-guessing a verified source without cause.",
+    "package_id": "4483878e-4beb-4c51-a32c-bc8ee13bd531",
     "insights_logged": 0,
-    "input_tokens": 422,
-    "output_tokens": 9,
+    "input_tokens": 594,
+    "output_tokens": 46,
     "provider": "anthropic",
     "model": "claude-sonnet-4-6",
     "cache_read_tokens": 5006,
     "cache_creation_tokens": 0
 }
-ASSEMBLY LOG: scope=beta package_id=73fd4a07-afb8-4cff-83e6-26a268011de6
+ASSEMBLY LOG: scope=beta package_id=4483878e-4beb-4c51-a32c-bc8ee13bd531
 {
     "budget": {
         "ceiling": 34700,
-        "used": 4829
+        "used": 4970
     },
     "cache_breakpoint_after": 18528,
     "cache_creation_tokens": 0,
@@ -162,7 +164,7 @@ ASSEMBLY LOG: scope=beta package_id=73fd4a07-afb8-4cff-83e6-26a268011de6
         null,
         null
     ],
-    "package_id": "73fd4a07-afb8-4cff-83e6-26a268011de6",
+    "package_id": "4483878e-4beb-4c51-a32c-bc8ee13bd531",
     "stable_prefix_hash": "daf9810ffe4c95b20fd438038eef207492d82cf5411a67842633a5f80b889d38",
     "threat_scan": {
         "hits": [],
@@ -170,10 +172,10 @@ ASSEMBLY LOG: scope=beta package_id=73fd4a07-afb8-4cff-83e6-26a268011de6
     },
     "tiers": {
         "t1": {
-            "tokens": 14,
+            "tokens": 155,
             "truncated": false,
-            "turns_available": 2,
-            "turns_included": 2
+            "turns_available": 8,
+            "turns_included": 8
         },
         "t2": {
             "last_compaction_ts": null,
@@ -208,27 +210,27 @@ ASSEMBLY LOG: scope=beta package_id=73fd4a07-afb8-4cff-83e6-26a268011de6
             "warnings": []
         }
     },
-    "ts": "2026-07-13T14:32:35.040465Z"
+    "ts": "2026-07-13T14:40:10.391025Z"
 }
 LIVE CHAT RESPONSE: unscoped
 {
     "advisor": "m1smoke",
     "channel": "m1smoke",
-    "reply": "There are two verified M1 markers on file:\n\nAlpha: amber-lantern-4102\nBeta: violet-harbor-8396\n\nWhich one do you need?",
-    "package_id": "10e00b31-b77f-46b2-ae86-0df41561b0e2",
+    "reply": "There are two verified M1 markers in the fact registry:\n\nAlpha marker: amber-lantern-4102\nBeta marker: violet-harbor-8396\n\nIf you're asking about a specific one, tell me which and I'll confirm it.",
+    "package_id": "aee9eb1f-3a95-48f2-b618-e096d830c0e9",
     "insights_logged": 0,
-    "input_tokens": 508,
-    "output_tokens": 40,
+    "input_tokens": 790,
+    "output_tokens": 56,
     "provider": "anthropic",
     "model": "claude-sonnet-4-6",
     "cache_read_tokens": 5006,
     "cache_creation_tokens": 0
 }
-ASSEMBLY LOG: scope=unscoped package_id=10e00b31-b77f-46b2-ae86-0df41561b0e2
+ASSEMBLY LOG: scope=unscoped package_id=aee9eb1f-3a95-48f2-b618-e096d830c0e9
 {
     "budget": {
         "ceiling": 34700,
-        "used": 4892
+        "used": 5130
     },
     "cache_breakpoint_after": 18528,
     "cache_creation_tokens": 0,
@@ -240,18 +242,18 @@ ASSEMBLY LOG: scope=unscoped package_id=10e00b31-b77f-46b2-ae86-0df41561b0e2
         null,
         null
     ],
-    "package_id": "10e00b31-b77f-46b2-ae86-0df41561b0e2",
+    "package_id": "aee9eb1f-3a95-48f2-b618-e096d830c0e9",
     "stable_prefix_hash": "daf9810ffe4c95b20fd438038eef207492d82cf5411a67842633a5f80b889d38",
     "threat_scan": {
         "hits": [],
-        "scanned_blocks": 2
+        "scanned_blocks": 3
     },
     "tiers": {
         "t1": {
-            "tokens": 28,
+            "tokens": 210,
             "truncated": false,
-            "turns_available": 4,
-            "turns_included": 4
+            "turns_available": 10,
+            "turns_included": 10
         },
         "t2": {
             "last_compaction_ts": null,
@@ -268,9 +270,10 @@ ASSEMBLY LOG: scope=unscoped package_id=10e00b31-b77f-46b2-ae86-0df41561b0e2
             "excluded_stale": 0,
             "facts": [
                 "m1-alpha-fact-001",
+                "m1-alpha-other-task-fact-001",
                 "m1-beta-fact-001"
             ],
-            "tokens": 97
+            "tokens": 153
         },
         "t5": {
             "blocks": [
@@ -287,37 +290,40 @@ ASSEMBLY LOG: scope=unscoped package_id=10e00b31-b77f-46b2-ae86-0df41561b0e2
             "warnings": []
         }
     },
-    "ts": "2026-07-13T14:32:37.394793Z"
+    "ts": "2026-07-13T14:40:13.816699Z"
 }
 {
   "assembly_scope_gate": "PASS",
-  "alpha_package_id": "6005f8ea-a734-4f4e-9aed-2a4156dedf6b",
+  "alpha_package_id": "607e322e-41f8-4f11-915e-10bdde1c3abf",
   "alpha_fixture_facts": [
     "m1-alpha-fact-001"
   ],
-  "beta_package_id": "73fd4a07-afb8-4cff-83e6-26a268011de6",
+  "beta_package_id": "4483878e-4beb-4c51-a32c-bc8ee13bd531",
   "beta_fixture_facts": [
     "m1-beta-fact-001"
   ],
-  "unscoped_package_id": "10e00b31-b77f-46b2-ae86-0df41561b0e2",
+  "unscoped_package_id": "aee9eb1f-3a95-48f2-b618-e096d830c0e9",
   "unscoped_fixture_facts": [
     "m1-alpha-fact-001",
+    "m1-alpha-other-task-fact-001",
     "m1-beta-fact-001"
   ],
   "tier3_project_scoping": "NOT IMPLEMENTED; t3.hits empty for m1smoke",
-  "no_default_project": true
+  "no_default_project": true,
+  "task_type_filtered_alpha_decoy": true
 }
 COMMAND: delete dedicated m1smoke Qdrant collection
 {
     "result": true,
     "status": "ok",
-    "time": 0.048083967
+    "time": 0.027775973
 }
 COMMAND: atomically restore Fact Registry snapshot
 {
   "registry_restore": "PASS",
   "removed_m1smoke_fact_ids": [
     "m1-alpha-fact-001",
+    "m1-alpha-other-task-fact-001",
     "m1-beta-fact-001"
   ],
   "sha256": "d242d1927588875e2892854ffa55c514516536f2d1bbcf585c07a16c0eae0a72"
@@ -333,5 +339,5 @@ REGISTRY AFTER CLEANUP
 }
 COLLECTION AFTER CLEANUP http_status=404 (404 required)
 RETAINED: assembly-log/conversation audit rows and checked-in fixture/channel mapping only
-CAPTURE DIRECTORY: /tmp/kai-m1-gate-1459-rerun
+CAPTURE DIRECTORY: /tmp/kai-m1-gate-1459-final
 M1 GATE INCLUDING CLEANUP: PASS

@@ -214,11 +214,11 @@ python3 "$ROOT/scripts/ingest.py" "$FIXTURE/test_document.md" \
 
 printf 'COMMAND: seed Tier 4 alpha facts\n'
 python3 "$ROOT/scripts/ingest.py" --facts "$FIXTURE/alpha_facts.json" \
-  --advisor m1smoke --project alpha --task-type m1-scope --ingested-by m1-smoke-gate
+  --advisor m1smoke --project alpha --ingested-by m1-smoke-gate
 
 printf 'COMMAND: seed Tier 4 beta facts\n'
 python3 "$ROOT/scripts/ingest.py" --facts "$FIXTURE/beta_facts.json" \
-  --advisor m1smoke --project beta --task-type m1-scope --ingested-by m1-smoke-gate
+  --advisor m1smoke --project beta --ingested-by m1-smoke-gate
 
 printf 'REGISTRY AFTER SEED\n'
 snapshot_registry | tee "$CAPTURE_DIR/registry-after-seed.json"

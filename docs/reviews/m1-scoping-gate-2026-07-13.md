@@ -16,11 +16,11 @@ committed before runtime code as worker `sonicink` commit `086c582` in
 
 ```bash
 cd /home/leo/kai-system
-install -d -m 0700 /tmp/kai-m1-gate-1459-rerun
+install -d -m 0700 /tmp/kai-m1-gate-1459-final
 set -o pipefail
-CAPTURE_DIR=/tmp/kai-m1-gate-1459-rerun \
+CAPTURE_DIR=/tmp/kai-m1-gate-1459-final \
   bash scripts/fixtures/m1/run_gate.sh 2>&1 \
-  | tee /tmp/kai-m1-gate-1459-rerun/transcript.txt
+  | tee /tmp/kai-m1-gate-1459-final/transcript.txt
 ```
 
 The complete command output, all three full chat responses, all three persisted
@@ -32,15 +32,17 @@ file as
 
 | Call | `package_id` | Persisted `t4.facts` fixture IDs |
 |---|---|---|
-| `project=alpha`, `task_type=m1-scope` | `6005f8ea-a734-4f4e-9aed-2a4156dedf6b` | `m1-alpha-fact-001` |
-| `project=beta`, `task_type=m1-scope` | `73fd4a07-afb8-4cff-83e6-26a268011de6` | `m1-beta-fact-001` |
-| no project or task type | `10e00b31-b77f-46b2-ae86-0df41561b0e2` | both alpha and beta IDs |
+| `project=alpha`, `task_type=m1-scope` | `607e322e-41f8-4f11-915e-10bdde1c3abf` | `m1-alpha-fact-001`; the same-project `m1-other-scope` decoy is absent |
+| `project=beta`, `task_type=m1-scope` | `4483878e-4beb-4c51-a32c-bc8ee13bd531` | `m1-beta-fact-001` |
+| no project or task type | `aee9eb1f-3a95-48f2-b618-e096d830c0e9` | alpha primary, alpha other-task decoy, and beta IDs |
 
 All calls used advisor `m1smoke`, message “What is the verified M1 project
 marker?”, and conversation key
-`["m1smoke", "m1-smoke-gate", null, null]`. The unscoped union is the live
-no-default proof: no project filter was invented. The unit regression also
-asserts that absent scope keys are omitted from the outbound assemble payload.
+`["m1smoke", "m1-smoke-gate", null, null]`. Exclusion of the alpha-project
+decoy proves `task_type=m1-scope` reached assembly; exclusion of the other
+project's fact proves `project` reached assembly. The unscoped three-fact union
+proves neither default was invented. The unit regression also asserts that
+absent scope keys are omitted from the outbound assemble payload.
 
 Tier 3 project scoping is **not implemented** in the current server design:
 prose ingest has no project payload field, `_tier3_recall()` has no project
@@ -51,7 +53,7 @@ filter, and M1 did not change `_VALID_COLLECTIONS`. Therefore all three
 
 Registry SHA before seed and after cleanup:
 `d242d1927588875e2892854ffa55c514516536f2d1bbcf585c07a16c0eae0a72`.
-The pre-existing topology fact remained verified, both M1 fact IDs were removed,
+The pre-existing topology fact remained verified, all three M1 fact IDs were removed,
 the final registry parsed as valid JSON, and `GET /collections/m1smoke` returned
 HTTP 404 after deletion. The synthetic persona was removed. Persisted
 assembly-log/conversation rows remain as audit evidence; checked-in fixtures and
@@ -70,4 +72,7 @@ unrelated files were changed.
 The first gate attempt rejected the fact fixtures before mutation because they
 used a JSON array instead of the M0 contract’s `{ "facts": [...] }` envelope.
 Its fail-safe cleanup deleted the collection and restored the same registry SHA.
-The envelopes were corrected, validated, and the complete gate above passed.
+The corrected project-scoping run passed, but final audit found it did not make
+the `task_type` wire independently observable in the log. A same-project decoy
+with `task_type=m1-other-scope` was added; the complete final gate above proves
+both fields and passed cleanup.

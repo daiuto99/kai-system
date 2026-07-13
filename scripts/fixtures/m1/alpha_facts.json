@@ -2,9 +2,18 @@
   "facts": [
     {
       "id": "m1-alpha-fact-001",
+      "task_type": "m1-scope",
       "domain": "testing",
       "key": "m1_alpha_project_marker",
       "value": "The verified M1 alpha marker is amber-lantern-4102.",
+      "source": "scripts/fixtures/m1/alpha_facts.json"
+    },
+    {
+      "id": "m1-alpha-other-task-fact-001",
+      "task_type": "m1-other-scope",
+      "domain": "testing",
+      "key": "m1_alpha_other_task_marker",
+      "value": "The decoy M1 alpha marker for another task type is quartz-river-5521.",
       "source": "scripts/fixtures/m1/alpha_facts.json"
     }
   ]
