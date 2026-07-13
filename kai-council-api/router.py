@@ -19,6 +19,8 @@ router = APIRouter()
 class MessageRequest(BaseModel):
     channel: str
     message: str
+    project: str | None = None
+    task_type: str | None = None
     user_id: str = ""
     history: list = []
     thread_ts: str = ""
@@ -37,6 +39,16 @@ class CouncilResponse(BaseModel):
     advisor: str
     model: str
     usage: dict
+
+
+def _context_assemble_payload(req: MessageRequest, key: dict, channel: str) -> dict:
+    """Build the Memory Service request without inventing message scope."""
+    payload = {"key": key, "message": req.message, "channel": channel}
+    if req.project is not None:
+        payload["project"] = req.project
+    if req.task_type is not None:
+        payload["task_type"] = req.task_type
+    return payload
 
 
 KAI_TOOLS = [
@@ -351,7 +363,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     try:
         _assemble_resp = httpx.post(
             f"{ORCHESTRATOR_URL}/context/assemble",
-            json={"key": _conv_key, "message": req.message, "channel": channel},
+            json=_context_assemble_payload(req, _conv_key, channel),
             timeout=15,
         )
     except httpx.HTTPError as e:

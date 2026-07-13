@@ -43,6 +43,7 @@ ADVISOR_CHANNELS = {
     "sky":             "sky",
     "roads":           "roads",
     "devops":          "devops",
+    "m1smoke":         "m1smoke",
     "council":         "kai",
     "council-daily":   "kai",
     "council-weekly":  "kai",

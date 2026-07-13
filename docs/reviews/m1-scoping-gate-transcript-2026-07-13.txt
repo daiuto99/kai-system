@@ -1,0 +1,337 @@
+REGISTRY BEFORE GATE
+{
+  "path": "/home/leo/vault/00_System/registry/facts.json",
+  "sha256": "d242d1927588875e2892854ffa55c514516536f2d1bbcf585c07a16c0eae0a72",
+  "valid_json": true,
+  "facts_count": 3,
+  "pre_existing_fact_intact": true,
+  "m1smoke_fact_ids": []
+}
+COMMAND: install dedicated m1smoke synthetic persona
+COMMAND: seed Tier 3 fixture collection (not project-scoped; not used as scoping proof)
+Ingesting /home/leo/kai-system/scripts/fixtures/m1/test_document.md → m1smoke
+  Reading test_document.md...
+  1 chunks from 68 words
+  ✓ 1 vectors upserted → collection 'm1smoke'
+Done. 1 vectors total.
+COMMAND: seed Tier 4 alpha facts
+{
+  "ok": true,
+  "added": 1,
+  "added_ids": [
+    "m1-alpha-fact-001"
+  ],
+  "already_present": [],
+  "facts_before": 3,
+  "facts_after": 4,
+  "before_sha256": "d242d1927588875e2892854ffa55c514516536f2d1bbcf585c07a16c0eae0a72",
+  "after_sha256": "d8d40113be115d0efd36f38181f46c4d26e3080de9c040dfb66320ce03fd4410",
+  "path": "/home/leo/vault/00_System/registry/facts.json"
+}
+COMMAND: seed Tier 4 beta facts
+{
+  "ok": true,
+  "added": 1,
+  "added_ids": [
+    "m1-beta-fact-001"
+  ],
+  "already_present": [],
+  "facts_before": 4,
+  "facts_after": 5,
+  "before_sha256": "d8d40113be115d0efd36f38181f46c4d26e3080de9c040dfb66320ce03fd4410",
+  "after_sha256": "c2a0caf255ec95c70f60709ea5c543304f9d68627e5a6abb5ddb0c31ad437e19",
+  "path": "/home/leo/vault/00_System/registry/facts.json"
+}
+REGISTRY AFTER SEED
+{
+  "path": "/home/leo/vault/00_System/registry/facts.json",
+  "sha256": "c2a0caf255ec95c70f60709ea5c543304f9d68627e5a6abb5ddb0c31ad437e19",
+  "valid_json": true,
+  "facts_count": 5,
+  "pre_existing_fact_intact": true,
+  "m1smoke_fact_ids": [
+    "m1-alpha-fact-001",
+    "m1-beta-fact-001"
+  ]
+}
+LIVE CHAT RESPONSE: alpha
+{
+    "advisor": "m1smoke",
+    "channel": "m1smoke",
+    "reply": "Amber-lantern-4102.",
+    "package_id": "6005f8ea-a734-4f4e-9aed-2a4156dedf6b",
+    "insights_logged": 0,
+    "input_tokens": 398,
+    "output_tokens": 12,
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "cache_read_tokens": 0,
+    "cache_creation_tokens": 5006
+}
+ASSEMBLY LOG: scope=alpha package_id=6005f8ea-a734-4f4e-9aed-2a4156dedf6b
+{
+    "budget": {
+        "ceiling": 34700,
+        "used": 4816
+    },
+    "cache_breakpoint_after": 18528,
+    "cache_creation_tokens": 5006,
+    "cache_read_tokens": 0,
+    "conversation_id": "de723060-59f2-462d-ae6c-15bb12d22ad4",
+    "key_tuple": [
+        "m1smoke",
+        "m1-smoke-gate",
+        null,
+        null
+    ],
+    "package_id": "6005f8ea-a734-4f4e-9aed-2a4156dedf6b",
+    "stable_prefix_hash": "daf9810ffe4c95b20fd438038eef207492d82cf5411a67842633a5f80b889d38",
+    "threat_scan": {
+        "hits": [],
+        "scanned_blocks": 1
+    },
+    "tiers": {
+        "t1": {
+            "tokens": 0,
+            "truncated": false,
+            "turns_available": 0,
+            "turns_included": 0
+        },
+        "t2": {
+            "last_compaction_ts": null,
+            "present": false,
+            "tokens": 0
+        },
+        "t3": {
+            "excluded_below_threshold": 0,
+            "hits": [],
+            "tokens": 0,
+            "truncated_by_budget": 0
+        },
+        "t4": {
+            "excluded_stale": 0,
+            "facts": [
+                "m1-alpha-fact-001"
+            ],
+            "tokens": 49
+        },
+        "t5": {
+            "blocks": [
+                "background_context",
+                "persona",
+                "style_guide",
+                "current_datetime",
+                "date_reference"
+            ],
+            "tokens_stable": 4632,
+            "tokens_volatile": 135,
+            "truncated_blocks": [],
+            "truncated_by_budget": 0,
+            "warnings": []
+        }
+    },
+    "ts": "2026-07-13T14:32:31.998108Z"
+}
+LIVE CHAT RESPONSE: beta
+{
+    "advisor": "m1smoke",
+    "channel": "m1smoke",
+    "reply": "violet-harbor-8396",
+    "package_id": "73fd4a07-afb8-4cff-83e6-26a268011de6",
+    "insights_logged": 0,
+    "input_tokens": 422,
+    "output_tokens": 9,
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "cache_read_tokens": 5006,
+    "cache_creation_tokens": 0
+}
+ASSEMBLY LOG: scope=beta package_id=73fd4a07-afb8-4cff-83e6-26a268011de6
+{
+    "budget": {
+        "ceiling": 34700,
+        "used": 4829
+    },
+    "cache_breakpoint_after": 18528,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5006,
+    "conversation_id": "de723060-59f2-462d-ae6c-15bb12d22ad4",
+    "key_tuple": [
+        "m1smoke",
+        "m1-smoke-gate",
+        null,
+        null
+    ],
+    "package_id": "73fd4a07-afb8-4cff-83e6-26a268011de6",
+    "stable_prefix_hash": "daf9810ffe4c95b20fd438038eef207492d82cf5411a67842633a5f80b889d38",
+    "threat_scan": {
+        "hits": [],
+        "scanned_blocks": 1
+    },
+    "tiers": {
+        "t1": {
+            "tokens": 14,
+            "truncated": false,
+            "turns_available": 2,
+            "turns_included": 2
+        },
+        "t2": {
+            "last_compaction_ts": null,
+            "present": false,
+            "tokens": 0
+        },
+        "t3": {
+            "excluded_below_threshold": 0,
+            "hits": [],
+            "tokens": 0,
+            "truncated_by_budget": 0
+        },
+        "t4": {
+            "excluded_stale": 0,
+            "facts": [
+                "m1-beta-fact-001"
+            ],
+            "tokens": 48
+        },
+        "t5": {
+            "blocks": [
+                "background_context",
+                "persona",
+                "style_guide",
+                "current_datetime",
+                "date_reference"
+            ],
+            "tokens_stable": 4632,
+            "tokens_volatile": 135,
+            "truncated_blocks": [],
+            "truncated_by_budget": 0,
+            "warnings": []
+        }
+    },
+    "ts": "2026-07-13T14:32:35.040465Z"
+}
+LIVE CHAT RESPONSE: unscoped
+{
+    "advisor": "m1smoke",
+    "channel": "m1smoke",
+    "reply": "There are two verified M1 markers on file:\n\nAlpha: amber-lantern-4102\nBeta: violet-harbor-8396\n\nWhich one do you need?",
+    "package_id": "10e00b31-b77f-46b2-ae86-0df41561b0e2",
+    "insights_logged": 0,
+    "input_tokens": 508,
+    "output_tokens": 40,
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "cache_read_tokens": 5006,
+    "cache_creation_tokens": 0
+}
+ASSEMBLY LOG: scope=unscoped package_id=10e00b31-b77f-46b2-ae86-0df41561b0e2
+{
+    "budget": {
+        "ceiling": 34700,
+        "used": 4892
+    },
+    "cache_breakpoint_after": 18528,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5006,
+    "conversation_id": "de723060-59f2-462d-ae6c-15bb12d22ad4",
+    "key_tuple": [
+        "m1smoke",
+        "m1-smoke-gate",
+        null,
+        null
+    ],
+    "package_id": "10e00b31-b77f-46b2-ae86-0df41561b0e2",
+    "stable_prefix_hash": "daf9810ffe4c95b20fd438038eef207492d82cf5411a67842633a5f80b889d38",
+    "threat_scan": {
+        "hits": [],
+        "scanned_blocks": 2
+    },
+    "tiers": {
+        "t1": {
+            "tokens": 28,
+            "truncated": false,
+            "turns_available": 4,
+            "turns_included": 4
+        },
+        "t2": {
+            "last_compaction_ts": null,
+            "present": false,
+            "tokens": 0
+        },
+        "t3": {
+            "excluded_below_threshold": 0,
+            "hits": [],
+            "tokens": 0,
+            "truncated_by_budget": 0
+        },
+        "t4": {
+            "excluded_stale": 0,
+            "facts": [
+                "m1-alpha-fact-001",
+                "m1-beta-fact-001"
+            ],
+            "tokens": 97
+        },
+        "t5": {
+            "blocks": [
+                "background_context",
+                "persona",
+                "style_guide",
+                "current_datetime",
+                "date_reference"
+            ],
+            "tokens_stable": 4632,
+            "tokens_volatile": 135,
+            "truncated_blocks": [],
+            "truncated_by_budget": 0,
+            "warnings": []
+        }
+    },
+    "ts": "2026-07-13T14:32:37.394793Z"
+}
+{
+  "assembly_scope_gate": "PASS",
+  "alpha_package_id": "6005f8ea-a734-4f4e-9aed-2a4156dedf6b",
+  "alpha_fixture_facts": [
+    "m1-alpha-fact-001"
+  ],
+  "beta_package_id": "73fd4a07-afb8-4cff-83e6-26a268011de6",
+  "beta_fixture_facts": [
+    "m1-beta-fact-001"
+  ],
+  "unscoped_package_id": "10e00b31-b77f-46b2-ae86-0df41561b0e2",
+  "unscoped_fixture_facts": [
+    "m1-alpha-fact-001",
+    "m1-beta-fact-001"
+  ],
+  "tier3_project_scoping": "NOT IMPLEMENTED; t3.hits empty for m1smoke",
+  "no_default_project": true
+}
+COMMAND: delete dedicated m1smoke Qdrant collection
+{
+    "result": true,
+    "status": "ok",
+    "time": 0.048083967
+}
+COMMAND: atomically restore Fact Registry snapshot
+{
+  "registry_restore": "PASS",
+  "removed_m1smoke_fact_ids": [
+    "m1-alpha-fact-001",
+    "m1-beta-fact-001"
+  ],
+  "sha256": "d242d1927588875e2892854ffa55c514516536f2d1bbcf585c07a16c0eae0a72"
+}
+REGISTRY AFTER CLEANUP
+{
+  "path": "/home/leo/vault/00_System/registry/facts.json",
+  "sha256": "d242d1927588875e2892854ffa55c514516536f2d1bbcf585c07a16c0eae0a72",
+  "valid_json": true,
+  "facts_count": 3,
+  "pre_existing_fact_intact": true,
+  "m1smoke_fact_ids": []
+}
+COLLECTION AFTER CLEANUP http_status=404 (404 required)
+RETAINED: assembly-log/conversation audit rows and checked-in fixture/channel mapping only
+CAPTURE DIRECTORY: /tmp/kai-m1-gate-1459-rerun
+M1 GATE INCLUDING CLEANUP: PASS

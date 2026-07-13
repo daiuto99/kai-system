@@ -1,0 +1,11 @@
+{
+  "facts": [
+    {
+      "id": "m1-beta-fact-001",
+      "domain": "testing",
+      "key": "m1_beta_project_marker",
+      "value": "The verified M1 beta marker is violet-harbor-8396.",
+      "source": "scripts/fixtures/m1/beta_facts.json"
+    }
+  ]
+}

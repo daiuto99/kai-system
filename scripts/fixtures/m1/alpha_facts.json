@@ -1,0 +1,11 @@
+{
+  "facts": [
+    {
+      "id": "m1-alpha-fact-001",
+      "domain": "testing",
+      "key": "m1_alpha_project_marker",
+      "value": "The verified M1 alpha marker is amber-lantern-4102.",
+      "source": "scripts/fixtures/m1/alpha_facts.json"
+    }
+  ]
+}
