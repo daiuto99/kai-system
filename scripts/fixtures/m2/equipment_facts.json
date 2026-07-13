@@ -1,0 +1,186 @@
+{
+  "facts": [
+    {
+      "id": "leo-number-one-guitar-001",
+      "domain": "gear",
+      "key": "number_one_guitar",
+      "value": "Leo's #1 and all-time favorite guitar is his Ernie Ball Silhouette (Sunburst). He chooses it because its short scale, small frets, and neck radius suit his small hands and accommodate nerve damage plus prior neck and both-shoulder surgeries. This overrides the common assumption that his Strat or a Fender is his main guitar.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-live-guitars-001",
+      "domain": "gear",
+      "key": "live_guitars",
+      "value": "Live, Leo plays the two light Fender Special Edition Custom Telecaster FMT HH guitars (Black Cherry Burst and Amber). He chose them specifically because they are light and easy to play across three sets.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-strat-studio-only-001",
+      "domain": "gear",
+      "key": "custom_strat_use",
+      "value": "Leo's custom Fender Stratocaster (Brick Red, HSS) is a studio-only guitar. It sounds great and is in pristine condition but is too heavy for him to play across three live sets. It is a major studio instrument, not a live one.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-live-modeler-001",
+      "domain": "gear",
+      "key": "live_modeler",
+      "value": "Leo's main live/gigging modeler is the Line 6 Pod Go Wireless. Live, he locks to the Matchless amp model, keeps the rig deliberately simple (one solid sound plus a couple of variants), and does not want to program sounds on stage.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-helix-preference-001",
+      "domain": "gear",
+      "key": "helix_opinion",
+      "value": "Leo owns a Line 6 Helix LT but is not a big fan of it despite it sharing models with the Pod Go; he says he probably would not have bought it in hindsight. Studio plan: wire the Helix into the studio via a Steven Slate Raven touchscreen on a dedicated computer, always ready with a dirty track, a clean track, and a MIDI track so he can reamp anything at any time.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-bassman-layering-001",
+      "domain": "gear",
+      "key": "bassman_role",
+      "value": "Leo's Fender Silverface Bassman is a deliberate secondary layering amp, not a primary amp. He chases a tone he found producing a record years ago where he layered a Rickenbacker through a Blonde Bassman. The Silverface is a compromise toward that Blonde Bassman sound; he uses it for layering, not as a main amp.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-synergy-rig-001",
+      "domain": "gear",
+      "key": "synergy_amp_system",
+      "value": "Leo bought a Synergy amp system with a Marshall JCM800 module and a Synergy Bassman (BMAN) module, and is hoping that setup covers his core amp needs going forward.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-primary-daw-001",
+      "domain": "studio",
+      "key": "primary_daw",
+      "value": "Leo's primary DAW is Logic Pro. He moved back to Logic from PreSonus Studio One after Fender acquired PreSonus and he lost confidence in Fender's direction for it. Logic's songwriter-friendly reputation fits his current focus.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-computer-platform-001",
+      "domain": "studio",
+      "key": "studio_computer",
+      "value": "Leo's studio runs on a Mac Studio, and he is a Mac user throughout his house (with a few PCs). He is primarily a Mac person.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-500-series-chain-001",
+      "domain": "studio",
+      "key": "front_end_preamp_chain",
+      "value": "Leo's 500-series rack front end: two SSL SIX mic pres, plus a signal chain of Warm Audio into a Fredenstein compressor into a Midas 512 parametric EQ as a third pre. Channels four and five come from an AMEK dual preamp (Rupert Neve design) and an Avalon Design AD2044 dual compressor (one-to-one, two-to-two). He rarely needs more than five channels at once.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13; AMEK exact model unconfirmed (see prose note)"
+    },
+    {
+      "id": "leo-monitor-control-001",
+      "domain": "studio",
+      "key": "monitoring",
+      "value": "Leo runs three sets of monitors (JBL 3 Series MkII, Genelec 1030A, Alesis Monitor 2s) controlled by a TC Electronic Monitor Pilot. He also uses Steven Slate VSX headphones.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-control-surface-001",
+      "domain": "studio",
+      "key": "control_surface",
+      "value": "Leo recently hooked up a PreSonus FaderPort 16 as his control surface.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-drums-plan-001",
+      "domain": "studio",
+      "key": "drum_approach",
+      "value": "Going forward Leo's drums will be programmed by him, played by someone else in another studio (stems brought in), or played on his new Roland electronic kit triggering Steven Slate Drums or BFD. He retired his Alesis kit and is selling both his live drum set and a Tama Imperialstar kit.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13; Roland model to confirm (see prose note)"
+    },
+    {
+      "id": "leo-reference-mixes-001",
+      "domain": "studio",
+      "key": "reference_mix_target",
+      "value": "Leo's mix reference target is recent Richard Marx records (the last couple of years, not the early material) — he considers them very solid-sounding and that is the sound he is chasing.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-vocal-mics-001",
+      "domain": "studio",
+      "key": "vocal_mic_options",
+      "value": "Leo's vocal mic choice is context-dependent, not fixed. He hopes the Slate Digital VMS ML-1 becomes his main vocal workhorse. He has used the Aston Origin on vocals a few times but was not a big fan. He also owns a Shure SM7B for that upfront rock vocal sound.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-cab-mics-001",
+      "domain": "studio",
+      "key": "guitar_cab_mics",
+      "value": "For guitar cabinets in the ISO room Leo uses a Sennheiser e906 and an Audio-Technica AT4030.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-plugins-001",
+      "domain": "studio",
+      "key": "plugin_libraries",
+      "value": "Leo has UAD plugins and SSL plugins, plus Steven Slate Drums and BFD for programmed drums. He considers his plugin situation complete enough to start producing now.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-favorite-jc-001",
+      "domain": "gear",
+      "key": "jazz_chorus",
+      "value": "Leo's Roland Jazz Chorus is the JC-40, not the larger JC-120, and he specifically likes the 40.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "leo-regret-trade-001",
+      "domain": "gear",
+      "key": "regretted_trade",
+      "value": "Leo previously owned a second (blue) Ernie Ball Silhouette that he traded away years ago and deeply regrets trading.",
+      "source": "Leo-confirmed, gear intake voice notes 2026-07-13"
+    },
+    {
+      "id": "gear-sn-player-tele-001",
+      "domain": "gear",
+      "key": "serial_player_telecaster",
+      "value": "Fender Player Telecaster (Capri Orange, SS) serial number MX21004298.",
+      "source": "Leo-confirmed, gear intake inventory 2026-07-13"
+    },
+    {
+      "id": "gear-sn-fmt-blackcherry-001",
+      "domain": "gear",
+      "key": "serial_fmt_tele_black_cherry",
+      "value": "Fender Special Edition Custom Telecaster FMT HH (Black Cherry Burst) serial number ICF24003233.",
+      "source": "Leo-confirmed, gear intake inventory 2026-07-13"
+    },
+    {
+      "id": "gear-sn-fmt-amber-001",
+      "domain": "gear",
+      "key": "serial_fmt_tele_amber",
+      "value": "Fender Special Edition Custom Telecaster FMT HH (Amber) serial number ICF23001172.",
+      "source": "Leo-confirmed, gear intake inventory 2026-07-13"
+    },
+    {
+      "id": "gear-sn-evh-exotic-001",
+      "domain": "gear",
+      "key": "serial_evh_wolfgang_exotic",
+      "value": "EVH Wolfgang (Exotic Polar, HH with tremolo) serial number ICE2204726.",
+      "source": "Leo-confirmed, gear intake inventory 2026-07-13"
+    },
+    {
+      "id": "gear-sn-epi-es339-001",
+      "domain": "gear",
+      "key": "serial_epiphone_es339",
+      "value": "Epiphone ES-339 PRO (Pelham Blue) serial number 20051526380.",
+      "source": "Leo-confirmed, gear intake inventory 2026-07-13"
+    },
+    {
+      "id": "gear-sn-reverend-da-001",
+      "domain": "gear",
+      "key": "serial_reverend_double_agent",
+      "value": "Reverend Double Agent (Metallic Alpine, H-P90) serial number 63002.",
+      "source": "Leo-confirmed, gear intake inventory 2026-07-13"
+    },
+    {
+      "id": "gear-sn-ibanez-as53-001",
+      "domain": "gear",
+      "key": "serial_ibanez_artcore",
+      "value": "Ibanez Artcore AS53 (Transparent Black) serial number 21PW24020547.",
+      "source": "Leo-confirmed, gear intake inventory 2026-07-13"
+    }
+  ]
+}
