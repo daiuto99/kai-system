@@ -64,26 +64,47 @@ the import file.
 python3 scripts/ingest.py --facts path/to/facts.json \
   --advisor roads --project studio-refresh --task-type gear-advice \
   --ingested-by leo
+
+# Shared across every advisor (stores advisor:null)
+python3 scripts/ingest.py --facts path/to/global-facts.json \
+  --global --ingested-by leo
 ```
 
-`--advisor` and `--ingested-by` are required. `--project` and `--task-type` are
-optional and apply to every fact in the batch. Omit them for advisor-general
-facts. The stored object is:
+Exactly one fact advisor scope is required: use `--advisor <name>` for an
+advisor-scoped batch or `--global` for an advisor-global batch stored with
+`advisor: null`. The flags are mutually exclusive. `--global` is explicit
+rather than treating `global` as a special advisor name, so `global` remains a
+valid ordinary namespace and a null scope cannot be created accidentally.
+
+`--ingested-by` is always required. `--project` and `--task-type` are optional,
+orthogonal scopes applied to every fact in the batch; they work with either
+advisor mode. The four advisor/project combinations are therefore:
+
+| Command scope | Stored scope | Meaning |
+|---|---|---|
+| `--advisor X` | `advisor: X`, `project: null` | Advisor X, every project |
+| `--global` | `advisor: null`, `project: null` | Every advisor, every project |
+| `--global --project P` | `advisor: null`, `project: P` | Every advisor in project P |
+| `--advisor X --project P` | `advisor: X`, `project: P` | Advisor X in project P |
+
+`--task-type` follows the same null-or-exact rule as `--project`. The stored
+object is:
 
 | Field | Set by | Purpose |
 |---|---|---|
 | `id`, `domain`, `key`, `value`, `source` | Prep file/writer | Identity, truth, and provenance |
-| `advisor` | `--advisor` | Advisor namespace; required on seed writes |
+| `advisor` | `--advisor` or `--global` | Advisor namespace, or `null` for global facts |
 | `project`, `task_type` | Optional CLI scope | Exact assembly scope, or `null` for general facts |
 | `lifecycle` | Writer | Always `verified`; only verified facts are readable |
 | `ingested_at`, `updated_at` | Writer | UTC write timestamp |
 | `ingested_by` | `--ingested-by` | Person or process that trusted the source |
 
-The deployed reader also accepts legacy global facts where `advisor` is `null`.
-When assemble supplies a project/task type, a fact matches if its corresponding
-scope is `null` or exactly equal. When assemble omits a scope, the current reader
-does not filter on that dimension. Seed facts should therefore be scoped whenever
-their truth is not advisor-general.
+The deployed reader accepts global facts where `advisor` is `null`. When
+assemble supplies an advisor, project, or task type, a fact matches when its
+corresponding stored scope is `null` or exactly equal. When assemble omits a
+project/task-type scope, the reader does not filter on that dimension. Seed
+facts should therefore be scoped whenever their truth is not universal on that
+dimension.
 
 The whole facts batch validates before storage is touched. The writer locks the
 registry, preserves its existing root metadata and facts, writes a same-directory

@@ -71,7 +71,7 @@ def _optional_scope(value, field: str) -> str | None:
 def _normalize_fact(
     raw: dict,
     *,
-    advisor: str,
+    advisor: str | None,
     project: str | None,
     task_type: str | None,
     ingested_by: str,
@@ -137,7 +137,7 @@ def _same_fact(left: dict, right: dict) -> bool:
 def append_verified_facts(
     raw_facts: list,
     *,
-    advisor: str,
+    advisor: str | None,
     ingested_by: str,
     project: str | None = None,
     task_type: str | None = None,
@@ -151,11 +151,12 @@ def append_verified_facts(
     content rejects the whole batch. Existing legacy facts are preserved
     object-for-object and remain readable by ``facts_for``.
     """
-    advisor = _required_text(advisor, "advisor", 64)
-    if not _ADVISOR_RE.fullmatch(advisor):
-        raise RegistryValidationError(
-            "advisor must match [a-z0-9][a-z0-9_-]{0,63}"
-        )
+    if advisor is not None:
+        advisor = _required_text(advisor, "advisor", 64)
+        if not _ADVISOR_RE.fullmatch(advisor):
+            raise RegistryValidationError(
+                "advisor must match [a-z0-9][a-z0-9_-]{0,63}"
+            )
     ingested_by = _required_text(ingested_by, "ingested_by", 128)
     project = _optional_scope(project, "project")
     task_type = _optional_scope(task_type, "task_type")

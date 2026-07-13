@@ -1,0 +1,11 @@
+{
+  "facts": [
+    {
+      "id": "m15-global-project-001",
+      "domain": "testing",
+      "key": "m15_global_project_marker",
+      "value": "The M1.5 project marker is copper-comet-8821.",
+      "source": "M1.5 null-advisor project-scope acceptance fixture"
+    }
+  ]
+}

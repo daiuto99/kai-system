@@ -5,6 +5,8 @@ Usage:
   python3 ingest.py <file_or_dir> --advisor <name> [--title <title>]
   python3 ingest.py --facts <facts.json> --advisor <name> --ingested-by <name>
                     [--project <project>] [--task-type <type>]
+  python3 ingest.py --facts <facts.json> --global --ingested-by <name>
+                    [--project <project>] [--task-type <type>]
   python3 ingest.py --list              # list collections + vector counts
   python3 ingest.py --clear <advisor>   # delete all vectors for an advisor
 
@@ -102,7 +104,7 @@ def _default_registry_path() -> Path:
 def ingest_facts(
     path: Path,
     *,
-    advisor: str,
+    advisor: str | None,
     ingested_by: str,
     project: str = None,
     task_type: str = None,
@@ -234,7 +236,13 @@ def ingest_dir(directory: Path, advisor: str, verbose: bool = True):
 def main():
     parser = argparse.ArgumentParser(description="KAI Knowledge Ingestion")
     parser.add_argument("path", nargs="?", help="File or directory to ingest")
-    parser.add_argument("--advisor", help="Target advisor collection (kai, beats, sky, ...)")
+    fact_scope = parser.add_mutually_exclusive_group()
+    fact_scope.add_argument(
+        "--advisor", help="Target advisor collection or fact scope (kai, beats, sky, ...)"
+    )
+    fact_scope.add_argument(
+        "--global", dest="global_fact", action="store_true", help="Store facts with advisor:null"
+    )
     parser.add_argument("--title", help="Document title override")
     parser.add_argument("--facts", metavar="JSON", help="Append a verified Fact Registry batch")
     parser.add_argument("--project", help="Optional project scope for every fact in the batch")
@@ -251,8 +259,8 @@ def main():
     if args.facts:
         if args.path or args.list or args.clear or args.title:
             parser.error("--facts cannot be combined with prose path, --list, --clear, or --title")
-        if not args.advisor:
-            parser.error("--advisor is required with --facts")
+        if not args.advisor and not args.global_fact:
+            parser.error("one of --advisor or --global is required with --facts")
         if not args.ingested_by:
             parser.error("--ingested-by is required with --facts")
         facts_path = Path(args.facts)
@@ -264,7 +272,7 @@ def main():
             print(f"Error: Fact Registry writer unavailable: {exc}", file=sys.stderr)
             sys.exit(1)
         try:
-            advisor = validate_advisor(args.advisor)
+            advisor = None if args.global_fact else validate_advisor(args.advisor)
             result = ingest_facts(
                 facts_path,
                 advisor=advisor,
@@ -282,6 +290,9 @@ def main():
             sys.exit(1)
         print(json.dumps({"ok": True, **result}, indent=2))
         return
+
+    if args.global_fact:
+        parser.error("--global can only be used with --facts")
 
     if args.list:
         advisors = ['kai', 'beats', 'sky', 'roads', 'coach', 'ember', 'doc', 'creative', 'dev']

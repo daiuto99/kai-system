@@ -1,0 +1,11 @@
+{
+  "facts": [
+    {
+      "id": "m15-advisor-project-001",
+      "domain": "testing",
+      "key": "m15_advisor_project_marker",
+      "value": "The M1.5 advisor-project marker is violet-delta-6193.",
+      "source": "M1.5 fully scoped acceptance fixture"
+    }
+  ]
+}

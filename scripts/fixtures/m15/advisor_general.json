@@ -1,0 +1,11 @@
+{
+  "facts": [
+    {
+      "id": "m15-advisor-general-001",
+      "domain": "testing",
+      "key": "m15_advisor_general_marker",
+      "value": "The M1.5 advisor-general marker is river-glass-2734.",
+      "source": "M1.5 advisor-scope acceptance fixture"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "facts": [
+    {
+      "id": "m15-global-invalid-001",
+      "domain": "testing",
+      "key": "m15_invalid_missing_source",
+      "value": "This malformed global fact deliberately omits source."
+    }
+  ]
+}

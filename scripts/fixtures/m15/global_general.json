@@ -1,0 +1,11 @@
+{
+  "facts": [
+    {
+      "id": "m15-global-general-001",
+      "domain": "testing",
+      "key": "m15_global_general_marker",
+      "value": "The M1.5 global marker is aurora-lantern-4517.",
+      "source": "M1.5 null-advisor acceptance fixture"
+    }
+  ]
+}
