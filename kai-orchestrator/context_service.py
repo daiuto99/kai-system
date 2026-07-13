@@ -84,6 +84,10 @@ _VALID_COLLECTIONS = {
     "nurse", "copywriter", "brand", "designer", "graphic-designer", "pm",
     "lead-developer", "meditation", "researcher", "data-engineer", "devops",
     "chef", "strategist", "architect", "test-engineer",
+    # M0 repeatable acceptance fixtures. These names have synthetic personas
+    # and dedicated collections, so the live gate never pollutes an advisor's
+    # production memory namespace.
+    "m0smoke", "m0isolation",
 }
 # §5/§4.2: "advisor's collection + shared collections" — no shared collection
 # has been named by Leo/architecture yet, so this stays empty until one is.

@@ -1,0 +1,18 @@
+{
+  "facts": [
+    {
+      "id": "m0-smoke-fact-001",
+      "domain": "testing",
+      "key": "m0_registry_marker",
+      "value": "The verified M0 registry marker is silver-orchid-7319.",
+      "source": "scripts/fixtures/m0/test_facts.json"
+    },
+    {
+      "id": "m0-smoke-fact-002",
+      "domain": "testing",
+      "key": "m0_registry_scope",
+      "value": "The M0 smoke facts are scoped to project m0-seed and task type registry-smoke.",
+      "source": "scripts/fixtures/m0/test_facts.json"
+    }
+  ]
+}

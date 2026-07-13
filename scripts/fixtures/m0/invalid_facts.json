@@ -1,0 +1,10 @@
+{
+  "facts": [
+    {
+      "id": "m0-smoke-invalid-missing-source",
+      "domain": "testing",
+      "key": "invalid_missing_source",
+      "value": "This deliberately invalid fact has no required source field."
+    }
+  ]
+}
