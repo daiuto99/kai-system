@@ -1,0 +1,343 @@
+REGISTRY BEFORE GATE
+{
+  "path": "/home/leo/vault/00_System/registry/facts.json",
+  "sha256": "d242d1927588875e2892854ffa55c514516536f2d1bbcf585c07a16c0eae0a72",
+  "valid_json": true,
+  "facts_count": 3,
+  "pre_existing_fact_intact": true,
+  "m1smoke_fact_ids": []
+}
+COMMAND: install dedicated m1smoke synthetic persona
+COMMAND: seed Tier 3 fixture collection (not project-scoped; not used as scoping proof)
+Ingesting /home/leo/kai-system/scripts/fixtures/m1/test_document.md → m1smoke
+  Reading test_document.md...
+  1 chunks from 68 words
+  ✓ 1 vectors upserted → collection 'm1smoke'
+Done. 1 vectors total.
+COMMAND: seed Tier 4 alpha facts
+{
+  "ok": true,
+  "added": 2,
+  "added_ids": [
+    "m1-alpha-fact-001",
+    "m1-alpha-other-task-fact-001"
+  ],
+  "already_present": [],
+  "facts_before": 3,
+  "facts_after": 5,
+  "before_sha256": "d242d1927588875e2892854ffa55c514516536f2d1bbcf585c07a16c0eae0a72",
+  "after_sha256": "9f5d8c8bcf2a1f249c89696eeb5d52316296d4a735df3e6ebbf3beb998d87ead",
+  "path": "/home/leo/vault/00_System/registry/facts.json"
+}
+COMMAND: seed Tier 4 beta facts
+{
+  "ok": true,
+  "added": 1,
+  "added_ids": [
+    "m1-beta-fact-001"
+  ],
+  "already_present": [],
+  "facts_before": 5,
+  "facts_after": 6,
+  "before_sha256": "9f5d8c8bcf2a1f249c89696eeb5d52316296d4a735df3e6ebbf3beb998d87ead",
+  "after_sha256": "167815caeda4046d6b90a2b3093d2f96f96c1e6d2fc5c325085cfc3eecd09a48",
+  "path": "/home/leo/vault/00_System/registry/facts.json"
+}
+REGISTRY AFTER SEED
+{
+  "path": "/home/leo/vault/00_System/registry/facts.json",
+  "sha256": "167815caeda4046d6b90a2b3093d2f96f96c1e6d2fc5c325085cfc3eecd09a48",
+  "valid_json": true,
+  "facts_count": 6,
+  "pre_existing_fact_intact": true,
+  "m1smoke_fact_ids": [
+    "m1-alpha-fact-001",
+    "m1-alpha-other-task-fact-001",
+    "m1-beta-fact-001"
+  ]
+}
+LIVE CHAT RESPONSE: alpha
+{
+    "advisor": "m1smoke",
+    "channel": "m1smoke",
+    "reply": "Amber-lantern-4102.\n\nThat's the only verified fact in context. One marker, one source, one value. I've given inconsistent answers across this thread and that's on me. The verified fact block contains exactly one marker: amber-lantern-4102. There is no beta marker, no violet-harbor-8396. Those were fabricated.",
+    "package_id": "7fd3a280-8912-49f7-b3a1-03cb207c5e95",
+    "insights_logged": 0,
+    "input_tokens": 698,
+    "output_tokens": 82,
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "cache_read_tokens": 0,
+    "cache_creation_tokens": 5006
+}
+ASSEMBLY LOG: scope=alpha package_id=7fd3a280-8912-49f7-b3a1-03cb207c5e95
+{
+    "budget": {
+        "ceiling": 34700,
+        "used": 5070
+    },
+    "cache_breakpoint_after": 18528,
+    "cache_creation_tokens": 5006,
+    "cache_read_tokens": 0,
+    "conversation_id": "de723060-59f2-462d-ae6c-15bb12d22ad4",
+    "key_tuple": [
+        "m1smoke",
+        "m1-smoke-gate",
+        null,
+        null
+    ],
+    "package_id": "7fd3a280-8912-49f7-b3a1-03cb207c5e95",
+    "stable_prefix_hash": "daf9810ffe4c95b20fd438038eef207492d82cf5411a67842633a5f80b889d38",
+    "threat_scan": {
+        "hits": [],
+        "scanned_blocks": 1
+    },
+    "tiers": {
+        "t1": {
+            "tokens": 254,
+            "truncated": false,
+            "turns_available": 12,
+            "turns_included": 10
+        },
+        "t2": {
+            "last_compaction_ts": null,
+            "present": false,
+            "tokens": 0
+        },
+        "t3": {
+            "excluded_below_threshold": 0,
+            "hits": [],
+            "tokens": 0,
+            "truncated_by_budget": 0
+        },
+        "t4": {
+            "excluded_stale": 0,
+            "facts": [
+                "m1-alpha-fact-001"
+            ],
+            "tokens": 49
+        },
+        "t5": {
+            "blocks": [
+                "background_context",
+                "persona",
+                "style_guide",
+                "current_datetime",
+                "date_reference"
+            ],
+            "tokens_stable": 4632,
+            "tokens_volatile": 135,
+            "truncated_blocks": [],
+            "truncated_by_budget": 0,
+            "warnings": []
+        }
+    },
+    "ts": "2026-07-13T15:06:56.119480Z"
+}
+LIVE CHAT RESPONSE: beta
+{
+    "advisor": "m1smoke",
+    "channel": "m1smoke",
+    "reply": "violet-harbor-8396\n\nThat's what's in the verified fact block \u2014 id=\"m1-beta-fact-001\", domain=\"testing\", trust=\"verified\". One marker, clearly labeled beta. I need to stop second-guessing it.",
+    "package_id": "044627b2-5784-4191-8c1f-484d4177ca2c",
+    "insights_logged": 0,
+    "input_tokens": 770,
+    "output_tokens": 56,
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "cache_read_tokens": 5006,
+    "cache_creation_tokens": 0
+}
+ASSEMBLY LOG: scope=beta package_id=044627b2-5784-4191-8c1f-484d4177ca2c
+{
+    "budget": {
+        "ceiling": 34700,
+        "used": 5142
+    },
+    "cache_breakpoint_after": 18528,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5006,
+    "conversation_id": "de723060-59f2-462d-ae6c-15bb12d22ad4",
+    "key_tuple": [
+        "m1smoke",
+        "m1-smoke-gate",
+        null,
+        null
+    ],
+    "package_id": "044627b2-5784-4191-8c1f-484d4177ca2c",
+    "stable_prefix_hash": "daf9810ffe4c95b20fd438038eef207492d82cf5411a67842633a5f80b889d38",
+    "threat_scan": {
+        "hits": [],
+        "scanned_blocks": 1
+    },
+    "tiers": {
+        "t1": {
+            "tokens": 327,
+            "truncated": false,
+            "turns_available": 14,
+            "turns_included": 10
+        },
+        "t2": {
+            "last_compaction_ts": null,
+            "present": false,
+            "tokens": 0
+        },
+        "t3": {
+            "excluded_below_threshold": 0,
+            "hits": [],
+            "tokens": 0,
+            "truncated_by_budget": 0
+        },
+        "t4": {
+            "excluded_stale": 0,
+            "facts": [
+                "m1-beta-fact-001"
+            ],
+            "tokens": 48
+        },
+        "t5": {
+            "blocks": [
+                "background_context",
+                "persona",
+                "style_guide",
+                "current_datetime",
+                "date_reference"
+            ],
+            "tokens_stable": 4632,
+            "tokens_volatile": 135,
+            "truncated_blocks": [],
+            "truncated_by_budget": 0,
+            "warnings": []
+        }
+    },
+    "ts": "2026-07-13T15:07:01.427582Z"
+}
+LIVE CHAT RESPONSE: unscoped
+{
+    "advisor": "m1smoke",
+    "channel": "m1smoke",
+    "reply": "There are two verified M1 markers in context, both tagged trust=\"verified\":\n\nAlpha: amber-lantern-4102\nBeta: violet-harbor-8396\n\nThe question \"the verified M1 project marker\" is ambiguous \u2014 both are verified. If you need one specific one, tell me alpha or beta.",
+    "package_id": "c5a64879-0cd7-4718-8ac8-e87668ea0778",
+    "insights_logged": 0,
+    "input_tokens": 923,
+    "output_tokens": 72,
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "cache_read_tokens": 5006,
+    "cache_creation_tokens": 0
+}
+ASSEMBLY LOG: scope=unscoped package_id=c5a64879-0cd7-4718-8ac8-e87668ea0778
+{
+    "budget": {
+        "ceiling": 34700,
+        "used": 5265
+    },
+    "cache_breakpoint_after": 18528,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5006,
+    "conversation_id": "de723060-59f2-462d-ae6c-15bb12d22ad4",
+    "key_tuple": [
+        "m1smoke",
+        "m1-smoke-gate",
+        null,
+        null
+    ],
+    "package_id": "c5a64879-0cd7-4718-8ac8-e87668ea0778",
+    "stable_prefix_hash": "daf9810ffe4c95b20fd438038eef207492d82cf5411a67842633a5f80b889d38",
+    "threat_scan": {
+        "hits": [],
+        "scanned_blocks": 3
+    },
+    "tiers": {
+        "t1": {
+            "tokens": 345,
+            "truncated": false,
+            "turns_available": 16,
+            "turns_included": 10
+        },
+        "t2": {
+            "last_compaction_ts": null,
+            "present": false,
+            "tokens": 0
+        },
+        "t3": {
+            "excluded_below_threshold": 0,
+            "hits": [],
+            "tokens": 0,
+            "truncated_by_budget": 0
+        },
+        "t4": {
+            "excluded_stale": 0,
+            "facts": [
+                "m1-alpha-fact-001",
+                "m1-alpha-other-task-fact-001",
+                "m1-beta-fact-001"
+            ],
+            "tokens": 153
+        },
+        "t5": {
+            "blocks": [
+                "background_context",
+                "persona",
+                "style_guide",
+                "current_datetime",
+                "date_reference"
+            ],
+            "tokens_stable": 4632,
+            "tokens_volatile": 135,
+            "truncated_blocks": [],
+            "truncated_by_budget": 0,
+            "warnings": []
+        }
+    },
+    "ts": "2026-07-13T15:07:05.635409Z"
+}
+{
+  "assembly_scope_gate": "PASS",
+  "alpha_package_id": "7fd3a280-8912-49f7-b3a1-03cb207c5e95",
+  "alpha_fixture_facts": [
+    "m1-alpha-fact-001"
+  ],
+  "beta_package_id": "044627b2-5784-4191-8c1f-484d4177ca2c",
+  "beta_fixture_facts": [
+    "m1-beta-fact-001"
+  ],
+  "unscoped_package_id": "c5a64879-0cd7-4718-8ac8-e87668ea0778",
+  "unscoped_fixture_facts": [
+    "m1-alpha-fact-001",
+    "m1-alpha-other-task-fact-001",
+    "m1-beta-fact-001"
+  ],
+  "tier3_project_scoping": "NOT IMPLEMENTED; t3.hits empty for m1smoke",
+  "no_default_project": true,
+  "task_type_filtered_alpha_decoy": true
+}
+COMMAND: delete dedicated m1smoke Qdrant collection
+{
+    "result": true,
+    "status": "ok",
+    "time": 0.036340037
+}
+COMMAND: atomically restore Fact Registry snapshot
+{
+  "registry_restore": "PASS",
+  "removed_m1smoke_fact_ids": [
+    "m1-alpha-fact-001",
+    "m1-alpha-other-task-fact-001",
+    "m1-beta-fact-001"
+  ],
+  "sha256": "d242d1927588875e2892854ffa55c514516536f2d1bbcf585c07a16c0eae0a72"
+}
+REGISTRY AFTER CLEANUP
+{
+  "path": "/home/leo/vault/00_System/registry/facts.json",
+  "sha256": "d242d1927588875e2892854ffa55c514516536f2d1bbcf585c07a16c0eae0a72",
+  "valid_json": true,
+  "facts_count": 3,
+  "pre_existing_fact_intact": true,
+  "m1smoke_fact_ids": []
+}
+COLLECTION AFTER CLEANUP http_status=404 (404 required)
+RETAINED: assembly-log/conversation audit rows and checked-in fixture/channel mapping only
+CAPTURE DIRECTORY: /home/leo/kai-m1-claude-gate
+M1 GATE INCLUDING CLEANUP: PASS
