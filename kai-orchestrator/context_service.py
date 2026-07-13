@@ -8,6 +8,7 @@ logic lives here as tier5_standing_context().
 """
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -57,6 +58,13 @@ OLLAMA_EMBED_URL = "http://kai-ollama:11434"
 EMBED_MODEL = "nomic-embed-text"
 
 TIER4_CHAR_CAP = 800 * 4     # §6: 800-token ceiling for Tier 4 verified facts
+
+_TIER4_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_TIER4_STOP_WORDS = {
+    "a", "about", "an", "and", "are", "does", "for", "has", "have", "his",
+    "in", "is", "it", "leo", "of", "on", "the", "to", "use", "uses", "what",
+    "which", "with",
+}
 
 TIER5_STABLE_CHAR_CAP = 28000 * 4   # §6 v1.6 amendment: raised from the 8,000-token default —
                                      # measured against real vault content (creative advisor:
@@ -275,11 +283,42 @@ def _tier3_recall(advisor: str, message: str) -> dict:
     }
 
 
-def _tier4_facts(advisor: str, task_type: str, project: str) -> dict:
+def _tier4_tokens(text: str) -> set[str]:
+    return {
+        token for token in _TIER4_TOKEN_RE.findall((text or "").lower())
+        if token not in _TIER4_STOP_WORDS
+    }
+
+
+def _tier4_relevance(fact: dict, query_tokens: set[str]) -> int:
+    """Deterministic interim relevance until Tier 4 owns a fact vector index."""
+    if not query_tokens:
+        return 0
+    key_tokens = _tier4_tokens(fact.get("key", ""))
+    domain_tokens = _tier4_tokens(fact.get("domain", ""))
+    value_tokens = _tier4_tokens(fact.get("value", ""))
+    return (
+        4 * len(query_tokens & key_tokens)
+        + 2 * len(query_tokens & domain_tokens)
+        + len(query_tokens & value_tokens)
+    )
+
+
+def _tier4_scope_specificity(fact: dict, advisor: str, task_type: str, project: str) -> int:
+    return sum((
+        bool(advisor and fact.get("advisor") == advisor),
+        bool(project and fact.get("project") == project),
+        bool(task_type and fact.get("task_type") == task_type),
+    ))
+
+
+def _tier4_facts(advisor: str, task_type: str, project: str, message: str = "") -> dict:
     """§5 Tier 4 — verified facts from the Fact Registry (S7-1, still Backlog —
     registry.py reads the hand-seeded stub store, §5/§6 budget discipline is real
     regardless of what feeds it), filtered to advisor + task/project match (§5).
-    §6: budget-capped at TIER4_CHAR_CAP, stalest-first eviction on overflow. §10:
+    §6: query-relevance ranked, then budget-capped at TIER4_CHAR_CAP; scope
+    specificity and freshness break relevance ties, with fact ID as the final
+    stable (non-input-order) tiebreak. §10:
     every fact payload is threat-scanned (logged, not blocking) before wrapping in
     a <verified_fact trust="verified"> provenance marker — deliberately distinct
     from Tier 3's <recalled trust="untrusted"> marker, so the model (and the log)
@@ -298,10 +337,16 @@ def _tier4_facts(advisor: str, task_type: str, project: str) -> dict:
     if not candidates:
         return empty
 
-    # Freshest-first: inclusion priority favors recent facts, and popping from the
-    # end below drops the stalest first on overflow — same mechanic as Tier 3's
-    # score-descending/pop-from-end eviction, applied to updated_at instead of score.
+    # Stable multi-pass ranking: the final pass is primary. The initial ID sort
+    # removes registry/input order as a tiebreak even when a batch shares one timestamp.
+    query_tokens = _tier4_tokens(message)
+    candidates.sort(key=lambda f: f.get("id", ""))
     candidates.sort(key=lambda f: f.get("updated_at", ""), reverse=True)
+    candidates.sort(
+        key=lambda f: _tier4_scope_specificity(f, advisor, task_type, project),
+        reverse=True,
+    )
+    candidates.sort(key=lambda f: _tier4_relevance(f, query_tokens), reverse=True)
 
     entries = []
     for f in candidates:
@@ -318,6 +363,8 @@ def _tier4_facts(advisor: str, task_type: str, project: str) -> dict:
         })
 
     total_chars = sum(len(e["block"]) for e in entries)
+    # Keep the external/log field name for compatibility; after KAI-788 it counts
+    # lowest-ranked budget exclusions, not necessarily stale facts.
     excluded_stale = 0
     while entries and total_chars > TIER4_CHAR_CAP:
         dropped = entries.pop()
@@ -727,7 +774,7 @@ def assemble(key: dict, message: str, task_type: str = None, project: str = None
         summary = conv["summary"] or ""
 
         recall = _tier3_recall(key.get("advisor"), message)
-        facts = _tier4_facts(key.get("advisor"), task_type, project)
+        facts = _tier4_facts(key.get("advisor"), task_type, project, message)
 
         package_id = new_id()
         ts = now_iso()
