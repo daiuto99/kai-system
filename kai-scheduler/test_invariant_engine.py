@@ -297,6 +297,21 @@ class SeededViolationTests(unittest.TestCase):
         self.assertIn("open_issue_ids", data)
         self.assertEqual(data["open_issue_ids"].get(key), 1234)
 
+    def test_deferred_invariant_is_not_counted_as_failing(self):
+        """Watchdog summary must not turn pass=None deferrals into failures."""
+        checks = [("real_failure", "Real Failure", lambda: (False, "seeded"))]
+        deferred = {"planned_pause": ("Planned Pause", "explicitly deferred")}
+        with mock.patch.object(self.inv, "INVARIANTS", checks), \
+             mock.patch.object(self.inv, "DEFERRED_INVARIANTS", deferred), \
+             mock.patch.object(self.inv, "_ensure_invariant_issue", return_value=True), \
+             mock.patch.object(self.inv, "_load_secret", return_value="fake-token"), \
+             self.assertLogs(self.inv.log, level="INFO") as captured:
+            self.inv.run_invariants()
+
+        joined = "\n".join(captured.output)
+        self.assertIn("1 failing", joined)
+        self.assertNotIn("2 failing", joined)
+
 
 class NewInvariantSmokeTests(unittest.TestCase):
     """Smoke tests — confirm each new invariant returns (bool, str) without crashing."""

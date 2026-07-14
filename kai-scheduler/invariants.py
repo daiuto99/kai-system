@@ -1192,6 +1192,9 @@ def run_invariants(send_daily_digest: bool = False):
         _slack_post(token, msg)
         log.info("invariants: posted recovery alert (%d recovered)", len(recoveries))
 
-    status = "all_pass" if all_pass else f"{sum(1 for r in results.values() if not r['pass'])} failing"
+    status = (
+        "all_pass" if all_pass
+        else f"{sum(1 for r in results.values() if r['pass'] is False)} failing"
+    )
     log.info("invariants: %s (runner_enabled=%s)", status, _RUNNER_ENABLED)
     return all_pass, results
