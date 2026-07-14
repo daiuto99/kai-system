@@ -9,6 +9,7 @@ from db import new_id
 from engine import engine
 from models import CapabilityResult
 from transports.base import safe_request
+from context_service import _worker_auth
 from . import capability
 
 _ORCHESTRATOR_URL = os.environ.get("ORCHESTRATOR_INTERNAL_URL", "http://kai-orchestrator:8003")
@@ -35,6 +36,7 @@ def gate(job_id: str, step_id: str, brief: dict, gate_type: str = "dev",
             "callback_url": callback_url,
         },
         timeout=10,
+        auth=_worker_auth(),
     )
 
     if not r.ok:

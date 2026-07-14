@@ -17,6 +17,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import httpx
+from worker_auth import worker_auth
 
 log = logging.getLogger(__name__)
 
@@ -419,7 +420,7 @@ def inv_persona_assembly() -> tuple[bool, str]:
     Source of truth for advisor-specific block requirements is the dict above.
     """
     try:
-        r = httpx.get(f"{COUNCIL_API}/internal/invariants/persona_check", timeout=30)
+        r = httpx.get(f"{COUNCIL_API}/internal/invariants/persona_check", timeout=30, auth=worker_auth())
         if r.status_code != 200:
             return False, f"diagnostic endpoint HTTP {r.status_code}"
         data = r.json()

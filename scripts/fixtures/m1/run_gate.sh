@@ -140,8 +140,15 @@ if sys.argv[1]:
 print(json.dumps(payload))
 PY
 )"
-  printf '%s' "$payload" | curl -fsS -X POST http://localhost:8002/council/message \
-    -H 'Content-Type: application/json' --data-binary @-
+  printf '%s' "$payload" | docker exec -i kai-orchestrator python3 -c '
+import base64, pathlib, sys, urllib.request
+raw = pathlib.Path("/run/secrets/kai_worker_auth").read_text().strip()
+request = urllib.request.Request(
+    "http://kai-council-api:8002/council/message", data=sys.stdin.buffer.read(),
+    headers={"Content-Type": "application/json", "Authorization": "Basic " + base64.b64encode(raw.encode()).decode()},
+    method="POST")
+sys.stdout.write(urllib.request.urlopen(request, timeout=120).read().decode())
+'
 }
 
 read_log() {

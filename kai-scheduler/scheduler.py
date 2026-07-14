@@ -208,6 +208,7 @@ def telegram_poll_loop():
                         f"{COUNCIL_API}/council/message",
                         json=payload,
                         timeout=90,
+                        auth=worker_auth(),
                     )
                     resp.raise_for_status()
                     reply = resp.json().get("reply", "No response.")

@@ -6,6 +6,7 @@ from db import init_db, get_conn
 from engine import engine
 from learning.aggregator import start_learning_loop, run_aggregation
 from learning.proposer import generate_proposals
+from context_service import _worker_auth
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s — %(message)s")
@@ -173,6 +174,7 @@ def _poll_gate_cycle(http_get=None):
             response = http_get(
                 f"{_COUNCIL_API_URL}/council/gate/{gate['id']}/state",
                 timeout=5,
+                auth=_worker_auth(),
             )
             if response.status_code != 200:
                 raise RuntimeError(f"HTTP {response.status_code}")

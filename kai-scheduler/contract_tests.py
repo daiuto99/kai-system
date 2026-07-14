@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+from worker_auth import worker_auth
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ DEFAULTS = {"integer": 1, "number": 1, "boolean": True, "string": "x"}
 
 
 def fetch_schema(name: str, base_url: str) -> dict:
-    r = httpx.get(f"{base_url}/openapi.json", timeout=10)
+    r = httpx.get(f"{base_url}/openapi.json", timeout=10, auth=worker_auth())
     r.raise_for_status()
     return r.json()
 
@@ -79,7 +80,7 @@ def test_service(name: str, base_url: str, schema: dict) -> list:
             continue
         qs = _synthesize_query(params)
         try:
-            r = httpx.get(f"{base_url}{path}", params=qs, timeout=15)
+            r = httpx.get(f"{base_url}{path}", params=qs, timeout=15, auth=worker_auth())
             if r.status_code >= 500:
                 results.append({"service": name, "path": path, "method": "GET",
                                 "status": "fail", "code": r.status_code,

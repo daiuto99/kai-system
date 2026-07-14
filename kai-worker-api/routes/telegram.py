@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Header
 from pydantic import BaseModel
 import httpx as _tghttpx
+from watchdog import _worker_auth
 from safe_http import safe_json
 
 logger = logging.getLogger(__name__)
@@ -207,6 +208,7 @@ async def telegram_webhook(
             "http://kai-council-api:8002/message",
             json=payload,
             timeout=120,
+            auth=_worker_auth(),
         )
         r.raise_for_status()
         data = r.json()

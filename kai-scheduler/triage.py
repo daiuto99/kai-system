@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 import httpx
+from worker_auth import worker_auth
 
 log = logging.getLogger(__name__)
 
@@ -99,14 +100,14 @@ def _route_bug(category: str) -> tuple[str, str, str]:
 
     try:
         r = httpx.get(f"{COUNCIL_API}/function_map/bug/owner",
-                      params={"category": category}, timeout=5)
+                      params={"category": category}, timeout=5, auth=worker_auth())
         if r.status_code == 200:
             team_role = r.json().get("owner", team_role) or team_role
     except Exception as e:
         log.warning("triage: function_map bug/owner unreachable (%s) — defaulting devops", e)
 
     try:
-        r = httpx.get(f"{COUNCIL_API}/function_map/team_assignee/{team_role}", timeout=5)
+        r = httpx.get(f"{COUNCIL_API}/function_map/team_assignee/{team_role}", timeout=5, auth=worker_auth())
         if r.status_code == 200:
             uuid = r.json().get("assignee_uuid")
             if uuid:
@@ -116,7 +117,7 @@ def _route_bug(category: str) -> tuple[str, str, str]:
         log.warning("triage: function_map team_assignee unreachable (%s) — devops fallback", e)
 
     try:
-        r = httpx.get(f"{COUNCIL_API}/function_map/team_slack/{team_role}", timeout=5)
+        r = httpx.get(f"{COUNCIL_API}/function_map/team_slack/{team_role}", timeout=5, auth=worker_auth())
         if r.status_code == 200:
             channel = r.json().get("channel") or channel
     except Exception as e:

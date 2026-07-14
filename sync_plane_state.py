@@ -277,7 +277,7 @@ def warmboot():
     print("\n=== CONTAINER HEALTH ===")
     services = [
         ("kai-worker-api",  "http://localhost:8001/health"),
-        ("kai-council-api", "http://localhost:8002/health"),
+        ("kai-council-api", None),  # internal-only; check its Docker health state
         ("kai-mcp-api",     None),  # no host port — checked via docker inspect
         ("kai-litellm",     "http://localhost:4000/health/liveliness"),
     ]

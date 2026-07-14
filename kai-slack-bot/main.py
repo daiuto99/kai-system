@@ -99,6 +99,7 @@ def call_council(channel: str, message: str, user_id: str, ts: str,
             json={"channel": channel, "message": message, "user_id": user_id,
                   "thread_ts": ts, "trigger_source": trigger_source},
             timeout=60.0,
+            auth=_worker_auth(),
         )
         r.raise_for_status()
         data = r.json()

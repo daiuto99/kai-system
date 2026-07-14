@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 S3-3: Chat Regression Suite — 20 queries across 5 categories.
-Runs against the live council-api at localhost:8002.
+Run inside a Docker-networked service, using COUNCIL_API_URL when needed.
 Stdlib only (no third-party deps).
 
 Usage:
@@ -10,15 +10,28 @@ Usage:
     python3 chat_regression.py --category wordpress
 """
 import argparse
+import base64
 import json
+import os
 import sys
 import time
 import urllib.request
 import urllib.error
 from datetime import datetime
 
-COUNCIL_API = "http://localhost:8002/council/message"
+COUNCIL_API = os.environ.get("COUNCIL_API_URL", "http://kai-council-api:8002") + "/council/message"
 TIMEOUT     = 90
+
+
+def _authorization() -> str:
+    for path in ("/run/secrets/kai_worker_auth", "/home/leo/kai-system/secrets/kai_worker_auth.txt"):
+        try:
+            raw = open(path).read().strip()
+            if ":" in raw:
+                return "Basic " + base64.b64encode(raw.encode()).decode()
+        except OSError:
+            continue
+    raise RuntimeError("kai_worker_auth unavailable; refusing unauthenticated council regression")
 
 # ── 20 queries × 5 categories ─────────────────────────────────────────────────
 QUERIES = [
@@ -80,7 +93,8 @@ def _post(url: str, payload: dict, timeout: int) -> tuple[int, dict | None, str]
 
     def _attempt() -> tuple[int, dict | None, str]:
         req = urllib.request.Request(url, data=body,
-                                     headers={"Content-Type": "application/json"})
+                                     headers={"Content-Type": "application/json",
+                                              "Authorization": _authorization()})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode())

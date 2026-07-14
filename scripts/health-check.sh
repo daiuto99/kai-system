@@ -39,7 +39,12 @@ check_endpoint() {
 }
 
 check_endpoint "kai-worker-api" "http://localhost:8001/health"
-check_endpoint "kai-council-api" "http://localhost:8002/health"
+COUNCIL_HTTP=$(docker exec kai-council-api curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:8002/health 2>/dev/null || echo "000")
+if [ "$COUNCIL_HTTP" = "200" ]; then
+  pass "kai-council-api (internal Docker health endpoint)"
+else
+  fail "kai-council-api (internal Docker health endpoint) — HTTP $COUNCIL_HTTP"
+fi
 
 echo ""
 echo "Vault sync:"

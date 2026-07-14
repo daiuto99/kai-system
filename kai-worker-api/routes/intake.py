@@ -6,6 +6,7 @@ from datetime import datetime as _dt
 from pathlib import Path
 
 import httpx
+from watchdog import _worker_auth
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,7 @@ def _get_clarifying_questions(session: dict) -> list[str]:
             f"{COUNCIL_API}/council",
             json={"channel": "creative", "message": ctx, "user_id": "intake", "history": []},
             timeout=30,
+            auth=_worker_auth(),
         )
         reply = r.json().get("reply", "").strip()
         questions = [q.strip() for q in reply.splitlines() if q.strip() and "?" in q]

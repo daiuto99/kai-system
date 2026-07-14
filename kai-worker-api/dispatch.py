@@ -473,10 +473,10 @@ def _call_council(advisor: str, message: str, *,
     }
     if client is not None:
         r = client.post(f"{COUNCIL_API}/council/message", json=payload,
-                        timeout=COUNCIL_TIMEOUT_S)
+                        timeout=COUNCIL_TIMEOUT_S, auth=_worker_auth())
     else:
         with httpx.Client(timeout=COUNCIL_TIMEOUT_S) as c:
-            r = c.post(f"{COUNCIL_API}/council/message", json=payload)
+            r = c.post(f"{COUNCIL_API}/council/message", json=payload, auth=_worker_auth())
     if r.status_code != 200:
         raise DispatchError(f"council error {r.status_code}: {r.text[:200]}")
     return r.json()

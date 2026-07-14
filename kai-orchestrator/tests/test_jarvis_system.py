@@ -32,7 +32,7 @@ VAULT          = Path("/home/leo/vault")
 ORCH_DIR       = KAI_ROOT / "kai-orchestrator"
 SCHED_DIR      = KAI_ROOT / "kai-scheduler"
 WORKER_URL     = "http://localhost:8001"
-COUNCIL_URL    = "http://localhost:8002"
+COUNCIL_URL    = "http://kai-council-api:8002"
 ORCH_CONTAINER = "kai-orchestrator"
 PLANE_URL      = "http://localhost:8090/api/v1"
 PLANE_WS       = "sonicink"
@@ -347,15 +347,24 @@ def suite_architecture():
 def suite_health():
     print(f"\n{YELLOW}── Category B: Live System Health ──────────────────────────────────{RESET}")
 
-    # B-1a/b: worker-api + council-api respond
-    for label, url in [("worker-api", f"{WORKER_URL}/health"),
-                        ("council-api", f"{COUNCIL_URL}/health")]:
+    # B-1a: worker API is host-published. Council is intentionally not: probe
+    # its health endpoint from inside its container instead of reopening 8002.
+    for label, url in [("worker-api", f"{WORKER_URL}/health")]:
         ok, data = _api_get(url)
-        bid = "B-1a" if "worker" in label else "B-1b"
+        bid = "B-1a"
         if ok:
             _record(bid, f"{label} responds 200", PASS, f"status={data.get('status','ok')}")
         else:
             _record(bid, f"{label} responds 200", FAIL, f"Error: {data.get('error','no response')}")
+
+    council_probe = subprocess.run(
+        ["docker", "exec", "kai-council-api", "curl", "-fsS", "http://localhost:8002/health"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if council_probe.returncode == 0:
+        _record("B-1b", "council-api responds 200 internally", PASS, "internal Docker health probe")
+    else:
+        _record("B-1b", "council-api responds 200 internally", FAIL, "internal Docker health probe failed")
 
     # B-1c: orchestrator
     ok, data = _orch_get("/health")

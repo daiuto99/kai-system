@@ -10,7 +10,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import httpx
-from watchdog import run_watchdog_checks
+from watchdog import run_watchdog_checks, _worker_auth
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [scheduler] %(message)s")
 log = logging.getLogger(__name__)
@@ -127,6 +127,7 @@ def telegram_poll_loop():
                         f"{COUNCIL_API}/message",
                         json={"channel": "kai", "message": text, "user_id": f"telegram:{username}"},
                         timeout=90,
+                        auth=_worker_auth(),
                     )
                     resp.raise_for_status()
                     reply = resp.json().get("reply", "No response.")

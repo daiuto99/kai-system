@@ -64,8 +64,6 @@ services:
       options:
         max-size: "100m"
         max-file: "5"
-    ports:
-      - "8002:8002"
     volumes:
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
