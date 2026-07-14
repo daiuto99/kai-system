@@ -98,7 +98,7 @@
 <div class="header">
   <h1>KAI System Architecture</h1>
   <p>Personal AI Chief of Staff — Interactive Architecture Reference</p>
-  <div class="version"><span class="dot" style="color:#10b981"></span> v2.45.5 · 2026-07-12 — <strong style="color:#34d399">BUG-18 trust repair (c827b7f0): every council reviewer failure resolves as a denial (<code>approved=false</code>, <code>retry_after=60</code>) and alerts DevOps; gate state is atomically persisted under <code>vault/00_System/gates/&lt;gate_id&gt;/state.json</code> and survives council restarts; fallback polling is immediate, backed off, and fail-loud.</strong></div>
+  <div class="version"><span class="dot" style="color:#10b981"></span> v2.45.6 · 2026-07-14 — <strong style="color:#34d399">KAI-792 board-truth repair: session close preserves the issue's pre-existing Done/In Progress terminal state with content readback; Plane health passes only on authenticated 200; every active invariant failure carries a durable verified-open issue mapping; <code>next_action</code> is derived and revalidated against a live open Plane issue.</strong></div>
   <div style="margin-top:8px;font-size:12px;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 14px;display:inline-block">
     📐 <strong style="color:#94a3b8">Architecture Rule:</strong> This file is the living source of truth. Update it after every sprint, feature, or structural change. It feeds the KAI dashboard and is the first reference in any new session.
   </div>
@@ -582,7 +582,7 @@ function loadCost() {
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8003 internal</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-worker-api</div><div class="container-meta">FastAPI · All data endpoints · Contacts · Templates · T2 queue · Telegram handler</div></div>
+      <div><div class="container-name">kai-worker-api</div><div class="container-meta">FastAPI · All data endpoints · Plane detail content readback · Live-board-derived next_action guard · Contacts · Templates · T2 queue · Telegram handler</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:8001</span><span class="badge badge-green"><span class="dot"></span>healthy</span></div>
     </div>
     <div class="container-row">
@@ -610,7 +610,7 @@ function loadCost() {
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:6842</span><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-scheduler</div><div class="container-meta">Check-ins · Telegram · Invariants (every 30min) · Execution registry (SQLite) · Gap detection · Triage pipeline · Watchdog (auto-remediation 3-tier) · Briefs paused</div></div>
+      <div><div class="container-name">kai-scheduler</div><div class="container-meta">Check-ins · Telegram · Invariants (every 30min) · Authenticated Plane health · Durable invariant-to-open-issue mapping · Execution registry (SQLite) · Gap detection · Triage pipeline · Watchdog (auto-remediation 3-tier) · Briefs paused</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
     <div class="container-row">
