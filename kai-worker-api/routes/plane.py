@@ -1,6 +1,8 @@
 import logging
 import urllib.request as ur
 import json
+import html
+import re
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
@@ -23,6 +25,14 @@ def _req(path):
     r = ur.Request(f"{PLANE_BASE}/{path}", headers={"X-API-Key": token})
     with ur.urlopen(r, timeout=10) as resp:
         return json.loads(resp.read())
+
+
+def _description_text(issue: dict) -> str:
+    stripped = issue.get("description_stripped", "")
+    if stripped:
+        return stripped
+    raw_html = issue.get("description_html", "")
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", raw_html))).strip()
 
 PARKED_LABEL = "parked-post-gate"
 
@@ -174,6 +184,8 @@ def get_plane_issue(issue_id: str, project_id: Optional[str] = Query(None)):
             "state_id": i.get("state", ""),
             "priority": i.get("priority", "none"),
             "sequence_id": i.get("sequence_id"),
+            "description": _description_text(i),
+            "description_html": i.get("description_html", ""),
             "created_at": i.get("created_at", ""),
             "updated_at": i.get("updated_at", ""),
         }

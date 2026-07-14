@@ -4,14 +4,108 @@ import json
 import re
 import os
 from pathlib import Path
-from datetime import datetime, date
-from fastapi import APIRouter
+from datetime import datetime, date, timezone
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from config import VAULT_PATH
+from routes import plane as plane_routes
 
 router = APIRouter()
 
 MANIFEST_PATH = VAULT_PATH / "00_System" / "session_close_log.json"
 WARMBOOT_MANIFEST_PATH = VAULT_PATH / "00_System" / "session_warmboot_log.json"
+NEXT_ACTION_PATH = VAULT_PATH / "00_System" / "next_action.json"
+
+
+class NextActionRequest(BaseModel):
+    """Only a Plane identity is accepted; next-action prose is never trusted."""
+
+    issue_id: str
+    project_id: str | None = None
+
+    class Config:
+        extra = "forbid"
+
+
+def _next_action_text(issue: dict) -> str:
+    return (
+        f"KAI-{issue['sequence_id']} ({issue['id']}, {issue['state']}, "
+        f"{issue.get('priority', 'none')}) — {issue['name']}"
+    )
+
+
+def _read_guarded_next_action() -> tuple[dict | None, str]:
+    """Consume only a provenance-marked pointer that still matches live Plane."""
+    if not NEXT_ACTION_PATH.exists():
+        return None, "next_action.json missing"
+    try:
+        saved = json.loads(NEXT_ACTION_PATH.read_text())
+        if saved.get("source") != "live_plane_readback" or not saved.get("issue_id"):
+            return None, "next_action refused: missing live-board provenance"
+        issue = plane_routes.get_plane_issue(
+            saved["issue_id"], saved.get("project_id") or None,
+        )
+        if issue.get("state_group") not in ("backlog", "unstarted", "started"):
+            return None, "next_action refused: live issue is no longer open"
+        if saved.get("action") != _next_action_text(issue):
+            return None, "next_action refused: saved content differs from live board"
+        expires = saved.get("expires_at")
+        if expires:
+            exp_dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+            if exp_dt < datetime.now(exp_dt.tzinfo):
+                return None, "next_action refused: pointer expired"
+        return saved, "accepted: content matches live open Plane issue"
+    except Exception as e:
+        return None, f"next_action refused: live validation failed ({type(e).__name__})"
+
+
+@router.post("/session/next-action")
+def write_next_action(body: NextActionRequest):
+    """Derive and atomically write next_action.json from a live open Plane issue."""
+    uuid_pattern = (
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+        r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    )
+    if not re.fullmatch(uuid_pattern, body.issue_id):
+        raise HTTPException(status_code=422, detail="issue_id must be a full Plane UUID")
+    if body.project_id is not None and not re.fullmatch(uuid_pattern, body.project_id):
+        raise HTTPException(status_code=422, detail="project_id must be a full Plane UUID")
+
+    issue = plane_routes.get_plane_issue(body.issue_id, body.project_id)
+    if issue.get("id", "").lower() != body.issue_id.lower():
+        raise HTTPException(status_code=502, detail="Plane readback identity mismatch")
+    if issue.get("state_group") not in ("backlog", "unstarted", "started"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "next_action refused: live Plane readback is not open "
+                f"({issue.get('state')!r})"
+            ),
+        )
+    sequence_id = issue.get("sequence_id")
+    if not isinstance(sequence_id, int):
+        raise HTTPException(status_code=502, detail="Plane readback omitted sequence_id")
+
+    now = datetime.now(timezone.utc).isoformat()
+    project_id = body.project_id or plane_routes.KAI_PROJECT_ID
+    payload = {
+        "action": _next_action_text(issue),
+        "sprint": issue["name"],
+        "context": f"Derived from live Plane readback at {now}; state verified open.",
+        "written_at": now,
+        "source": "live_plane_readback",
+        "issue_id": issue["id"],
+        "project_id": project_id,
+    }
+    NEXT_ACTION_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = NEXT_ACTION_PATH.with_suffix(".json.tmp")
+    encoded = json.dumps(payload, indent=2)
+    tmp_path.write_text(encoded)
+    tmp_path.replace(NEXT_ACTION_PATH)
+    readback = json.loads(NEXT_ACTION_PATH.read_text())
+    if readback != payload:
+        raise HTTPException(status_code=500, detail="next_action content readback mismatch")
+    return {"ok": True, "verified": True, "next_action": readback}
 
 
 @router.get("/session/brief")
@@ -33,6 +127,7 @@ def session_brief():
         "warmboot": None,
         "warmboot_required": True,
         "next_action": None,
+        "next_action_guard": None,
     }
 
     # 1. StateOfTheUnion.md
@@ -185,30 +280,22 @@ def session_brief():
     # warmboot_required stays True if manifest is missing or parse failed
 
 
-    # 6. next_action.json — explicit "what to do next session" override.
-    # Highest-precedence signal. Set by close engine or directly. CLAUDE.md
-    # NEXT UP rule consumes this verbatim when present.
-    next_action_path = VAULT_PATH / "00_System" / "next_action.json"
-    if next_action_path.exists():
-        try:
-            na = json.loads(next_action_path.read_text())
-            expires = na.get("expires_at")
-            if expires:
-                try:
-                    exp_dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
-                    if exp_dt < datetime.now(exp_dt.tzinfo):
-                        na = None
-                except Exception:
-                    pass
-            if na:
-                brief["next_action"] = {
-                    "action": na.get("action", ""),
-                    "sprint": na.get("sprint"),
-                    "context": na.get("context", ""),
-                    "written_at": na.get("written_at", ""),
-                }
-        except Exception:
-            pass
+    # 6. next_action.json — highest-precedence next-session pointer, but only
+    # when its content still matches a live open Plane readback.
+    na, guard_detail = _read_guarded_next_action()
+    brief["next_action_guard"] = {
+        "accepted": na is not None,
+        "detail": guard_detail,
+    }
+    if na:
+        brief["next_action"] = {
+            "action": na.get("action", ""),
+            "sprint": na.get("sprint"),
+            "context": na.get("context", ""),
+            "written_at": na.get("written_at", ""),
+            "source": na.get("source", ""),
+            "issue_id": na.get("issue_id", ""),
+        }
 
     return brief
 

@@ -37,6 +37,7 @@ _daily_digest_sent: str = ""   # date string (YYYY-MM-DD)
 
 # Dedup: one Plane issue per failure period per invariant (cleared on recovery)
 _violation_issue_ids: dict[str, int] = {}  # key → Plane sequence_id
+_violation_issue_refs: dict[str, dict] = {}  # key → {sequence_id, issue_id}
 
 # Plane constants (mirrors triage.py)
 _PLANE_API = "http://host.docker.internal:8090/api/v1"
@@ -88,6 +89,60 @@ def _get_plane_backlog_state() -> str | None:
     return None
 
 
+def _restore_invariant_issue_refs() -> None:
+    """Restore durable failure→issue mappings after scheduler restarts."""
+    if _violation_issue_ids or not RESULT_PATH.exists() or RESULT_PATH.stat().st_size == 0:
+        return
+    try:
+        previous = json.loads(RESULT_PATH.read_text())
+        refs = previous.get("open_issue_refs", {})
+        for key, ref in refs.items():
+            seq = ref.get("sequence_id")
+            issue_id = ref.get("issue_id")
+            if isinstance(seq, int) and issue_id:
+                _violation_issue_ids[key] = seq
+                _violation_issue_refs[key] = {
+                    "sequence_id": seq,
+                    "issue_id": issue_id,
+                }
+    except Exception as e:
+        log.error("invariants: failed to restore issue mappings: %s", e)
+
+
+def _mapped_issue_is_open(key: str) -> bool | None:
+    """Return True/False for a verified mapping, None when Plane is unreadable."""
+    ref = _violation_issue_refs.get(key)
+    if not ref:
+        # Legacy/in-process tests may only carry the sequence map. A newly filed
+        # real issue always gets a durable ref below.
+        return True if key in _violation_issue_ids else False
+    token = _load_secret("plane_api_token")
+    if not token:
+        return None
+    headers = {"X-API-Key": token}
+    try:
+        states_r = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/states/",
+            headers=headers, timeout=10,
+        )
+        states_r.raise_for_status()
+        states_data = json.loads(states_r.text)
+        closed_ids = {
+            state["id"] for state in states_data.get("results", [])
+            if state.get("group") in ("completed", "cancelled")
+        }
+        issue_r = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}"
+            f"/issues/{ref['issue_id']}/",
+            headers=headers, timeout=10,
+        )
+        issue_r.raise_for_status()
+        return json.loads(issue_r.text).get("state") not in closed_ids
+    except Exception as e:
+        log.error("invariants: could not verify open issue for %s: %s", key, e)
+        return None
+
+
 def _file_invariant_issue(key: str, label: str, detail: str) -> None:
     """File a Plane bug for an invariant violation. Deduped: no-op if issue already open."""
     if key in _violation_issue_ids:
@@ -111,7 +166,7 @@ def _file_invariant_issue(key: str, label: str, detail: str) -> None:
     }
     state_id = _get_plane_backlog_state()
     if state_id:
-        body["state_id"] = state_id
+        body["state"] = state_id
     try:
         r = httpx.post(
             f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/issues/",
@@ -119,11 +174,38 @@ def _file_invariant_issue(key: str, label: str, detail: str) -> None:
             json=body, timeout=15,
         )
         r.raise_for_status()
-        seq = r.json().get("sequence_id")
+        created = json.loads(r.text)
+        seq = created.get("sequence_id")
+        issue_id = created.get("id")
+        if not isinstance(seq, int) or not issue_id:
+            raise RuntimeError("Plane create response omitted issue identity")
+        readback = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}"
+            f"/issues/{issue_id}/",
+            headers={"X-API-Key": token}, timeout=10,
+        )
+        readback.raise_for_status()
+        if state_id and json.loads(readback.text).get("state") != state_id:
+            raise RuntimeError("Plane invariant issue readback was not in open backlog state")
         _violation_issue_ids[key] = seq
+        _violation_issue_refs[key] = {"sequence_id": seq, "issue_id": issue_id}
         log.info("invariants: filed Plane issue KAI-%s for %s", seq, key)
     except Exception as e:
         log.error("invariants: failed to file Plane issue for %s: %s", key, e)
+
+
+def _ensure_invariant_issue(key: str, label: str, detail: str) -> bool:
+    """Ensure every current non-pass maps to a verified-open Plane issue."""
+    if key in _violation_issue_ids:
+        is_open = _mapped_issue_is_open(key)
+        if is_open is True:
+            return True
+        if is_open is None:
+            return False
+        _violation_issue_ids.pop(key, None)
+        _violation_issue_refs.pop(key, None)
+    _file_invariant_issue(key, label, detail)
+    return key in _violation_issue_ids
 
 
 # ── Invariant definitions ─────────────────────────────────────────────────────
@@ -300,12 +382,21 @@ def inv_llm_latency() -> tuple[bool, str]:
 
 
 def inv_plane_api_health() -> tuple[bool, str]:
-    """Plane API (host.docker.internal:8090) returns 200/401/403."""
+    """Plane is reachable and the configured credential is authenticated."""
+    token = _load_secret("plane_api_token")
+    if not token:
+        return False, "Plane API credential missing"
     try:
-        r = httpx.get("http://host.docker.internal:8090/api/users/me/workspaces/", timeout=5)
-        if r.status_code in (200, 401, 403):
-            return True, f"ok — HTTP {r.status_code}"
-        return False, f"HTTP {r.status_code}"
+        r = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/states/",
+            headers={"X-API-Key": token},
+            timeout=5,
+        )
+        if r.status_code == 200:
+            return True, "ok — authenticated HTTP 200"
+        if r.status_code in (401, 403):
+            return False, f"Plane authentication rejected — HTTP {r.status_code}"
+        return False, f"Plane API failed — HTTP {r.status_code}"
     except Exception as e:
         return False, f"plane unreachable: {e}"
 
@@ -429,9 +520,7 @@ def inv_no_secrets_in_vault_docs() -> tuple[bool, str]:
 # ── S5-2 first batch — six new invariants ────────────────────────────────────
 
 def inv_ledger_pointer_consistent() -> tuple[bool, str]:
-    """S5-1 — next_action.json must exist in vault, be < 48h old, and have a non-empty action.
-    Guards against session-pointer drift (NEXT naming a done task or no NEXT set).
-    """
+    """next_action must be recent and byte-derived from a live open Plane issue."""
     p = VAULT_PATH / "00_System" / "next_action.json"
     if not p.exists():
         return False, "next_action.json not found in vault — no session order set"
@@ -442,14 +531,47 @@ def inv_ledger_pointer_consistent() -> tuple[bool, str]:
     action = data.get("action", "").strip()
     if not action:
         return False, "next_action.json has no action field — session pointer missing"
+    if data.get("source") != "live_plane_readback" or not data.get("issue_id"):
+        return False, "next_action.json missing live-board provenance"
     try:
         written_at = datetime.fromisoformat(data.get("written_at", ""))
         age_h = (datetime.now(timezone.utc) - written_at).total_seconds() / 3600
         if age_h > 48:
             return False, f"next_action.json stale: {age_h:.0f}h since last write — session pointer drifted?"
     except Exception:
-        pass
-    return True, f"ok — action set ({action[:60]})"
+        return False, "next_action.json written_at is missing or invalid"
+
+    token = _load_secret("plane_api_token")
+    if not token:
+        return False, "next_action live check blocked: Plane credential missing"
+    project_id = data.get("project_id") or _KAI_PROJECT
+    headers = {"X-API-Key": token}
+    try:
+        states_r = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{project_id}/states/",
+            headers=headers, timeout=10,
+        )
+        issue_r = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{project_id}"
+            f"/issues/{data['issue_id']}/",
+            headers=headers, timeout=10,
+        )
+        states_r.raise_for_status()
+        issue_r.raise_for_status()
+        states = json.loads(states_r.text).get("results", [])
+        issue = json.loads(issue_r.text)
+        state = next((s for s in states if s.get("id") == issue.get("state")), {})
+        if state.get("group") not in ("backlog", "unstarted", "started"):
+            return False, f"next_action points to non-open Plane state {state.get('name')!r}"
+        expected = (
+            f"KAI-{issue.get('sequence_id')} ({issue.get('id')}, {state.get('name')}, "
+            f"{issue.get('priority', 'none')}) — {issue.get('name')}"
+        )
+        if action != expected:
+            return False, "next_action content differs from live Plane readback"
+        return True, f"ok — live open Plane issue KAI-{issue.get('sequence_id')}"
+    except Exception as e:
+        return False, f"next_action live Plane readback failed: {type(e).__name__}: {e}"
 
 
 def inv_internal_worker_auth() -> tuple[bool, str]:
@@ -980,6 +1102,8 @@ def run_invariants(send_daily_digest: bool = False):
         log.info("invariants: INVARIANT_RUNNER_ENABLED=false — skipping all checks")
         return True, {}
 
+    _restore_invariant_issue_refs()
+
     now_utc = datetime.now(timezone.utc)
     results: dict[str, dict] = {}
     all_pass = True
@@ -1001,12 +1125,17 @@ def run_invariants(send_daily_digest: bool = False):
         }
         if not passed:
             all_pass = False
+            mapped = _ensure_invariant_issue(key, label, detail)
+            results[key]["issue_mapping"] = "open" if mapped else "FAILED"
+            if not mapped:
+                results[key]["issue_mapping_error"] = (
+                    "non-pass has no verified-open Plane issue"
+                )
 
         # Transition detection: pass→fail and fail→pass
         prev = _prev_state.get(key)
         if prev is True and not passed:
             transitions.append(f"  :x: *{label}*: `{detail}`")
-            _file_invariant_issue(key, label, detail)   # deduped Plane filing
             # D5 conservative auto-remediation (readback-verified, no side effects)
             d5_fn = _D5_REMEDIATIONS.get(key)
             if d5_fn:
@@ -1015,6 +1144,7 @@ def run_invariants(send_daily_digest: bool = False):
         elif prev is False and passed:
             recoveries.append(f"  :white_check_mark: *{label}*")
             _violation_issue_ids.pop(key, None)         # clear dedup on recovery
+            _violation_issue_refs.pop(key, None)
         _prev_state[key] = passed
 
     # Append deferred entries — shown as distinct state on dashboard (not pass/fail)
@@ -1034,6 +1164,7 @@ def run_invariants(send_daily_digest: bool = False):
         "all_pass":   all_pass,
         "runner_enabled": _RUNNER_ENABLED,
         "open_issue_ids": dict(_violation_issue_ids),
+        "open_issue_refs": dict(_violation_issue_refs),
         "invariants": results,
     }
     try:

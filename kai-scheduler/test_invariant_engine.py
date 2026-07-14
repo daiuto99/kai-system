@@ -37,6 +37,7 @@ def _fresh_invariants():
     # Reset module state
     inv._prev_state.clear()
     inv._violation_issue_ids.clear()
+    inv._violation_issue_refs.clear()
     inv._RUNNER_ENABLED = True
     return inv, Path(tmp.name)
 
@@ -63,6 +64,100 @@ class KillSwitchTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(results, {})
         self.assertEqual(call_count[0], 0, "kill switch must prevent any invariant from running")
+
+
+class PlaneApiHealthTests(unittest.TestCase):
+
+    def setUp(self):
+        self.inv, self.result_path = _fresh_invariants()
+
+    def tearDown(self):
+        try:
+            self.result_path.unlink()
+        except FileNotFoundError:
+            pass
+
+    def test_rejected_authenticated_probe_fails(self):
+        """D15 regression: HTTP 401 is a failed auth probe, never a pass."""
+        response = mock.Mock(status_code=401)
+        with mock.patch.object(self.inv, "_load_secret", return_value="deliberately-bad"), \
+             mock.patch.object(self.inv.httpx, "get", return_value=response):
+            passed, detail = self.inv.inv_plane_api_health()
+
+        self.assertFalse(passed)
+        self.assertIn("401", detail)
+
+    def test_authenticated_200_probe_passes_and_uses_token(self):
+        response = mock.Mock(status_code=200)
+
+        def fake_get(url, *, headers, timeout):
+            self.assertEqual(headers, {"X-API-Key": "valid-test-token"})
+            return response
+
+        with mock.patch.object(self.inv, "_load_secret", return_value="valid-test-token"), \
+             mock.patch.object(self.inv.httpx, "get", side_effect=fake_get):
+            passed, detail = self.inv.inv_plane_api_health()
+
+        self.assertTrue(passed)
+        self.assertIn("authenticated", detail)
+
+
+class NextActionGuardTests(unittest.TestCase):
+
+    def setUp(self):
+        self.inv, self.result_path = _fresh_invariants()
+        self.path = self.inv.VAULT_PATH / "00_System" / "next_action.json"
+
+    def tearDown(self):
+        try:
+            self.result_path.unlink()
+        except FileNotFoundError:
+            pass
+
+    def test_from_memory_pointer_is_refused(self):
+        self.path.write_text(json.dumps({
+            "action": "remembered stale prose",
+            "written_at": "2026-07-14T13:00:00+00:00",
+        }))
+
+        passed, detail = self.inv.inv_ledger_pointer_consistent()
+
+        self.assertFalse(passed)
+        self.assertIn("provenance", detail)
+
+    def test_live_derived_open_pointer_passes(self):
+        from datetime import datetime, timezone
+        issue_id = "11111111-2222-4333-8444-555555555555"
+        project_id = self.inv._KAI_PROJECT
+        action = f"KAI-792 ({issue_id}, In Progress, urgent) — Board truth"
+        self.path.write_text(json.dumps({
+            "action": action,
+            "written_at": datetime.now(timezone.utc).isoformat(),
+            "source": "live_plane_readback",
+            "issue_id": issue_id,
+            "project_id": project_id,
+        }))
+        states = mock.Mock()
+        states.text = json.dumps({
+            "results": [{"id": "state-1", "name": "In Progress", "group": "started"}],
+        })
+        states.raise_for_status = mock.Mock()
+        issue = mock.Mock()
+        issue.text = json.dumps({
+            "id": issue_id,
+            "name": "Board truth",
+            "state": "state-1",
+            "priority": "urgent",
+            "sequence_id": 792,
+        })
+        issue.raise_for_status = mock.Mock()
+
+        with mock.patch.object(self.inv, "_load_secret", return_value="valid-test-token"), \
+             mock.patch.object(self.inv.httpx, "get", side_effect=[states, issue]):
+            passed, detail = self.inv.inv_ledger_pointer_consistent()
+
+        self.assertTrue(passed)
+        self.assertIn("KAI-792", detail)
 
 
 class SeededViolationTests(unittest.TestCase):
@@ -110,6 +205,26 @@ class SeededViolationTests(unittest.TestCase):
         self.assertIn("Backup Integrity", slack_msg)
         # Plane filing attempted
         plane_file.assert_called_once_with(key, "Backup Integrity", "seeded test failure — backup.log not found")
+
+    def test_first_observed_failure_gets_open_issue_mapping(self):
+        """D15 regression: startup on red must map it even without a prior pass."""
+        key = "backup_integrity"
+
+        def _map_issue(k, label, detail):
+            self.inv._violation_issue_ids[k] = 4242
+
+        checks = self._make_checks(key, "already failing at process start")
+        with mock.patch.object(self.inv, "_slack_post"), \
+             mock.patch.object(self.inv, "_file_invariant_issue", side_effect=_map_issue) as plane_file, \
+             mock.patch.object(self.inv, "_load_secret", return_value="fake-token"), \
+             mock.patch.object(self.inv, "INVARIANTS", checks):
+            ok, results = self.inv.run_invariants()
+
+        self.assertFalse(ok)
+        self.assertFalse(results[key]["pass"])
+        plane_file.assert_called_once_with(key, "Backup Integrity", "already failing at process start")
+        data = json.loads(self.result_path.read_text())
+        self.assertEqual(data["open_issue_ids"][key], 4242)
 
     def test_plane_filing_deduped_on_second_failure(self):
         """Same invariant failing twice: Plane must be filed exactly once (dedup)."""
