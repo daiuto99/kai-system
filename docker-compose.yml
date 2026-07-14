@@ -259,6 +259,7 @@ services:
       - slack_bot_token
       - todoist_api_key
       - telegram_bot_token
+      - telegram_allowed_chat_ids
       - slack_signing_secret
       - oura_token
       - plane_api_token
@@ -379,6 +380,8 @@ secrets:
     file: ./secrets/openai_api_key.txt
   telegram_bot_token:
     file: ./secrets/telegram_bot_token.txt
+  telegram_allowed_chat_ids:
+    file: ./secrets/telegram_allowed_chat_ids.txt
   slack_signing_secret:
     file: ./secrets/slack_signing_secret.txt
   tavily_api_key:

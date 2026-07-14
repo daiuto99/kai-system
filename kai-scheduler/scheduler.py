@@ -19,6 +19,8 @@ from execution_registry import record as reg_record
 from triage import triage_failure
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [scheduler] %(message)s")
+# httpx logs full request URLs at INFO, which embeds Telegram's bot token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def strip_markdown(text):
     import re
@@ -66,6 +68,18 @@ def load_secret(name: str) -> str:
     return os.environ.get(name.upper(), "")
 
 
+def _allowed_telegram_chat_ids(path: Path = Path("/run/secrets/telegram_allowed_chat_ids")) -> frozenset[int]:
+    """Load the explicit Telegram sender allowlist; missing means deny all."""
+    try:
+        return frozenset(int(line.strip()) for line in path.read_text().splitlines() if line.strip())
+    except (OSError, ValueError):
+        return frozenset()
+
+
+def _telegram_sender_allowed(chat_id: int, text: str, allowed: frozenset[int]) -> bool:
+    return text == "/chatid" or chat_id in allowed
+
+
 # ── Telegram helper ────────────────────────────────────────────────────────────
 
 def tg_send(token: str, chat_id: int, text: str):
@@ -76,7 +90,7 @@ def tg_send(token: str, chat_id: int, text: str):
             timeout=15,
         )
     except Exception as e:
-        log.error(f"Telegram send error: {e}")
+        log.error("Telegram send error: %s", type(e).__name__)
 
 
 # ── Slack helpers (kept for health alerts only) ────────────────────────────────
@@ -105,6 +119,9 @@ def telegram_poll_loop():
         return
 
     log.info("Telegram polling started (@Kai_sonicink_bot)")
+    allowed_chat_ids = _allowed_telegram_chat_ids()
+    if not allowed_chat_ids:
+        log.warning("Telegram allowlist unavailable or empty — denying all non-/chatid updates")
     offset = 0
 
     while True:
@@ -129,10 +146,15 @@ def telegram_poll_loop():
                 photos = msg.get("photo")
                 if not chat_id:
                     continue
-                if not text and not doc and not photos:
-                    continue
                 if text == "/chatid":
+                    # Bootstrap only: no council, attachment, or LLM path.
+                    log.info("Telegram /chatid bootstrap from @%s (%s)", username, chat_id)
                     tg_send(token, chat_id, "Chat ID: " + str(chat_id))
+                    continue
+                if not _telegram_sender_allowed(chat_id, text, allowed_chat_ids):
+                    log.warning("Telegram sender rejected: @%s (%s)", username, chat_id)
+                    continue
+                if not text and not doc and not photos:
                     continue
                 if text == "/start":
                     tg_send(token, chat_id,
@@ -180,7 +202,7 @@ def telegram_poll_loop():
                             if not message:
                                 message = f"[File attached: {filename}]"
                     except Exception as e:
-                        log.error(f"Telegram file download error: {e}")
+                        log.error("Telegram file download error: %s", type(e).__name__)
                         message = message or f"[File: {filename} — could not download]"
                 elif photos:
                     largest = max(photos, key=lambda p: p.get("file_size", 0))
@@ -196,7 +218,7 @@ def telegram_poll_loop():
                         if not message:
                             message = "[Photo attached]"
                     except Exception as e:
-                        log.error(f"Telegram photo download error: {e}")
+                        log.error("Telegram photo download error: %s", type(e).__name__)
                         message = message or "[Photo — could not download]"
                 payload = {"channel": advisor, "message": message,
                            "user_id": f"telegram:{username}", "history": [],
@@ -220,7 +242,7 @@ def telegram_poll_loop():
         except httpx.TimeoutException:
             pass
         except Exception as e:
-            log.error(f"Telegram poll error: {e}")
+            log.error("Telegram poll error: %s", type(e).__name__)
             time.sleep(5)
 
 
