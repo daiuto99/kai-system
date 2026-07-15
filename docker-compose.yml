@@ -47,6 +47,7 @@ services:
       - slack_signing_secret
       - oura_token
       - kai_worker_auth
+      - github_webhook_secret
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
@@ -417,5 +418,7 @@ secrets:
     file: ./secrets/kai_web_password.txt
   kai_worker_auth:
     file: ./secrets/kai_worker_auth.txt
+  github_webhook_secret:
+    file: ./secrets/github_webhook_secret.txt
   orchestrator_capability_auth:
     file: ./secrets/orchestrator_capability_auth.txt

@@ -14,10 +14,7 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-try:
-    from config import VAULT_PATH
-except ImportError:
-    VAULT_PATH = Path("/vault")
+from config import VAULT_PATH, load_secret
 
 GIT_ACTIVITY_FILE = VAULT_PATH / "00_System" / "git_activity.json"
 ET = ZoneInfo("America/New_York")
@@ -126,12 +123,17 @@ def get_latest(limit: int = 10):
 async def github_webhook(request: Request):
     body = await request.body()
 
-    secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
+    secret = load_secret("github_webhook_secret")
+    if not secret:
+        raise HTTPException(status_code=503, detail="webhook secret not configured")
+
     sig = request.headers.get("X-Hub-Signature-256", "")
-    if secret and sig:
-        expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected, sig):
-            raise HTTPException(status_code=401, detail="Invalid signature")
+    if not sig:
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        raise HTTPException(status_code=401, detail="Invalid signature")
 
     event = request.headers.get("X-GitHub-Event", "")
     if event != "push":
