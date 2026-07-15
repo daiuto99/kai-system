@@ -129,17 +129,24 @@ class ExternalScanTests(unittest.TestCase):
         self.assertTrue(passed)
         self.assertIn("connection refused", detail)
 
-    def test_unexpected_listener_fails_and_names_port(self):
+    def test_tailnet_only_port_fails_on_lan(self):
         result = mock.Mock(returncode=0, stdout="18080/tcp open  unknown\\n", stderr="")
         with mock.patch.object(self.inv.subprocess, "run", return_value=result):
-            passed, detail = self.inv._scan_open_host_ports(("192.168.1.2", "100.64.0.2"))
+            passed, detail = self.inv._scan_open_host_ports(self.inv.LAN_SCAN_IP)
         self.assertFalse(passed)
         self.assertIn("18080", detail)
 
-    def test_allowlisted_listener_passes(self):
-        result = mock.Mock(returncode=0, stdout="443/tcp open  https\\n", stderr="")
+    def test_tailnet_control_port_fails_on_lan(self):
+        result = mock.Mock(returncode=0, stdout="8001/tcp open  unknown\\n", stderr="")
         with mock.patch.object(self.inv.subprocess, "run", return_value=result):
-            passed, detail = self.inv._scan_open_host_ports(("192.168.1.2", "100.64.0.2"))
+            passed, detail = self.inv._scan_open_host_ports(self.inv.LAN_SCAN_IP)
+        self.assertFalse(passed)
+        self.assertIn("LAN", detail)
+
+    def test_tailnet_control_port_passes_on_tailnet(self):
+        result = mock.Mock(returncode=0, stdout="8001/tcp open  unknown\\n", stderr="")
+        with mock.patch.object(self.inv.subprocess, "run", return_value=result):
+            passed, detail = self.inv._scan_open_host_ports(self.inv.TAILNET_SCAN_IP)
         self.assertTrue(passed)
 
 

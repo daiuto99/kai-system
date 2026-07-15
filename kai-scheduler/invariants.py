@@ -41,7 +41,24 @@ EXTERNAL_SCAN_ROUTES: tuple[tuple[str, str, str], ...] = (
     ("POST", "/api/github/webhook", "KAI-811 unsigned webhook"),
 )
 HOST_SCAN_IPS_ENV = "EXTERNAL_SCAN_HOST_IPS"
-ALLOWED_HOST_PORTS = frozenset({22, 80, 443, 3001, 8080, 41641})
+LAN_SCAN_IP = "192.168.68.30"
+TAILNET_SCAN_IP = "100.78.94.80"
+# LAN has only SSH plus the nginx origins that Cloudflare reaches on this host.
+LAN_ALLOWED_PORTS = frozenset({
+    22,    # SSH administration
+    3001,  # kai-web nginx authenticated application origin
+    8080,  # kai-web nginx Cloudflare webhook/kiosk origin
+})
+# Tailscale adds authenticated control planes and the vault mirror transports.
+TAILNET_ALLOWED_PORTS = LAN_ALLOWED_PORTS | frozenset({
+    8001,   # worker-api; Mac /session/brief consumer
+    8443,   # code-server remote IDE
+    5678,   # n8n authenticated OAuth recovery/editor control plane
+    8384,   # Syncthing GUI (vault mirror)
+    22000,  # Syncthing transfer protocol (vault mirror)
+    41641,  # Tailscale WireGuard transport
+    55542,  # tailscaled TCP listener on the Tailscale address (live inode 45147)
+})
 
 # Kill switch — INVARIANT_RUNNER_ENABLED=false skips all checks entirely (kill-switch-first)
 _RUNNER_ENABLED = os.environ.get("INVARIANT_RUNNER_ENABLED", "true").lower() != "false"
@@ -767,10 +784,16 @@ def _council_unauth(ip: str) -> tuple[bool, str]:
     return False, f"{ip}:8002 unauthenticated HTTP {response.status_code}"
 
 
-def _scan_open_host_ports(ips: tuple[str, ...]) -> tuple[bool, str]:
-    """nmap prevents an arbitrary published port hiding outside a hand list."""
+def _scan_open_host_ports(ip: str) -> tuple[bool, str]:
+    """Scan one interface so a tailnet exception cannot mask a LAN leak."""
+    if ip == LAN_SCAN_IP:
+        allowed, interface = LAN_ALLOWED_PORTS, "LAN"
+    elif ip == TAILNET_SCAN_IP:
+        allowed, interface = TAILNET_ALLOWED_PORTS, "tailnet"
+    else:
+        return False, f"unknown scan interface {ip} — no allowlist"
     try:
-        result = subprocess.run(["nmap", "-Pn", "-n", "-T4", "--open", "-p-", *ips], capture_output=True, text=True, timeout=180, check=False)
+        result = subprocess.run(["nmap", "-Pn", "-n", "-T4", "--open", "-p-", ip], capture_output=True, text=True, timeout=180, check=False)
     except FileNotFoundError:
         return False, "nmap unavailable — cannot scan non-loopback listeners"
     except subprocess.TimeoutExpired:
@@ -781,10 +804,10 @@ def _scan_open_host_ports(ips: tuple[str, ...]) -> tuple[bool, str]:
         return False, f"nmap failed rc={result.returncode}: {result.stderr.strip()[:160]}"
     import re
     open_ports = sorted({int(port) for port in re.findall(r"^(\d+)/tcp\s+open", result.stdout, re.M)})
-    unexpected = [str(port) for port in open_ports if port not in ALLOWED_HOST_PORTS]
+    unexpected = [str(port) for port in open_ports if port not in allowed]
     if unexpected:
-        return False, f"unexpected non-loopback listener(s): {', '.join(unexpected)}"
-    return True, f"allowed non-loopback listeners: {', '.join(map(str, open_ports)) or 'none'}"
+        return False, f"{interface} {ip} unexpected listener(s): {', '.join(unexpected)}"
+    return True, f"{interface} {ip} allowed listeners: {', '.join(map(str, open_ports)) or 'none'}"
 
 
 def inv_external_scan() -> tuple[bool, str]:
@@ -811,8 +834,8 @@ def inv_external_scan() -> tuple[bool, str]:
             (successes if passed else failures).append(f"{name}: {detail}")
         passed, detail = _council_unauth(ip)
         (successes if passed else failures).append(f"council: {detail}")
-    if ips:
-        passed, detail = _scan_open_host_ports(ips)
+    for ip in ips:
+        passed, detail = _scan_open_host_ports(ip)
         (successes if passed else failures).append(detail)
     return (False, "FAIL: " + " | ".join(failures)) if failures else (True, "ok: " + " | ".join(successes))
 

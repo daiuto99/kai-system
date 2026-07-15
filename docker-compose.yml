@@ -26,7 +26,8 @@ services:
         max-size: "100m"
         max-file: "5"
     ports:
-      - "8001:8001"
+      # Mac session tooling reaches this control plane over Tailscale only.
+      - "100.78.94.80:8001:8001"
     volumes:
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
@@ -141,7 +142,8 @@ services:
     container_name: kai-code-server
     restart: unless-stopped
     ports:
-      - "8443:8080"
+      # Leo's remote IDE is a Tailscale control plane, never a LAN service.
+      - "100.78.94.80:8443:8080"
     volumes:
       - /home/leo:/home/coder:rw
       - /home/leo/kai-system:/home/coder/kai-system:rw
@@ -156,7 +158,8 @@ services:
     container_name: kai-litellm
     restart: unless-stopped
     ports:
-      - "4000:4000"
+      # council, orchestrator, and scheduler use kai-litellm:4000 on Docker.
+      - "127.0.0.1:4000:4000"
     volumes:
       - ./litellm/config.yaml:/app/config.yaml:ro
     secrets:
@@ -176,7 +179,9 @@ services:
     container_name: kai-n8n
     restart: unless-stopped
     ports:
-      - "5678:5678"
+      # Docker callers and the Cloudflare tunnel use kai-n8n:5678; Leo's OAuth
+      # recovery/editor path is a Tailscale-only control plane.
+      - "100.78.94.80:5678:5678"
     volumes:
       - ./n8n-data:/home/node/.n8n
       - /home/leo/vault:/vault:rw
@@ -283,7 +288,8 @@ services:
     env_file:
       - .env.habitsync
     ports:
-      - "6842:6842"
+      # worker-api uses kai-habitsync:6842 on Docker; raw host access is local only.
+      - "127.0.0.1:6842:6842"
     volumes:
       - habitsync_data:/data
 
