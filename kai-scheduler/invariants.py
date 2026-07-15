@@ -48,14 +48,18 @@ LAN_ALLOWED_PORTS = frozenset({
     22,    # SSH administration
     3001,  # kai-web nginx authenticated application origin
     8080,  # kai-web nginx Cloudflare webhook/kiosk origin
+    8090,  # Plane app proxy, Cloudflare-tunnel origin, login-gated; loopback migration tracked
+    22000, # Syncthing sync transport, device-ID mutual-TLS, active Mac↔worker vault mirror on LAN (KAI-814; tailnet migration tracked)
 })
 # Tailscale adds authenticated control planes and the vault mirror transports.
 TAILNET_ALLOWED_PORTS = LAN_ALLOWED_PORTS | frozenset({
     8001,   # worker-api; Mac /session/brief consumer
     8443,   # code-server remote IDE
     5678,   # n8n authenticated OAuth recovery/editor control plane
-    8384,   # Syncthing GUI (vault mirror)
     22000,  # Syncthing transfer protocol (vault mirror)
+    8090,   # Plane app proxy, Cloudflare-tunnel origin, login-gated; loopback migration tracked
+    139,    # Samba media/core-files, Tailscale-only (KAI-814, Leo-approved)
+    445,    # Samba media/core-files, Tailscale-only (KAI-814, Leo-approved)
     41641,  # Tailscale WireGuard transport
     55542,  # tailscaled TCP listener on the Tailscale address (live inode 45147)
 })

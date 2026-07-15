@@ -143,6 +143,28 @@ class ExternalScanTests(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn("LAN", detail)
 
+    def test_syncthing_transport_and_plane_pass_on_lan(self):
+        result = mock.Mock(returncode=0, stdout="22000/tcp open  unknown\\n8090/tcp open  unknown\\n", stderr="")
+        with mock.patch.object(self.inv.subprocess, "run", return_value=result):
+            passed, detail = self.inv._scan_open_host_ports(self.inv.LAN_SCAN_IP)
+        self.assertTrue(passed, detail)
+
+    def test_samba_passes_only_on_tailnet(self):
+        result = mock.Mock(returncode=0, stdout="139/tcp open  netbios-ssn\\n445/tcp open  microsoft-ds\\n", stderr="")
+        with mock.patch.object(self.inv.subprocess, "run", return_value=result):
+            tailnet_passed, _ = self.inv._scan_open_host_ports(self.inv.TAILNET_SCAN_IP)
+            lan_passed, lan_detail = self.inv._scan_open_host_ports(self.inv.LAN_SCAN_IP)
+        self.assertTrue(tailnet_passed)
+        self.assertFalse(lan_passed)
+        self.assertIn("139", lan_detail)
+
+    def test_syncthing_gui_is_not_allowlisted(self):
+        result = mock.Mock(returncode=0, stdout="8384/tcp open  unknown\\n", stderr="")
+        with mock.patch.object(self.inv.subprocess, "run", return_value=result):
+            passed, detail = self.inv._scan_open_host_ports(self.inv.TAILNET_SCAN_IP)
+        self.assertFalse(passed)
+        self.assertIn("8384", detail)
+
     def test_tailnet_control_port_passes_on_tailnet(self):
         result = mock.Mock(returncode=0, stdout="8001/tcp open  unknown\\n", stderr="")
         with mock.patch.object(self.inv.subprocess, "run", return_value=result):
