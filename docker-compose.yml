@@ -79,6 +79,7 @@ services:
       - plane_api_token
       - cloudways_ssh_key
       - kai_worker_auth
+      - orchestrator_capability_auth
     depends_on:
       kai-worker-api:
         condition: service_healthy
@@ -266,6 +267,7 @@ services:
       - litellm_master_key
       - healthchecks_url
       - kai_worker_auth
+      - orchestrator_capability_auth
     depends_on:
       docker-socket-proxy:
         condition: service_healthy
@@ -348,6 +350,7 @@ services:
     secrets:
       - cloudways_ssh_key
       - kai_worker_auth
+      - orchestrator_capability_auth
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
       interval: 30s
@@ -414,3 +417,5 @@ secrets:
     file: ./secrets/kai_web_password.txt
   kai_worker_auth:
     file: ./secrets/kai_worker_auth.txt
+  orchestrator_capability_auth:
+    file: ./secrets/orchestrator_capability_auth.txt

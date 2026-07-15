@@ -56,6 +56,13 @@ def _load_secret(name: str) -> str:
     return os.environ.get(name.upper(), "")
 
 
+def _capability_auth_headers() -> dict[str, str]:
+    _identity, separator, secret = _load_secret("orchestrator_capability_auth").partition(":")
+    if not separator:
+        return {}
+    return {"X-KAI-Capability-Key": secret} if secret else {}
+
+
 def _slack_post(token: str, text: str):
     try:
         httpx.post(
@@ -645,7 +652,7 @@ def inv_internal_worker_auth() -> tuple[bool, str]:
     try:
         r_orch = httpx.post(
             f"{ORCHESTRATOR_API}/capability/calendar.get_events",
-            json={"days": 1}, timeout=10,
+            json={"inputs": {"days": 1}}, headers=_capability_auth_headers(), timeout=10,
         )
     except Exception as e:
         return False, f"orchestrator unreachable (calendar round-trip): {type(e).__name__}: {e}"

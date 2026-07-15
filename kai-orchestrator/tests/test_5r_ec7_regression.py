@@ -16,8 +16,18 @@ Categories (4 queries each):
 import httpx
 import json
 import sys
+from pathlib import Path
 
 ORCH = "http://kai-orchestrator:8003"
+
+
+def _capability_auth_headers() -> dict[str, str]:
+    try:
+        record = Path("/run/secrets/orchestrator_capability_auth").read_text().strip()
+        _identity, separator, secret = record.partition(":")
+        return {"X-KAI-Capability-Key": secret} if separator and secret else {}
+    except OSError:
+        return {}
 
 def cap(name, inputs=None, confirmed=False):
     payload = {"inputs": inputs or {}}
@@ -25,7 +35,7 @@ def cap(name, inputs=None, confirmed=False):
         payload["confirmed"] = True
     try:
         with httpx.Client(base_url=ORCH, timeout=30) as c:
-            r = c.post(f"/capability/{name}", json=payload)
+            r = c.post(f"/capability/{name}", json=payload, headers=_capability_auth_headers())
             return r.status_code, r.json()
     except Exception as e:
         return 0, {"error": str(e)}

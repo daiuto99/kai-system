@@ -21,6 +21,18 @@ PLANE_WORKSPACE = "sonicink"
 from council_config import ORCHESTRATOR_URL as _ORCH_URL
 
 
+def _capability_auth_headers() -> dict[str, str]:
+    """Attach the dedicated router credential; an absent file fails closed."""
+    try:
+        record = Path("/run/secrets/orchestrator_capability_auth").read_text().strip()
+    except OSError:
+        return {}
+    _identity, separator, secret = record.partition(":")
+    if not separator:
+        return {}
+    return {"X-KAI-Capability-Key": secret} if secret else {}
+
+
 
 def _load_n8n_registry() -> dict:
     if N8N_REGISTRY_FILE.exists():
@@ -188,7 +200,10 @@ def _h_workflows(client, tool_name, ti, advisor):
             payload = {"inputs": inputs}
             if confirmed:
                 payload["confirmed"] = True
-            r = httpx.post(f"{_ORCH_URL}/capability/{capability}", json=payload, timeout=60)
+            r = httpx.post(
+                f"{_ORCH_URL}/capability/{capability}", json=payload, timeout=60,
+                headers=_capability_auth_headers(),
+            )
             return r.json()
         except Exception as e:
             return {"ok": False, "error": str(e)}

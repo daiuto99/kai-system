@@ -1,7 +1,7 @@
 """kai-orchestrator — FastAPI entrypoint."""
-import json, logging, os, threading, time
+import json, logging, os, threading, time, hmac
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from db import init_db, get_conn
 from engine import engine
 from learning.aggregator import start_learning_loop, run_aggregation
@@ -27,6 +27,40 @@ _PLANE_BACKLOG = "ba26fb93-8826-4763-8f84-908ed11af231"   # Backlog state
 _SLACK_SYSTEM_CHANNEL = "devops"
 
 app = FastAPI(title="kai-orchestrator")
+
+_CAPABILITY_AUTH_FILES = (
+    Path("/run/secrets/orchestrator_capability_auth"),
+    Path("/run/wp_secrets/orchestrator_capability_auth.txt"),
+    Path("/home/leo/kai-system/secrets/orchestrator_capability_auth.txt"),
+)
+
+
+def _load_capability_credentials() -> dict[str, str]:
+    """Load identity:secret records, failing closed on missing or malformed data."""
+    for auth_file in _CAPABILITY_AUTH_FILES:
+        try:
+            lines = [line.strip() for line in auth_file.read_text().splitlines() if line.strip()]
+        except OSError:
+            continue
+        credentials: dict[str, str] = {}
+        for line in lines:
+            identity, separator, secret = line.partition(":")
+            if not separator or not identity or not secret or identity in credentials:
+                return {}
+            credentials[identity] = secret
+        return credentials
+    return {}
+
+
+def _authenticated_capability_identity(request: Request) -> str | None:
+    credentials = _load_capability_credentials()
+    if not credentials:
+        return None
+    supplied = request.headers.get("X-KAI-Capability-Key", "")
+    for identity, expected in credentials.items():
+        if hmac.compare_digest(supplied, expected):
+            return identity
+    return None
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -890,7 +924,7 @@ def list_capabilities():
     for name in sorted(_registry.keys()):
         destructive = name in _DESTRUCTIVE
         rate_cfg = _RATE_LIMITS.get(name)
-        pol = policy_map.get(name, {"rule": "allow", "reason": ""})
+        pol = policy_map.get(name, {"rule": "deny", "reason": "No explicit policy"})
         caps.append({
             "name": name,
             "destructive": destructive,
@@ -904,41 +938,36 @@ def list_capabilities():
 
 
 @app.post("/capability/{name}")
-def run_capability_endpoint(name: str, body: dict):
+def run_capability_endpoint(name: str, body: dict, request: Request):
     """Execute a named capability with given inputs.
 
-    For destructive capabilities (vault.write, session.close, workspace.sync),
-    pass confirmed=true in the body to bypass the confirmation gate.
+    Caller identity comes exclusively from X-KAI-Capability-Key. Destructive
+    confirmation is valid only after that credential has authenticated.
     """
     from capabilities import _registry, get_capability
 
-    # Existence check
+    credentials = _load_capability_credentials()
+    if not credentials:
+        raise HTTPException(status_code=503, detail="capability authentication is misconfigured")
+    caller = _authenticated_capability_identity(request)
+    if caller is None:
+        raise HTTPException(status_code=401, detail="capability authentication required")
+
+    # Do not reveal the capability registry to callers.
     if name not in _registry:
-        return {"ok": False, "error": f"Unknown capability: {name}",
-                "available": sorted(_registry.keys())}
+        raise HTTPException(status_code=403, detail="capability denied")
 
     inputs = body.get("inputs", {})
-    caller = body.get("caller", "admin")
 
     # Autonomy policy gate — consulted before destructive gate
     from policy.autonomy import check_policy
     _policy_action, _policy_reason = check_policy(name, caller)
-    if _policy_action == "block_never":
-        return {"ok": False, "gate": "autonomy_never",
-                "capability": name, "caller": caller, "message": _policy_reason}
-    if _policy_action == "block_autonomous":
-        return {"ok": False, "gate": "autonomy_requires_approval",
-                "capability": name, "caller": caller, "message": _policy_reason}
+    if _policy_action in {"block_never", "block_unlisted"}:
+        raise HTTPException(status_code=403, detail=_policy_reason)
 
-    # Destructive gate
-    if name in _DESTRUCTIVE and not body.get("confirmed", False):
-        return {
-            "ok": False,
-            "gate": "destructive_confirmation",
-            "capability": name,
-            "message": f"'{name}' is destructive. Resend with confirmed=true to proceed.",
-            "inputs_preview": {k: str(v)[:100] for k, v in inputs.items()},
-        }
+    # Approval is identity-agnostic: every authenticated caller must confirm.
+    if (_policy_action == "requires_approval" or name in _DESTRUCTIVE) and not body.get("confirmed", False):
+        raise HTTPException(status_code=403, detail=_policy_reason or "authenticated confirmation required")
 
     # Destructive op audit — append-only JSONL + Slack mirror
     if name in _DESTRUCTIVE:

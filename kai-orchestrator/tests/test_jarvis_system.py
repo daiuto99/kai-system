@@ -108,8 +108,12 @@ def _orch_post(path: str, body: dict, timeout: int = 30) -> tuple[bool, dict]:
     body_repr = repr(body)
     code = (
         "import httpx, json\n"
+        "from pathlib import Path\n"
         "try:\n"
-        f"    r = httpx.post('http://localhost:8003{path}', json={body_repr}, timeout={timeout})\n"
+        "    record = Path('/run/secrets/orchestrator_capability_auth').read_text().strip()\n"
+        "    _identity, separator, secret = record.partition(':')\n"
+        "    headers = {'X-KAI-Capability-Key': secret} if separator and secret else {}\n"
+        f"    r = httpx.post('http://localhost:8003{path}', json={body_repr}, headers=headers, timeout={timeout})\n"
         "    print(json.dumps(r.json()))\n"
         "except Exception as e:\n"
         "    print(json.dumps({'error': str(e)}))\n"

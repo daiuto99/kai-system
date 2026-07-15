@@ -11,15 +11,9 @@ check_policy() is the single call site used by the capability router.
 """
 from __future__ import annotations
 
-# ── Callers ───────────────────────────────────────────────────────────────────
-# Callers passed in the `caller` field of the capability request body.
-# Unknown callers default to CALLER_ADMIN (backwards-compatible).
-CALLER_AUTONOMOUS = "kai_autonomous"
-CALLER_ADMIN      = "admin"
-
 # ── Policy table ──────────────────────────────────────────────────────────────
-# Default for any capability not listed: {"rule": "allow"}
-# This is the conservative default — add explicit entries for sensitive caps.
+# Every capability must be explicitly listed. An absent entry is a denial, not
+# an implicit permission. Caller identity is authenticated at the router.
 
 AUTONOMY_POLICIES: dict[str, dict] = {
     # ── Write / mutate ops — autonomous requires human approval ──────────────
@@ -31,6 +25,18 @@ AUTONOMY_POLICIES: dict[str, dict] = {
                               "reason": "Triggers Syncthing rescan — can overwrite workspace state"},
     "calendar.create_event": {"rule": "requires_approval",
                               "reason": "Creates a real calendar event visible to Leo"},
+    "wordpress.create_page": {"rule": "requires_approval", "reason": "Creates a WordPress page"},
+    "wordpress.publish":     {"rule": "requires_approval", "reason": "Publishes public WordPress content"},
+    "wordpress.purge_varnish": {"rule": "requires_approval", "reason": "Changes public cache state"},
+    "wordpress.set_front_page": {"rule": "requires_approval", "reason": "Changes a public homepage"},
+    "wordpress.set_option":  {"rule": "requires_approval", "reason": "Changes WordPress configuration"},
+
+    # ── Self-modification — disabled unless a separate approval path is built ──
+    "self_modify.apply":        {"rule": "never", "reason": "Self-modify is disabled"},
+    "self_modify.commit":       {"rule": "never", "reason": "Self-modify is disabled"},
+    "self_modify.propose":      {"rule": "never", "reason": "Self-modify is disabled"},
+    "self_modify.update_plane": {"rule": "never", "reason": "Self-modify is disabled"},
+    "self_modify.verify":       {"rule": "never", "reason": "Self-modify is disabled"},
 
     # ── Read-only ops — always allowed autonomously ───────────────────────────
     "vault.read":            {"rule": "allow"},
@@ -39,14 +45,19 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "workspace.list":        {"rule": "allow"},
     "session.close_status":  {"rule": "allow"},
     "calendar.get_events":   {"rule": "allow"},
+    "registry.check":        {"rule": "allow"},
+    "registry.get":          {"rule": "allow"},
+    "wordpress.load_config": {"rule": "allow"},
+    "wordpress.probe_credentials": {"rule": "allow"},
+    "wordpress.verify_live": {"rule": "allow"},
 
     # ── Comms — allowed autonomous, subject to rate limit gate ───────────────
     "slack.post":            {"rule": "allow"},
-    "telegram.send":         {"rule": "allow"},
 
     # ── Plane — autonomous updates allowed; creation allowed ──────────────────
     "plane.update_state":    {"rule": "allow"},
     "plane.create_issue":    {"rule": "allow"},
+    "council.gate":          {"rule": "allow"},
 
     # ── Model Peer — autonomous reviews always allowed ───────────────────────
     "model_peer.codex.review":   {"rule": "allow"},
@@ -67,15 +78,17 @@ def check_policy(capability_name: str, caller: str) -> tuple[str, str | None]:
     """Consult the autonomy policy for a given capability + caller.
 
     Returns (action, reason):
-      action — one of "allow", "block_never", "block_autonomous"
+      action — one of "allow", "block_never", "block_unlisted",
+               "requires_approval"
       reason — human-readable explanation, or None when action is "allow"
 
-    Callers:
-      "kai_autonomous"  — KAI acting without a human in the loop
-      "admin"           — human or trusted admin service (default / backwards-compat)
+    `caller` is retained for audit-call compatibility. It is an authenticated
+    identity supplied by the router, never request-body input.
     """
-    policy = AUTONOMY_POLICIES.get(capability_name, {"rule": "allow"})
-    rule   = policy.get("rule", "allow")
+    policy = AUTONOMY_POLICIES.get(capability_name)
+    if policy is None:
+        return "block_unlisted", f"'{capability_name}' has no explicit autonomy policy and is denied."
+    rule   = policy.get("rule", "never")
     note   = policy.get("reason", "")
 
     if rule not in _VALID_RULES:
@@ -89,11 +102,11 @@ def check_policy(capability_name: str, caller: str) -> tuple[str, str | None]:
             + (f"Reason: {note}" if note else "")
         )
 
-    if rule == "requires_approval" and caller == CALLER_AUTONOMOUS:
-        return "block_autonomous", (
-            f"'{capability_name}' requires human approval for autonomous execution. "
+    if rule == "requires_approval":
+        return "requires_approval", (
+            f"'{capability_name}' requires authenticated confirmation. "
             + (f"Reason: {note}. " if note else "")
-            + f"Resend with caller='{CALLER_ADMIN}' to explicitly approve."
+            + "Resend with confirmed=true using an authenticated capability credential."
         )
 
     return "allow", None
