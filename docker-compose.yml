@@ -248,6 +248,7 @@ services:
     environment:
       - TZ=America/New_York
       - DOCKER_HOST=tcp://docker-socket-proxy:2375
+      - EXTERNAL_SCAN_HOST_IPS=192.168.68.30,100.78.94.80
     volumes:
       - /home/leo/vault:/vault:rw
       - /home/leo/plane:/home/leo/plane:ro

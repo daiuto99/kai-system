@@ -102,6 +102,47 @@ class PlaneApiHealthTests(unittest.TestCase):
         self.assertIn("authenticated", detail)
 
 
+class ExternalScanTests(unittest.TestCase):
+
+    def setUp(self):
+        self.inv, self.result_path = _fresh_invariants()
+
+    def tearDown(self):
+        self.result_path.unlink(missing_ok=True)
+
+    def test_unauthenticated_public_200_fails(self):
+        """KAI-814: a public data/mutation 200 must turn the perimeter red."""
+        response = mock.Mock(status_code=200, headers={})
+        with mock.patch.object(self.inv.httpx, "request", return_value=response), \
+             mock.patch.object(self.inv, "_host_scan_ips", return_value=("192.168.1.2", "100.64.0.2")), \
+             mock.patch.object(self.inv, "_probe_refused", return_value=(True, "refused")), \
+             mock.patch.object(self.inv, "_council_unauth", return_value=(True, "401")), \
+             mock.patch.object(self.inv, "_scan_open_host_ports", return_value=(True, "allowed")):
+            passed, detail = self.inv.inv_external_scan()
+        self.assertFalse(passed)
+        self.assertIn("unauth HTTP 200", detail)
+
+    def test_refused_qdrant_and_ollama_pass(self):
+        """KAI-813 guard accepts explicit connection refusal, not a timeout."""
+        with mock.patch.object(self.inv.socket, "create_connection", side_effect=ConnectionRefusedError):
+            passed, detail = self.inv._probe_refused("192.168.1.2", 6333)
+        self.assertTrue(passed)
+        self.assertIn("connection refused", detail)
+
+    def test_unexpected_listener_fails_and_names_port(self):
+        result = mock.Mock(returncode=0, stdout="18080/tcp open  unknown\\n", stderr="")
+        with mock.patch.object(self.inv.subprocess, "run", return_value=result):
+            passed, detail = self.inv._scan_open_host_ports(("192.168.1.2", "100.64.0.2"))
+        self.assertFalse(passed)
+        self.assertIn("18080", detail)
+
+    def test_allowlisted_listener_passes(self):
+        result = mock.Mock(returncode=0, stdout="443/tcp open  https\\n", stderr="")
+        with mock.patch.object(self.inv.subprocess, "run", return_value=result):
+            passed, detail = self.inv._scan_open_host_ports(("192.168.1.2", "100.64.0.2"))
+        self.assertTrue(passed)
+
+
 class NextActionGuardTests(unittest.TestCase):
 
     def setUp(self):

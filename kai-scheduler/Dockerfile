@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates &&     curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-26.1.4.tgz |     tar xz --strip-components=1 -C /usr/local/bin docker/docker &&     rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates nmap &&     curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-26.1.4.tgz |     tar xz --strip-components=1 -C /usr/local/bin docker/docker &&     rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv
 
 COPY requirements.txt .

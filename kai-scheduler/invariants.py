@@ -29,6 +29,20 @@ ORCHESTRATOR_API = "http://kai-orchestrator:8003"
 MCP_API          = "http://kai-mcp-api:8003"
 OLLAMA_API       = "http://kai-ollama:11434"
 
+# KAI-814: probe the real public Cloudflare path, not an internal service URL.
+# Entries cover KAI-803 kiosk mutations, b4282b71 kiosk data, KAI-807 council,
+# and KAI-811 GitHub webhook. A public unauthenticated 200 is a regression.
+PUBLIC_TUNNEL = "https://kai.sonicink.space"
+EXTERNAL_SCAN_ROUTES: tuple[tuple[str, str, str], ...] = (
+    ("GET", "/kiosk-api/invariants/state", "b4282b71 kiosk data disclosure"),
+    ("POST", "/kiosk-api/invariants/state", "KAI-803 kiosk mutation"),
+    ("POST", "/orchestrator/capability/vault.write", "KAI-803 proxy mutation"),
+    ("POST", "/council/council/message", "KAI-807 council public boundary"),
+    ("POST", "/api/github/webhook", "KAI-811 unsigned webhook"),
+)
+HOST_SCAN_IPS_ENV = "EXTERNAL_SCAN_HOST_IPS"
+ALLOWED_HOST_PORTS = frozenset({22, 80, 443, 3001, 8080, 41641})
+
 # Kill switch — INVARIANT_RUNNER_ENABLED=false skips all checks entirely (kill-switch-first)
 _RUNNER_ENABLED = os.environ.get("INVARIANT_RUNNER_ENABLED", "true").lower() != "false"
 
@@ -706,6 +720,103 @@ def inv_secret_files_permissions() -> tuple[bool, str]:
     return True, f"ok — {ok_count} secret file(s) all mode 600"
 
 
+def _host_scan_ips() -> tuple[str, ...]:
+    """Return configured LAN + Tailscale addresses; gateway-only scans are unsafe."""
+    ips = tuple(part.strip() for part in os.environ.get(HOST_SCAN_IPS_ENV, "").split(",") if part.strip())
+    if len(ips) < 2:
+        raise RuntimeError(f"{HOST_SCAN_IPS_ENV} must name LAN and Tailscale IPs")
+    for ip in ips:
+        try:
+            socket.inet_aton(ip)
+        except OSError as exc:
+            raise RuntimeError(f"invalid host scan IP {ip!r}") from exc
+        if ip.startswith("127."):
+            raise RuntimeError(f"host scan IP must be non-loopback: {ip}")
+    return ips
+
+
+def _is_closed_public_response(response: httpx.Response) -> bool:
+    if response.status_code in (401, 403, 404):
+        return True
+    return response.status_code == 302 and "access" in response.headers.get("location", "").lower()
+
+
+def _probe_refused(ip: str, port: int) -> tuple[bool, str]:
+    try:
+        with socket.create_connection((ip, port), timeout=3):
+            return False, f"{ip}:{port} accepted a TCP connection"
+    except ConnectionRefusedError:
+        return True, f"{ip}:{port} connection refused"
+    except Exception as exc:
+        return False, f"{ip}:{port} probe error: {type(exc).__name__}: {exc}"
+
+
+def _council_unauth(ip: str) -> tuple[bool, str]:
+    try:
+        response = httpx.get(f"http://{ip}:8002/health", timeout=3)
+    except httpx.ConnectError as exc:
+        # httpx/httpcore wraps ECONNREFUSED, so preserve the safe result even
+        # though the original ConnectionRefusedError is not always __cause__.
+        if isinstance(exc.__cause__, ConnectionRefusedError) or "Connection refused" in str(exc):
+            return True, f"{ip}:8002 connection refused"
+        return False, f"{ip}:8002 connection error: {exc}"
+    except Exception as exc:
+        return False, f"{ip}:8002 probe error: {type(exc).__name__}: {exc}"
+    if response.status_code == 401:
+        return True, f"{ip}:8002 unauthenticated HTTP 401"
+    return False, f"{ip}:8002 unauthenticated HTTP {response.status_code}"
+
+
+def _scan_open_host_ports(ips: tuple[str, ...]) -> tuple[bool, str]:
+    """nmap prevents an arbitrary published port hiding outside a hand list."""
+    try:
+        result = subprocess.run(["nmap", "-Pn", "-n", "-T4", "--open", "-p-", *ips], capture_output=True, text=True, timeout=180, check=False)
+    except FileNotFoundError:
+        return False, "nmap unavailable — cannot scan non-loopback listeners"
+    except subprocess.TimeoutExpired:
+        return False, "nmap timed out — host listener scan incomplete"
+    except Exception as exc:
+        return False, f"nmap error: {type(exc).__name__}: {exc}"
+    if result.returncode != 0:
+        return False, f"nmap failed rc={result.returncode}: {result.stderr.strip()[:160]}"
+    import re
+    open_ports = sorted({int(port) for port in re.findall(r"^(\d+)/tcp\s+open", result.stdout, re.M)})
+    unexpected = [str(port) for port in open_ports if port not in ALLOWED_HOST_PORTS]
+    if unexpected:
+        return False, f"unexpected non-loopback listener(s): {', '.join(unexpected)}"
+    return True, f"allowed non-loopback listeners: {', '.join(map(str, open_ports)) or 'none'}"
+
+
+def inv_external_scan() -> tuple[bool, str]:
+    """KAI-814 — attacker-path perimeter scan; errors are failures."""
+    failures, successes = [], []
+    for method, path, ticket in EXTERNAL_SCAN_ROUTES:
+        try:
+            response = httpx.request(method, f"{PUBLIC_TUNNEL}{path}", timeout=10, follow_redirects=False)
+        except Exception as exc:
+            failures.append(f"public {method} {path} ({ticket}): {type(exc).__name__}: {exc}")
+            continue
+        if _is_closed_public_response(response):
+            successes.append(f"public {method} {path}=HTTP{response.status_code}")
+        else:
+            failures.append(f"public {method} {path} ({ticket}) unauth HTTP {response.status_code}")
+    try:
+        ips = _host_scan_ips()
+    except Exception as exc:
+        failures.append(f"host target configuration: {exc}")
+        ips = ()
+    for ip in ips:
+        for port, name in ((6333, "qdrant"), (11434, "ollama")):
+            passed, detail = _probe_refused(ip, port)
+            (successes if passed else failures).append(f"{name}: {detail}")
+        passed, detail = _council_unauth(ip)
+        (successes if passed else failures).append(f"council: {detail}")
+    if ips:
+        passed, detail = _scan_open_host_ports(ips)
+        (successes if passed else failures).append(detail)
+    return (False, "FAIL: " + " | ".join(failures)) if failures else (True, "ok: " + " | ".join(successes))
+
+
 def inv_no_wp_password_in_vault_json() -> tuple[bool, str]:
     """S5-3 — vault JSON files must not contain plaintext credentials (complement to vault_docs scan).
     Catches passwords embedded in JSON config files, not just markdown docs.
@@ -1079,6 +1190,7 @@ INVARIANTS = [
     ("all_closed_issues_have_td",     "Closed Issues Have TD",     inv_all_closed_issues_have_td),
     ("session_saves_current",         "Session Saves Current",     inv_session_saves_current),
     ("workspace_sync_current",        "Workspace Sync Current",    inv_workspace_sync_current),
+    ("external_scan",                  "External Perimeter Scan",   inv_external_scan),
 ]
 
 # S5-4: Deliberately deferred invariants — excluded from active checks, shown as
