@@ -89,7 +89,7 @@ def _list_specialists() -> dict:
 
 
 def _consult_specialist(specialist_id: str, question: str, context: str,
-                        active_project: str | None = None) -> dict:
+                        active_project: str | None = None, audit_task_id: str | None = None) -> dict:
     """Consult through the Memory Service; never assemble specialist context locally."""
     from council_config import _track_usage
     from router import _run_agentic_loop
@@ -100,8 +100,10 @@ def _consult_specialist(specialist_id: str, question: str, context: str,
         return {"error": f"Specialist '{specialist_id}' not found. Available: {available}"}
 
     user_msg = question if not context else f"Context: {context}\n\nQuestion: {question}"
+    consult_device = (f"task:{audit_task_id}:consult:{specialist_id}"
+                      if audit_task_id else f"consult:{specialist_id}")
     assemble_body = {
-        "key": {"advisor": specialist_id, "device": f"consult:{specialist_id}",
+        "key": {"advisor": specialist_id, "device": consult_device,
                 "place": None, "thread": None},
         "message": user_msg,
         "task_type": "specialist_consult",
@@ -118,6 +120,14 @@ def _consult_specialist(specialist_id: str, question: str, context: str,
     except (httpx.HTTPError, KeyError, ValueError) as exc:
         logger.exception("consult_specialist memory assembly failed: %s", exc)
         return {"error": f"Memory Service assembly failed: {exc}"}
+
+    try:
+        httpx.post(f"{_ORCH_URL}/context/turn", json={
+            "key": assemble_body["key"], "role": "user", "content": user_msg,
+            "package_id": package["package_id"],
+        }, timeout=10)
+    except httpx.HTTPError:
+        logger.exception("consult_specialist context user turn recording failed")
 
     system = package["stable_text"]
     if package.get("volatile_text"):
@@ -137,6 +147,13 @@ def _consult_specialist(specialist_id: str, question: str, context: str,
                      trigger_source=f"tool:consult_specialist:{specialist_id}",
                      cache_read_tokens=cache_read_tok,
                      cache_creation_tokens=cache_creation_tok)
+        try:
+            httpx.post(f"{_ORCH_URL}/context/turn", json={
+                "key": assemble_body["key"], "role": "assistant", "content": reply,
+                "package_id": package["package_id"],
+            }, timeout=10)
+        except httpx.HTTPError:
+            logger.exception("consult_specialist context assistant turn recording failed")
         return {
             "specialist": spec["name"],
             "domain": spec["domain"],
@@ -508,7 +525,7 @@ def _h_specialists(client, tool_name, ti, advisor):
     if tool_name == "consult_specialist":
         return _consult_specialist(
             ti["specialist"], ti["question"], ti.get("context", ""),
-            active_project=ti.get("_active_project"),
+            active_project=ti.get("_active_project"), audit_task_id=ti.get("_audit_task_id"),
         )
 
 

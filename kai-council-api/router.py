@@ -21,6 +21,7 @@ class MessageRequest(BaseModel):
     message: str
     project: str | None = None
     task_type: str | None = None
+    task_id: str | None = None
     user_id: str = ""
     history: list = []
     thread_ts: str = ""
@@ -195,7 +196,8 @@ def _handle_auto_capture(message: str, advisor: str) -> dict | None:
 
 
 def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: str, advisor: str,
-                       cache_breakpoint_chars: int = 0, active_project: str | None = None) -> tuple:
+                       cache_breakpoint_chars: int = 0, active_project: str | None = None,
+                       active_task_id: str | None = None) -> tuple:
     """Run Anthropic agentic loop. Returns (reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens)."""
     client = get_anthropic_client()
     total_input_tokens = 0
@@ -246,6 +248,7 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
                     if block.name == "consult_specialist":
                         # §7.2: only the message boundary supplies project scope.
                         tool_input["_active_project"] = active_project
+                        tool_input["_audit_task_id"] = active_task_id
                     result = execute_tool(block.name, tool_input, advisor)
                     tool_results.append({
                         "type": "tool_result",
@@ -362,7 +365,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     # That's the intended effect of consolidating onto one assembly path, not
     # a silent regression — Tier 1-4 already had this dependency; this
     # extends it to persona/voice too, one motion instead of two.
-    _device = req.trigger_source or req.user_id or f"unknown:{channel}"
+    _device = f"task:{req.task_id}" if req.task_id else (req.trigger_source or req.user_id or f"unknown:{channel}")
     _conv_key = {"advisor": advisor, "device": _device, "place": None, "thread": req.thread_ts or None}
     try:
         _assemble_resp = httpx.post(
@@ -503,7 +506,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
         tools = KAI_TOOLS if advisor == "kai" else []
         raw_reply, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens = _run_agentic_loop(
             messages, tools, model, system_prompt, advisor, cache_breakpoint_chars=_cache_breakpoint_chars,
-            active_project=req.project,
+            active_project=req.project, active_task_id=req.task_id,
         )
 
     elif provider == "ollama":

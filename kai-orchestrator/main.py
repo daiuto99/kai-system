@@ -492,6 +492,16 @@ def list_jobs(limit: int = 20, status: str = ""):
     return {"jobs": jobs, "count": len(jobs)}
 
 
+@app.get("/audit/tasks/{task_id}")
+def audit_task_trail(task_id: str):
+    """Read-only M-D audit composition for one task-scoped conversation/job."""
+    import audit_trail
+    try:
+        return {"ok": True, "trail": audit_trail.get_task_trail(task_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/context/assemble")
 def context_assemble(body: dict):
     """Memory Service §4.1 — the mandatory first step of every judgment/creative
