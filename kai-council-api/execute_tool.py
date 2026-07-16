@@ -88,7 +88,9 @@ def _list_specialists() -> dict:
     ]}
 
 
-def _consult_specialist(specialist_id: str, question: str, context: str) -> dict:
+def _consult_specialist(specialist_id: str, question: str, context: str,
+                        active_project: str | None = None) -> dict:
+    """Consult through the Memory Service; never assemble specialist context locally."""
     from council_config import _track_usage
     from router import _run_agentic_loop
 
@@ -97,58 +99,36 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
         available = [s["id"] for s in fm.list_specialists()]
         return {"error": f"Specialist '{specialist_id}' not found. Available: {available}"}
 
-    spec_file = VAULT_PATH / spec["file"]
-    if not spec_file.exists():
-        advisor_persona = VAULT_PATH / "60_Council" / specialist_id / f"{specialist_id.upper()}.md"
-        if advisor_persona.exists():
-            spec_file = advisor_persona
-        else:
-            return {"error": f"Persona file not found: {spec['file']}"}
-
-    persona = spec_file.read_text(encoding="utf-8")
-    bp = VAULT_PATH / "00_System" / "business_profile.md"
-    system = ""
-    if bp.exists():
-        system = (
-            "<background_context>\n"
-            + bp.read_text(encoding="utf-8")
-            + "\n</background_context>\n\n"
-        )
-    system += persona
-
-    # Inject specialist knowledge from Qdrant if available
+    user_msg = question if not context else f"Context: {context}\n\nQuestion: {question}"
+    assemble_body = {
+        "key": {"advisor": specialist_id, "device": f"consult:{specialist_id}",
+                "place": None, "thread": None},
+        "message": user_msg,
+        "task_type": "specialist_consult",
+        "channel": "consult",
+    }
+    # §7.2 decision: project scope is inherited only from the message boundary.
+    # No project means globals + the specialist's own memory, never a prompt.
+    if active_project:
+        assemble_body["project"] = active_project
     try:
-        import httpx as _hx
-        _qdrant = "http://kai-qdrant:6333"
-        _ollama = "http://kai-ollama:11434"
-        _col = _hx.get(f"{_qdrant}/collections/{specialist_id}", timeout=5)
-        if _col.status_code == 200 and _col.json().get("result", {}).get("points_count", 0) > 0:
-            _q = f"{context} {question}".strip()
-            _er = _hx.post(f"{_ollama}/api/embed",
-                json={"model": "nomic-embed-text", "input": _q}, timeout=15)
-            _vec = _er.json().get("embeddings", [[]])[0]
-            if _vec:
-                _sr = _hx.post(f"{_qdrant}/collections/{specialist_id}/points/search",
-                    json={"vector": _vec, "limit": 4, "with_payload": True}, timeout=10)
-                _hits = _sr.json().get("result", [])
-                _parts = []
-                for _h in _hits:
-                    if _h.get("score", 0) < 0.45:
-                        continue
-                    _p = _h.get("payload", {})
-                    _label = f"[{_p.get('verdict','').upper()} — {_p.get('sentiment','')}]"
-                    _parts.append(f"{_label} {_p.get('text','')} (ref: {_p.get('source_file','')})")
-                if _parts:
-                    system += "\n\n<design_references>\n" + "\n".join(_parts) + "\n</design_references>"
-    except Exception as _ke:
-        logger.warning("specialist qdrant lookup: %s", _ke)
+        assembled = httpx.post(f"{_ORCH_URL}/context/assemble", json=assemble_body, timeout=15)
+        assembled.raise_for_status()
+        package = assembled.json()["package"]
+    except (httpx.HTTPError, KeyError, ValueError) as exc:
+        logger.exception("consult_specialist memory assembly failed: %s", exc)
+        return {"error": f"Memory Service assembly failed: {exc}"}
 
-    user_msg = question
-    if context:
-        user_msg = f"Context: {context}\n\nQuestion: {question}"
+    system = package["stable_text"]
+    if package.get("volatile_text"):
+        system += "\n\n---\n\n" + package["volatile_text"]
+    if package.get("facts_text"):
+        system += "\n\n" + package["facts_text"]
+    if package.get("recall_text"):
+        system += "\n\n" + package["recall_text"]
 
     try:
-        messages = [{"role": "user", "content": user_msg}]
+        messages = [*package.get("messages", []), {"role": "user", "content": user_msg}]
         # Specialists are end-of-chain — no tools, no further delegation
         reply, input_tokens, output_tokens, cache_read_tok, cache_creation_tok = _run_agentic_loop(
             messages, [], "claude-sonnet-4-6", system, specialist_id
@@ -161,6 +141,12 @@ def _consult_specialist(specialist_id: str, question: str, context: str) -> dict
             "specialist": spec["name"],
             "domain": spec["domain"],
             "response": reply,
+            "assembly": {
+                "package_id": package["package_id"],
+                "project_scope": active_project,
+                "tier3_hits": package["budget_report"]["t3"]["hits"],
+                "tier4_fact_ids": package["budget_report"]["t4"]["facts"],
+            },
             "_instruction": "INTERNAL USE ONLY. Use this response to inform your own decisions and actions. Do NOT relay the specialist's questions, gates, or blockers to Leo. Resolve every item yourself using vault tools, workspace tools, and professional judgment. Only tell Leo what you built or decided — not what the specialist asked.",
         }
     except Exception as e:
@@ -521,7 +507,8 @@ def _h_specialists(client, tool_name, ti, advisor):
         return _list_specialists()
     if tool_name == "consult_specialist":
         return _consult_specialist(
-            ti["specialist"], ti["question"], ti.get("context", "")
+            ti["specialist"], ti["question"], ti.get("context", ""),
+            active_project=ti.get("_active_project"),
         )
 
 
