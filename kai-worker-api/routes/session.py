@@ -228,6 +228,10 @@ def session_brief():
                 {"name": s.get("name", ""), "label": s.get("label", ""), "detail": s.get("detail", "")}
                 for s in cm_steps if s.get("status") == "fail"
             ]
+            # Warmboot verification: did the previous close actually RUN the
+            # plan.json <-> Plane reconciliation? "missing" means it did not
+            # (an old close, or one that skipped the gate) — surfaced as open work.
+            recon = next((s for s in cm_steps if s.get("name") == "plan_reconcile"), None)
             from datetime import date as _date
             try:
                 close_dt = _date.fromisoformat(cm_date)
@@ -239,6 +243,11 @@ def session_brief():
                 "overall": cm.get("overall", "unknown"),
                 "failed_steps": failed,
                 "stale": stale,
+                "plan_reconcile": {
+                    "ran": recon is not None,
+                    "status": (recon or {}).get("status", "missing"),
+                    "detail": (recon or {}).get("detail", "no plan_reconcile step in last close"),
+                },
             }
         except Exception:
             pass
