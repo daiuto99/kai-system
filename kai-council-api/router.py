@@ -195,7 +195,7 @@ def _handle_auto_capture(message: str, advisor: str) -> dict | None:
 
 
 def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: str, advisor: str,
-                       cache_breakpoint_chars: int = 0) -> tuple:
+                       cache_breakpoint_chars: int = 0, active_project: str | None = None) -> tuple:
     """Run Anthropic agentic loop. Returns (reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens)."""
     client = get_anthropic_client()
     total_input_tokens = 0
@@ -242,7 +242,11 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    result = execute_tool(block.name, block.input, advisor)
+                    tool_input = dict(block.input)
+                    if block.name == "consult_specialist":
+                        # §7.2: only the message boundary supplies project scope.
+                        tool_input["_active_project"] = active_project
+                    result = execute_tool(block.name, tool_input, advisor)
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
@@ -498,7 +502,8 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     if provider == "anthropic":
         tools = KAI_TOOLS if advisor == "kai" else []
         raw_reply, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens = _run_agentic_loop(
-            messages, tools, model, system_prompt, advisor, cache_breakpoint_chars=_cache_breakpoint_chars
+            messages, tools, model, system_prompt, advisor, cache_breakpoint_chars=_cache_breakpoint_chars,
+            active_project=req.project,
         )
 
     elif provider == "ollama":
