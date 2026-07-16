@@ -56,6 +56,12 @@ def _load() -> tuple[dict, list]:
         return _cache["org_model"], _cache["specialists"]
 
 
+def get_specialist(specialist_id: str) -> dict | None:
+    """Registry-authoritative specialist record, including its declared persona path."""
+    _, specialists = _load()
+    return next((item for item in specialists if item.get("id") == specialist_id), None)
+
+
 def list_advisor_domains() -> list[dict]:
     """All domain->advisor entries (excluding the direct_advisors meta-key)."""
     om, _ = _load()

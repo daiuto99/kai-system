@@ -585,7 +585,13 @@ def tier5_standing_context(advisor: str, channel: str = None, project: str = Non
     advisor_dir = COUNCIL_PATH / advisor
     persona_file = advisor_dir / f"{advisor.upper()}.md"
     if not persona_file.exists():
-        return {"error": f"Persona not found: {advisor}"}
+        specialist = fm.get_specialist(advisor)
+        declared_path = specialist.get("file") if specialist else None
+        if declared_path:
+            persona_file = VAULT_PATH / declared_path
+            advisor_dir = persona_file.parent
+        if not persona_file.exists():
+            return {"error": f"Persona not found: {advisor}"}
 
     warnings: list[str] = []
     blocks: list[tuple[str, str, str]] = []
