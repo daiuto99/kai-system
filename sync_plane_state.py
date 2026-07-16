@@ -276,7 +276,7 @@ def warmboot():
     # 2. Container health (HTTP checks)
     print("\n=== CONTAINER HEALTH ===")
     services = [
-        ("kai-worker-api",  "http://localhost:8001/health"),
+        ("kai-worker-api",  "http://100.78.94.80:8001/health"),  # S0: port is Tailscale-bound; localhost is refused
         ("kai-council-api", None),  # internal-only; check its Docker health state
         ("kai-mcp-api",     None),  # no host port — checked via docker inspect
         ("kai-litellm",     "http://localhost:4000/health/liveliness"),
