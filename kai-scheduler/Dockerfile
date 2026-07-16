@@ -9,6 +9,8 @@ COPY requirements.txt .
 RUN uv pip install --system --no-cache -r requirements.txt
 
 COPY worker_auth.py .
+COPY redact.py .
+COPY test_token_redaction.py .
 COPY scheduler.py .
 COPY watchdog.py .
 COPY security_watchdog.py .

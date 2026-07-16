@@ -21,6 +21,7 @@ from pathlib import Path
 import httpx
 
 import clarification_store as store
+from redact import redact
 
 logger = logging.getLogger(__name__)
 
@@ -209,9 +210,11 @@ def _ask_telegram(entry: dict, clar: dict, store_path: Path) -> dict:
                 "detail": f"{type(e).__name__} posting to Telegram"}
     body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
     if not body.get("ok"):
-        logger.error("telegram clarify post failed: %s", body)
+        # L18: the response body may reflect the token-bearing request URL —
+        # redact before logging or returning any part of it.
+        logger.error("telegram clarify post failed: %s", redact(body, token))
         return {"ok": False, "channel": "telegram", "skipped": False,
-                "detail": f"telegram error: {body.get('description')}"}
+                "detail": f"telegram error: {redact(body.get('description'), token)}"}
 
     msg_id = body.get("result", {}).get("message_id")
     _mark_surface_posted(entry["id"], {

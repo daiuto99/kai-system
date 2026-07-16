@@ -8,6 +8,7 @@ from pydantic import BaseModel
 import httpx as _tghttpx
 from watchdog import _worker_auth
 from safe_http import safe_json
+from redact import redact
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -25,12 +26,11 @@ def _tg_token() -> str:
 
 def _redact(e: object) -> str:
     """L18: httpx error text embeds the request URL, which carries the bot
-    token (/bot<TOKEN>/...). Never log or return such text unredacted — and
+    token (/bot<TOKEN>/...) — and upstream response bodies may reflect it,
+    literal or URL-encoded. Never log or return such text unredacted — and
     never log these exceptions with logger.exception, whose traceback tail
     repeats the unredacted message."""
-    s = str(e)
-    token = _tg_token()
-    return s.replace(token, "[REDACTED]") if token else s
+    return redact(e, _tg_token())
 
 
 def _tg_send(chat_id: int, text: str):
@@ -250,7 +250,8 @@ def telegram_status():
         if r.status_code == 200:
             bot = safe_json(r).get("result", {})
             return {"configured": True, "bot": bot}
-        return {"configured": False, "error": r.text[:200]}
+        # L18: the response body may reflect the token-bearing request URL.
+        return {"configured": False, "error": _redact(r.text[:200])}
     except Exception as e:
         logger.error("telegram_status: %s", _redact(e))
         return {"configured": False, "error": _redact(e)}
@@ -262,9 +263,18 @@ def telegram_register_webhook(body: dict):
     if not token:
         raise HTTPException(500, "No telegram_bot_token secret")
     webhook_url = body.get("url", "https://kai.sonicink.space/api/telegram/webhook")
-    r = _tghttpx.post(
-        f"{TELEGRAM_API}/bot{token}/setWebhook",
-        json={"url": webhook_url},
-        timeout=15,
-    )
-    return safe_json(r, default={"ok": False, "error": "non-json response"})
+    try:
+        r = _tghttpx.post(
+            f"{TELEGRAM_API}/bot{token}/setWebhook",
+            json={"url": webhook_url},
+            timeout=15,
+        )
+    except Exception as e:
+        # L18: a transport error here would otherwise propagate the
+        # token-bearing setWebhook URL into FastAPI/Uvicorn error handling.
+        logger.error("telegram register-webhook: %s", _redact(e))
+        raise HTTPException(502, f"setWebhook failed: {_redact(e)}")
+    resp = safe_json(r, default={"ok": False, "description": "non-json response"})
+    # L18: return a sanitized subset — the body may reflect the request URL.
+    return {"ok": bool(resp.get("ok")), "result": resp.get("result"),
+            "description": _redact(resp.get("description", ""))}

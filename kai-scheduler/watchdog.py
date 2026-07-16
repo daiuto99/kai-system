@@ -8,6 +8,7 @@ import httpx
 import time
 
 from worker_auth import worker_auth
+from redact import redact
 
 log = logging.getLogger(__name__)
 
@@ -234,11 +235,12 @@ def check_telegram() -> tuple[bool, str]:
         data = r.json()
         if data.get("ok"):
             return True, f"bot=@{data['result'].get('username','?')}"
-        return False, data.get("description", "getMe failed")
+        # L18: the response body may reflect the token-bearing request URL,
+        # literal or URL-encoded — redact before it flows into transport
+        # status + Slack alerts. Same for httpx exception text below.
+        return False, redact(data.get("description", "getMe failed"), token)
     except Exception as e:
-        # L18: httpx error text embeds the bot-token URL; this string flows
-        # into transport status + Slack alerts — redact before returning.
-        return False, str(e).replace(token, "[REDACTED]")
+        return False, redact(e, token)
 
 
 def check_oura() -> tuple[bool, str]:
