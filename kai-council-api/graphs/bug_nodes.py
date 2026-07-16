@@ -4,7 +4,7 @@ import urllib.request as ur
 from datetime import datetime, timezone
 from pathlib import Path
 
-from council_config import VAULT_PATH, _slack_token
+from council_config import VAULT_PATH, _slack_token, _track_usage
 from persona import load_persona
 from router import _run_agentic_loop
 from graphs.bug_state import BugState
@@ -101,7 +101,13 @@ UNKNOWNS:
 """
 
     messages = [{"role": "user", "content": prompt}]
-    reply, _, _ = _run_agentic_loop(messages, [], MODEL, system, "support-engineer")
+    reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens = _run_agentic_loop(
+        messages, [], MODEL, system, "support-engineer"
+    )
+    _track_usage("support-engineer", input_tokens, output_tokens, "anthropic", MODEL,
+                 trigger_source="graph:bug_nodes:support_diagnosis",
+                 cache_read_tokens=cache_read_tokens,
+                 cache_creation_tokens=cache_creation_tokens)
 
     # Slack output suppressed — the council runs silently for audit/Plane refinement.
     # The single user-facing Slack message comes from kai-scheduler/triage.py
@@ -157,7 +163,13 @@ If you REJECT, be specific about what needs to change.
 """
 
     messages = [{"role": "user", "content": prompt}]
-    reply, _, _ = _run_agentic_loop(messages, [], MODEL, system, "lse")
+    reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens = _run_agentic_loop(
+        messages, [], MODEL, system, "lse"
+    )
+    _track_usage("lse", input_tokens, output_tokens, "anthropic", MODEL,
+                 trigger_source="graph:bug_nodes:lse_review",
+                 cache_read_tokens=cache_read_tokens,
+                 cache_creation_tokens=cache_creation_tokens)
 
     approved = "DECISION: APPROVE" in reply.upper() or reply.upper().startswith("APPROVE")
 
@@ -203,7 +215,13 @@ CONCERNS:
 """
 
     messages = [{"role": "user", "content": prompt}]
-    reply, _, _ = _run_agentic_loop(messages, [], MODEL, system, "architect")
+    reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens = _run_agentic_loop(
+        messages, [], MODEL, system, "architect"
+    )
+    _track_usage("architect", input_tokens, output_tokens, "anthropic", MODEL,
+                 trigger_source="graph:bug_nodes:architect_review",
+                 cache_read_tokens=cache_read_tokens,
+                 cache_creation_tokens=cache_creation_tokens)
 
     approved = "DECISION: APPROVE" in reply.upper() or reply.upper().startswith("APPROVE")
 
@@ -251,7 +269,13 @@ If RETURN: what specifically needs to be improved before escalating.
 """
 
     messages = [{"role": "user", "content": prompt}]
-    reply, _, _ = _run_agentic_loop(messages, [], MODEL, system, "kai")
+    reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens = _run_agentic_loop(
+        messages, [], MODEL, system, "kai"
+    )
+    _track_usage("kai", input_tokens, output_tokens, "anthropic", MODEL,
+                 trigger_source="graph:bug_nodes:kai_validation",
+                 cache_read_tokens=cache_read_tokens,
+                 cache_creation_tokens=cache_creation_tokens)
 
     approved = "DECISION: ESCALATE" in reply.upper()
     return_notes = reply if not approved else ""
