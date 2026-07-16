@@ -95,6 +95,9 @@ def get_plane_issues(
             state_map_raw = _req(f"projects/{p['id']}/states/?per_page=50")
             states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
             state_map = {s["id"]: s for s in states}
+            labels_raw = _req(f"projects/{p['id']}/labels/?per_page=100")
+            labels_list = labels_raw.get("results", labels_raw) if isinstance(labels_raw, dict) else labels_raw
+            label_name = {l["id"]: l["name"] for l in labels_list}
             parked_label_ids = set() if include_parked else _parked_label_ids(p["id"])
             # Issues — server-side state filter is broken; fetch ALL (paginated) and filter client-side
             issues = _req_paged(f"projects/{p['id']}/issues/")
@@ -117,6 +120,11 @@ def get_plane_issues(
                     "state_group": s.get("group", "?"),
                     "priority": i.get("priority", "none"),
                     "created_at": i.get("created_at", ""),
+                    "labels": [
+                        label_name.get(l if isinstance(l, str) else l.get("id"))
+                        for l in (i.get("labels") or [])
+                        if label_name.get(l if isinstance(l, str) else l.get("id"))
+                    ],
                 })
             if matched or parked_excluded:
                 out.append({
