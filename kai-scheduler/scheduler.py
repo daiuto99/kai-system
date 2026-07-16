@@ -48,6 +48,9 @@ log = logging.getLogger(__name__)
 
 WORKER_API    = "http://kai-worker-api:8001"
 COUNCIL_API   = "http://kai-council-api:8002"
+# Council's agentic loop can legitimately run past 90s (L9 allows 12 iterations);
+# a short client timeout here turned slow-but-successful replies into "unavailable".
+COUNCIL_TIMEOUT_S = 180
 VAULT_PATH    = Path("/vault")
 ET            = ZoneInfo("America/New_York")  # default; overridden dynamically in main loop
 
@@ -229,14 +232,25 @@ def telegram_poll_loop():
                     resp = httpx.post(
                         f"{COUNCIL_API}/council/message",
                         json=payload,
-                        timeout=90,
+                        timeout=COUNCIL_TIMEOUT_S,
                         auth=worker_auth(),
                     )
                     resp.raise_for_status()
                     reply = resp.json().get("reply", "No response.")
+                except httpx.TimeoutException:
+                    log.error("Council API timeout (Telegram) after %ss", COUNCIL_TIMEOUT_S)
+                    reply = (f"⚠️ KAI error — the council did not answer within {COUNCIL_TIMEOUT_S}s. "
+                             "It may still be working; ask again in a minute.")
+                except httpx.HTTPStatusError as e:
+                    log.error("Council API HTTP %s (Telegram)", e.response.status_code)
+                    reply = f"⚠️ KAI error — the council API returned HTTP {e.response.status_code}."
+                except httpx.TransportError as e:
+                    log.error("Council API unreachable (Telegram): %s", type(e).__name__)
+                    reply = (f"⚠️ KAI error — the council API is unreachable ({type(e).__name__}); "
+                             "the service may be restarting.")
                 except Exception as e:
-                    log.error(f"Council API error (Telegram): {e}")
-                    reply = "⚠️ KAI is temporarily unavailable."
+                    log.error("Council API error (Telegram): %s", type(e).__name__)
+                    reply = f"⚠️ KAI error — unexpected {type(e).__name__} while contacting the council."
                 tg_send(token, chat_id, reply)
 
         except httpx.TimeoutException:

@@ -23,6 +23,16 @@ def _tg_token() -> str:
     return os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
 
+def _redact(e: object) -> str:
+    """L18: httpx error text embeds the request URL, which carries the bot
+    token (/bot<TOKEN>/...). Never log or return such text unredacted — and
+    never log these exceptions with logger.exception, whose traceback tail
+    repeats the unredacted message."""
+    s = str(e)
+    token = _tg_token()
+    return s.replace(token, "[REDACTED]") if token else s
+
+
 def _tg_send(chat_id: int, text: str):
     token = _tg_token()
     if not token:
@@ -34,7 +44,7 @@ def _tg_send(chat_id: int, text: str):
             timeout=15,
         )
     except Exception as e:
-        logger.exception("Telegram send error: %s", e)
+        logger.error("Telegram send error: %s", _redact(e))
 
 
 class TelegramUpdate(BaseModel):
@@ -75,7 +85,7 @@ def _handle_sprint_a_callback(cbq: dict) -> None:
             timeout=10,
         )
     except Exception as e:
-        logger.warning("answerCallbackQuery failed: %s", e)
+        logger.warning("answerCallbackQuery failed: %s", _redact(e))
 
 
 def _try_sprint_a_freetext(chat_id: int, text: str) -> bool:
@@ -175,7 +185,7 @@ async def telegram_webhook(
                 if not text:
                     text = f"[File attached: {filename}]"
         except Exception as e:
-            logger.exception("Telegram file download error: %s", e)
+            logger.error("Telegram file download error: %s", _redact(e))
             text = text or f"[File: {filename} — could not download]"
 
     elif photos:
@@ -192,7 +202,7 @@ async def telegram_webhook(
             if not text:
                 text = "[Photo attached]"
         except Exception as e:
-            logger.exception("Telegram photo download error: %s", e)
+            logger.error("Telegram photo download error: %s", _redact(e))
             text = text or "[Photo — could not download]"
 
     if not text and not attachments:
@@ -211,14 +221,20 @@ async def telegram_webhook(
             auth=_worker_auth(),
         )
         r.raise_for_status()
-        data = r.json()
-        reply = data.get("reply", "No response.")
+        reply = safe_json(r).get("reply", "No response.")
     except (_tghttpx.ConnectError, _tghttpx.ConnectTimeout, _tghttpx.NetworkError) as e:
-        logger.exception("Council API unreachable from Telegram: %s", e)
+        logger.error("Council API unreachable from Telegram: %s", type(e).__name__)
         raise HTTPException(503, "KAI temporarily unavailable — Telegram will retry")
+    except _tghttpx.TimeoutException:
+        logger.error("Council API timeout from Telegram webhook after 120s")
+        reply = ("⚠️ KAI error — the council did not answer within 120s. "
+                 "It may still be working; ask again in a minute.")
+    except _tghttpx.HTTPStatusError as e:
+        logger.error("Council API HTTP %s from Telegram webhook", e.response.status_code)
+        reply = f"⚠️ KAI error — the council API returned HTTP {e.response.status_code}."
     except Exception as e:
-        logger.exception("Council API error from Telegram: %s", e)
-        reply = "KAI encountered an error. Try again in a moment."
+        logger.error("Council API error from Telegram: %s", type(e).__name__)
+        reply = f"⚠️ KAI error — unexpected {type(e).__name__} while contacting the council."
 
     _tg_send(chat_id, reply)
     return {"ok": True}
@@ -236,8 +252,8 @@ def telegram_status():
             return {"configured": True, "bot": bot}
         return {"configured": False, "error": r.text[:200]}
     except Exception as e:
-        logger.exception("telegram_status: %s", e)
-        return {"configured": False, "error": str(e)}
+        logger.error("telegram_status: %s", _redact(e))
+        return {"configured": False, "error": _redact(e)}
 
 
 @router.post("/telegram/register-webhook")

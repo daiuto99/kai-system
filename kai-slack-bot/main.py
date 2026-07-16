@@ -12,6 +12,9 @@ log = logging.getLogger(__name__)
 
 COUNCIL_API = "http://kai-council-api:8002"
 WORKER_API  = "http://kai-worker-api:8001"
+# Council's agentic loop can legitimately run past 60s (L9 allows 12 iterations);
+# the old 60s client timeout turned slow-but-successful replies into "unavailable".
+COUNCIL_TIMEOUT_S = 180.0
 
 COUNCIL_CHANNELS = {
     "encore", "launchbox", "revolt-group",
@@ -98,15 +101,26 @@ def call_council(channel: str, message: str, user_id: str, ts: str,
             f"{COUNCIL_API}/council/message",
             json={"channel": channel, "message": message, "user_id": user_id,
                   "thread_ts": ts, "trigger_source": trigger_source},
-            timeout=60.0,
+            timeout=COUNCIL_TIMEOUT_S,
             auth=_worker_auth(),
         )
         r.raise_for_status()
         data = r.json()
         return data.get("reply", "(no reply)")
+    except httpx.TimeoutException:
+        log.error("Council API timeout after %ss", COUNCIL_TIMEOUT_S)
+        return (f"⚠️ KAI error — the council did not answer within {int(COUNCIL_TIMEOUT_S)}s. "
+                "It may still be working; ask again in a minute.")
+    except httpx.HTTPStatusError as e:
+        log.error("Council API HTTP %s", e.response.status_code)
+        return f"⚠️ KAI error — the council API returned HTTP {e.response.status_code}."
+    except httpx.TransportError as e:
+        log.error("Council API unreachable: %s", type(e).__name__)
+        return (f"⚠️ KAI error — the council API is unreachable ({type(e).__name__}); "
+                "the service may be restarting.")
     except Exception as e:
-        log.error(f"Council API error: {e}")
-        return "⚠️ KAI is temporarily unavailable."
+        log.error("Council API error: %s", type(e).__name__)
+        return f"⚠️ KAI error — unexpected {type(e).__name__} while contacting the council."
 
 
 def parse_advisor_prefix(text: str) -> tuple[str, str]:

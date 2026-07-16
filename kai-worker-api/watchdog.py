@@ -124,7 +124,9 @@ def check_telegram() -> tuple[bool, str]:
             return True, f"bot=@{data['result'].get('username','?')}"
         return False, data.get("description", "getMe failed")
     except Exception as e:
-        return False, str(e)
+        # L18: httpx error text embeds the bot-token URL; this string flows
+        # into transport status + Slack alerts — redact before returning.
+        return False, str(e).replace(token, "[REDACTED]")
 
 
 def check_oura() -> tuple[bool, str]:

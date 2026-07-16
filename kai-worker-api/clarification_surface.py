@@ -195,11 +195,18 @@ def _ask_telegram(entry: dict, clar: dict, store_path: Path) -> dict:
     if keyboard:
         payload["reply_markup"] = {"inline_keyboard": keyboard}
 
-    r = httpx.post(
-        f"{TELEGRAM_API}/bot{token}/sendMessage",
-        json=payload,
-        timeout=15,
-    )
+    try:
+        r = httpx.post(
+            f"{TELEGRAM_API}/bot{token}/sendMessage",
+            json=payload,
+            timeout=15,
+        )
+    except Exception as e:
+        # L18: httpx error text embeds the bot-token URL — never let it
+        # propagate into caller tracebacks/logs unredacted.
+        logger.error("telegram clarify post failed: %s", type(e).__name__)
+        return {"ok": False, "channel": "telegram", "skipped": False,
+                "detail": f"{type(e).__name__} posting to Telegram"}
     body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
     if not body.get("ok"):
         logger.error("telegram clarify post failed: %s", body)

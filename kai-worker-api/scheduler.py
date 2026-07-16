@@ -86,7 +86,8 @@ def tg_send(token: str, chat_id: int, text: str):
             timeout=15,
         )
     except Exception as e:
-        log.error(f"Telegram send error: {e}")
+        # L18: httpx error text embeds the bot-token URL — log the type only.
+        log.error("Telegram send error: %s", type(e).__name__)
 
 
 def telegram_poll_loop():
@@ -131,15 +132,23 @@ def telegram_poll_loop():
                     )
                     resp.raise_for_status()
                     reply = resp.json().get("reply", "No response.")
+                except httpx.TimeoutException:
+                    log.error("Council API timeout (Telegram) after 90s")
+                    reply = ("⚠️ KAI error — the council did not answer within 90s. "
+                             "It may still be working; ask again in a minute.")
+                except httpx.HTTPStatusError as e:
+                    log.error("Council API HTTP %s (Telegram)", e.response.status_code)
+                    reply = f"⚠️ KAI error — the council API returned HTTP {e.response.status_code}."
                 except Exception as e:
-                    log.error(f"Council API error (Telegram): {e}")
-                    reply = "⚠️ KAI is temporarily unavailable."
+                    log.error("Council API error (Telegram): %s", type(e).__name__)
+                    reply = f"⚠️ KAI error — unexpected {type(e).__name__} while contacting the council."
                 tg_send(token, chat_id, reply)
 
         except httpx.TimeoutException:
             pass  # Normal — no updates in poll window
         except Exception as e:
-            log.error(f"Telegram poll error: {e}")
+            # L18: httpx error text embeds the bot-token getUpdates URL — type only.
+            log.error("Telegram poll error: %s", type(e).__name__)
             time.sleep(5)
 
 
