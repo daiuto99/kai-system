@@ -54,6 +54,29 @@ class Workflow:
             if not should_continue:
                 return  # gate opened mid-run, stop
 
+        # _run_step() persists terminal state after this method has taken its
+        # initial snapshot. Re-read the authoritative step rows before rolling
+        # the job up so a newly permanent failure cannot become job success.
+        conn = get_conn()
+        try:
+            final_rows = conn.execute(
+                "SELECT name, status FROM steps WHERE job_id=? ORDER BY rowid",
+                (self.job_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        failed = next(
+            (row for row in final_rows if row["status"] in ("failed_permanent", "cancelled")),
+            None,
+        )
+        if failed:
+            engine.transition("job", self.job_id, "failed_permanent",
+                              error=f"Step {failed['name']} permanently failed")
+            return
+        if any(row["status"] != "succeeded" for row in final_rows):
+            logger.warning("Job %s did not reach all-succeeded terminal state", self.job_id)
+            return
+
         engine.transition("job", self.job_id, "succeeded")
 
     def _run_step(self, step: dict) -> bool:
