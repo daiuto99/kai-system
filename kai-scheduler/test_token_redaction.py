@@ -76,10 +76,27 @@ def test_watchdog_response_description_redacted():
         w._load_secret, w.httpx.get = orig_load, orig_get
 
 
+def test_watchdog_success_result_redacted():
+    import watchdog as w
+    orig_load, orig_get = w._load_secret, w.httpx.get
+    w._load_secret = lambda name: FAKE_TOKEN
+    w.httpx.get = lambda url, timeout=None: DummyResp(
+        200, {"ok": True, "result": {"username": f"kai_bot_{ENCODED}"}}
+    )
+    try:
+        ok, detail = w.check_telegram()
+        assert ok is True
+        _assert_clean(detail)
+        assert "[REDACTED]" in detail
+    finally:
+        w._load_secret, w.httpx.get = orig_load, orig_get
+
+
 TESTS = [
     test_redact_all_token_forms,
     test_watchdog_exception_redacted,
     test_watchdog_response_description_redacted,
+    test_watchdog_success_result_redacted,
 ]
 
 if __name__ == "__main__":

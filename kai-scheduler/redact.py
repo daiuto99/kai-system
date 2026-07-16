@@ -36,3 +36,16 @@ def redact(obj: object, *tokens: str) -> str:
         for form in sorted(token_forms(token), key=len, reverse=True):
             s = s.replace(form, PLACEHOLDER)
     return s
+
+
+def redact_obj(obj: object, *tokens: str) -> object:
+    """Recursively redact every string in a JSON-shaped structure — for
+    SUCCESSFUL upstream payloads returned to callers, which can reflect the
+    token just as error bodies can. Non-string leaves pass through."""
+    if isinstance(obj, str):
+        return redact(obj, *tokens)
+    if isinstance(obj, dict):
+        return {redact_obj(k, *tokens): redact_obj(v, *tokens) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [redact_obj(v, *tokens) for v in obj]
+    return obj

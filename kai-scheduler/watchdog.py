@@ -233,11 +233,12 @@ def check_telegram() -> tuple[bool, str]:
     try:
         r = httpx.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10)
         data = r.json()
-        if data.get("ok"):
-            return True, f"bot=@{data['result'].get('username','?')}"
         # L18: the response body may reflect the token-bearing request URL,
-        # literal or URL-encoded — redact before it flows into transport
-        # status + Slack alerts. Same for httpx exception text below.
+        # literal or URL-encoded — in the success result as much as in error
+        # descriptions or httpx exception text. Redact everything that flows
+        # into transport status + Slack alerts.
+        if data.get("ok"):
+            return True, redact(f"bot=@{data['result'].get('username','?')}", token)
         return False, redact(data.get("description", "getMe failed"), token)
     except Exception as e:
         return False, redact(e, token)

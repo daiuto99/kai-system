@@ -193,6 +193,58 @@ def test_watchdog_response_description_redacted():
         w._load_secret, w.httpx.get = orig_load, orig_get
 
 
+def test_status_success_result_redacted():
+    from routes import telegram as t
+    orig_token, orig_get = t._tg_token, t._tghttpx.get
+    t._tg_token = lambda: FAKE_TOKEN
+    t._tghttpx.get = lambda url, timeout=None: DummyResp(
+        200, {"ok": True,
+              "result": {"username": f"kai_bot_{ENCODED}",
+                         "notes": [f"reflected bot{FAKE_TOKEN}"]}}
+    )
+    try:
+        out = t.telegram_status()
+        assert out["configured"] is True
+        _assert_clean(str(out["bot"]))
+        assert "[REDACTED]" in str(out["bot"])
+    finally:
+        t._tg_token, t._tghttpx.get = orig_token, orig_get
+
+
+def test_register_webhook_success_result_redacted():
+    from routes import telegram as t
+    orig_token, orig_post = t._tg_token, t._tghttpx.post
+    t._tg_token = lambda: FAKE_TOKEN
+    t._tghttpx.post = lambda url, json=None, timeout=None: DummyResp(
+        200, {"ok": True,
+              "result": f"webhook set for bot{ENCODED}",
+              "description": "Webhook was set"}
+    )
+    try:
+        out = t.telegram_register_webhook({"url": "https://example.com/hook"})
+        assert out["ok"] is True
+        _assert_clean(str(out))
+        assert "[REDACTED]" in str(out["result"])
+    finally:
+        t._tg_token, t._tghttpx.post = orig_token, orig_post
+
+
+def test_watchdog_success_result_redacted():
+    import watchdog as w
+    orig_load, orig_get = w._load_secret, w.httpx.get
+    w._load_secret = lambda name: FAKE_TOKEN
+    w.httpx.get = lambda url, timeout=None: DummyResp(
+        200, {"ok": True, "result": {"username": f"kai_bot_{ENCODED}"}}
+    )
+    try:
+        ok, detail = w.check_telegram()
+        assert ok is True
+        _assert_clean(detail)
+        assert "[REDACTED]" in detail
+    finally:
+        w._load_secret, w.httpx.get = orig_load, orig_get
+
+
 TESTS = [
     test_redact_all_token_forms,
     test_routes_telegram_redact,
@@ -202,6 +254,9 @@ TESTS = [
     test_clarification_body_redacted,
     test_watchdog_check_telegram_redacts,
     test_watchdog_response_description_redacted,
+    test_status_success_result_redacted,
+    test_register_webhook_success_result_redacted,
+    test_watchdog_success_result_redacted,
 ]
 
 if __name__ == "__main__":

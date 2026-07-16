@@ -8,7 +8,7 @@ from pydantic import BaseModel
 import httpx as _tghttpx
 from watchdog import _worker_auth
 from safe_http import safe_json
-from redact import redact
+from redact import redact, redact_obj
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -248,8 +248,10 @@ def telegram_status():
     try:
         r = _tghttpx.get(f"{TELEGRAM_API}/bot{token}/getMe", timeout=10)
         if r.status_code == 200:
+            # L18: successful result payloads can reflect the token-bearing
+            # request URL just as error bodies can — sanitize before return.
             bot = safe_json(r).get("result", {})
-            return {"configured": True, "bot": bot}
+            return {"configured": True, "bot": redact_obj(bot, _tg_token())}
         # L18: the response body may reflect the token-bearing request URL.
         return {"configured": False, "error": _redact(r.text[:200])}
     except Exception as e:
@@ -275,6 +277,8 @@ def telegram_register_webhook(body: dict):
         logger.error("telegram register-webhook: %s", _redact(e))
         raise HTTPException(502, f"setWebhook failed: {_redact(e)}")
     resp = safe_json(r, default={"ok": False, "description": "non-json response"})
-    # L18: return a sanitized subset — the body may reflect the request URL.
-    return {"ok": bool(resp.get("ok")), "result": resp.get("result"),
+    # L18: return a sanitized subset — the body may reflect the request URL,
+    # in the success `result` field as much as in the error description.
+    return {"ok": bool(resp.get("ok")),
+            "result": redact_obj(resp.get("result"), token),
             "description": _redact(resp.get("description", ""))}
