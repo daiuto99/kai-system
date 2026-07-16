@@ -56,10 +56,6 @@ TAILNET_ALLOWED_PORTS = LAN_ALLOWED_PORTS | frozenset({
     8001,   # worker-api; Mac /session/brief consumer
     8443,   # code-server remote IDE
     5678,   # n8n authenticated OAuth recovery/editor control plane
-    22000,  # Syncthing transfer protocol (vault mirror)
-    8090,   # Plane app proxy, Cloudflare-tunnel origin, login-gated; loopback migration tracked
-    139,    # Samba media/core-files, Tailscale-only (KAI-814, Leo-approved)
-    445,    # Samba media/core-files, Tailscale-only (KAI-814, Leo-approved)
     41641,  # Tailscale WireGuard transport
     55542,  # tailscaled TCP listener on the Tailscale address (live inode 45147)
 })

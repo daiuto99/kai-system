@@ -149,14 +149,21 @@ class ExternalScanTests(unittest.TestCase):
             passed, detail = self.inv._scan_open_host_ports(self.inv.LAN_SCAN_IP)
         self.assertTrue(passed, detail)
 
-    def test_samba_passes_only_on_tailnet(self):
+    def test_samba_is_not_allowlisted_on_any_interface(self):
         result = mock.Mock(returncode=0, stdout="139/tcp open  netbios-ssn\\n445/tcp open  microsoft-ds\\n", stderr="")
         with mock.patch.object(self.inv.subprocess, "run", return_value=result):
-            tailnet_passed, _ = self.inv._scan_open_host_ports(self.inv.TAILNET_SCAN_IP)
+            tailnet_passed, tailnet_detail = self.inv._scan_open_host_ports(self.inv.TAILNET_SCAN_IP)
             lan_passed, lan_detail = self.inv._scan_open_host_ports(self.inv.LAN_SCAN_IP)
-        self.assertTrue(tailnet_passed)
+        self.assertFalse(tailnet_passed)
         self.assertFalse(lan_passed)
+        self.assertIn("139", tailnet_detail)
         self.assertIn("139", lan_detail)
+
+    def test_plane_proxy_passes_on_tailnet(self):
+        result = mock.Mock(returncode=0, stdout="8090/tcp open  unknown\\n", stderr="")
+        with mock.patch.object(self.inv.subprocess, "run", return_value=result):
+            passed, detail = self.inv._scan_open_host_ports(self.inv.TAILNET_SCAN_IP)
+        self.assertTrue(passed, detail)
 
     def test_syncthing_gui_is_not_allowlisted(self):
         result = mock.Mock(returncode=0, stdout="8384/tcp open  unknown\\n", stderr="")
