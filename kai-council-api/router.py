@@ -1,19 +1,29 @@
 import json
 import logging
 import re
+import time
+import uuid
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 import httpx
-from council_config import ADVISOR_CHANNELS, WORKER_URL, ORCHESTRATOR_URL, _track_usage, _check_rate_limit, _worker_auth
+from council_config import ADVISOR_CHANNELS, WORKER_URL, ORCHESTRATOR_URL, LLM_CALL_TIMEOUT_SECONDS, _track_usage, _check_rate_limit, _worker_auth
 from complexity import _classify_complexity, _get_advisor_config
-from persona import load_persona
 import function_map as fm
 from insights import extract_and_strip_insights, append_insights_to_vault
 from execute_tool import execute_tool
-from providers import get_anthropic_client, _call_ollama, _call_openai, _call_litellm
+from providers import get_anthropic_client, _call_ollama, _call_litellm
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# L9 brakes are independent of the S5R-19 dollar cap: a cheap runaway loop or
+# hung provider call must still stop.
+MAX_AGENTIC_ITERATIONS = 12
+TURN_TOKEN_BUDGET = 24_000
+OVER_BUDGET_REPLY = (
+    "over_budget: I reached this turn's safety limit before completing the "
+    "request. Please retry with a narrower request."
+)
 
 
 class MessageRequest(BaseModel):
@@ -195,6 +205,24 @@ def _handle_auto_capture(message: str, advisor: str) -> dict | None:
     return None
 
 
+def _record_agentic_iteration(turn_id: str, iteration: int, advisor: str, model: str,
+                              input_tokens: int, output_tokens: int,
+                              cache_read_tokens: int, cache_creation_tokens: int,
+                              latency_ms: int) -> None:
+    """Write L9 per-call telemetry to the authoritative workflow_metrics store."""
+    response = httpx.post(
+        f"{ORCHESTRATOR_URL}/workflow-metrics/agentic-iteration",
+        json={
+            "turn_id": turn_id, "iteration": iteration, "advisor": advisor, "model": model,
+            "input_tokens": input_tokens, "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_creation_tokens": cache_creation_tokens, "latency_ms": latency_ms,
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+
+
 def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: str, advisor: str,
                        cache_breakpoint_chars: int = 0, active_project: str | None = None,
                        active_task_id: str | None = None) -> tuple:
@@ -205,6 +233,7 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
     total_cache_read_tokens = 0
     total_cache_creation_tokens = 0
     raw_reply = ""
+    turn_id = str(uuid.uuid4())
 
     # Prompt caching (CONTEXT_SPEC §7): cache_breakpoint_chars is the length of
     # the Memory Service package's Tier 5 stable_text (context_service.
@@ -220,7 +249,7 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
     else:
         system = system_prompt
 
-    while True:
+    for iteration in range(1, MAX_AGENTIC_ITERATIONS + 1):
         kwargs = dict(
             model=model,
             max_tokens=2048,
@@ -233,11 +262,30 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
                 cached_tools[-1] = {**cached_tools[-1], "cache_control": {"type": "ephemeral"}}
             kwargs["tools"] = cached_tools
 
-        response = client.messages.create(**kwargs)
+        call_started = time.monotonic()
+        response = client.messages.create(**kwargs, timeout=LLM_CALL_TIMEOUT_SECONDS)
+        latency_ms = int((time.monotonic() - call_started) * 1000)
         total_input_tokens          += response.usage.input_tokens
         total_output_tokens         += response.usage.output_tokens
         total_cache_read_tokens     += getattr(response.usage, "cache_read_input_tokens", 0) or 0
         total_cache_creation_tokens += getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+
+        try:
+            _record_agentic_iteration(
+                turn_id, iteration, advisor, model,
+                response.usage.input_tokens, response.usage.output_tokens,
+                getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+                getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
+                latency_ms,
+            )
+        except Exception as exc:
+            logger.exception("agentic-loop telemetry failed: %s", exc)
+            return OVER_BUDGET_REPLY, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens
+
+        if total_input_tokens + total_output_tokens > TURN_TOKEN_BUDGET:
+            logger.warning("agentic loop token budget exceeded: turn=%s tokens=%s", turn_id,
+                           total_input_tokens + total_output_tokens)
+            return OVER_BUDGET_REPLY, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens
 
         if response.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": response.content})
@@ -261,9 +309,10 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
         raw_reply = next(
             (b.text for b in response.content if hasattr(b, "text")), ""
         )
-        break
+        return raw_reply, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens
 
-    return raw_reply, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens
+    logger.warning("agentic loop iteration cap reached: turn=%s cap=%s", turn_id, MAX_AGENTIC_ITERATIONS)
+    return OVER_BUDGET_REPLY, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens
 
 
 
@@ -430,7 +479,6 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
         system_prompt += f"\n\n{_package['recall_text']}"
 
     if req.attachments:
-        import base64 as _b64
         user_content = []
         for att in req.attachments:
             if att.get("type") == "document":
@@ -653,7 +701,8 @@ def get_context(advisor: str):
 @router.post("/council/ingest")
 def ingest_file_endpoint(body: dict):
     """Called by worker API after saving a file to vault — runs ingest.py on the path."""
-    import subprocess, os
+    import os
+    import subprocess
     path = body.get("path")
     advisor = body.get("advisor", "kai")
     if not path:
@@ -665,7 +714,7 @@ def ingest_file_endpoint(body: dict):
     )
     if result.returncode != 0:
         return {"ok": False, "error": result.stderr[:500]}
-    lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
+    lines = [line for line in result.stdout.strip().splitlines() if line.strip()]
     return {"ok": True, "advisor": advisor, "path": path, "summary": lines[-1] if lines else "done"}
 
 

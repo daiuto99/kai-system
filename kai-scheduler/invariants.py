@@ -1185,6 +1185,19 @@ _D5_REMEDIATIONS: dict[str, object] = {
 
 # ── Engine ────────────────────────────────────────────────────────────────────
 
+def inv_loop_telemetry_present() -> tuple[bool, str]:
+    """L9: every recent council agentic turn must have iteration token records."""
+    try:
+        response = httpx.get(f"{ORCHESTRATOR_API}/workflow-metrics/agentic-iterations", timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        missing = data.get("missing_runs", [])
+        if missing:
+            return False, f"agentic runs missing iteration telemetry: {', '.join(missing[:3])}"
+        return True, f"agentic iteration telemetry present: {data.get('iteration_records', 0)} records across {data.get('recent_runs', 0)} recent runs"
+    except Exception as exc:
+        return False, f"agentic iteration telemetry probe failed: {exc}"
+
 INVARIANTS = [
     # S5-2 batch 0: infrastructure health (original 13)
     ("container_health",              "Container Health",          inv_container_health),
@@ -1214,6 +1227,7 @@ INVARIANTS = [
     ("session_saves_current",         "Session Saves Current",     inv_session_saves_current),
     ("workspace_sync_current",        "Workspace Sync Current",    inv_workspace_sync_current),
     ("external_scan",                  "External Perimeter Scan",   inv_external_scan),
+    ("loop_telemetry_present",         "Loop Telemetry Present",    inv_loop_telemetry_present),
 ]
 
 # S5-4: Deliberately deferred invariants — excluded from active checks, shown as

@@ -66,6 +66,27 @@ class KillSwitchTests(unittest.TestCase):
         self.assertEqual(call_count[0], 0, "kill switch must prevent any invariant from running")
 
 
+class LoopTelemetryInvariantTests(unittest.TestCase):
+
+    def test_fails_when_recent_agentic_run_has_no_iteration_records(self):
+        inv, _ = _fresh_invariants()
+        response = mock.Mock()
+        response.json.return_value = {"recent_runs": 1, "iteration_records": 0, "missing_runs": ["council-agentic-missing"]}
+        with mock.patch.object(inv.httpx, "get", return_value=response):
+            passed, detail = inv.inv_loop_telemetry_present()
+        self.assertFalse(passed)
+        self.assertIn("council-agentic-missing", detail)
+
+    def test_passes_when_recent_agentic_runs_have_iteration_records(self):
+        inv, _ = _fresh_invariants()
+        response = mock.Mock()
+        response.json.return_value = {"recent_runs": 1, "iteration_records": 2, "missing_runs": []}
+        with mock.patch.object(inv.httpx, "get", return_value=response):
+            passed, detail = inv.inv_loop_telemetry_present()
+        self.assertTrue(passed)
+        self.assertIn("2 records", detail)
+
+
 class PlaneApiHealthTests(unittest.TestCase):
 
     def setUp(self):

@@ -1,9 +1,10 @@
 """kai-orchestrator — FastAPI entrypoint."""
 import json, logging, os, threading, time, hmac
+from datetime import datetime, timedelta, timezone
 import time as _time
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
-from db import init_db, get_conn
+from db import init_db, get_conn, new_id, now_iso
 from engine import engine
 from learning.aggregator import start_learning_loop, run_aggregation
 from learning.proposer import generate_proposals
@@ -842,6 +843,80 @@ def workflow_metrics_summary():
                 for r in recent
             ],
         }
+    finally:
+        conn.close()
+
+
+@app.post("/workflow-metrics/agentic-iteration")
+def record_agentic_iteration(body: dict):
+    """Persist one L9 council-loop call as a workflow_metrics row."""
+    try:
+        turn_id = str(body["turn_id"])
+        iteration = int(body["iteration"])
+        if not turn_id or iteration < 1:
+            raise ValueError("turn_id and positive iteration are required")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"invalid agentic telemetry: {exc}") from exc
+
+    def integer(name: str) -> int:
+        value = int(body.get(name, 0) or 0)
+        if value < 0:
+            raise ValueError(f"{name} must be non-negative")
+        return value
+
+    try:
+        input_tokens = integer("input_tokens")
+        output_tokens = integer("output_tokens")
+        cache_read_tokens = integer("cache_read_tokens")
+        cache_creation_tokens = integer("cache_creation_tokens")
+        latency_ms = integer("latency_ms")
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"invalid agentic telemetry: {exc}") from exc
+
+    now = now_iso()
+    job_id = f"council-agentic-{turn_id}"
+    conn = get_conn()
+    try:
+        if not conn.execute("SELECT 1 FROM jobs WHERE id=?", (job_id,)).fetchone():
+            conn.execute(
+                """INSERT INTO jobs (id,type,inputs,status,current_step,approval_policy,artifacts,error_summary,created_at,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (job_id, "council_agentic_turn", json.dumps({"turn_id": turn_id, "advisor": body.get("advisor", "kai")}),
+                 "succeeded", None, "auto", None, None, now, now),
+            )
+        conn.execute(
+            """INSERT INTO workflow_metrics
+               (id,job_id,step_name,capability,transport_used,tokens_used,latency_ms,verified_first_try,
+                retry_count,provider,model,cost_usd,cache_read_tokens,cache_creation_tokens,created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (new_id(), job_id, f"agentic_iteration_{iteration}", "council.agentic_loop", "anthropic",
+             input_tokens + output_tokens, latency_ms, 1, 0, "anthropic", body.get("model"), 0.0,
+             cache_read_tokens, cache_creation_tokens, now),
+        )
+        conn.execute("UPDATE jobs SET updated_at=? WHERE id=?", (now, job_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "turn_id": turn_id, "iteration": iteration}
+
+
+@app.get("/workflow-metrics/agentic-iterations")
+def agentic_iteration_completeness(hours: int = 24):
+    """Return recent L9 run/iteration completeness for the scheduler invariant."""
+    hours = max(1, min(hours, 168))
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat().replace("+00:00", "Z")
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """SELECT j.id, COUNT(wm.id) AS records
+               FROM jobs j LEFT JOIN workflow_metrics wm ON wm.job_id=j.id
+               WHERE j.type='council_agentic_turn' AND j.created_at >= ?
+               GROUP BY j.id""",
+            (cutoff,),
+        ).fetchall()
+        missing_runs = [row["id"] for row in rows if row["records"] == 0]
+        return {"ok": True, "recent_runs": len(rows), "iteration_records": sum(row["records"] for row in rows),
+                "missing_runs": missing_runs}
     finally:
         conn.close()
 

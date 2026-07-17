@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from usage_tracker import _track_usage, track_api_call  # noqa: F401  re-export
 
 logger = logging.getLogger(__name__)
 
@@ -9,6 +10,9 @@ VAULT_PATH = Path("/vault")
 COUNCIL_PATH = VAULT_PATH / "60_Council"
 WORKER_URL = "http://kai-worker-api:8001"
 ORCHESTRATOR_URL = "http://kai-orchestrator:8003"
+
+# L9: every remote LLM call has the same hard upper bound.
+LLM_CALL_TIMEOUT_SECONDS = 60.0
 
 
 def _worker_auth() -> tuple[str, str] | None:
@@ -73,9 +77,6 @@ ADVISOR_AVATARS = {k: v["icon_url"] for k, v in ADVISOR_IDENTITIES.items()}
 def _slack_token() -> str:
     p = Path("/run/secrets/slack_bot_token")
     return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
-
-
-from usage_tracker import _track_usage, track_api_call  # noqa: F401  re-export
 
 
 # ── Rate limiting (S5R-19: tiered budget) ────────────────────────────────────

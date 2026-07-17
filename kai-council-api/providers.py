@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import httpx
 from fastapi import HTTPException
+from council_config import LLM_CALL_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def _call_openai(model: str, system: str, messages: list, max_tokens: int = 2048
         if isinstance(m["content"], str):
             oai_msgs.append({"role": m["role"], "content": m["content"]})
 
-    with httpx.Client(timeout=60) as hc:
+    with httpx.Client(timeout=LLM_CALL_TIMEOUT_SECONDS) as hc:
         r = hc.post("https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={"model": model, "messages": oai_msgs, "max_tokens": max_tokens},
@@ -87,7 +88,7 @@ def _call_litellm(model: str, system: str, messages: list, max_tokens: int = 204
     if master_key:
         headers["Authorization"] = f"Bearer {master_key}"
 
-    with httpx.Client(timeout=60) as hc:
+    with httpx.Client(timeout=LLM_CALL_TIMEOUT_SECONDS) as hc:
         r = hc.post("http://kai-litellm:4000/v1/chat/completions",
             headers=headers,
             json={"model": model, "messages": oai_msgs, "max_tokens": max_tokens},
