@@ -16,6 +16,13 @@ MANIFEST_PATH = VAULT_PATH / "00_System" / "session_close_log.json"
 WARMBOOT_MANIFEST_PATH = VAULT_PATH / "00_System" / "session_warmboot_log.json"
 NEXT_ACTION_PATH = VAULT_PATH / "00_System" / "next_action.json"
 
+# HARDEN-2: these are the exact wiki artifacts step_vault_wiki_sync writes and
+# content-verifies through the vault API. The brief must never read a workspace
+# mirror that the close does not write.
+BRIEF_WIKI_DIR = VAULT_PATH / "70_Knowledge" / "System"
+BRIEF_SOTU_PATH = BRIEF_WIKI_DIR / "StateOfTheUnion.md"
+BRIEF_SPRINT_HISTORY_PATH = BRIEF_WIKI_DIR / "Sprint_History.md"
+
 
 class NextActionRequest(BaseModel):
     """Only a Plane identity is accepted; next-action prose is never trusted."""
@@ -131,7 +138,7 @@ def session_brief():
     }
 
     # 1. StateOfTheUnion.md
-    sotu = Path("/workspace/StateOfTheUnion.md")
+    sotu = BRIEF_SOTU_PATH
     if sotu.exists():
         lines = sotu.read_text().splitlines()
         in_open = in_next = False
@@ -167,7 +174,7 @@ def session_brief():
                 brief["sprint_status"] = "planned"
 
     # 2. Sprint_History.md — top entry
-    sh = Path("/workspace/Sprint_History.md")
+    sh = BRIEF_SPRINT_HISTORY_PATH
     if sh.exists():
         for line in sh.read_text().splitlines()[:10]:
             # Fix 2026-05-19: close_engine.step_sprint_history writes
