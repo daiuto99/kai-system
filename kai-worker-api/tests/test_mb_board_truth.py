@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from urllib.error import HTTPError
 from pathlib import Path
 from unittest import mock
 
@@ -43,6 +44,41 @@ class BoardTruthTests(unittest.TestCase):
 
         self.assertEqual(result["description"], "content proof")
         self.assertEqual(result["description_html"], "<p>content proof</p>")
+
+    def test_plane_detail_falls_back_to_non_kai_project(self):
+        wp_project = {"id": "wp-project", "name": "WordPress"}
+        issue = {
+            "id": ISSUE_ID, "name": "WP task", "state": "wp-state",
+            "priority": "high", "sequence_id": 20,
+        }
+        responses = [
+            {"results": [{"id": "kai-state", "name": "In Progress", "group": "started"}]},
+            HTTPError("https://plane/issue", 404, "not found", None, None),
+            {"results": [{"id": plane_routes.KAI_PROJECT_ID}, wp_project]},
+            {"results": [{"id": "wp-state", "name": "In Progress", "group": "started"}]},
+            issue,
+        ]
+        with mock.patch.object(plane_routes, "_req", side_effect=responses):
+            result = plane_routes.get_plane_issue(ISSUE_ID)
+
+        self.assertEqual(result["id"], ISSUE_ID)
+        self.assertEqual(result["project_id"], "wp-project")
+        self.assertEqual(result["state"], "In Progress")
+
+    def test_plane_detail_returns_404_when_issue_is_absent_everywhere(self):
+        other_project = {"id": "other-project", "name": "Other"}
+        responses = [
+            {"results": [{"id": "kai-state", "name": "In Progress", "group": "started"}]},
+            HTTPError("https://plane/issue", 404, "not found", None, None),
+            {"results": [{"id": plane_routes.KAI_PROJECT_ID}, other_project]},
+            {"results": [{"id": "other-state", "name": "In Progress", "group": "started"}]},
+            HTTPError("https://plane/issue", 404, "not found", None, None),
+        ]
+        with mock.patch.object(plane_routes, "_req", side_effect=responses), \
+                self.assertRaises(HTTPException) as exc:
+            plane_routes.get_plane_issue(ISSUE_ID)
+
+        self.assertEqual(exc.exception.status_code, 404)
 
     def test_next_action_schema_refuses_from_memory_action_text(self):
         request_type = getattr(session_routes, "NextActionRequest", None)

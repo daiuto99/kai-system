@@ -1,5 +1,6 @@
 import logging
 import urllib.request as ur
+from urllib.error import HTTPError
 import json
 import html
 import re
@@ -50,7 +51,8 @@ def _req_paged(path):
         if isinstance(d, dict) and "results" in d:
             out += d["results"]
             if d.get("next_page_results") and d.get("next_cursor"):
-                cursor = d["next_cursor"]; guard += 1
+                cursor = d["next_cursor"]
+                guard += 1
                 if guard > 50:
                     logger.warning(f"_req_paged({path}) hit 50-page guard — possible truncation")
                     break
@@ -63,7 +65,7 @@ def _req_paged(path):
 def _parked_label_ids(pid):
     raw = _req(f"projects/{pid}/labels/?per_page=100")
     labels = raw.get("results", raw) if isinstance(raw, dict) else raw
-    return {l["id"] for l in labels if l.get("name") == PARKED_LABEL}
+    return {label["id"] for label in labels if label.get("name") == PARKED_LABEL}
 
 @router.get("/plane/issues")
 def get_plane_issues(
@@ -97,7 +99,7 @@ def get_plane_issues(
             state_map = {s["id"]: s for s in states}
             labels_raw = _req(f"projects/{p['id']}/labels/?per_page=100")
             labels_list = labels_raw.get("results", labels_raw) if isinstance(labels_raw, dict) else labels_raw
-            label_name = {l["id"]: l["name"] for l in labels_list}
+            label_name = {label["id"]: label["name"] for label in labels_list}
             parked_label_ids = set() if include_parked else _parked_label_ids(p["id"])
             # Issues — server-side state filter is broken; fetch ALL (paginated) and filter client-side
             issues = _req_paged(f"projects/{p['id']}/issues/")
@@ -109,7 +111,10 @@ def get_plane_issues(
                 if is_closed and not include_done:
                     continue
                 if parked_label_ids:
-                    ilabels = {(l if isinstance(l, str) else l.get("id")) for l in (i.get("labels") or [])}
+                    ilabels = {
+                        label if isinstance(label, str) else label.get("id")
+                        for label in (i.get("labels") or [])
+                    }
                     if parked_label_ids & ilabels:
                         parked_excluded += 1
                         continue
@@ -121,9 +126,9 @@ def get_plane_issues(
                     "priority": i.get("priority", "none"),
                     "created_at": i.get("created_at", ""),
                     "labels": [
-                        label_name.get(l if isinstance(l, str) else l.get("id"))
-                        for l in (i.get("labels") or [])
-                        if label_name.get(l if isinstance(l, str) else l.get("id"))
+                        label_name.get(label if isinstance(label, str) else label.get("id"))
+                        for label in (i.get("labels") or [])
+                        if label_name.get(label if isinstance(label, str) else label.get("id"))
                     ],
                 })
             if matched or parked_excluded:
@@ -174,29 +179,56 @@ def create_plane_issue(body: NewIssue):
 
 
 
+def _plane_issue_detail(project_id: str, issue_id: str) -> dict:
+    """Read one issue from one known project and expose its resolving project."""
+    state_map_raw = _req(f"projects/{project_id}/states/?per_page=50")
+    states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
+    state_map = {s["id"]: s for s in states}
+    issue = _req(f"projects/{project_id}/issues/{issue_id}/")
+    state = state_map.get(issue.get("state", ""), {})
+    return {
+        "id": issue["id"],
+        "name": issue["name"],
+        "project_id": project_id,
+        "state": state.get("name", "?"),
+        "state_group": state.get("group", "?"),
+        "state_id": issue.get("state", ""),
+        "priority": issue.get("priority", "none"),
+        "sequence_id": issue.get("sequence_id"),
+        "description": _description_text(issue),
+        "description_html": issue.get("description_html", ""),
+        "created_at": issue.get("created_at", ""),
+        "updated_at": issue.get("updated_at", ""),
+    }
+
+
 @router.get("/plane/issues/{issue_id}")
 def get_plane_issue(issue_id: str, project_id: Optional[str] = Query(None)):
-    """Get a single Plane issue with state resolved to name (not raw UUID)."""
+    """Get a Plane issue from its project, falling back across projects on 404."""
     try:
-        pid = project_id or KAI_PROJECT_ID
-        state_map_raw = _req(f"projects/{pid}/states/?per_page=50")
-        states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
-        state_map = {s["id"]: s for s in states}
-        i = _req(f"projects/{pid}/issues/{issue_id}/")
-        s = state_map.get(i.get("state", ""), {})
-        return {
-            "id": i["id"],
-            "name": i["name"],
-            "state": s.get("name", "?"),
-            "state_group": s.get("group", "?"),
-            "state_id": i.get("state", ""),
-            "priority": i.get("priority", "none"),
-            "sequence_id": i.get("sequence_id"),
-            "description": _description_text(i),
-            "description_html": i.get("description_html", ""),
-            "created_at": i.get("created_at", ""),
-            "updated_at": i.get("updated_at", ""),
-        }
+        requested_pid = project_id if isinstance(project_id, str) else None
+        primary_pid = requested_pid or KAI_PROJECT_ID
+        try:
+            return _plane_issue_detail(primary_pid, issue_id)
+        except HTTPError as exc:
+            if requested_pid or exc.code != 404:
+                raise
+
+        projects_raw = _req("projects/")
+        projects = projects_raw.get("results", projects_raw) if isinstance(projects_raw, dict) else projects_raw
+        for project in projects:
+            pid = project.get("id")
+            if not pid or pid == KAI_PROJECT_ID:
+                continue
+            try:
+                return _plane_issue_detail(pid, issue_id)
+            except HTTPError as exc:
+                if exc.code == 404:
+                    continue
+                raise
+        raise HTTPException(status_code=404, detail=f"Plane issue not found: {issue_id}")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Plane get issue error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
