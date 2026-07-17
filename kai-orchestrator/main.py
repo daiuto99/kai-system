@@ -1,5 +1,6 @@
 """kai-orchestrator — FastAPI entrypoint."""
 import json, logging, os, threading, time, hmac
+import time as _time
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from db import init_db, get_conn
@@ -7,6 +8,8 @@ from engine import engine
 from learning.aggregator import start_learning_loop, run_aggregation
 from learning.proposer import generate_proposals
 from context_service import _worker_auth
+from capabilities import _registry as _CAPABILITY_REGISTRY
+from policy.autonomy import AUTONOMY_POLICIES
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s — %(message)s")
@@ -877,22 +880,46 @@ def list_proposals():
 
 # ── Capability endpoint + quality gates ──────────────────────────────────────
 
-import time as _time
-
 _RATE_LIMITS: dict = {
     "slack.post": {"window": 60, "max": 5},   # 5 per minute
 }
 
-# Destructive capabilities require confirmed=true in inputs
-_DESTRUCTIVE: set = {"vault.write", "session.close", "workspace.sync"}
+_CAPABILITY_CLASSES = {"read_only", "mutating", "destructive"}
 
-# Read-only capabilities — no gate needed
-_READ_ONLY: set = {
-    "vault.read", "vault.list",
-    "workspace.read", "workspace.list",
-    "session.close_status",
-    "calendar.get_events",
-}
+
+def _validate_capability_classification(registry, policies):
+    """Return a complete, disjoint capability partition or fail at import."""
+    memberships: dict[str, set[str]] = {}
+    invalid: list[str] = []
+    for name in registry:
+        raw = policies.get(name, {}).get("classification")
+        classes = {raw} if isinstance(raw, str) else set(raw or ())
+        memberships[name] = classes
+        if not classes or not classes <= _CAPABILITY_CLASSES:
+            invalid.append(name)
+
+    unclassified = sorted(name for name, classes in memberships.items() if not classes)
+    duplicated = sorted(name for name, classes in memberships.items() if len(classes) > 1)
+    if unclassified or duplicated or invalid:
+        parts = []
+        if unclassified:
+            parts.append("unclassified=" + ", ".join(unclassified))
+        if duplicated:
+            parts.append("duplicated=" + ", ".join(duplicated))
+        if invalid:
+            parts.append("invalid=" + ", ".join(sorted(set(invalid))))
+        raise RuntimeError("Capability classification assertion failed: " + "; ".join(parts))
+
+    return tuple(
+        {name for name, classes in memberships.items() if class_name in classes}
+        for class_name in ("read_only", "mutating", "destructive")
+    )
+
+
+# Import-time L7 assertion. AUTONOMY_POLICIES is the sole per-capability source.
+_READ_ONLY, _MUTATING, _DESTRUCTIVE = _validate_capability_classification(
+    _CAPABILITY_REGISTRY, AUTONOMY_POLICIES
+)
 
 
 def _check_rate_limit(name: str) -> str | None:
@@ -928,7 +955,7 @@ def _check_rate_limit(name: str) -> str | None:
 def list_capabilities():
     """List all registered capabilities with gate metadata including autonomy policy."""
     from capabilities import _registry
-    from policy.autonomy import list_policies, AUTONOMY_POLICIES
+    from policy.autonomy import list_policies
     policy_map = {p["capability"]: p for p in list_policies()}
     caps = []
     for name in sorted(_registry.keys()):

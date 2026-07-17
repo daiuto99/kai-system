@@ -17,52 +17,52 @@ from __future__ import annotations
 
 AUTONOMY_POLICIES: dict[str, dict] = {
     # ── Write / mutate ops — autonomous requires human approval ──────────────
-    "vault.write":           {"rule": "requires_approval",
+    "vault.write":           {"classification": "destructive", "rule": "requires_approval",
                               "reason": "Writes to persistent vault storage"},
-    "session.close":         {"rule": "requires_approval",
+    "session.close":         {"classification": "destructive", "rule": "requires_approval",
                               "reason": "Terminates the active session and posts close report"},
-    "workspace.sync":        {"rule": "requires_approval",
+    "workspace.sync":        {"classification": "destructive", "rule": "requires_approval",
                               "reason": "Triggers Syncthing rescan — can overwrite workspace state"},
-    "calendar.create_event": {"rule": "requires_approval",
+    "calendar.create_event": {"classification": "mutating", "rule": "requires_approval",
                               "reason": "Creates a real calendar event visible to Leo"},
-    "wordpress.create_page": {"rule": "requires_approval", "reason": "Creates a WordPress page"},
-    "wordpress.publish":     {"rule": "requires_approval", "reason": "Publishes public WordPress content"},
-    "wordpress.purge_varnish": {"rule": "requires_approval", "reason": "Changes public cache state"},
-    "wordpress.set_front_page": {"rule": "requires_approval", "reason": "Changes a public homepage"},
-    "wordpress.set_option":  {"rule": "requires_approval", "reason": "Changes WordPress configuration"},
+    "wordpress.create_page": {"classification": "mutating", "rule": "requires_approval", "reason": "Creates a WordPress page"},
+    "wordpress.publish":     {"classification": "mutating", "rule": "requires_approval", "reason": "Publishes public WordPress content"},
+    "wordpress.purge_varnish": {"classification": "mutating", "rule": "requires_approval", "reason": "Changes public cache state"},
+    "wordpress.set_front_page": {"classification": "mutating", "rule": "requires_approval", "reason": "Changes a public homepage"},
+    "wordpress.set_option":  {"classification": "mutating", "rule": "requires_approval", "reason": "Changes WordPress configuration"},
 
     # ── Self-modification — disabled unless a separate approval path is built ──
-    "self_modify.apply":        {"rule": "never", "reason": "Self-modify is disabled"},
-    "self_modify.commit":       {"rule": "never", "reason": "Self-modify is disabled"},
-    "self_modify.propose":      {"rule": "never", "reason": "Self-modify is disabled"},
-    "self_modify.update_plane": {"rule": "never", "reason": "Self-modify is disabled"},
-    "self_modify.verify":       {"rule": "never", "reason": "Self-modify is disabled"},
+    "self_modify.apply":        {"classification": "mutating", "rule": "never", "reason": "Self-modify is disabled"},
+    "self_modify.commit":       {"classification": "mutating", "rule": "never", "reason": "Self-modify is disabled"},
+    "self_modify.propose":      {"classification": "mutating", "rule": "never", "reason": "Self-modify is disabled"},
+    "self_modify.update_plane": {"classification": "mutating", "rule": "never", "reason": "Self-modify is disabled"},
+    "self_modify.verify":       {"classification": "mutating", "rule": "never", "reason": "Self-modify is disabled"},
 
     # ── Read-only ops — always allowed autonomously ───────────────────────────
-    "vault.read":            {"rule": "allow"},
-    "vault.list":            {"rule": "allow"},
-    "workspace.read":        {"rule": "allow"},
-    "workspace.list":        {"rule": "allow"},
-    "session.close_status":  {"rule": "allow"},
-    "calendar.get_events":   {"rule": "allow"},
-    "registry.check":        {"rule": "allow"},
-    "registry.get":          {"rule": "allow"},
-    "wordpress.load_config": {"rule": "allow"},
-    "wordpress.probe_credentials": {"rule": "allow"},
-    "wordpress.verify_live": {"rule": "allow"},
+    "vault.read":            {"classification": "read_only", "rule": "allow"},
+    "vault.list":            {"classification": "read_only", "rule": "allow"},
+    "workspace.read":        {"classification": "read_only", "rule": "allow"},
+    "workspace.list":        {"classification": "read_only", "rule": "allow"},
+    "session.close_status":  {"classification": "read_only", "rule": "allow"},
+    "calendar.get_events":   {"classification": "read_only", "rule": "allow"},
+    "registry.check":        {"classification": "read_only", "rule": "allow"},
+    "registry.get":          {"classification": "read_only", "rule": "allow"},
+    "wordpress.load_config": {"classification": "read_only", "rule": "allow"},
+    "wordpress.probe_credentials": {"classification": "read_only", "rule": "allow"},
+    "wordpress.verify_live": {"classification": "read_only", "rule": "allow"},
 
     # ── Comms — allowed autonomous, subject to rate limit gate ───────────────
-    "slack.post":            {"rule": "allow"},
+    "slack.post":            {"classification": "mutating", "rule": "allow"},
 
     # ── Plane — autonomous updates allowed; creation allowed ──────────────────
-    "plane.update_state":    {"rule": "allow"},
-    "plane.create_issue":    {"rule": "allow"},
-    "council.gate":          {"rule": "allow"},
+    "plane.update_state":    {"classification": "mutating", "rule": "allow"},
+    "plane.create_issue":    {"classification": "mutating", "rule": "allow"},
+    "council.gate":          {"classification": "mutating", "rule": "allow"},
 
     # ── Model Peer — autonomous reviews always allowed ───────────────────────
-    "model_peer.codex.review":   {"rule": "allow"},
-    "model_peer.chatgpt.review": {"rule": "allow"},
-    "model_peer.get_review":     {"rule": "allow"},
+    "model_peer.codex.review":   {"classification": "read_only", "rule": "allow"},
+    "model_peer.chatgpt.review": {"classification": "read_only", "rule": "allow"},
+    "model_peer.get_review":     {"classification": "read_only", "rule": "allow"},
 
     # ── Never — permanently disabled for all callers (reserved) ──────────────
     # (none currently — table exists for future hard-blocks)

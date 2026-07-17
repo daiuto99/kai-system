@@ -1,5 +1,6 @@
 """KAI-809 regression: capability routing is authenticated and deny-by-default."""
 from fastapi.testclient import TestClient
+import pytest
 
 import main
 import capabilities
@@ -33,6 +34,29 @@ def test_unlisted_capability_is_denied_even_with_credential(monkeypatch):
 
 def test_every_registered_capability_has_an_explicit_policy_entry():
     assert set(capabilities._registry) == set(AUTONOMY_POLICIES)
+
+
+def test_current_registry_is_a_complete_disjoint_capability_partition():
+    read_only, mutating, destructive = main._validate_capability_classification(
+        capabilities._registry, AUTONOMY_POLICIES
+    )
+    assert set(capabilities._registry) == read_only | mutating | destructive
+    assert not (read_only & mutating or read_only & destructive or mutating & destructive)
+
+
+def test_unclassified_capability_fails_naming_the_capability():
+    registry = dict(capabilities._registry, **{"test.unclassified": lambda: None})
+    with pytest.raises(RuntimeError, match="unclassified=test.unclassified"):
+        main._validate_capability_classification(registry, AUTONOMY_POLICIES)
+
+
+def test_double_classified_capability_fails_naming_the_capability():
+    policies = dict(AUTONOMY_POLICIES)
+    policies["vault.read"] = dict(
+        AUTONOMY_POLICIES["vault.read"], classification={"read_only", "mutating"}
+    )
+    with pytest.raises(RuntimeError, match="duplicated=vault.read"):
+        main._validate_capability_classification(capabilities._registry, policies)
 
 
 def test_authenticated_explicitly_allowed_capability_executes(monkeypatch):
