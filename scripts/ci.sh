@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # S5-1: lint + test CI gate — L12 enforced
-# Run before committing: cd ~/kai-system && bash scripts/ci.sh
+# Enforced by pre-push and session-close gates: cd ~/kai-system && bash scripts/ci.sh
 # All services must pass ruff + seed suite before commit is valid.
 set -euo pipefail
 

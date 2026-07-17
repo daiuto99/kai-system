@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# HARDEN-1: never push when this repository's CI gate is red.
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+exec bash "$repo_root/scripts/ci.sh"
