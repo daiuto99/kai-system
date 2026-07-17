@@ -32,6 +32,10 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.whole_repo
+
 # kai-system root (…/kai-system/kai-worker-api/tests/this_file)
 ROOT = Path(__file__).resolve().parents[2]
 

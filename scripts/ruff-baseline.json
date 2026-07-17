@@ -1,0 +1,1272 @@
+{
+  "schema_version": 1,
+  "findings": [
+    {
+      "service": "kai-council-api",
+      "filename": "/app/council_config.py",
+      "code": "E402",
+      "row": 78,
+      "column": 1
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/execute_tool.py",
+      "code": "F401",
+      "row": 5,
+      "column": 66
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/execute_tool.py",
+      "code": "E402",
+      "row": 21,
+      "column": 1
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/execute_tool.py",
+      "code": "F841",
+      "row": 290,
+      "column": 29
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/execute_tool.py",
+      "code": "F841",
+      "row": 299,
+      "column": 29
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/execute_tool.py",
+      "code": "F401",
+      "row": 412,
+      "column": 58
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/execute_tool.py",
+      "code": "E401",
+      "row": 482,
+      "column": 5
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/execute_tool.py",
+      "code": "F401",
+      "row": 482,
+      "column": 24
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/execute_tool.py",
+      "code": "E741",
+      "row": 493,
+      "column": 24
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/execute_tool.py",
+      "code": "E741",
+      "row": 777,
+      "column": 28
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/execute_tool.py",
+      "code": "E401",
+      "row": 1083,
+      "column": 13
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/function_map.py",
+      "code": "F401",
+      "row": 16,
+      "column": 21
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/graphs/bug_nodes.py",
+      "code": "F401",
+      "row": 5,
+      "column": 21
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/graphs/bug_nodes.py",
+      "code": "F401",
+      "row": 7,
+      "column": 28
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/graphs/bug_nodes.py",
+      "code": "W291",
+      "row": 143,
+      "column": 78
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/graphs/bug_state.py",
+      "code": "F401",
+      "row": 1,
+      "column": 31
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/graphs/nodes.py",
+      "code": "F401",
+      "row": 4,
+      "column": 21
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/knowledge_layer.py",
+      "code": "F541",
+      "row": 19,
+      "column": 9
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/knowledge_layer.py",
+      "code": "F541",
+      "row": 23,
+      "column": 9
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/models_api.py",
+      "code": "F401",
+      "row": 4,
+      "column": 8
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/models_api.py",
+      "code": "F401",
+      "row": 11,
+      "column": 23
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/models_api.py",
+      "code": "F811",
+      "row": 105,
+      "column": 12
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/models_api.py",
+      "code": "E702",
+      "row": 191,
+      "column": 40
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/models_api.py",
+      "code": "E702",
+      "row": 192,
+      "column": 55
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/models_api.py",
+      "code": "E702",
+      "row": 194,
+      "column": 33
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/router.py",
+      "code": "F401",
+      "row": 9,
+      "column": 21
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/router.py",
+      "code": "F401",
+      "row": 13,
+      "column": 59
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/router.py",
+      "code": "F401",
+      "row": 433,
+      "column": 26
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/router.py",
+      "code": "E401",
+      "row": 656,
+      "column": 5
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/router.py",
+      "code": "E741",
+      "row": 668,
+      "column": 20
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/routes_bug_workflow.py",
+      "code": "F401",
+      "row": 7,
+      "column": 22
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/routes_bug_workflow.py",
+      "code": "F401",
+      "row": 7,
+      "column": 32
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/routes_bug_workflow.py",
+      "code": "F401",
+      "row": 10,
+      "column": 49
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/routes_orchestrate.py",
+      "code": "F841",
+      "row": 67,
+      "column": 5
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/tests/test_5r_ec1_council_dispatch.py",
+      "code": "E402",
+      "row": 23,
+      "column": 1
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/tests/test_s5r19_spend_cap.py",
+      "code": "F401",
+      "row": 4,
+      "column": 8
+    },
+    {
+      "service": "kai-council-api",
+      "filename": "/app/tests/test_s5r19_spend_cap.py",
+      "code": "F401",
+      "row": 6,
+      "column": 21
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/__init__.py",
+      "code": "E402",
+      "row": 48,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/__init__.py",
+      "code": "E402",
+      "row": 49,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/__init__.py",
+      "code": "E402",
+      "row": 51,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/__init__.py",
+      "code": "E402",
+      "row": 52,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/__init__.py",
+      "code": "E402",
+      "row": 53,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/__init__.py",
+      "code": "E402",
+      "row": 54,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/__init__.py",
+      "code": "E402",
+      "row": 55,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/__init__.py",
+      "code": "E402",
+      "row": 56,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/__init__.py",
+      "code": "E402",
+      "row": 57,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/__init__.py",
+      "code": "E402",
+      "row": 58,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/__init__.py",
+      "code": "E402",
+      "row": 59,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/self_modify.py",
+      "code": "E741",
+      "row": 429,
+      "column": 21
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/session.py",
+      "code": "E741",
+      "row": 48,
+      "column": 41
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/session.py",
+      "code": "E741",
+      "row": 62,
+      "column": 50
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/capabilities/session.py",
+      "code": "F541",
+      "row": 150,
+      "column": 13
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/db.py",
+      "code": "E401",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/db.py",
+      "code": "F401",
+      "row": 1,
+      "column": 17
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/main.py",
+      "code": "E401",
+      "row": 2,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/main.py",
+      "code": "E402",
+      "row": 880,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/main.py",
+      "code": "F401",
+      "row": 931,
+      "column": 48
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/models.py",
+      "code": "F401",
+      "row": 1,
+      "column": 36
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/models.py",
+      "code": "F401",
+      "row": 2,
+      "column": 30
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec4_kill_restart.py",
+      "code": "F401",
+      "row": 21,
+      "column": 8
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec4_kill_restart.py",
+      "code": "F541",
+      "row": 80,
+      "column": 7
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec4_kill_restart.py",
+      "code": "F541",
+      "row": 84,
+      "column": 7
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec4_kill_restart.py",
+      "code": "F541",
+      "row": 89,
+      "column": 7
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec4_kill_restart.py",
+      "code": "F541",
+      "row": 131,
+      "column": 7
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec4_kill_restart.py",
+      "code": "W291",
+      "row": 133,
+      "column": 32
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec4_kill_restart.py",
+      "code": "E722",
+      "row": 142,
+      "column": 5
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec4_kill_restart.py",
+      "code": "F541",
+      "row": 151,
+      "column": 11
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec4_kill_restart.py",
+      "code": "F541",
+      "row": 152,
+      "column": 11
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec7_regression.py",
+      "code": "W291",
+      "row": 11,
+      "column": 23
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec7_regression.py",
+      "code": "F401",
+      "row": 17,
+      "column": 8
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_5r_ec7_regression.py",
+      "code": "E722",
+      "row": 144,
+      "column": 5
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_bug14_failed_step_rollup.py",
+      "code": "F401",
+      "row": 8,
+      "column": 20
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_engine_sole_writer.py",
+      "code": "E741",
+      "row": 13,
+      "column": 19
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_engine_sole_writer.py",
+      "code": "E741",
+      "row": 27,
+      "column": 19
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_jarvis_system.py",
+      "code": "F401",
+      "row": 14,
+      "column": 8
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_jarvis_system.py",
+      "code": "F841",
+      "row": 695,
+      "column": 9
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_jarvis_system.py",
+      "code": "F541",
+      "row": 951,
+      "column": 29
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_jarvis_system.py",
+      "code": "F541",
+      "row": 954,
+      "column": 29
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_jarvis_system.py",
+      "code": "F541",
+      "row": 1168,
+      "column": 19
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_s1_tasks.py",
+      "code": "F401",
+      "row": 2,
+      "column": 8
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_s2_tasks.py",
+      "code": "F401",
+      "row": 1,
+      "column": 8
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_s5_4_cost_summary.py",
+      "code": "F401",
+      "row": 2,
+      "column": 8
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_s5_4_cost_summary.py",
+      "code": "F401",
+      "row": 4,
+      "column": 8
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/tests/test_safe_request.py",
+      "code": "F401",
+      "row": 1,
+      "column": 8
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/transports/cloudways_ssh_purge.py",
+      "code": "F841",
+      "row": 22,
+      "column": 9
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/transports/cloudways_ssh_purge.py",
+      "code": "F841",
+      "row": 23,
+      "column": 9
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/transports/ssh_php_eval.py",
+      "code": "F541",
+      "row": 34,
+      "column": 12
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/workflow_base.py",
+      "code": "E401",
+      "row": 1,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/workflow_base.py",
+      "code": "F401",
+      "row": 2,
+      "column": 26
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/workflow_base.py",
+      "code": "F841",
+      "row": 27,
+      "column": 9
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/workflow_base.py",
+      "code": "E702",
+      "row": 125,
+      "column": 34
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/workflow_base.py",
+      "code": "E702",
+      "row": 159,
+      "column": 22
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/workflows/wordpress_publish_homepage.py",
+      "code": "E401",
+      "row": 18,
+      "column": 1
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/workflows/wordpress_publish_homepage.py",
+      "code": "F401",
+      "row": 22,
+      "column": 26
+    },
+    {
+      "service": "kai-orchestrator",
+      "filename": "/app/workflows/wordpress_publish_homepage.py",
+      "code": "F401",
+      "row": 23,
+      "column": 20
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/clarification_surface.py",
+      "code": "F401",
+      "row": 16,
+      "column": 8
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/dispatch.py",
+      "code": "E401",
+      "row": 160,
+      "column": 5
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/harmony.py",
+      "code": "E731",
+      "row": 29,
+      "column": 1
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/parking_lot.py",
+      "code": "F841",
+      "row": 219,
+      "column": 5
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/calendar.py",
+      "code": "F401",
+      "row": 3,
+      "column": 8
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/calendar.py",
+      "code": "E402",
+      "row": 7,
+      "column": 1
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/calendar.py",
+      "code": "E402",
+      "row": 8,
+      "column": 1
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/calendar.py",
+      "code": "E402",
+      "row": 9,
+      "column": 1
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/calendar.py",
+      "code": "E401",
+      "row": 156,
+      "column": 9
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/focus.py",
+      "code": "F401",
+      "row": 3,
+      "column": 21
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/focus.py",
+      "code": "F401",
+      "row": 8,
+      "column": 36
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/git_activity.py",
+      "code": "E402",
+      "row": 17,
+      "column": 1
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/habits.py",
+      "code": "E401",
+      "row": 4,
+      "column": 1
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/inbox.py",
+      "code": "F401",
+      "row": 1,
+      "column": 8
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/inbox.py",
+      "code": "F401",
+      "row": 3,
+      "column": 8
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/intake.py",
+      "code": "E701",
+      "row": 287,
+      "column": 15
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/intake.py",
+      "code": "E701",
+      "row": 288,
+      "column": 15
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/intake.py",
+      "code": "F541",
+      "row": 342,
+      "column": 14
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/intake.py",
+      "code": "F841",
+      "row": 456,
+      "column": 5
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/location.py",
+      "code": "F401",
+      "row": 5,
+      "column": 32
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/mode_lock.py",
+      "code": "F401",
+      "row": 31,
+      "column": 8
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/oura.py",
+      "code": "E741",
+      "row": 33,
+      "column": 13
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/oura.py",
+      "code": "E741",
+      "row": 45,
+      "column": 13
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "F401",
+      "row": 17,
+      "column": 5
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E702",
+      "row": 51,
+      "column": 25
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E702",
+      "row": 53,
+      "column": 26
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "F841",
+      "row": 53,
+      "column": 28
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E702",
+      "row": 53,
+      "column": 42
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E702",
+      "row": 67,
+      "column": 42
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E701",
+      "row": 76,
+      "column": 33
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E702",
+      "row": 76,
+      "column": 46
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E702",
+      "row": 78,
+      "column": 35
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "F401",
+      "row": 504,
+      "column": 21
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "F841",
+      "row": 509,
+      "column": 5
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "F841",
+      "row": 514,
+      "column": 5
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E701",
+      "row": 522,
+      "column": 19
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E701",
+      "row": 523,
+      "column": 15
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E701",
+      "row": 524,
+      "column": 24
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E701",
+      "row": 580,
+      "column": 15
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E701",
+      "row": 581,
+      "column": 11
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/parking_lot.py",
+      "code": "E701",
+      "row": 582,
+      "column": 20
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/plane.py",
+      "code": "E702",
+      "row": 53,
+      "column": 42
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/plane.py",
+      "code": "E741",
+      "row": 66,
+      "column": 25
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/plane.py",
+      "code": "E741",
+      "row": 100,
+      "column": 50
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/plane.py",
+      "code": "E741",
+      "row": 112,
+      "column": 79
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/plane.py",
+      "code": "E741",
+      "row": 125,
+      "column": 29
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/projects.py",
+      "code": "F401",
+      "row": 10,
+      "column": 23
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/projects.py",
+      "code": "E701",
+      "row": 147,
+      "column": 39
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/projects.py",
+      "code": "E701",
+      "row": 148,
+      "column": 27
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/projects.py",
+      "code": "E701",
+      "row": 149,
+      "column": 25
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/projects.py",
+      "code": "E701",
+      "row": 150,
+      "column": 30
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/projects.py",
+      "code": "E701",
+      "row": 151,
+      "column": 46
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/slack.py",
+      "code": "F401",
+      "row": 3,
+      "column": 8
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/slack.py",
+      "code": "F401",
+      "row": 7,
+      "column": 34
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/system.py",
+      "code": "F401",
+      "row": 2,
+      "column": 14
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/system.py",
+      "code": "F401",
+      "row": 4,
+      "column": 8
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/system.py",
+      "code": "F401",
+      "row": 7,
+      "column": 21
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/system.py",
+      "code": "E741",
+      "row": 63,
+      "column": 28
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/system.py",
+      "code": "E402",
+      "row": 157,
+      "column": 1
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/system.py",
+      "code": "F401",
+      "row": 157,
+      "column": 32
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/system.py",
+      "code": "E402",
+      "row": 158,
+      "column": 1
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/tasks.py",
+      "code": "F401",
+      "row": 2,
+      "column": 32
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/tasks.py",
+      "code": "F401",
+      "row": 6,
+      "column": 5
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/telegram.py",
+      "code": "F401",
+      "row": 3,
+      "column": 8
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/telegram.py",
+      "code": "F401",
+      "row": 4,
+      "column": 8
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/wiki.py",
+      "code": "F401",
+      "row": 2,
+      "column": 21
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routes/wordpress.py",
+      "code": "E401",
+      "row": 552,
+      "column": 5
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/routing_engine.py",
+      "code": "F841",
+      "row": 57,
+      "column": 5
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/scheduler.py",
+      "code": "F841",
+      "row": 167,
+      "column": 13
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/services/habitsync.py",
+      "code": "F841",
+      "row": 46,
+      "column": 9
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/services/todoist.py",
+      "code": "E701",
+      "row": 82,
+      "column": 27
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/services/todoist.py",
+      "code": "E701",
+      "row": 83,
+      "column": 28
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/services/todoist.py",
+      "code": "E701",
+      "row": 84,
+      "column": 28
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/services/todoist.py",
+      "code": "E701",
+      "row": 85,
+      "column": 31
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_5r_ec5_traversal.py",
+      "code": "W291",
+      "row": 4,
+      "column": 78
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_5r_ec5_traversal.py",
+      "code": "W291",
+      "row": 5,
+      "column": 83
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_5r_ec5_traversal.py",
+      "code": "W291",
+      "row": 8,
+      "column": 83
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_5r_ec5_traversal.py",
+      "code": "W291",
+      "row": 9,
+      "column": 81
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_5r_ec5_traversal.py",
+      "code": "F401",
+      "row": 22,
+      "column": 8
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_5r_ec5_traversal.py",
+      "code": "F541",
+      "row": 131,
+      "column": 15
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_s5r3_destructive_audit.py",
+      "code": "F401",
+      "row": 9,
+      "column": 8
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_s5r3_destructive_audit.py",
+      "code": "F401",
+      "row": 10,
+      "column": 21
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_s5r3_destructive_audit.py",
+      "code": "F401",
+      "row": 11,
+      "column": 27
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_s5r3_destructive_audit.py",
+      "code": "F401",
+      "row": 11,
+      "column": 38
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_s5r3_destructive_audit.py",
+      "code": "E741",
+      "row": 87,
+      "column": 32
+    },
+    {
+      "service": "kai-worker-api",
+      "filename": "/app/tests/test_s5r3_destructive_audit.py",
+      "code": "E741",
+      "row": 109,
+      "column": 32
+    }
+  ]
+}

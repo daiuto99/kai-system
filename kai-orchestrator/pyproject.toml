@@ -9,4 +9,7 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-markers = ["destructive: kills/restarts containers, run manually only"]
+markers = [
+    "destructive: kills/restarts containers, run manually only",
+    "whole_repo: static guard that requires the complete kai-system checkout",
+]
