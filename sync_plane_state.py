@@ -206,10 +206,21 @@ def _write_warmboot_manifest(manifest):
     See: ~/sonicink/docs/specs/warmboot-surgical-additions.md §3.3
     """
     manifest_path = Path("/home/leo/vault/00_System/session_warmboot_log.json")
+    serialized = json.dumps(manifest, indent=2)
     try:
-        manifest_path.write_text(json.dumps(manifest, indent=2))
+        manifest_path.write_text(serialized)
+        # GAP-5 verify-after-write: a swallowed write failure previously left a
+        # stale manifest on disk while warmboot still exited 0, so /session/brief
+        # served yesterday's data silently. Re-read + byte-compare; hard-fail so
+        # the session-start protocol halts (CLAUDE.md CATCH-UP expects this).
+        if manifest_path.read_text() != serialized:
+            print(f"[FAIL] warmboot manifest readback mismatch at {manifest_path}")
+            sys.exit(1)
+    except SystemExit:
+        raise
     except Exception as e:
-        print(f"[WARN] Could not write warmboot manifest: {e}")
+        print(f"[FAIL] Could not write/verify warmboot manifest: {e}")
+        sys.exit(1)
 
 
 def warmboot():
