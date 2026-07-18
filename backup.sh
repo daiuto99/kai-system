@@ -49,4 +49,20 @@ else
 fi
 rm -f "$SKIP_TMP"
 
+# Git-authoritative stores — bare sonicink repo + kai-system (compact, cloneable
+# git bundles). Added 2026-07-18 to close the backup gap (these were unbacked). Keep 7 days.
+GIT_BK="$BACKUP_DIR/git"
+mkdir -p "$GIT_BK"
+if git -C /mnt/storage/git/sonicink.git bundle create "$GIT_BK/sonicink_${TIMESTAMP}.bundle" --all >> "$LOG" 2>&1; then
+    echo "[$TIMESTAMP] sonicink bare repo bundled: $GIT_BK/sonicink_${TIMESTAMP}.bundle" >> "$LOG"
+else
+    echo "[$TIMESTAMP] WARNING: sonicink bare-repo bundle FAILED" >> "$LOG"
+fi
+if git -C /home/leo/kai-system bundle create "$GIT_BK/kai-system_${TIMESTAMP}.bundle" --all >> "$LOG" 2>&1; then
+    echo "[$TIMESTAMP] kai-system bundled: $GIT_BK/kai-system_${TIMESTAMP}.bundle" >> "$LOG"
+else
+    echo "[$TIMESTAMP] WARNING: kai-system bundle FAILED" >> "$LOG"
+fi
+find "$GIT_BK" -name "*.bundle" -mtime +7 -delete
+
 echo "[$TIMESTAMP] Backup complete" >> "$LOG"
