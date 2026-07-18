@@ -1111,6 +1111,28 @@ def inv_session_saves_current() -> tuple[bool, str]:
         return False, f"session_close_log.json timestamp parse error: {e}"
 
 
+def inv_plan_doc_current() -> tuple[bool, str]:
+    """GAP-4 — KAI_STATE_AND_PLAN.md is law-layer SSOT, regenerated from plan.json
+    at every close (step_state_and_plan). A stale 'Verified current' stamp means
+    no close has regenerated it — the non-negotiable doc-currency law is being
+    violated (the exact symptom: the doc frozen while work continues by hand)."""
+    doc = VAULT_PATH / "70_Knowledge" / "System" / "KAI_STATE_AND_PLAN.md"
+    if not doc.exists():
+        return False, "KAI_STATE_AND_PLAN.md (vault copy) not found — plan doc never synced"
+    m = re.search(r"Verified current:\*\*\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})", doc.read_text())
+    if not m:
+        return False, "KAI_STATE_AND_PLAN.md has no parseable 'Verified current' stamp"
+    try:
+        stamp = datetime.fromisoformat(f"{m.group(1)}T{m.group(2)}:00-04:00")  # stamp is ET
+        age_h = (datetime.now(timezone.utc) - stamp).total_seconds() / 3600
+        if age_h > 48:
+            return False, (f"KAI_STATE_AND_PLAN.md last regenerated {age_h:.0f}h ago "
+                           f"({m.group(1)}) — run a close; the plan doc must stay current")
+        return True, f"ok — plan doc regenerated {age_h:.1f}h ago ({m.group(1)})"
+    except Exception as e:
+        return False, f"KAI_STATE_AND_PLAN.md stamp parse error: {e}"
+
+
 def inv_workspace_sync_current() -> tuple[bool, str]:
     """S5-3 — git_activity.json must show a commit within 48h (vault sync is live).
     Stale commit activity means the Mac→worker rsync+commit chain has stopped.
@@ -1268,6 +1290,7 @@ INVARIANTS = [
     ("no_override_without_ack",       "No Unacked Override",       inv_no_override_without_ack),
     ("all_closed_issues_have_td",     "Closed Issues Have TD",     inv_all_closed_issues_have_td),
     ("session_saves_current",         "Session Saves Current",     inv_session_saves_current),
+    ("plan_doc_current",              "Plan Doc Current",          inv_plan_doc_current),
     ("workspace_sync_current",        "Workspace Sync Current",    inv_workspace_sync_current),
     ("external_scan",                  "External Perimeter Scan",   inv_external_scan),
     ("loop_telemetry_present",         "Loop Telemetry Present",    inv_loop_telemetry_present),
