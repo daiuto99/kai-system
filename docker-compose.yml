@@ -258,6 +258,9 @@ services:
       - /home/leo/vault:/vault:rw
       - /home/leo/plane:/home/leo/plane:ro
       - /home/leo/backups:/backups:ro
+      # KAI-882 L18: invariant reads remote config only; no repository write access.
+      - /home/leo/kai-system/.git/config:/repos/kai-system/.git/config:ro
+      - /home/leo/sonicink/.git/config:/repos/sonicink/.git/config:ro
     env_file:
       - .env
     extra_hosts:

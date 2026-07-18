@@ -10,6 +10,7 @@ update, workspace re-sync trigger. Each logs + readback-verifies its effect.
 import json
 import logging
 import os
+import re
 import ssl
 import socket
 import subprocess
@@ -77,6 +78,15 @@ _PLANE_WS  = "sonicink"
 _KAI_PROJECT = "78c49227-82d4-477d-a920-66b08cb91c56"
 _plane_backlog_state_id: str | None = None
 
+# KAI-882 (L18): the scheduler container receives these host configs as
+# read-only mounts. The Mac is covered separately by the Layer-2 LaunchAgent
+# audit because a worker-side scheduler cannot inspect Mac-local repositories.
+GIT_CONFIG_PATHS: tuple[Path, ...] = (
+    Path("/repos/kai-system/.git/config"),
+    Path("/repos/sonicink/.git/config"),
+)
+_EMBEDDED_GIT_CREDENTIAL = re.compile(r"://[^/@\s]+:[^/@\s]+@")
+
 
 def _load_secret(name: str) -> str:
     p = Path(f"/run/secrets/{name}")
@@ -85,6 +95,29 @@ def _load_secret(name: str) -> str:
         lines = p.read_text().splitlines()
         return lines[0].strip() if lines else ""
     return os.environ.get(name.upper(), "")
+
+
+def inv_no_embedded_git_creds() -> tuple[bool, str]:
+    """L18: remote URLs must not contain user:token credentials.
+
+    Worker coverage is the two read-only repository mounts above. Mac coverage
+    is performed by the installed Layer-2 LaunchAgent (audit_config.mac.json),
+    whose status is stated here to prevent a scheduler-only false claim.
+    """
+    offenders: list[str] = []
+    unreadable: list[str] = []
+    for config_path in GIT_CONFIG_PATHS:
+        try:
+            if _EMBEDDED_GIT_CREDENTIAL.search(config_path.read_text()):
+                offenders.append(str(config_path))
+        except OSError as exc:
+            unreadable.append(f"{config_path} ({type(exc).__name__})")
+    mac_coverage = "Mac: Layer-2 LaunchAgent audit (10m)"
+    if offenders:
+        return False, "embedded git credential(s): " + ", ".join(offenders) + f" | {mac_coverage}"
+    if unreadable:
+        return False, "git config coverage unavailable: " + ", ".join(unreadable) + f" | {mac_coverage}"
+    return True, f"ok — worker configs clean: {len(GIT_CONFIG_PATHS)} | {mac_coverage}"
 
 
 def _capability_auth_headers() -> dict[str, str]:
@@ -1213,6 +1246,7 @@ INVARIANTS = [
     ("persona_assembly",              "Persona Assembly",          inv_persona_assembly),
     ("endpoint_contracts",            "Endpoint Contracts",        inv_endpoint_contracts),
     ("no_secrets_in_vault_docs",      "No Secrets in Vault Docs",  inv_no_secrets_in_vault_docs),
+    ("no_embedded_git_creds",         "No Embedded Git Credentials", inv_no_embedded_git_creds),
     # S5-2 batch 1: first six (S5-2 + S5-1)
     ("ledger_pointer_consistent",     "Ledger Pointer Consistent", inv_ledger_pointer_consistent),
     ("secret_files_permissions",      "Secret Files Permissions",  inv_secret_files_permissions),

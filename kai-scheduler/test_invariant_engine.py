@@ -66,6 +66,30 @@ class KillSwitchTests(unittest.TestCase):
         self.assertEqual(call_count[0], 0, "kill switch must prevent any invariant from running")
 
 
+class EmbeddedGitCredentialInvariantTests(unittest.TestCase):
+    def setUp(self):
+        self.inv, _ = _fresh_invariants()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.config = Path(self.temp_dir.name) / "config"
+        self.inv.GIT_CONFIG_PATHS = (self.config,)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_planted_embedded_credential_fails_without_echoing_it(self):
+        self.config.write_text('[remote "origin"]\nurl = https://user:token@example.invalid/repo.git\n')
+        passed, detail = self.inv.inv_no_embedded_git_creds()
+        self.assertFalse(passed)
+        self.assertIn(str(self.config), detail)
+        self.assertNotIn("user:token", detail)
+
+    def test_clean_config_passes(self):
+        self.config.write_text('[remote "origin"]\nurl = git@example.invalid:org/repo.git\n')
+        passed, detail = self.inv.inv_no_embedded_git_creds()
+        self.assertTrue(passed)
+        self.assertIn("Mac: Layer-2 LaunchAgent audit", detail)
+
+
 class LoopTelemetryInvariantTests(unittest.TestCase):
 
     def test_fails_when_recent_agentic_run_has_no_iteration_records(self):
