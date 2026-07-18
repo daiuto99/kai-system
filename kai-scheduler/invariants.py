@@ -1097,7 +1097,16 @@ def inv_session_saves_current() -> tuple[bool, str]:
         age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
         if age_h > 48:
             return False, f"last session close was {age_h:.0f}h ago — expected <48h"
-        return True, f"ok — last close {age_h:.1f}h ago ({data.get('date', '?')})"
+        # GAP-3: freshness alone let a partial/bypassed close pass. The manifest
+        # is complete only if run() reached the end (completed=True, GAP-1) with
+        # no failed steps (overall="ok"). Anything else means the close engine
+        # was not run to completion — the HARDEN-10/11 hand-commit failure mode.
+        if not data.get("completed") or data.get("overall") != "ok":
+            return False, (
+                f"last close not a complete run (completed={data.get('completed')}, "
+                f"overall={data.get('overall', '?')}, {data.get('date', '?')}) "
+                f"— run the full close engine")
+        return True, f"ok — last close {age_h:.1f}h ago, complete ({data.get('date', '?')})"
     except Exception as e:
         return False, f"session_close_log.json timestamp parse error: {e}"
 
