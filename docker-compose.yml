@@ -31,7 +31,6 @@ services:
     volumes:
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
-      - /home/leo/kai-system/secrets:/home/leo/kai-system/secrets:ro
     environment:
       - DOCKER_HOST=tcp://docker-socket-proxy:2375
     env_file:
@@ -49,6 +48,26 @@ services:
       - oura_token
       - kai_worker_auth
       - github_webhook_secret
+      - source: wp_alexadaiuto_kai_app_password
+        target: /run/wp_secrets/wp_alexadaiuto_kai_app_password.txt
+      - source: wp_anthonydaiuto_kai_app_password
+        target: /run/wp_secrets/wp_anthonydaiuto_kai_app_password.txt
+      - source: wp_giannadaiuto_kai_app_password
+        target: /run/wp_secrets/wp_giannadaiuto_kai_app_password.txt
+      - source: wp_leodaiuto_kai_app_password
+        target: /run/wp_secrets/wp_leodaiuto_kai_app_password.txt
+      - source: wp_revoltbros_kai_app_password
+        target: /run/wp_secrets/wp_revoltbros_kai_app_password.txt
+      - source: wp_sette-uno_kai_app_password
+        target: /run/wp_secrets/wp_sette-uno_kai_app_password.txt
+      - source: wp_sonicink_kai_app_password
+        target: /run/wp_secrets/wp_sonicink_kai_app_password.txt
+      - source: wp_the71_kai_app_password
+        target: /run/wp_secrets/wp_the71_kai_app_password.txt
+      - source: wp_the71c_kai_app_password
+        target: /run/wp_secrets/wp_the71c_kai_app_password.txt
+      - source: wp_the71company_kai_app_password
+        target: /run/wp_secrets/wp_the71company_kai_app_password.txt
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
@@ -69,7 +88,6 @@ services:
     volumes:
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
-      - /home/leo/kai-system/secrets:/run/wp_secrets:ro
     env_file:
       - .env
     secrets:
@@ -323,7 +341,7 @@ services:
     volumes:
       - tailscale-data:/var/lib/tailscale
       - /dev/net/tun:/dev/net/tun
-      - /home/leo/kai-system/secrets:/secrets:ro
+      - /home/leo/kai-system/secrets/tailscale_authkey.txt:/secrets/tailscale_authkey.txt:ro
     environment:
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
@@ -355,13 +373,32 @@ services:
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
       - /home/leo/kai-system:/kai-system:rw
-      - /home/leo/kai-system/secrets:/run/wp_secrets:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     secrets:
       - cloudways_ssh_key
       - kai_worker_auth
       - orchestrator_capability_auth
+      - source: wp_alexadaiuto_kai_app_password
+        target: /run/wp_secrets/wp_alexadaiuto_kai_app_password.txt
+      - source: wp_anthonydaiuto_kai_app_password
+        target: /run/wp_secrets/wp_anthonydaiuto_kai_app_password.txt
+      - source: wp_giannadaiuto_kai_app_password
+        target: /run/wp_secrets/wp_giannadaiuto_kai_app_password.txt
+      - source: wp_leodaiuto_kai_app_password
+        target: /run/wp_secrets/wp_leodaiuto_kai_app_password.txt
+      - source: wp_revoltbros_kai_app_password
+        target: /run/wp_secrets/wp_revoltbros_kai_app_password.txt
+      - source: wp_sette-uno_kai_app_password
+        target: /run/wp_secrets/wp_sette-uno_kai_app_password.txt
+      - source: wp_sonicink_kai_app_password
+        target: /run/wp_secrets/wp_sonicink_kai_app_password.txt
+      - source: wp_the71_kai_app_password
+        target: /run/wp_secrets/wp_the71_kai_app_password.txt
+      - source: wp_the71c_kai_app_password
+        target: /run/wp_secrets/wp_the71c_kai_app_password.txt
+      - source: wp_the71company_kai_app_password
+        target: /run/wp_secrets/wp_the71company_kai_app_password.txt
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
       interval: 30s
@@ -432,3 +469,23 @@ secrets:
     file: ./secrets/github_webhook_secret.txt
   orchestrator_capability_auth:
     file: ./secrets/orchestrator_capability_auth.txt
+  wp_alexadaiuto_kai_app_password:
+    file: ./secrets/wp_alexadaiuto_kai_app_password.txt
+  wp_anthonydaiuto_kai_app_password:
+    file: ./secrets/wp_anthonydaiuto_kai_app_password.txt
+  wp_giannadaiuto_kai_app_password:
+    file: ./secrets/wp_giannadaiuto_kai_app_password.txt
+  wp_leodaiuto_kai_app_password:
+    file: ./secrets/wp_leodaiuto_kai_app_password.txt
+  wp_revoltbros_kai_app_password:
+    file: ./secrets/wp_revoltbros_kai_app_password.txt
+  wp_sette-uno_kai_app_password:
+    file: ./secrets/wp_sette-uno_kai_app_password.txt
+  wp_sonicink_kai_app_password:
+    file: ./secrets/wp_sonicink_kai_app_password.txt
+  wp_the71_kai_app_password:
+    file: ./secrets/wp_the71_kai_app_password.txt
+  wp_the71c_kai_app_password:
+    file: ./secrets/wp_the71c_kai_app_password.txt
+  wp_the71company_kai_app_password:
+    file: ./secrets/wp_the71company_kai_app_password.txt

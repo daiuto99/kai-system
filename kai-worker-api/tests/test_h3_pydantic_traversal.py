@@ -27,10 +27,13 @@ live_api = pytest.mark.skipif(not _live_api_available(), reason="live API not av
 
 
 def get_auth():
-    try:
-        auth_str = open("/tmp/kai_auth.txt").read().strip()
-    except FileNotFoundError:
-        import os
+    from pathlib import Path
+    import os
+    for path in (Path("/run/secrets/kai_worker_auth"), Path("/tmp/kai_auth.txt")):
+        if path.exists():
+            auth_str = path.read_text().strip()
+            break
+    else:
         auth_str = os.environ.get("KAI_WORKER_AUTH", "kai:password")
     user, pw = auth_str.split(":", 1)
     return (user, pw)
