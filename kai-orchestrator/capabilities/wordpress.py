@@ -7,6 +7,7 @@ from models import CapabilityResult
 from transports.base import safe_request
 from transports import wp_rest_kai_route, ssh_php_eval, cloudways_ssh_purge
 from . import capability, get_transports
+from wp_write_preflight import preflight as wp_write_preflight
 
 TRANSPORTS = {
     "wp_rest_kai_route": wp_rest_kai_route,
@@ -90,7 +91,8 @@ def probe_credentials(site: str, creds: dict, **_) -> CapabilityResult:
 
 @capability("wordpress.create_page")
 def create_page(site: str, title: str, content: str, status: str = "draft",
-                creds: dict = None, **_) -> CapabilityResult:
+                creds: dict = None, caller: str = "", **_) -> CapabilityResult:
+    wp_write_preflight(caller, "create_page")
     marker = uuid.uuid4().hex[:12]
     tagged_content = f"{content}\n<!-- kai-marker:{marker} -->"
     r = safe_request(
@@ -110,12 +112,13 @@ def create_page(site: str, title: str, content: str, status: str = "draft",
 
 
 @capability("wordpress.set_option")
-def set_option(site: str, option: str, value: str, creds: dict = None, **_) -> CapabilityResult:
+def set_option(site: str, option: str, value: str, creds: dict = None, caller: str = "", **_) -> CapabilityResult:
     if option not in _OPTION_ALLOWLIST:
         return CapabilityResult(ok=False, status="failed_final",
             error={"type": "option_not_allowed",
                    "message": f"'{option}' not in capability allowlist"})
 
+    wp_write_preflight(caller, "set_option")
     for transport_name in get_transports(site, "set_option"):
         transport = TRANSPORTS.get(transport_name)
         if transport is None:
@@ -143,7 +146,8 @@ def set_option(site: str, option: str, value: str, creds: dict = None, **_) -> C
 
 
 @capability("wordpress.set_front_page")
-def set_front_page(site: str, page_id: int, creds: dict = None, **_) -> CapabilityResult:
+def set_front_page(site: str, page_id: int, creds: dict = None, caller: str = "", **_) -> CapabilityResult:
+    wp_write_preflight(caller, "set_front_page")
     r = safe_request(
         "POST", f"https://{creds['fqdn']}/wp-json/wp/v2/settings",
         auth=("kai", creds["app_password"]),
@@ -158,7 +162,8 @@ def set_front_page(site: str, page_id: int, creds: dict = None, **_) -> Capabili
 
 
 @capability("wordpress.publish")
-def publish(site: str, page_id: int, creds: dict = None, **_) -> CapabilityResult:
+def publish(site: str, page_id: int, creds: dict = None, caller: str = "", **_) -> CapabilityResult:
+    wp_write_preflight(caller, "publish")
     r = safe_request(
         "POST", f"https://{creds['fqdn']}/wp-json/wp/v2/pages/{page_id}",
         auth=("kai", creds["app_password"]),

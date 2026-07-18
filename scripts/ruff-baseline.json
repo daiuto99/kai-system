@@ -1132,7 +1132,7 @@
       "service": "kai-worker-api",
       "filename": "/app/routes/wordpress.py",
       "code": "E401",
-      "row": 552,
+      "row": 575,
       "column": 5
     },
     {

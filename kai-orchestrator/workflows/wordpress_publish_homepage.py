@@ -188,7 +188,7 @@ class PublishHomepageWorkflow(Workflow):
         title   = ctx.get("page_title", "Home")
         content = ctx.get("page_content", ctx.get("brief_text", "<p>Welcome.</p>"))
 
-        result = fn(site=site, creds=creds, title=title, content=content, status="draft")
+        result = fn(site=site, creds=creds, title=title, content=content, status="draft", caller=__file__)
         if result.ok and result.verification is None:
             vr = wv.verify_page_exists(site, creds, {"data": result.data})
             result.verification = vr
@@ -200,7 +200,7 @@ class PublishHomepageWorkflow(Workflow):
         fn = get_capability("wordpress.set_option")
         site  = ctx.get("site", "")
         creds = ctx.get("creds")
-        result = fn(site=site, option="kai_cs_active", value="0", creds=creds)
+        result = fn(site=site, option="kai_cs_active", value="0", creds=creds, caller=__file__)
         # set_option already does readback verification; add explicit check
         if result.ok and (result.verification is None or
                           not result.verification.get("verified")):
@@ -221,7 +221,7 @@ class PublishHomepageWorkflow(Workflow):
                 error={"type": "missing_page_id",
                        "message": "create_page_draft must succeed first"},
             )
-        result = fn(site=site, page_id=page_id, creds=creds)
+        result = fn(site=site, page_id=page_id, creds=creds, caller=__file__)
         if result.ok and result.verification is None:
             vr = wv.verify_front_page_set(site, creds, {})
             result.verification = vr
@@ -239,7 +239,7 @@ class PublishHomepageWorkflow(Workflow):
                 ok=False, status="failed_permanent",
                 error={"type": "missing_page_id"},
             )
-        result = fn(site=site, page_id=page_id, creds=creds)
+        result = fn(site=site, page_id=page_id, creds=creds, caller=__file__)
         if result.ok and result.verification is None:
             vr = wv.verify_page_published(site, creds, {"data": {"id": page_id}})
             result.verification = vr

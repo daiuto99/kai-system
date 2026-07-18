@@ -9,6 +9,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Body
 from routes._destructive_audit import DestructiveRequest, audit_before
 from pydantic import BaseModel
+from wp_write_guard import WorkflowOnlyWriteViolation, assert_canonical_caller
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -16,6 +17,10 @@ router = APIRouter()
 VAULT_PATH = Path("/vault")
 WP_SITES_FILE = VAULT_PATH / "00_System" / "wordpress_sites.json"
 WP_TASKS_FILE = VAULT_PATH / "00_System" / "wp_task_queue.json"
+
+
+def _preflight_write(action: str) -> None:
+    assert_canonical_caller(__file__, action)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -297,8 +302,22 @@ class PostCreateRequest(BaseModel):
     post_type: str = "posts"
 
 
+class WPWritePreflightRequest(BaseModel):
+    caller: str
+    action: str
+
+@router.post("/wordpress/write-preflight")
+def wordpress_write_preflight(req: WPWritePreflightRequest):
+    try:
+        caller = assert_canonical_caller(req.caller, req.action)
+    except WorkflowOnlyWriteViolation as exc:
+        raise HTTPException(403, str(exc)) from exc
+    return {"ok": True, "caller": caller, "action": req.action}
+
+
 @router.post("/wordpress/{site_id}/posts")
 def create_post(site_id: str, req: PostCreateRequest):
+    _preflight_write("create_post")
     site = _get_site(site_id)
     endpoint = "pages" if req.post_type == "pages" else "posts"
     headers = _auth_header(site)
@@ -368,6 +387,7 @@ class PostUpdateRequest(BaseModel):
 
 @router.patch("/wordpress/{site_id}/posts/{post_id}")
 def update_post(site_id: str, post_id: int, req: PostUpdateRequest):
+    _preflight_write("update_post")
     site = _get_site(site_id)
     endpoint = "pages" if req.post_type == "pages" else "posts"
     payload = {k: v for k, v in req.dict(exclude={"post_type"}).items() if v is not None}
@@ -391,6 +411,7 @@ def update_post(site_id: str, post_id: int, req: PostUpdateRequest):
 
 @router.post("/wordpress/{site_id}/posts/{post_id}/publish")
 def publish_post(site_id: str, post_id: int, post_type: str = "posts"):
+    _preflight_write("publish_post")
     site = _get_site(site_id)
     endpoint = "pages" if post_type == "pages" else "posts"
     try:
@@ -413,6 +434,7 @@ def publish_post(site_id: str, post_id: int, post_type: str = "posts"):
 
 @router.delete("/wordpress/{site_id}/posts/{post_id}")
 def delete_post(site_id: str, post_id: int, body: DestructiveRequest = Body(...), post_type: str = "posts", force: bool = False):
+    _preflight_write("delete_post")
     audit_before("/wordpress/{site_id}/posts/{post_id}", {"site_id": site_id, "post_id": post_id, "force": force}, body.operator, body.reason)
     site = _get_site(site_id)
     endpoint = "pages" if post_type == "pages" else "posts"
@@ -457,6 +479,7 @@ class CustomCSSRequest(BaseModel):
 
 @router.put("/wordpress/{site_id}/custom-css")
 def set_custom_css(site_id: str, req: CustomCSSRequest):
+    _preflight_write("set_custom_css")
     site = _get_site(site_id)
     try:
         with httpx.Client(timeout=20, follow_redirects=True, verify=_verify_for(site)) as client:
