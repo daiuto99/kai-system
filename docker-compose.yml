@@ -32,6 +32,7 @@ services:
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
       - /home/leo/kai-system/shared:/shared:ro
+      - /home/leo/kai-system/secrets/plane_api_token.txt:/home/leo/kai-system/secrets/plane_api_token.txt:ro
     environment:
       - PYTHONPATH=/shared
       - DOCKER_HOST=tcp://docker-socket-proxy:2375
