@@ -4,8 +4,6 @@ from __future__ import annotations
 import logging
 from pathlib import PurePosixPath
 
-import httpx
-
 log = logging.getLogger(__name__)
 
 CANONICAL_CALLERS = frozenset({
@@ -31,16 +29,11 @@ def is_canonical_caller(caller: str) -> bool:
     return any(normalised.endswith(suffix) for suffix in CANONICAL_CALLERS)
 
 
-def _slack_token() -> str:
-    try:
-        return open("/run/secrets/slack_bot_token").read().strip()
-    except OSError:
-        return ""
-
-
 def _alert_devops(caller: str, action: str) -> None:
-    """Reuse the established direct #devops alert transport; alert failure logs."""
-    token = _slack_token()
+    """Alert through the established watchdog #devops transport."""
+    from watchdog import _load_secret, _slack_alert
+
+    token = _load_secret("slack_bot_token")
     if not token:
         log.error("WP write guard violation could not alert #devops: Slack token unavailable")
         return
@@ -49,21 +42,8 @@ def _alert_devops(caller: str, action: str) -> None:
         f"non-canonical caller `{_normalise(caller)}` attempted `{action}`. "
         "Use a canonical WordPress workflow surface."
     )
-    try:
-        response = httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#devops", "text": text,
-                  "username": "DevOps",
-                  "icon_url": "https://kai.sonicink.space/avatar-devops.png"},
-            timeout=10,
-        )
-        if response.status_code >= 400 or "\"ok\":true" not in response.text.replace(" ", ""):
-            log.error("WP write guard #devops alert failed: HTTP %s", response.status_code)
-        else:
-            log.warning("WP write guard violation alert posted to #devops")
-    except Exception as exc:
-        log.error("WP write guard #devops alert failed: %s", exc)
+    _slack_alert(token, text)
+    log.warning("WP write guard violation alert sent through watchdog transport")
 
 
 def assert_canonical_caller(caller: str, action: str) -> str:
