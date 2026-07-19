@@ -16,8 +16,28 @@ PLANE_BASE = "http://172.17.0.1:8090/api/v1/workspaces/sonicink"
 KAI_PROJECT_ID = "78c49227-82d4-477d-a920-66b08cb91c56"
 
 def _plane_token():
-    p = Path("/home/leo/kai-system/secrets/plane_api_token.txt")
-    return p.read_text().strip().split("\n")[0] if p.exists() else ""
+    for p in (Path("/run/secrets/plane_api_token"),
+              Path("/home/leo/kai-system/secrets/plane_api_token.txt")):
+        if p.exists():
+            return p.read_text().strip().split("\n")[0]
+    return ""
+
+
+def _issue_project_id(issue_id: str) -> str:
+    """Resolve which Plane project an issue lives in (KAI first, then scan)."""
+    candidates = [KAI_PROJECT_ID]
+    projects_raw = _req("projects/")
+    projects = projects_raw.get("results", projects_raw) if isinstance(projects_raw, dict) else projects_raw
+    candidates += [p.get("id") for p in projects if p.get("id") and p.get("id") != KAI_PROJECT_ID]
+    for pid in candidates:
+        try:
+            _req(f"projects/{pid}/issues/{issue_id}/")
+            return pid
+        except HTTPError as exc:
+            if getattr(exc, "code", None) == 404:
+                continue
+            raise
+    raise HTTPException(status_code=404, detail=f"Plane issue not found: {issue_id}")
 
 def _req(path):
     token = _plane_token()
@@ -260,7 +280,7 @@ def patch_plane_issue(issue_id: str, body: IssueUpdate):
         token = _plane_token()
         if not token:
             raise HTTPException(status_code=500, detail="Plane API token not configured")
-        pid = body.project_id or KAI_PROJECT_ID
+        pid = body.project_id or _issue_project_id(issue_id)
 
         payload = {}
         if body.name is not None:

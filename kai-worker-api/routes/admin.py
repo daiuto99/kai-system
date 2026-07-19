@@ -17,10 +17,11 @@ ALLOWED_SERVICES = {
 
 
 def _check_auth(token: str | None):
-    token_file = Path("/home/leo/kai-system/secrets/redeploy_token.txt")
-    # Fall back to a fixed env check if file not present
-    if not token_file.exists():
-        raise HTTPException(401, "redeploy_token.txt not configured")
+    token_file = next((p for p in (Path("/run/secrets/redeploy_token"),
+                                   Path("/home/leo/kai-system/secrets/redeploy_token.txt"))
+                       if p.exists()), None)
+    if token_file is None:
+        raise HTTPException(401, "redeploy_token not configured")
     expected = token_file.read_text().strip()
     if token != f"Bearer {expected}":
         raise HTTPException(401, "Invalid token")
