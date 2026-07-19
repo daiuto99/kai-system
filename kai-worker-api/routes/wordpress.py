@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Header
 from routes._destructive_audit import DestructiveRequest, audit_before
 from pydantic import BaseModel
 from wp_write_guard import WorkflowOnlyWriteViolation, assert_canonical_caller
@@ -19,7 +19,29 @@ WP_SITES_FILE = VAULT_PATH / "00_System" / "wordpress_sites.json"
 WP_TASKS_FILE = VAULT_PATH / "00_System" / "wp_task_queue.json"
 
 
-def _preflight_write(action: str) -> None:
+_WP_WRITE_TOKEN_PATHS = (Path("/run/secrets/wp_write_token"),
+                        Path("/home/leo/kai-system/secrets/wp_write_token.txt"))
+
+
+def _expected_wp_write_token() -> str:
+    for _p in _WP_WRITE_TOKEN_PATHS:
+        if _p.exists():
+            return _p.read_text().strip()
+    return ""
+
+
+def _preflight_write(action: str, write_token: Optional[str] = None) -> None:
+    # WP-20.6: worker WP writes require the workflow write token. Fail closed:
+    # a missing secret or a caller (e.g. council) without the token is rejected.
+    expected = _expected_wp_write_token()
+    if not expected or write_token != expected:
+        try:
+            from wp_write_guard import _alert_devops
+            _alert_devops("non-workflow caller (missing/invalid WP write token)", action)
+        except Exception:
+            logger.error("WP write token rejected for %s; devops alert failed", action)
+        raise HTTPException(status_code=403,
+                            detail="WP writes require the workflow write token (WP-20.6)")
     assert_canonical_caller(__file__, action)
 
 
@@ -316,8 +338,8 @@ def wordpress_write_preflight(req: WPWritePreflightRequest):
 
 
 @router.post("/wordpress/{site_id}/posts")
-def create_post(site_id: str, req: PostCreateRequest):
-    _preflight_write("create_post")
+def create_post(site_id: str, req: PostCreateRequest, x_wp_write_token: Optional[str] = Header(default=None, alias="X-Wp-Write-Token")):
+    _preflight_write("create_post", x_wp_write_token)
     site = _get_site(site_id)
     endpoint = "pages" if req.post_type == "pages" else "posts"
     headers = _auth_header(site)
@@ -386,8 +408,8 @@ class PostUpdateRequest(BaseModel):
 
 
 @router.patch("/wordpress/{site_id}/posts/{post_id}")
-def update_post(site_id: str, post_id: int, req: PostUpdateRequest):
-    _preflight_write("update_post")
+def update_post(site_id: str, post_id: int, req: PostUpdateRequest, x_wp_write_token: Optional[str] = Header(default=None, alias="X-Wp-Write-Token")):
+    _preflight_write("update_post", x_wp_write_token)
     site = _get_site(site_id)
     endpoint = "pages" if req.post_type == "pages" else "posts"
     payload = {k: v for k, v in req.dict(exclude={"post_type"}).items() if v is not None}
@@ -410,8 +432,8 @@ def update_post(site_id: str, post_id: int, req: PostUpdateRequest):
 
 
 @router.post("/wordpress/{site_id}/posts/{post_id}/publish")
-def publish_post(site_id: str, post_id: int, post_type: str = "posts"):
-    _preflight_write("publish_post")
+def publish_post(site_id: str, post_id: int, post_type: str = "posts", x_wp_write_token: Optional[str] = Header(default=None, alias="X-Wp-Write-Token")):
+    _preflight_write("publish_post", x_wp_write_token)
     site = _get_site(site_id)
     endpoint = "pages" if post_type == "pages" else "posts"
     try:
@@ -433,8 +455,8 @@ def publish_post(site_id: str, post_id: int, post_type: str = "posts"):
 
 
 @router.delete("/wordpress/{site_id}/posts/{post_id}")
-def delete_post(site_id: str, post_id: int, body: DestructiveRequest = Body(...), post_type: str = "posts", force: bool = False):
-    _preflight_write("delete_post")
+def delete_post(site_id: str, post_id: int, body: DestructiveRequest = Body(...), post_type: str = "posts", force: bool = False, x_wp_write_token: Optional[str] = Header(default=None, alias="X-Wp-Write-Token")):
+    _preflight_write("delete_post", x_wp_write_token)
     audit_before("/wordpress/{site_id}/posts/{post_id}", {"site_id": site_id, "post_id": post_id, "force": force}, body.operator, body.reason)
     site = _get_site(site_id)
     endpoint = "pages" if post_type == "pages" else "posts"
@@ -478,8 +500,8 @@ class CustomCSSRequest(BaseModel):
 
 
 @router.put("/wordpress/{site_id}/custom-css")
-def set_custom_css(site_id: str, req: CustomCSSRequest):
-    _preflight_write("set_custom_css")
+def set_custom_css(site_id: str, req: CustomCSSRequest, x_wp_write_token: Optional[str] = Header(default=None, alias="X-Wp-Write-Token")):
+    _preflight_write("set_custom_css", x_wp_write_token)
     site = _get_site(site_id)
     try:
         with httpx.Client(timeout=20, follow_redirects=True, verify=_verify_for(site)) as client:
@@ -572,7 +594,8 @@ class WPTaskRequest(BaseModel):
 
 @router.post("/wordpress/tasks")
 def create_wp_task(req: WPTaskRequest):
-    import datetime, uuid
+    import datetime
+    import uuid
     tasks = _load_tasks()
     task = {
         "id": f"wpt-{uuid.uuid4().hex[:8]}",

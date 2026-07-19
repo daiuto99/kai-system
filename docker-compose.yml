@@ -52,6 +52,7 @@ services:
       - github_webhook_secret
       - plane_api_token
       - redeploy_token
+      - wp_write_token
       - source: wp_alexadaiuto_kai_app_password
         target: /run/wp_secrets/wp_alexadaiuto_kai_app_password.txt
       - source: wp_anthonydaiuto_kai_app_password
@@ -447,6 +448,8 @@ secrets:
     file: ./secrets/plane_api_token.txt
   redeploy_token:
     file: ./secrets/redeploy_token.txt
+  wp_write_token:
+    file: ./secrets/wp_write_token.txt
   oura_token:
     file: ./secrets/oura_token.txt
   cloudways_ssh_key:
