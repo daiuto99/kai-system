@@ -103,6 +103,7 @@ def test_all_capabilities_registered():
     for name in [
         "wordpress.load_config",
         "wordpress.probe_credentials",
+        "wordpress.get_front_page",
         "wordpress.create_page",
         "wordpress.set_option",
         "wordpress.set_front_page",

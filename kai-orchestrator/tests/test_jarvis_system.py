@@ -276,7 +276,7 @@ def suite_architecture():
 
     # A-7: Core capabilities registered (via /capabilities endpoint)
     required = [
-        "wordpress.load_config", "wordpress.probe_credentials",
+        "wordpress.load_config", "wordpress.probe_credentials", "wordpress.get_front_page",
         "wordpress.create_page", "wordpress.set_option",
         "wordpress.set_front_page", "wordpress.publish",
         "wordpress.purge_varnish", "wordpress.verify_live",
@@ -330,14 +330,14 @@ def suite_architecture():
     wf_path = ORCH_DIR / "workflows" / "wordpress_publish_homepage.py"
     if wf_path.exists():
         wf_txt = wf_path.read_text()
-        required_steps = ["disable_coming_soon", "verify_live", "complete", "load_site_config"]
+        required_steps = ["disable_coming_soon", "precheck_homepage_overwrite", "verify_live", "complete", "load_site_config"]
         missing_steps  = [s for s in required_steps if s not in wf_txt]
         step_count = wf_txt.count("StepDef(")
         if missing_steps:
             _record("A-10", "publish_homepage correct steps", FAIL, f"Missing: {missing_steps}")
-        elif step_count != 13:
+        elif step_count != 14:
             _record("A-10", "publish_homepage correct steps", WARN,
-                    f"Expected 13 StepDef entries, found {step_count}")
+                    f"Expected 14 StepDef entries, found {step_count}")
         else:
             _record("A-10", "publish_homepage correct steps", PASS,
                     f"All required steps present ({step_count} total)")

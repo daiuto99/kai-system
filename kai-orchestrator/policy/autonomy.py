@@ -49,6 +49,7 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "registry.get":          {"classification": "read_only", "rule": "allow"},
     "wordpress.load_config": {"classification": "read_only", "rule": "allow"},
     "wordpress.probe_credentials": {"classification": "read_only", "rule": "allow"},
+    "wordpress.get_front_page": {"classification": "read_only", "rule": "allow"},
     "wordpress.verify_live": {"classification": "read_only", "rule": "allow"},
 
     # ── Comms — allowed autonomous, subject to rate limit gate ───────────────

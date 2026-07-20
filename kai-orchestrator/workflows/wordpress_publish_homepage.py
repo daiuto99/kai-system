@@ -1,4 +1,4 @@
-"""wordpress_publish_homepage workflow — full 13-step homepage publish.
+"""wordpress_publish_homepage workflow — guarded homepage publish.
 
 Steps:
   1. load_site_config      — fetch creds from vault
@@ -8,19 +8,20 @@ Steps:
   5. creative_brief        — council.gate (creative_review) for Ember draft
   6. create_page_draft     — create WP page, inject uuid marker
   7. disable_coming_soon   — set kai_cs_active=0
-  8. set_as_homepage       — set WP front page
-  9. publish_page          — publish the draft
-  10. purge_cache          — SSH Varnish purge
-  11. verify_live          — check marker visible on public URL
-  12. devops_review        — council.gate (dev) final sign-off
-  13. complete             — finalize
+  8. precheck_homepage_overwrite — compare live front page to expected predecessor
+  9. set_as_homepage       — set WP front page
+  10. publish_page         — publish the draft
+  11. purge_cache          — SSH Varnish purge
+  12. verify_live          — check marker visible on public URL
+  13. devops_review        — council.gate (dev) final sign-off
+  14. complete             — finalize
 """
-import json, logging
+import json
+import logging
 from pathlib import Path
 from workflow_base import Workflow
 from models import StepDef, CapabilityResult
-from db import get_conn, new_id
-from engine import engine
+from db import get_conn
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class PublishHomepageWorkflow(Workflow):
         StepDef("creative_brief",      step_type="approval_gate"),
         StepDef("create_page_draft",   capability="wordpress.create_page",   max_retries=2),
         StepDef("disable_coming_soon", capability="wordpress.set_option",    max_retries=2),
+        StepDef("precheck_homepage_overwrite", capability="wordpress.get_front_page"),
         StepDef("set_as_homepage",     capability="wordpress.set_front_page", max_retries=2),
         StepDef("publish_page",        capability="wordpress.publish",        max_retries=2),
         StepDef("purge_cache",         capability="wordpress.purge_varnish",  max_retries=3),
@@ -99,6 +101,7 @@ class PublishHomepageWorkflow(Workflow):
             "load_brief":          self._step_load_brief,
             "create_page_draft":   self._step_create_page,
             "disable_coming_soon": self._step_disable_cs,
+            "precheck_homepage_overwrite": self._step_precheck_homepage_overwrite,
             "set_as_homepage":     self._step_set_homepage,
             "publish_page":        self._step_publish,
             "purge_cache":         self._step_purge,
@@ -110,6 +113,8 @@ class PublishHomepageWorkflow(Workflow):
                 ok=False, status="failed_permanent",
                 error={"type": "no_handler", "step": name},
             )
+        if name == "precheck_homepage_overwrite":
+            return handler(ctx, step)
         return handler(ctx)
 
     # ── Approval gates ────────────────────────────────────────────────────
@@ -122,6 +127,9 @@ class PublishHomepageWorkflow(Workflow):
             "dev_gate":      "dev",
             "creative_brief": "creative_review",
             "devops_review": "dev",
+            # Unknown gate types are deliberately human-only in council-api.
+            # This must never be auto-approved: it authorizes replacing live content.
+            "precheck_homepage_overwrite": "homepage_overwrite",
         }
         gate_type = gate_type_map.get(step_name, "dev")
 
@@ -134,6 +142,14 @@ class PublishHomepageWorkflow(Workflow):
         }
         if step_name == "creative_brief":
             brief["vault_brief"] = ctx.get("brief_text", "")
+        if step_name == "precheck_homepage_overwrite":
+            brief["overwrite_guard"] = {
+                "expected_current_homepage_id": ctx.get("expected_current_homepage_id"),
+                "live_show_on_front": ctx.get("show_on_front"),
+                "live_page_on_front": ctx.get("page_on_front"),
+                "reason": "live front page differs from expected predecessor",
+                "required_decision": "explicit human confirmation to replace live homepage",
+            }
 
         return gate_fn(
             job_id=self.job_id,
@@ -207,6 +223,43 @@ class PublishHomepageWorkflow(Workflow):
             vr = wv.verify_cs_off(site, creds, {})
             result.verification = vr
         return result
+
+    def _step_precheck_homepage_overwrite(self, ctx: dict, step: dict) -> CapabilityResult:
+        """Fail closed unless the live homepage matches the caller's predecessor."""
+        from capabilities import get_capability
+        fn = get_capability("wordpress.get_front_page")
+        result = fn(site=ctx.get("site", ""), creds=ctx.get("creds"))
+        if not result.ok:
+            return result
+
+        live = result.data or {}
+        show_on_front = live.get("show_on_front")
+        page_on_front = live.get("page_on_front")
+        # A posts front page or no page-on-front means no existing page is replaced.
+        if show_on_front != "page" or page_on_front in (None, "", 0, "0"):
+            return CapabilityResult(
+                ok=True, status="succeeded", data=live,
+                verification={"verified": True, "evidence": {
+                    "decision": "safe_no_existing_front_page",
+                    "show_on_front": show_on_front,
+                    "page_on_front": page_on_front,
+                }},
+            )
+
+        expected = ctx.get("expected_current_homepage_id")
+        if expected is not None and str(page_on_front) == str(expected):
+            return CapabilityResult(
+                ok=True, status="succeeded", data=live,
+                verification={"verified": True, "evidence": {
+                    "decision": "expected_predecessor_matches",
+                    "expected_current_homepage_id": expected,
+                    "live_page_on_front": page_on_front,
+                }},
+            )
+
+        # Missing expected ID is intentionally a mismatch. The council gate's
+        # brief and resolution are persisted in the durable workflow record.
+        return self._run_gate("precheck_homepage_overwrite", step, {**ctx, **live})
 
     def _step_set_homepage(self, ctx: dict) -> CapabilityResult:
         from capabilities import get_capability

@@ -89,6 +89,31 @@ def probe_credentials(site: str, creds: dict, **_) -> CapabilityResult:
         error={"type": "auth_failure", "status_code": r.status_code})
 
 
+@capability("wordpress.get_front_page")
+def get_front_page(site: str, creds: dict, **_) -> CapabilityResult:
+    """Read the live front-page setting before a homepage replacement."""
+    r = safe_request(
+        "GET", f"https://{creds['fqdn']}/wp-json/wp/v2/settings",
+        auth=("kai", creds["app_password"]), verify=False,
+    )
+    if r.ok and r.data:
+        show_on_front = r.data.get("show_on_front")
+        page_on_front = r.data.get("page_on_front")
+        return CapabilityResult(
+            ok=True, status="succeeded",
+            data={"show_on_front": show_on_front, "page_on_front": page_on_front},
+            verification={"verified": True, "evidence": {
+                "source": "wp_settings_readback",
+                "show_on_front": show_on_front,
+                "page_on_front": page_on_front,
+            }},
+            transport_used="wp_rest",
+        )
+    return CapabilityResult(ok=False, status="failed_recoverable",
+        error={"type": "get_front_page_failed", "status_code": r.status_code,
+               "detail": r.body_preview})
+
+
 @capability("wordpress.create_page")
 def create_page(site: str, title: str, content: str, status: str = "draft",
                 creds: dict = None, caller: str = "", **_) -> CapabilityResult:

@@ -72,9 +72,10 @@ def test_publish_homepage_steps():
     from workflows.wordpress_publish_homepage import PublishHomepageWorkflow
     step_names = [s.name for s in PublishHomepageWorkflow.steps]
     assert "disable_coming_soon" in step_names
+    assert "precheck_homepage_overwrite" in step_names
     assert "verify_live" in step_names
     assert "complete" in step_names
-    assert len(step_names) == 13
+    assert len(step_names) == 14
 
 
 def test_publish_homepage_name():
