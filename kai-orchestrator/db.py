@@ -100,6 +100,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_active_build
     ON jobs(json_extract(inputs,'$.site'), type)
     WHERE status IN ('queued','running','blocked','needs_approval','failed_recoverable');
 
+-- HOSTOPS-(d) (KAI-820, seq915): durable audit record for every executed host-op
+-- mutation, read by the Layer-2 reconciler (hostops_audit.py). No FK to jobs —
+-- a bypass/forged execution must still be recordable. L18: identity + intent +
+-- gate_id + outcome only, never secret material.
+CREATE TABLE IF NOT EXISTS hostops_audit (
+    id         TEXT PRIMARY KEY,
+    ts         TEXT NOT NULL,
+    job_id     TEXT,
+    step_id    TEXT,
+    actor      TEXT,
+    operation  TEXT NOT NULL,
+    site       TEXT,
+    gate_id    TEXT,
+    outcome    TEXT NOT NULL
+);
+
 -- Memory Service Phase 1 (CONTEXT_SPEC.md §4/§5/§8/§13) — conversation store,
 -- Tier 1 verbatim turns, Tier 2 rolling summary, assembly log.
 CREATE TABLE IF NOT EXISTS conversations (

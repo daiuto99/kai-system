@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 WORKER_API  = "http://kai-worker-api:8001"
 COUNCIL_API = "http://kai-council-api:8002"
 OLLAMA_API  = "http://kai-ollama:11434"
+ORCHESTRATOR_API = "http://kai-orchestrator:8003"
 
 # Alert dedup — persisted to disk so scheduler restart does not wipe state.
 # Behavior contract (KAI-471, 2026-06-11) — JARVIS §3 behavioral floor:
@@ -284,6 +285,36 @@ def check_google_calendar() -> tuple[bool, str]:
         return False, str(e)
 
 
+def check_hostops_reconciliation() -> tuple[bool, str]:
+    """HOSTOPS-(d) (KAI-820, seq915) Layer-2 audit: every executed privileged
+    host-op mutation must trace to a consumed, correctly-bound council gate.
+
+    Any mutation with no matching gate is a possible bypass — the detectable-and-
+    loud half of §3.4. Fail-loud: an unreadable audit store is itself an alert. A
+    transient orchestrator outage classifies as 'transient' upstream and is not
+    escalated (that is not a bypass); only a real unreconciled record or store
+    error reaches #devops, after the standard consecutive-fail threshold.
+    """
+    try:
+        r = httpx.get(f"{ORCHESTRATOR_API}/hostops/reconcile", timeout=10)
+        if r.status_code != 200:
+            return False, f"reconcile endpoint HTTP {r.status_code}"
+        data = r.json()
+    except Exception as e:
+        return False, str(e)
+    if data.get("error"):
+        return False, f"audit store unreadable: {data['error']}"
+    unreconciled = data.get("unreconciled", [])
+    if unreconciled:
+        first = unreconciled[0]
+        return False, (
+            f"{len(unreconciled)} host-op mutation(s) with no matching consumed+bound gate — "
+            f"e.g. {first.get('operation')} on {first.get('site')} "
+            f"gate_id={first.get('gate_id')} ({first.get('reason')})"
+        )
+    return True, f"{data.get('checked', 0)} host-op mutation(s) reconciled"
+
+
 def check_disk() -> tuple[bool, str]:
     """Check root filesystem usage. Returns warning/critical based on thresholds."""
     try:
@@ -500,6 +531,7 @@ CHECKS = [
     ("todoist",          "Todoist",          lambda: _check_with_retry(check_todoist)),
     ("google_calendar",  "Google Calendar",  lambda: _check_with_retry(check_google_calendar)),
     ("plane_ce",         "Plane CE",         check_plane_ce),
+    ("hostops_reconcile","HostOps Audit",    check_hostops_reconciliation),
     ("disk",             "Disk",             check_disk),
     ("backup",           "Backup",           check_backup_integrity),
     ("cert_expiry",      "SSL Cert",         check_cert_expiry),
@@ -696,6 +728,7 @@ CANT_FIX_REASON = {
     "todoist":           ("hardlimit", "Task list unavailable — Todoist API down or token expired"),
     "google_calendar":   ("hardlimit", "OAuth token expired — cannot auto-renew"),
     "plane_ce":          ("system",    "Project management unavailable — sprint tracking broken"),
+    "hostops_reconcile": ("system",    "A privileged host-op may have run without a matching approval — possible bypass"),
     "disk":              ("autofixed", "Storage high — attempting: unused image prune + build cache prune + log vacuum"),
     "backup":            ("system",    "Vault and Plane data not protected"),
     "cert_expiry":       ("hardlimit", "SSL cert expired — all HTTPS services unreachable from web"),
@@ -712,6 +745,7 @@ ACTION_NEEDED = {
     "todoist":           "Check Todoist token in ~/kai-system/secrets/todoist_api_token.txt",
     "google_calendar":   "n8n → Credentials → Google Calendar → re-authenticate (http://100.78.94.80:5678)",
     "plane_ce":          "Check: ssh kai 'docker logs kai-plane-web' — container recreate attempted",
+    "hostops_reconcile": "Investigate: curl http://kai-orchestrator:8003/hostops/reconcile — review each unreconciled mutation's gate_id against the gates table; a real bypass means a host-op ran without a consumed+bound gate",
     "disk":              "Free space: ssh kai 'df -h' then clear logs/old Docker images",
     "backup":            "Auto-trigger queued. If still failing: ssh kai 'bash ~/kai-system/backup.sh'",
     "cert_expiry":       "Renew cert: ssh kai 'docker exec kai-nginx certbot renew --force-renewal'",

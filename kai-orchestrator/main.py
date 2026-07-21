@@ -508,6 +508,20 @@ def audit_task_trail(task_id: str):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/hostops/reconcile")
+def hostops_reconcile():
+    """HOSTOPS-(d) (KAI-820, seq915) Layer-2 reconciliation status.
+
+    Every executed host-op mutation must trace to exactly one consumed,
+    correctly-bound council gate; ``unreconciled`` lists any that don't (a
+    possible bypass). Internal-only (orchestrator has no host port) and L18-safe —
+    the response carries identity/operation/target/gate_id, never secret material.
+    The kai-scheduler watchdog polls this and alerts #devops.
+    """
+    import hostops_audit
+    return hostops_audit.reconcile()
+
+
 @app.post("/context/assemble")
 def context_assemble(body: dict):
     """Memory Service §4.1 — the mandatory first step of every judgment/creative

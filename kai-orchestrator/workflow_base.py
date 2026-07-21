@@ -3,6 +3,7 @@ from typing import List, Optional
 from db import get_conn, new_id, now_iso
 from engine import engine
 from models import StepDef, CapabilityResult
+import hostops_audit
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,6 @@ class Workflow:
     def start(cls, inputs: dict) -> "Workflow":
         job_id = engine.create_job(cls.name, inputs, cls.approval_policy)
         instance = cls(job_id)
-        conn = get_conn()
         for step_def in cls.steps:
             engine.create_step(job_id, step_def.name, step_def.capability, step_def.step_type)
         engine.transition("job", job_id, "running")
@@ -92,6 +92,19 @@ class Workflow:
             result: CapabilityResult = self.execute_step(step_def, step)
             latency_ms = int((time.monotonic() - started) * 1000)
 
+            # HOSTOPS-(d) (seq915): audit every executed host-op mutation at the
+            # generic executor boundary — success OR post-gate failure — never
+            # inside (c)'s capability or wiring. A write failure logs at ERROR
+            # (scraped by the watchdog warning-triage) and never fails the step.
+            if result is not None and hostops_audit.operation_for_capability(step_def.capability):
+                try:
+                    hostops_audit.record_mutation(
+                        self.job_id, step["id"], step_def.capability,
+                        self._hostops_site(), result)
+                except Exception as audit_err:  # noqa: BLE001
+                    logger.error("hostops audit write failed for step %s: %s",
+                                 step["name"], audit_err)
+
             # Council gate — step pauses until callback arrives
             if result.status == "awaiting_gate":
                 engine.transition("step", step["id"], "awaiting_gate",
@@ -122,7 +135,8 @@ class Workflow:
                     conn = get_conn()
                     conn.execute("UPDATE steps SET retry_count=retry_count+1 WHERE id=?",
                                  (step["id"],))
-                    conn.commit(); conn.close()
+                    conn.commit()
+                    conn.close()
                     engine.transition("step", step["id"], "pending")
                     return self._run_step({**step, "retry_count": retry + 1})
                 else:
@@ -134,6 +148,20 @@ class Workflow:
             logger.exception("Step %s raised", step["name"])
             engine.transition("step", step["id"], "failed_recoverable", error=str(e))
             raise
+
+    def _hostops_site(self) -> str:
+        """This job's target site from its inputs — the target of a host-op audit record."""
+        conn = get_conn()
+        try:
+            row = conn.execute("SELECT inputs FROM jobs WHERE id=?", (self.job_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return ""
+        try:
+            return (json.loads(row["inputs"] or "{}") or {}).get("site", "")
+        except (TypeError, ValueError):
+            return ""
 
     def execute_step(self, step_def: StepDef, step: dict) -> CapabilityResult:
         """Override in subclass to implement step logic."""
@@ -156,4 +184,5 @@ class Workflow:
              cache_read_tokens or 0, cache_creation_tokens or 0,
              now_iso()),
         )
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
