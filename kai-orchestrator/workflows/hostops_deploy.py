@@ -135,13 +135,27 @@ class HostopsDeployWorkflow(Workflow):
         gate_fn = get_capability("council.gate")
         site = ctx.get("site", "")
 
+        # C-1: the approval identity is what Leo signs against and what the audit
+        # record attributes the mutation to (§3.4). It MUST be the identity that
+        # will actually perform the op — resolved from the deploy-key handle for
+        # this site — never a caller/job-supplied value, which could be empty or
+        # spoofed. Fail closed if it cannot be resolved: no gate, no mutation.
+        from hostops_identity import HostOpsIdentityResolver, HostOpsIdentityError
+        try:
+            audit_identity = HostOpsIdentityResolver().resolve(site).audit_identity
+        except HostOpsIdentityError as exc:
+            return CapabilityResult(
+                ok=False, status="failed_permanent",
+                error={"type": "hostops_identity_unavailable", "detail": str(exc)},
+            )
+
         # hostops_operation + site are the binding consume_hostops_gate enforces.
         brief = {
             "job_id": self.job_id,
             "workflow": self.name,
             "hostops_operation": op,
             "site": site,
-            "audit_identity": ctx.get("audit_identity", ""),
+            "audit_identity": audit_identity,
             "required_decision": f"explicit human approval to {op} on host {site}",
         }
         if op == "place_secret":

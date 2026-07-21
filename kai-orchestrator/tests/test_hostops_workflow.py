@@ -21,6 +21,13 @@ def _wf():
     return HostopsDeployWorkflow("job-hostops-c")
 
 
+def _identity(audit_identity="cloudways-app:app1:usr1"):
+    """A stub HostOpsIdentityResolver whose resolve(site) yields a fixed identity."""
+    resolver = mock.Mock()
+    resolver.resolve.return_value = mock.Mock(audit_identity=audit_identity)
+    return resolver
+
+
 # ── Approval gate binds op+site and never carries the payload ──────────────────
 
 def test_place_secret_gate_binds_and_omits_payload():
@@ -28,8 +35,11 @@ def test_place_secret_gate_binds_and_omits_payload():
         ok=True, status="awaiting_gate", data={"gate_id": "g1"},
         verification={"verified": False},
     ))
-    ctx = {"site": "site-a", "secret_name": "publish_gate", "audit_identity": "app:1:u"}
-    with mock.patch("capabilities.get_capability", return_value=gate):
+    ctx = {"site": "site-a", "secret_name": "publish_gate"}
+    with (
+        mock.patch("capabilities.get_capability", return_value=gate),
+        mock.patch("hostops_identity.HostOpsIdentityResolver", return_value=_identity()),
+    ):
         result = _wf()._run_gate("place_secret_gate", {"id": "s1"}, ctx)
 
     assert result.status == "awaiting_gate"
@@ -50,10 +60,54 @@ def test_deploy_plugin_gate_binds_operation_and_site():
         verification={"verified": False},
     ))
     ctx = {"site": "site-b", "plugin": "kai-publish-gate"}
-    with mock.patch("capabilities.get_capability", return_value=gate):
+    with (
+        mock.patch("capabilities.get_capability", return_value=gate),
+        mock.patch("hostops_identity.HostOpsIdentityResolver", return_value=_identity()),
+    ):
         _wf()._run_gate("deploy_plugin_gate", {"id": "s2"}, ctx)
     assert gate.call_args.kwargs["gate_type"] == "hostops_deploy_plugin"
     assert gate.call_args.kwargs["brief"]["hostops_operation"] == "deploy_plugin"
+
+
+# ── C-1: approval identity is resolved, never caller-supplied ──────────────────
+
+def test_gate_uses_resolved_identity_not_caller_supplied():
+    gate = mock.Mock(return_value=CapabilityResult(
+        ok=True, status="awaiting_gate", data={"gate_id": "g1"},
+        verification={"verified": False},
+    ))
+    # A caller tries to inject a spoofed identity via job inputs.
+    ctx = {"site": "site-a", "secret_name": "publish_gate",
+           "audit_identity": "SPOOFED-admin"}
+    with (
+        mock.patch("capabilities.get_capability", return_value=gate),
+        mock.patch("hostops_identity.HostOpsIdentityResolver",
+                   return_value=_identity("cloudways-app:real:usr")),
+    ):
+        _wf()._run_gate("place_secret_gate", {"id": "s1"}, ctx)
+
+    brief = gate.call_args.kwargs["brief"]
+    assert brief["audit_identity"] == "cloudways-app:real:usr"   # resolved
+    assert "SPOOFED" not in json.dumps(brief)                    # input ignored
+
+
+def test_gate_fails_closed_when_identity_unresolvable():
+    from hostops_identity import HostOpsIdentityError
+    gate = mock.Mock()
+    resolver = mock.Mock()
+    resolver.resolve.side_effect = HostOpsIdentityError("unknown hostops site")
+    with (
+        mock.patch("capabilities.get_capability", return_value=gate),
+        mock.patch("hostops_identity.HostOpsIdentityResolver", return_value=resolver),
+    ):
+        result = _wf()._run_gate(
+            "place_secret_gate", {"id": "s1"},
+            {"site": "ghost", "secret_name": "publish_gate"},
+        )
+    assert not result.ok
+    assert result.status == "failed_permanent"
+    assert result.error["type"] == "hostops_identity_unavailable"
+    gate.assert_not_called()   # no gate opened when identity can't be attributed
 
 
 def test_gate_skips_when_op_not_requested():
