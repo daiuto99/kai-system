@@ -11,7 +11,6 @@ from capabilities.hostops import (
     HostOpsTarget,
     InMemorySecret,
     OpenSshTransport,
-    VerifiedGate,
     deploy_plugin,
     place_secret,
     status,
@@ -29,6 +28,10 @@ def configured_target(monkeypatch):
         lambda site, handle: HostOpsTarget(
             "host.example", handle.cloudways_sys_user, handle.cloudways_app_id
         ),
+    )
+    monkeypatch.setattr(
+        "engine.engine.consume_hostops_gate",
+        lambda gate_id, operation, site: gate_id == "approved-gate" and operation == "place_secret" and site == "site",
     )
 
 
@@ -87,7 +90,7 @@ def test_mutations_fail_closed_without_verified_gate(tmp_path):
 
 def test_allowlist_rejects_plugin_and_no_generic_hostops_op_exists(tmp_path):
     resolver, loader, _ = _context(tmp_path)
-    result = deploy_plugin("site", "anything-else", VerifiedGate("gate-1"), resolver=resolver, loader=loader)
+    result = deploy_plugin("site", "anything-else", "approved-gate", resolver=resolver, loader=loader)
     assert result.error["type"] == "plugin_not_allowed"
     with pytest.raises(KeyError):
         get_capability("hostops.run_scoped")
@@ -98,13 +101,13 @@ def test_transport_never_leaks_private_key_on_success_or_error(tmp_path, caplog)
     secret = InMemorySecret(b"other-secret")
     transport = FakeTransport()
     with caplog.at_level(logging.DEBUG):
-        good = place_secret("site", "publish_gate", secret, VerifiedGate("gate-1"), resolver=resolver, loader=loader, transport=transport)
+        good = place_secret("site", "publish_gate", secret, "approved-gate", resolver=resolver, loader=loader, transport=transport)
         good_verify = verify("site", resolver=resolver, loader=loader, transport=transport)
         bad = verify("site", resolver=resolver, loader=loader, transport=FakeTransport(fail=True))
     transcript = repr(good) + repr(good_verify) + repr(bad) + caplog.text
     assert key.decode() not in transcript
     assert secret.material.decode() not in transcript
-    assert good.verification["evidence"]["gate_id"] == "gate-1"
+    assert good.verification["evidence"]["gate_id"] == "approved-gate"
     assert not bad.ok
 
 
@@ -119,13 +122,20 @@ def test_openssh_argv_never_contains_key_or_secret(tmp_path):
         return subprocess.CompletedProcess(argv, 0)
 
     transport = OpenSshTransport(runner)
-    placed = place_secret("site", "publish_gate", InMemorySecret(b"stdin-only-secret"), VerifiedGate("gate-1"), resolver=resolver, loader=loader, transport=transport)
-    deployed = deploy_plugin("site", "kai-publish-gate", VerifiedGate("gate-1"), resolver=resolver, loader=loader, transport=transport)
-    assert placed.ok and deployed.ok
+    placed = place_secret("site", "publish_gate", InMemorySecret(b"stdin-only-secret"), "approved-gate", resolver=resolver, loader=loader, transport=transport)
+    assert placed.ok
     argv_text = " ".join(" ".join(map(str, argv)) for argv, _ in calls)
     assert key.decode() not in argv_text
     assert "stdin-only-secret" not in argv_text
     assert calls[0][1]["input"] == b"stdin-only-secret"
+
+
+def test_forged_or_wrong_bound_gate_is_refused(tmp_path):
+    resolver, loader, _ = _context(tmp_path)
+    forged = place_secret("site", "publish_gate", InMemorySecret(b"x"), "forged", resolver=resolver, loader=loader)
+    wrong_operation = deploy_plugin("site", "kai-publish-gate", "approved-gate", resolver=resolver, loader=loader)
+    assert forged.error["type"] == "gate_required"
+    assert wrong_operation.error["type"] == "gate_required"
 
 
 @pytest.mark.parametrize(

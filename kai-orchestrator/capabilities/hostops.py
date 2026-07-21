@@ -31,13 +31,6 @@ _SAFE_SECRET_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 @dataclass(frozen=True)
-class VerifiedGate:
-    """Opaque approval evidence; HOSTOPS-(c) owns construction after council verification."""
-    gate_id: str
-    _verified: bool = True
-
-
-@dataclass(frozen=True)
 class InMemorySecret:
     """A short-lived secret transport wrapper, never serialized into a workflow record."""
     material: bytes
@@ -116,10 +109,12 @@ def _safe_error(exc: Exception) -> CapabilityResult:
     return CapabilityResult(ok=False, status="failed_final", error={"type": "hostops_unavailable", "message": str(exc)})
 
 
-def _gate(gate_id: object) -> str | None:
-    if isinstance(gate_id, VerifiedGate) and gate_id._verified and gate_id.gate_id:
-        return gate_id.gate_id
-    return None
+def _gate(gate_id: object, operation: str, site: str) -> str | None:
+    """Accept only a persistent, approved, operation/site-bound single-use gate."""
+    if not isinstance(gate_id, str) or not gate_id:
+        return None
+    from engine import engine
+    return gate_id if engine.consume_hostops_gate(gate_id, operation, site) else None
 
 
 def _context(site: str, resolver=None, loader=None):
@@ -159,11 +154,11 @@ def verify(site: str, *, resolver=None, loader=None, transport: SshTransport | N
 @capability("hostops.place_secret")
 def place_secret(site: str, secret_name: str, secret: InMemorySecret, gate_id: object = None, *, resolver=None, loader=None, transport: SshTransport | None = None, **_) -> CapabilityResult:
     """Place an in-memory secret through stdin only after a verified gate handle."""
-    approved = _gate(gate_id)
-    if approved is None:
-        return CapabilityResult(ok=False, status="failed_final", error={"type": "gate_required", "message": "HOSTOPS-(c) verified gate handle required"})
     if not _SAFE_SECRET_NAME.fullmatch(secret_name) or not isinstance(secret, InMemorySecret):
         return CapabilityResult(ok=False, status="failed_final", error={"type": "input_not_allowed"})
+    approved = _gate(gate_id, "place_secret", site)
+    if approved is None:
+        return CapabilityResult(ok=False, status="failed_final", error={"type": "gate_required"})
     try:
         handle, loader, target = _context(site, resolver, loader)
         proof = loader.with_material(handle, lambda material: (transport or OpenSshTransport()).place_secret(handle, target, secret_name, secret.material, material))
@@ -177,11 +172,11 @@ def place_secret(site: str, secret_name: str, secret: InMemorySecret, gate_id: o
 @capability("hostops.deploy_plugin")
 def deploy_plugin(site: str, plugin: str, gate_id: object = None, *, resolver=None, loader=None, transport: SshTransport | None = None, **_) -> CapabilityResult:
     """Deploy only a named, allowlisted plugin after a verified gate handle."""
-    approved = _gate(gate_id)
-    if approved is None:
-        return CapabilityResult(ok=False, status="failed_final", error={"type": "gate_required", "message": "HOSTOPS-(c) verified gate handle required"})
     if plugin not in _PLUGIN_ALLOWLIST:
         return CapabilityResult(ok=False, status="failed_final", error={"type": "plugin_not_allowed"})
+    approved = _gate(gate_id, "deploy_plugin", site)
+    if approved is None:
+        return CapabilityResult(ok=False, status="failed_final", error={"type": "gate_required"})
     try:
         handle, loader, target = _context(site, resolver, loader)
         proof = loader.with_material(handle, lambda material: (transport or OpenSshTransport()).deploy_plugin(handle, target, plugin, material))

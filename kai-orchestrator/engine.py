@@ -204,6 +204,37 @@ class Engine:
         finally:
             conn.close()
 
+    def consume_hostops_gate(self, gate_id: str, operation: str, site: str) -> bool:
+        """Atomically consume one approved gate bound to a hostops mutation.
+
+        Gate consumption is deliberately part of the persistent gate store: a
+        caller cannot manufacture an in-process approval object or replay an
+        approval for another site/operation.
+        """
+        expected_type = f"hostops_{operation}"
+        conn = get_conn()
+        try:
+            row = conn.execute("SELECT * FROM gates WHERE id=?", (gate_id,)).fetchone()
+            if not row or row["status"] != "resolved" or row["gate_type"] != expected_type:
+                return False
+            try:
+                brief = json.loads(row["brief"] or "{}")
+                resolution = json.loads(row["resolution"] or "{}")
+            except json.JSONDecodeError:
+                return False
+            if not resolution.get("approved"):
+                return False
+            if brief.get("hostops_operation") != operation or brief.get("site") != site:
+                return False
+            changed = conn.execute(
+                "UPDATE gates SET status='consumed' WHERE id=? AND status='resolved'",
+                (gate_id,),
+            ).rowcount
+            conn.commit()
+            return changed == 1
+        finally:
+            conn.close()
+
     def list_pending_gates(self) -> list:
         """Return gates whose parent job/step can still be waiting on them.
 
