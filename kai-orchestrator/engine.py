@@ -235,6 +235,36 @@ class Engine:
         finally:
             conn.close()
 
+    def find_resolved_hostops_gate(self, job_id: str, operation: str, site: str) -> Optional[str]:
+        """Return the gate_id of a resolved, not-yet-consumed hostops gate bound to
+        this job + operation + site, or None.
+
+        The council callback overwrites the gate step's result with the plain
+        resolution (which carries no gate_id), so the mutation step re-derives the
+        approved gate_id from the persistent store here. Binding on operation +
+        site mirrors ``consume_hostops_gate``; consumption (single-use) is still
+        enforced there at execution time, not here.
+        """
+        expected_type = f"hostops_{operation}"
+        conn = get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT id, brief FROM gates
+                   WHERE job_id=? AND gate_type=? AND status='resolved'
+                   ORDER BY opened_at DESC""",
+                (job_id, expected_type),
+            ).fetchall()
+            for row in rows:
+                try:
+                    brief = json.loads(row["brief"] or "{}")
+                except json.JSONDecodeError:
+                    continue
+                if brief.get("hostops_operation") == operation and brief.get("site") == site:
+                    return row["id"]
+            return None
+        finally:
+            conn.close()
+
     def list_pending_gates(self) -> list:
         """Return gates whose parent job/step can still be waiting on them.
 

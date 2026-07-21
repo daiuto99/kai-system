@@ -43,6 +43,12 @@ _BUILD_PROFILES = {
 }
 _GATE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,128}$")
 
+# HOSTOPS-(c): privileged host mutations are ALWAYS human-only. They are handled
+# explicitly (not via the "unknown gate type" fall-through) so a future
+# auto-approve fallback can never silently capture them. There is deliberately no
+# code path that resolves one of these without Leo.
+_HOSTOPS_GATE_TYPES = frozenset({"hostops_place_secret", "hostops_deploy_plugin"})
+
 
 class ReviewerUnavailable(RuntimeError):
     """A required reviewer did not return a real verdict."""
@@ -288,8 +294,11 @@ def _gate_slack_message(gate_id: str, gate_type: str, summary: str, kai_assessme
         "dev_gate":       "Dev Review",
         "creative_gate":  "Creative Review",
         "devops_gate":    "DevOps Review",
+        "hostops_place_secret":  "Host-Op: Place Secret",
+        "hostops_deploy_plugin": "Host-Op: Deploy Plugin",
     }.get(gate_type, gate_type)
-    icon = {"plan_gate": "📋", "dev_gate": "⚙️", "creative_gate": "🎨", "devops_gate": "🔧"}.get(gate_type, "🔒")
+    icon = {"plan_gate": "📋", "dev_gate": "⚙️", "creative_gate": "🎨", "devops_gate": "🔧",
+            "hostops_place_secret": "🔐", "hostops_deploy_plugin": "🚀"}.get(gate_type, "🔒")
 
     artifact_path = f"vault/00_System/gates/{gate_id}/"
 
@@ -503,6 +512,9 @@ def _process_gate(req: GateRequest):
                 _persist_gate_record(req.gate_id, gate_type, brief, resolution)
                 _fire_callback(req.callback_url, resolution)
                 return
+        elif gate_type in _HOSTOPS_GATE_TYPES:
+            # Privileged host mutation — human-only, no auto-approve path exists.
+            summary, kai_assessment = _hostops_gate_review(brief, req.gate_id)
         else:
             logger.warning("Unknown gate_type %r — notifying Leo", gate_type)
             _persist_artifact(req.gate_id, "brief", json.dumps(brief, indent=2))
@@ -759,6 +771,27 @@ def _devops_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
 
     summary = f"*Subject:* {job_name}\n*Chain:* DevOps — {devops_line}"
     return summary, devops_line
+
+
+def _hostops_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
+    """Privileged host-op gate — human-only, no advisor auto-approve.
+
+    KAI-820 HOSTOPS-(c): names the operation, target site, and app identity so
+    Leo can approve by tap. The brief carries a secret *name* (a reference), never
+    the payload bytes or key material (L18), so persisting it here is safe.
+    """
+    _persist_artifact(gate_id, "brief", json.dumps(brief, indent=2))
+    op = brief.get("hostops_operation", "unknown")
+    site = brief.get("site", "unknown")
+    identity = brief.get("audit_identity", "")
+    target = brief.get("secret_name") or brief.get("plugin") or ""
+    summary = (
+        f"*Subject:* privileged host-op `{op}` on `{site}`\n"
+        f"*Target:* `{target}`  *Identity:* `{identity}`\n"
+        f"*Chain:* human-only — Leo must approve; no auto-approval path exists"
+    )
+    assessment = f"HUMAN-ONLY host mutation {op} on {site} — awaiting Leo's explicit approval"
+    return summary, assessment
 
 
 # ── Advisor + KAI calls ───────────────────────────────────────────────────────

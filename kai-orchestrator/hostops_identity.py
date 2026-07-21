@@ -19,6 +19,7 @@ from typing import Callable, TypeVar
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9_-]+$")
 _DEFAULT_SITES = Path("/vault/00_System/wordpress_sites.json")
 _DEFAULT_KEY_DIR = Path("/run/hostops-deploy-keys")
+_DEFAULT_PAYLOAD_DIR = Path("/run/hostops-payload-secrets")
 _T = TypeVar("_T")
 
 
@@ -119,3 +120,51 @@ class DeployKeyLoader:
         except OSError as exc:
             raise HostOpsIdentityError(f"deploy key unavailable for {handle.audit_identity}") from exc
         return resolved
+
+
+class HostOpsSecretResolver:
+    """Resolve a ``(site, secret_name)`` reference to payload bytes at execution time.
+
+    HOSTOPS-(c) amendment (design §3.3.1): a persisted, approval-gated workflow
+    must not carry the secret payload — job inputs and gate records are
+    JSON-persisted, so serializing the bytes would break the record or leak the
+    payload into it (L18). The workflow and gate therefore carry only the
+    ``secret_name`` (a reference); the bytes are read *here*, after the gate
+    resolves, from a mode-0600 file owned by the runtime user — the same trust
+    model as ``DeployKeyLoader``. Bytes are returned only to the in-process
+    ``place_secret`` call and never placed in a workflow result, gate brief, or
+    log record.
+    """
+
+    def __init__(self, secret_dir: Path = _DEFAULT_PAYLOAD_DIR, runtime_uid: int | None = None):
+        self._secret_dir = Path(secret_dir).resolve()
+        self._runtime_uid = os.geteuid() if runtime_uid is None else runtime_uid
+
+    def _path(self, site: str, secret_name: str) -> Path:
+        if not _SAFE_COMPONENT.fullmatch(str(site)):
+            raise HostOpsIdentityError("invalid site for hostops secret reference")
+        if not _SAFE_COMPONENT.fullmatch(str(secret_name)):
+            raise HostOpsIdentityError("invalid secret name for hostops secret reference")
+        return self._secret_dir / site / secret_name
+
+    def resolve(self, site: str, secret_name: str) -> bytes:
+        """Return the payload bytes for one (site, secret_name), or raise. Never logs bytes."""
+        path = self._path(site, secret_name)
+        try:
+            resolved = path.resolve(strict=True)
+            # The store is one directory deep: <secret_dir>/<site>/<secret_name>.
+            if resolved.parent.parent != self._secret_dir:
+                raise HostOpsIdentityError("hostops secret reference is outside the payload store")
+            metadata = resolved.stat()
+            if stat.S_IMODE(metadata.st_mode) != 0o600:
+                raise HostOpsIdentityError("hostops payload secret does not have mode 0600")
+            if metadata.st_uid != self._runtime_uid:
+                raise HostOpsIdentityError("hostops payload secret is not owned by the runtime user")
+            data = resolved.read_bytes()
+        except HostOpsIdentityError:
+            raise
+        except OSError as exc:
+            raise HostOpsIdentityError("hostops payload secret unavailable") from exc
+        if not data:
+            raise HostOpsIdentityError("hostops payload secret is empty")
+        return data
