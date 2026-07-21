@@ -6,7 +6,11 @@
     "create_page":    ["wp_rest"],
     "set_front_page": ["wp_rest_settings", "ssh_php_eval"],
     "purge_varnish":  ["cloudways_ssh_purge"],
-    "verify_live":    ["cloudways_fqdn", "public_domain"]
+    "verify_live":    ["cloudways_fqdn", "public_domain"],
+    "hostops.status": ["hostops_ssh"],
+    "hostops.verify": ["hostops_ssh"],
+    "hostops.place_secret": ["hostops_ssh"],
+    "hostops.deploy_plugin": ["hostops_ssh"]
   },
   "sites": {
     "sette-uno.com":  {"inherits": "default_cloudways"},

@@ -30,6 +30,8 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "wordpress.purge_varnish": {"classification": "mutating", "rule": "requires_approval", "reason": "Changes public cache state"},
     "wordpress.set_front_page": {"classification": "mutating", "rule": "requires_approval", "reason": "Changes a public homepage"},
     "wordpress.set_option":  {"classification": "mutating", "rule": "requires_approval", "reason": "Changes WordPress configuration"},
+    "hostops.place_secret": {"classification": "mutating", "rule": "requires_approval", "reason": "Places an app secret on a production host"},
+    "hostops.deploy_plugin": {"classification": "mutating", "rule": "requires_approval", "reason": "Deploys an allowlisted plugin to a production host"},
 
     # ── Self-modification — disabled unless a separate approval path is built ──
     "self_modify.apply":        {"classification": "mutating", "rule": "never", "reason": "Self-modify is disabled"},
@@ -51,6 +53,8 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "wordpress.probe_credentials": {"classification": "read_only", "rule": "allow"},
     "wordpress.get_front_page": {"classification": "read_only", "rule": "allow"},
     "wordpress.verify_live": {"classification": "read_only", "rule": "allow"},
+    "hostops.status":       {"classification": "read_only", "rule": "allow"},
+    "hostops.verify":       {"classification": "read_only", "rule": "allow"},
 
     # ── Comms — allowed autonomous, subject to rate limit gate ───────────────
     "slack.post":            {"classification": "mutating", "rule": "allow"},

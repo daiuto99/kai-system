@@ -84,16 +84,8 @@ class DeployKeyLoader:
 
     def with_material(self, handle: DeployKeyHandle, consumer: Callable[[bytes], _T]) -> _T:
         """Pass one private key to a transport callback without exposing it in a result."""
-        path = handle.secret_path
+        resolved = self.validate(handle)
         try:
-            resolved = path.resolve(strict=True)
-            if resolved.parent != self._key_dir:
-                raise HostOpsIdentityError("deploy-key handle is outside the hostops secret store")
-            metadata = resolved.stat()
-            if stat.S_IMODE(metadata.st_mode) != 0o600:
-                raise HostOpsIdentityError(f"deploy key {handle.audit_identity} does not have mode 0600")
-            if metadata.st_uid != self._runtime_uid:
-                raise HostOpsIdentityError(f"deploy key {handle.audit_identity} is not owned by the runtime user")
             material = resolved.read_bytes()
             if not material:
                 raise HostOpsIdentityError(f"deploy key {handle.audit_identity} is empty")
@@ -105,3 +97,25 @@ class DeployKeyLoader:
         # Capability (b) supplies the SSH transport callback. Do not log or return
         # material from this module; the callback's return is the only result.
         return consumer(material)
+
+    def validate(self, handle: DeployKeyHandle) -> Path:
+        """Validate a key handle without reading its private-key bytes.
+
+        Read-only hostops.status uses this path to report mount health without
+        placing credential material in process memory.
+        """
+        path = handle.secret_path
+        try:
+            resolved = path.resolve(strict=True)
+            if resolved.parent != self._key_dir:
+                raise HostOpsIdentityError("deploy-key handle is outside the hostops secret store")
+            metadata = resolved.stat()
+            if stat.S_IMODE(metadata.st_mode) != 0o600:
+                raise HostOpsIdentityError(f"deploy key {handle.audit_identity} does not have mode 0600")
+            if metadata.st_uid != self._runtime_uid:
+                raise HostOpsIdentityError(f"deploy key {handle.audit_identity} is not owned by the runtime user")
+        except HostOpsIdentityError:
+            raise
+        except OSError as exc:
+            raise HostOpsIdentityError(f"deploy key unavailable for {handle.audit_identity}") from exc
+        return resolved
