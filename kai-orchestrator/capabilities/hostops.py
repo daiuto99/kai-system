@@ -70,14 +70,15 @@ class OpenSshTransport:
                 f"{target.app_user}@{target.host}"]
 
     def verify(self, handle, target, key_material):
-        # -N performs an authenticated SSH session without executing any remote command.
-        # A timeout after successful authentication is the expected probe outcome.
+        # `true` has a deterministic exit status: zero only after authentication.
+        # A timeout is never evidence of a usable credential.
         try:
-            self._runner(self._base(handle, target) + ["-N"], capture_output=True,
-                         text=True, timeout=3, check=False)
+            completed = self._runner(self._base(handle, target) + ["true"],
+                                     capture_output=True, text=True,
+                                     timeout=15, check=False)
         except subprocess.TimeoutExpired:
-            return {"authenticated": True, "probe": "ssh_no_command"}
-        return {"authenticated": False, "probe": "ssh_no_command"}
+            return {"authenticated": False, "probe": "ssh_true", "reason": "timeout"}
+        return {"authenticated": completed.returncode == 0, "probe": "ssh_true"}
 
     def place_secret(self, handle, target, name, secret, key_material):
         remote = f"umask 077; cat > /home/{target.app_user}/{name}; chmod 600 /home/{target.app_user}/{name}; test -f /home/{target.app_user}/{name}"

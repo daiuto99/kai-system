@@ -8,6 +8,7 @@ import pytest
 
 from capabilities import get_capability
 from capabilities.hostops import (
+    HostOpsTarget,
     InMemorySecret,
     OpenSshTransport,
     VerifiedGate,
@@ -113,8 +114,8 @@ def test_openssh_argv_never_contains_key_or_secret(tmp_path):
 
     def runner(argv, **kwargs):
         calls.append((argv, kwargs))
-        if "-N" in argv:
-            raise subprocess.TimeoutExpired(argv, 3)
+        if "true" in argv:
+            return subprocess.CompletedProcess(argv, 0)
         return subprocess.CompletedProcess(argv, 0)
 
     transport = OpenSshTransport(runner)
@@ -125,3 +126,26 @@ def test_openssh_argv_never_contains_key_or_secret(tmp_path):
     assert key.decode() not in argv_text
     assert "stdin-only-secret" not in argv_text
     assert calls[0][1]["input"] == b"stdin-only-secret"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected"),
+    [
+        (subprocess.TimeoutExpired(["ssh"], 15), False),
+        (subprocess.CompletedProcess(["ssh"], 255), False),
+        (subprocess.CompletedProcess(["ssh"], 0), True),
+    ],
+)
+def test_verify_never_treats_timeout_or_exit_255_as_authenticated(tmp_path, outcome, expected):
+    resolver, _, _ = _context(tmp_path)
+    handle = resolver.resolve("site")
+    target = HostOpsTarget("host.example", "appuser", "123")
+
+    def runner(argv, **kwargs):
+        assert argv[-1] == "true"
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    proof = OpenSshTransport(runner).verify(handle, target, b"fixture-key")
+    assert proof["authenticated"] is expected
