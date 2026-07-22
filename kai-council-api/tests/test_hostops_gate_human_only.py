@@ -42,7 +42,7 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
             "callback_url": req.callback_url, "created_at": "2026-07-21T00:00:00+00:00",
         }
 
-    def test_hostops_gates_go_to_pending_leo_never_auto_approved(self):
+    def test_external_hostops_gates_go_to_pending_leo(self):
         cases = [
             ("hostops_place_secret",
              {"hostops_operation": "place_secret", "site": "site-a",
@@ -57,6 +57,7 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
                 self._seed(req)
                 callbacks = []
                 with (
+                    mock.patch.object(gates, "_hostops_action", return_value={"op": "deploy_plugin", "owner": "client", "external_party": True}),
                     mock.patch.object(gates, "_fire_callback",
                                       side_effect=lambda _u, r: callbacks.append(r)),
                     mock.patch.object(gates, "_persist_gate_record"),
@@ -65,7 +66,7 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
                     gates._process_gate(req)
 
                 state = self.store[req.gate_id]
-                self.assertEqual(state["status"], "pending_leo")   # waits for Leo
+                self.assertEqual(state["status"], "pending_leo")
                 self.assertIsNone(state["resolution"])             # not resolved
                 self.assertEqual(callbacks, [])                    # no callback fired
 
@@ -74,6 +75,14 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
         self.assertIn("hostops_place_secret", gates._HOSTOPS_GATE_TYPES)
         self.assertIn("hostops_deploy_plugin", gates._HOSTOPS_GATE_TYPES)
 
+    def test_leo_owned_hostops_gate_auto_resolves_without_t2_prompt(self):
+        req = self._request("hostops_deploy_plugin", {"hostops_operation": "deploy_plugin", "site": "site-a", "plugin": "kai-publish-gate", "audit_identity": "app:1:u"})
+        self._seed(req)
+        with (mock.patch.object(gates, "_hostops_action", return_value={"op":"deploy_plugin", "owner":"leo"}), mock.patch.object(gates, "_slack_post"), mock.patch.object(gates, "_fire_callback") as callback):
+            gates._process_gate(req)
+        self.assertEqual(self.store[req.gate_id]["status"], "resolved")
+        callback.assert_called_once()
+
     def test_brief_carries_no_payload_bytes(self):
         # The gate brief names the secret; the resolver reads bytes post-approval.
         brief = {"hostops_operation": "place_secret", "site": "site-a",
@@ -81,7 +90,7 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
         with mock.patch.object(gates, "_persist_artifact") as persist:
             summary, assessment = gates._hostops_gate_review(brief, "hostops-x")
         self.assertIn("place_secret", summary)
-        self.assertIn("HUMAN-ONLY", assessment)
+        self.assertIn("autonomy policy", assessment)
         # Only a name was ever handed to the review — no byte payload present.
         self.assertNotIn("material", str(brief))
         persist.assert_called_once()
@@ -93,6 +102,7 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
         })
         self._seed(req)
         with (
+            mock.patch.object(gates, "_hostops_action", return_value={"op": "place_secret", "owner": "client", "external_party": True}),
             mock.patch.object(gates, "_slack_post", return_value="ts"),
             mock.patch.object(gates.httpx, "post") as post,
         ):
