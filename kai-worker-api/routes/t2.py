@@ -10,6 +10,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from config import VAULT_PATH
+from safe_http import safe_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -48,7 +49,7 @@ def _resolve_leo_dm_channel() -> str | None:
             json={"users": LEO_USER_ID},
             timeout=10,
         )
-        d = r.json()
+        d = safe_json(r)
         if d.get("ok"):
             return d["channel"]["id"]
         logger.warning("conversations.open failed: %s", d.get("error"))
@@ -144,7 +145,7 @@ def create_t2_action(req: T2ActionRequest):
                 },
                 timeout=10,
             )
-            d = r.json()
+            d = safe_json(r)
             if d.get("ok"):
                 entry["slack_ts"] = d.get("ts")
                 entry["slack_channel_id"] = d.get("channel")
@@ -182,10 +183,7 @@ def respond_t2_action(req: T2RespondRequest):
                 try:
                     response = httpx.post(resolve_url, json=resolution, timeout=15)
                     response.raise_for_status()
-                    try:
-                        orchestrator_response = response.json()
-                    except ValueError:
-                        orchestrator_response = {"body": response.text}
+                    orchestrator_response = safe_json(response, default={"body": response.text})
                 except httpx.HTTPError as exc:
                     raise HTTPException(502, f"hostops gate resolve failed: {exc}") from exc
                 entry["status"] = "approved" if req.approved else "rejected"
