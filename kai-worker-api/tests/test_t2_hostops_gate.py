@@ -1,6 +1,6 @@
 from unittest import mock
 
-import t2
+from routes import t2
 
 
 def _entry():
