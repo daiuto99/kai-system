@@ -5,6 +5,7 @@ council. It must land in pending_leo and wait for Leo — no resolution, no
 callback fired — regardless of any advisor verdict. This guards against a future
 auto-approve fallback silently capturing host mutations.
 """
+import json
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -74,6 +75,28 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
         # The property is explicit, not incidental: the types are in the registry.
         self.assertIn("hostops_place_secret", gates._HOSTOPS_GATE_TYPES)
         self.assertIn("hostops_deploy_plugin", gates._HOSTOPS_GATE_TYPES)
+
+    def test_real_resolution_without_owner_fails_closed(self):
+        registry = Path(self.tempdir.name) / "sites.json"
+        registry.write_text(json.dumps({"sites": {"unmarked": {}}}))
+        with mock.patch.object(gates, "_WORDPRESS_SITES", registry):
+            action = gates._hostops_action({"hostops_operation": "deploy_plugin", "site": "unmarked"})
+        self.assertEqual(action["owner"], "unknown")
+        self.assertEqual(gates.classify(action).mode, "approve")
+
+    def test_real_resolution_unreadable_registry_fails_closed(self):
+        with mock.patch("pathlib.Path.read_text", side_effect=OSError("unreadable")):
+            action = gates._hostops_action({"hostops_operation": "deploy_plugin", "site": "alexadaiuto"})
+        self.assertEqual(action["owner"], "unknown")
+        self.assertEqual(gates.classify(action).mode, "approve")
+
+    def test_real_resolution_explicit_leo_owner_is_autonomous(self):
+        registry = Path(self.tempdir.name) / "sites.json"
+        registry.write_text(json.dumps({"sites": {"owned": {"owner": "leo"}}}))
+        with mock.patch.object(gates, "_WORDPRESS_SITES", registry):
+            action = gates._hostops_action({"hostops_operation": "deploy_plugin", "site": "owned"})
+        self.assertEqual(action["owner"], "leo")
+        self.assertEqual(gates.classify(action).mode, "autonomous")
 
     def test_leo_owned_hostops_gate_auto_resolves_without_t2_prompt(self):
         req = self._request("hostops_deploy_plugin", {"hostops_operation": "deploy_plugin", "site": "site-a", "plugin": "kai-publish-gate", "audit_identity": "app:1:u"})
