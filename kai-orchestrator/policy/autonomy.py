@@ -32,6 +32,7 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "wordpress.set_option":  {"classification": "mutating", "rule": "requires_approval", "reason": "Changes WordPress configuration"},
     "hostops.place_secret": {"classification": "mutating", "rule": "requires_approval", "reason": "Places an app secret on a production host"},
     "hostops.deploy_plugin": {"classification": "mutating", "rule": "requires_approval", "reason": "Deploys an allowlisted plugin to a production host"},
+    "hostops.provision":    {"classification": "mutating", "rule": "requires_approval", "reason": "Mints + installs a per-app deploy key and publish-gate secret (production-host credential)"},
 
     # ── Self-modification — disabled unless a separate approval path is built ──
     "self_modify.apply":        {"classification": "mutating", "rule": "never", "reason": "Self-modify is disabled"},

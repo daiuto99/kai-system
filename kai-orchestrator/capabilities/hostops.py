@@ -185,3 +185,32 @@ def deploy_plugin(site: str, plugin: str, gate_id: object = None, *, resolver=No
         return CapabilityResult(ok=False, status="failed_recoverable", error={"type": "plugin_deploy_failed"})
     except (HostOpsIdentityError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
         return _safe_error(exc)
+
+
+@capability("hostops.provision")
+def provision(site: str, rotate: bool = False, **_) -> CapabilityResult:
+    """System-context provisioning of the per-app deploy key + publish-gate secret.
+
+    Deliberately NOT council-gated: it mints KAI\'s OWN credentials (deploy key +
+    approval secret), which is infrastructure, not a site-content mutation. The
+    site mutations it enables (place_secret / deploy_plugin) stay council-gated.
+    Runs only in the orchestrator\'s trusted context; private-key and secret bytes
+    never reach an argv, log, or CapabilityResult (L18).
+    """
+    from hostops_provision import provision as _provision, HostOpsProvisionError
+    try:
+        outcome = _provision(site, rotate=bool(rotate))
+    except (HostOpsProvisionError, HostOpsIdentityError, OSError, subprocess.SubprocessError) as exc:
+        return _safe_error(exc)
+    return CapabilityResult(
+        ok=outcome.key_authenticated,
+        status="succeeded" if outcome.key_authenticated else "failed_recoverable",
+        data={
+            "site": outcome.site,
+            "deploy_key": outcome.deploy_key,
+            "payload_secret": outcome.payload_secret,
+            "identity": outcome.audit_identity,
+        },
+        verification={"verified": outcome.key_authenticated,
+                      "evidence": {"key_authenticated": outcome.key_authenticated}},
+    )

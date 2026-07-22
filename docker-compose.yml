@@ -380,8 +380,12 @@ services:
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
       - /home/leo/kai-system:/kai-system:rw
-      # HOSTOPS-(a): per-app deploy keys; deliberately empty until Leo bootstrap.
-      - /home/leo/kai-system/secrets/hostops-deploy-keys:/run/hostops-deploy-keys:ro
+      # HOSTOPS-(a): per-app deploy keys; provisioned by hostops.provision (rw, system-only).
+      - /home/leo/kai-system/secrets/hostops-deploy-keys:/run/hostops-deploy-keys:rw
+      # KAI-929: exec-time publish-gate payload secrets; durable, mirrors the deploy-keys pattern (/run is tmpfs).
+      - /home/leo/kai-system/secrets/hostops-payload-secrets:/run/hostops-payload-secrets:rw
+      # KAI-930: reviewed publish-gate plugin = deploy source for hostops.deploy_plugin. RO mount (build context ./kai-orchestrator cannot COPY the sibling dir).
+      - /home/leo/kai-system/kai-wordpress-plugin/kai-publish-gate.php:/opt/kai-plugins/kai-publish-gate.php:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     secrets:
