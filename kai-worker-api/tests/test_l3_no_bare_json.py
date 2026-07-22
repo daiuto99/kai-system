@@ -14,8 +14,8 @@ LEGACY_EXEMPTIONS = {
     "routes/focus.py:137", "routes/focus.py:187", "routes/inbox.py:118",
     "routes/intake.py:105", "routes/intake.py:177", "routes/mode_lock.py:565",
     "routes/orchestrator.py:66", "routes/oura.py:31", "routes/oura.py:43",
-    "routes/sprint_a.py:69", "routes/sprint_a.py:126", "routes/t2.py:46",
-    "routes/t2.py:132", "routes/telegram.py:138", "routes/wordpress.py:61",
+    "routes/sprint_a.py:69", "routes/sprint_a.py:126", "routes/telegram.py:138",
+    "routes/wordpress.py:61",
 }
 
 
