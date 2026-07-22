@@ -178,6 +178,11 @@ def extract_t2_id_from_text(text: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _t2_requires_council_execution(response_data: dict) -> bool:
+    """Hostops gate resolution advances the workflow itself; generic T2 does not."""
+    return not (response_data.get("kind") == "hostops_gate" and response_data.get("executed"))
+
+
 @app.event("reaction_added")
 def handle_reaction(event, say):
     if event.get("user") == get_bot_id():
@@ -212,7 +217,12 @@ def handle_reaction(event, say):
         )
         log.info(f"T2 {'approved' if approved else 'rejected'}: {action_id} → {r.status_code}")
         if approved and r.status_code == 200:
-            entry = r.json().get("entry", {})
+            response_data = r.json()
+            if not _t2_requires_council_execution(response_data):
+                # Gate resolution already advances the hostops workflow; the
+                # generic T2 execute prompt would run it a second time.
+                return
+            entry = response_data.get("entry", {})
             action_text = entry.get("action", "")
             detail_text = entry.get("detail", "")
             exec_msg = f"T2 action approved (id: {action_id}): {action_text}"

@@ -86,6 +86,28 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
         self.assertNotIn("material", str(brief))
         persist.assert_called_once()
 
+    def test_hostops_gate_enqueues_a_bound_t2_action_without_secret_bytes(self):
+        req = self._request("hostops_place_secret", {
+            "hostops_operation": "place_secret", "site": "site-a",
+            "secret_name": "publish_gate", "audit_identity": "app:1:u",
+        })
+        self._seed(req)
+        with (
+            mock.patch.object(gates, "_slack_post", return_value="ts"),
+            mock.patch.object(gates.httpx, "post") as post,
+        ):
+            post.return_value.raise_for_status.return_value = None
+            post.return_value.json.return_value = {"id": "t2abc123"}
+            gates._process_gate(req)
+
+        payload = post.call_args.kwargs["json"]
+        self.assertEqual(payload["kind"], "hostops_gate")
+        self.assertEqual(payload["gate_id"], req.gate_id)
+        self.assertEqual(payload["callback_url"], req.callback_url)
+        self.assertIn("place_secret", payload["action"])
+        self.assertNotIn("material", str(payload))
+        self.assertEqual(self.store[req.gate_id]["t2_action_id"], "t2abc123")
+
 
 if __name__ == "__main__":
     unittest.main()

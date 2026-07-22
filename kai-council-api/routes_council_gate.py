@@ -31,6 +31,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 import function_map as fm
+from council_config import WORKER_URL, _worker_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -531,6 +532,31 @@ def _process_gate(req: GateRequest):
         blocks, attachments = _gate_slack_message(req.gate_id, gate_type, summary, kai_assessment, "Awaiting Leo's approval")
         fallback = f"Gate {req.gate_id} ({gate_type}) needs your approval. Reply `approve {req.gate_id}` or `reject {req.gate_id}: reason`"
         _slack_post("#devops", fallback, blocks, attachments)
+        if gate_type in _HOSTOPS_GATE_TYPES:
+            # The typed #devops route remains the durable fallback if this
+            # notification surface is unavailable. The summary is reference-only.
+            try:
+                response = httpx.post(
+                    f"{WORKER_URL}/t2/queue",
+                    json={
+                        "action": summary,
+                        "detail": "Approve to resolve this hostops gate; reject to stop the workflow.",
+                        "advisor": "kai",
+                        "gate_id": req.gate_id,
+                        "callback_url": req.callback_url,
+                        "kind": "hostops_gate",
+                    },
+                    timeout=10,
+                    auth=_worker_auth(),
+                )
+                response.raise_for_status()
+                action_id = response.json().get("id")
+                if not action_id:
+                    raise ValueError("T2 queue response missing action id")
+                _update_gate(req.gate_id, t2_action_id=action_id)
+            except Exception as exc:
+                logger.warning("Hostops gate %s T2 notification unavailable; #devops fallback remains: %s",
+                               req.gate_id, exc)
         logger.info("Gate %s posted to Slack — awaiting Leo", req.gate_id)
 
     except Exception:

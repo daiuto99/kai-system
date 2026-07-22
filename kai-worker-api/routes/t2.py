@@ -1,9 +1,12 @@
 import json
 import logging
 import os
+import threading
 import uuid
 from datetime import datetime as _dt
 from pathlib import Path
+from urllib.parse import urlparse
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from config import VAULT_PATH
@@ -13,6 +16,8 @@ router = APIRouter()
 
 T2_QUEUE_FILE = VAULT_PATH / "00_System" / "t2_queue.json"
 LEO_USER_ID = os.environ.get("LEO_USER_ID", "U0AG93XJ927")
+_T2_LOCK = threading.RLock()
+_ORCHESTRATOR_URL = "http://kai-orchestrator:8003"
 
 
 def _t2_load() -> list:
@@ -58,7 +63,10 @@ def _post_slack_thread(entry: dict, approved: bool):
         return
     try:
         import httpx as _hx
-        status = "Approved — executing now" if approved else "Rejected"
+        if entry.get("kind") == "hostops_gate":
+            status = "Approved — hostops gate resolved" if approved else "Rejected — hostops gate denied"
+        else:
+            status = "Approved — executing now" if approved else "Rejected"
         _hx.post(
             "https://slack.com/api/chat.postMessage",
             headers={"Authorization": f"Bearer {slack_token}"},
@@ -78,12 +86,16 @@ class T2ActionRequest(BaseModel):
     detail: str = ""
     advisor: str = "kai"
     slack_channel: str = ""  # ignored — all T2 prompts go to KAI↔Leo DM
+    gate_id: str = ""
+    callback_url: str = ""
+    kind: str = ""
 
 
 class T2RespondRequest(BaseModel):
     action_id: str
     approved: bool
     user_id: str = ""
+    notes: str = ""
 
 
 @router.get("/t2/queue")
@@ -104,6 +116,9 @@ def create_t2_action(req: T2ActionRequest):
         "created_at": _dt.now().isoformat(),
         "slack_ts": None,
         "slack_channel_id": None,
+        "gate_id": req.gate_id,
+        "callback_url": req.callback_url,
+        "kind": req.kind,
     }
 
     slack_token = _slack_token()
@@ -143,19 +158,52 @@ def create_t2_action(req: T2ActionRequest):
 
 @router.post("/t2/respond")
 def respond_t2_action(req: T2RespondRequest):
-    queue = _t2_load()
-    for entry in queue:
-        if entry["id"] != req.action_id:
-            continue
-        if entry["status"] != "pending":
-            return {"ok": False, "error": f"Action already {entry['status']}", "entry": entry}
-        entry["status"] = "approved" if req.approved else "rejected"
-        entry["responded_by"] = req.user_id
-        entry["responded_at"] = _dt.now().isoformat()
-        _t2_save(queue)
-        logger.info("T2 respond %s -> %s: %s", req.action_id, entry["status"], entry["action"])
-        _post_slack_thread(entry, req.approved)
-        return {"ok": True, "entry": entry}
+    with _T2_LOCK:
+        queue = _t2_load()
+        for entry in queue:
+            if entry["id"] != req.action_id:
+                continue
+            if entry["status"] != "pending":
+                return {"ok": False, "error": f"Action already {entry['status']}", "entry": entry}
+
+            if entry.get("kind") == "hostops_gate":
+                gate_id = entry.get("gate_id")
+                if not gate_id:
+                    raise HTTPException(500, "hostops T2 action missing gate binding")
+                callback_url = entry.get("callback_url", "")
+                parsed = urlparse(callback_url)
+                resolve_url = callback_url or f"{_ORCHESTRATOR_URL}/gates/{gate_id}/resolve"
+                if callback_url and (parsed.scheme != "http" or parsed.netloc != "kai-orchestrator:8003"):
+                    raise HTTPException(500, "hostops T2 action has invalid gate callback")
+                notes = req.notes or ("Approved by Leo via T2 tap" if req.approved else "Rejected by Leo via T2 tap")
+                resolution = {"approved": req.approved, "notes": notes}
+                if req.approved:
+                    resolution["advisor"] = req.user_id
+                try:
+                    response = httpx.post(resolve_url, json=resolution, timeout=15)
+                    response.raise_for_status()
+                    try:
+                        orchestrator_response = response.json()
+                    except ValueError:
+                        orchestrator_response = {"body": response.text}
+                except httpx.HTTPError as exc:
+                    raise HTTPException(502, f"hostops gate resolve failed: {exc}") from exc
+                entry["status"] = "approved" if req.approved else "rejected"
+                entry["responded_by"] = req.user_id
+                entry["responded_at"] = _dt.now().isoformat()
+                _t2_save(queue)
+                logger.info("Hostops T2 gate %s resolved by %s", gate_id, req.user_id)
+                _post_slack_thread(entry, req.approved)
+                return {"ok": True, "kind": "hostops_gate", "executed": True,
+                        "entry": entry, "orchestrator": orchestrator_response}
+
+            entry["status"] = "approved" if req.approved else "rejected"
+            entry["responded_by"] = req.user_id
+            entry["responded_at"] = _dt.now().isoformat()
+            _t2_save(queue)
+            logger.info("T2 respond %s -> %s: %s", req.action_id, entry["status"], entry["action"])
+            _post_slack_thread(entry, req.approved)
+            return {"ok": True, "kind": entry.get("kind", "t2"), "executed": False, "entry": entry}
     raise HTTPException(404, f"T2 action {req.action_id} not found")
 
 
