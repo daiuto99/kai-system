@@ -809,14 +809,14 @@ def _devops_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
 
 
 def _hostops_action(brief: dict) -> dict:
-    """Build a reference-only descriptor; missing registry ownership means Leo."""
+    """Build a reference-only descriptor; ownership must be verifiable."""
     site = brief.get("site", "")
-    owner = "leo"
+    owner = "unknown"
     try:
-        owner = json.loads(_WORDPRESS_SITES.read_text()).get("sites", {}).get(site, {}).get("owner", "leo")
+        owner = json.loads(_WORDPRESS_SITES.read_text()).get("sites", {}).get(site, {}).get("owner", "unknown")
     except (OSError, ValueError):
-        logger.warning("wordpress site ownership unavailable for %s; defaulting to Leo", site)
-    return {"op": brief.get("hostops_operation", ""), "site": site, "target": brief.get("secret_name") or brief.get("plugin", ""), "owner": owner, "reversible": True, "external_party": owner in {"client", "external"}}
+        logger.warning("wordpress site ownership unavailable for %s; failing closed", site)
+    return {"op": brief.get("hostops_operation", ""), "site": site, "target": brief.get("secret_name") or brief.get("plugin", ""), "owner": owner, "reversible": True, "external_party": owner not in {"leo"}}
 
 
 def _hostops_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:

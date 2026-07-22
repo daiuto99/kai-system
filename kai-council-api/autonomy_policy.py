@@ -21,7 +21,7 @@ def _thresholds() -> tuple[str, ...]:
 
 def classify(action: dict) -> Decision:
     """Apply the determined policy; thresholds are read from org_model.json."""
-    owner = str(action.get("owner", "leo")).lower()
+    owner = str(action.get("owner", "")).lower()
     if action.get("external_party") or owner in {"client", "external"}:
         if action.get("specific_person"):
             return Decision("confirm_once", "specific person outside Leo requires one confirmation")
@@ -30,4 +30,6 @@ def classify(action: dict) -> Decision:
     for threshold in _thresholds():
         if threshold.lower() in haystack:
             return Decision("approve", f"high-risk threshold: {threshold}")
-    return Decision("autonomous", "low-risk Leo-owned action")
+    if owner == "leo":
+        return Decision("autonomous", "low-risk Leo-owned action")
+    return Decision("approve", "ownership not verified as Leo — approval required")
