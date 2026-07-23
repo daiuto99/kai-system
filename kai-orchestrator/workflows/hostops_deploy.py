@@ -43,9 +43,11 @@ class HostopsDeployWorkflow(Workflow):
     approval_policy = "council_gate"
     steps = [
         StepDef("place_secret_gate",  step_type="approval_gate"),
-        StepDef("place_secret_exec",  capability="hostops.place_secret",  max_retries=1),
+        # A resolved hostops gate is single-use. Retrying an execution would
+        # necessarily fail closed after the first attempt consumes its gate.
+        StepDef("place_secret_exec",  capability="hostops.place_secret",  max_retries=0),
         StepDef("deploy_plugin_gate", step_type="approval_gate"),
-        StepDef("deploy_plugin_exec", capability="hostops.deploy_plugin", max_retries=1),
+        StepDef("deploy_plugin_exec", capability="hostops.deploy_plugin", max_retries=0),
         StepDef("complete",           finalize=True),
     ]
 
@@ -135,15 +137,13 @@ class HostopsDeployWorkflow(Workflow):
         gate_fn = get_capability("council.gate")
         site = ctx.get("site", "")
 
-        # C-1: the approval identity is what Leo signs against and what the audit
-        # record attributes the mutation to (§3.4). It MUST be the identity that
-        # will actually perform the op — resolved from the deploy-key handle for
-        # this site — never a caller/job-supplied value, which could be empty or
-        # spoofed. Fail closed if it cannot be resolved: no gate, no mutation.
-        from hostops_identity import HostOpsIdentityResolver, HostOpsIdentityError
+        # C-1: resolve the app identity from the allowlisted site configuration,
+        # never from caller input. This is audit attribution only: SSH always
+        # uses the fixed master-operator credential, never a per-app key.
+        from capabilities.hostops import audit_identity, HostOpsTargetError
         try:
-            audit_identity = HostOpsIdentityResolver().resolve(site).audit_identity
-        except HostOpsIdentityError as exc:
+            resolved_identity = audit_identity(site)
+        except HostOpsTargetError as exc:
             return CapabilityResult(
                 ok=False, status="failed_permanent",
                 error={"type": "hostops_identity_unavailable", "detail": str(exc)},
@@ -155,7 +155,7 @@ class HostopsDeployWorkflow(Workflow):
             "workflow": self.name,
             "hostops_operation": op,
             "site": site,
-            "audit_identity": audit_identity,
+            "audit_identity": resolved_identity,
             "required_decision": f"explicit human approval to {op} on host {site}",
         }
         if op == "place_secret":

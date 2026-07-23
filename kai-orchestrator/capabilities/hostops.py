@@ -1,25 +1,27 @@
 """Narrow, allowlisted Cloudways app host-operations for KAI-820 HOSTOPS-(b).
 
-There is deliberately no generic command capability.  Private deploy-key bytes
-are loaded only through ``DeployKeyLoader.with_material`` and never placed in an
-argv, log record, or CapabilityResult.  The SSH client receives the validated key
-*path* as ``-i`` (the approved CLI alternative); secret content reaches a remote
-write only over stdin.
+MASTER-OPERATOR MODEL (2026-07-22, supersedes the per-app-deploy-key transport —
+see docs/HOSTOPS_MASTER_OPERATOR_DESIGN.md). Cloudways grants no per-app SSH login
+on this account; the server MASTER operator is the intended, fully-capable surface
+(it can write mu-plugins + wp-config and run wp-cli — verified live). Least-privilege
+lives in KAI's control plane (op allowlist + council gates + fail-closed ownership +
+audit reconciliation), NOT in the Cloudways credential.
 
-HOSTOPS-(c) must replace the opaque ``VerifiedGate`` seam with a council-derived
-handle before either mutation can be reached from a workflow.
+There is deliberately no generic command capability. The publish-gate secret is
+delivered as a wp-config constant via wp-cli and is NEVER placed in a log record or
+CapabilityResult; the read-back value is compared in-process only (L18).
 """
 from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
 
 from models import CapabilityResult
-from hostops_identity import DeployKeyHandle, DeployKeyLoader, HostOpsIdentityError, HostOpsIdentityResolver
 from . import capability
 
 
@@ -28,6 +30,23 @@ _PLUGIN_ALLOWLIST = {"kai-publish-gate"}
 _OP_ALLOWLIST = {"status", "verify", "place_secret", "deploy_plugin"}
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SAFE_SECRET_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+
+# The Cloudways server master operator — the only working SSH identity on this
+# account. Matches transports/ssh_php_eval.py and cloudways_ssh_purge.py.
+_MASTER_LOGIN = "master_vvbwxpwpcc@134.209.166.23"
+_MASTER_KEY = "/run/secrets/cloudways_ssh_key"
+_MASTER_SSH_OPTS = [
+    "-i", _MASTER_KEY,
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=/dev/null",
+    "-o", "LogLevel=ERROR",
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=15",
+]
+# The publish-gate plugin checks defined('KAI_PUBLISH_GATE_SECRET') first, before
+# any file — so the secret is delivered as a wp-config constant (the app home is
+# read-only to the master operator).
+_SECRET_CONSTANT = "KAI_PUBLISH_GATE_SECRET"
 
 
 @dataclass(frozen=True)
@@ -41,68 +60,96 @@ class HostOpsTarget:
     host: str
     app_user: str
     app_id: str
+    server_id: str
+
+    @property
+    def webroot(self) -> str:
+        return f"/home/{self.server_id}.cloudwaysapps.com/{self.app_user}/public_html"
+
+    @property
+    def audit_identity(self) -> str:
+        """Resolved app identity used for the gate and audit trail, not SSH auth."""
+        return f"cloudways-app:{self.app_id}:{self.app_user}"
+
+
+class HostOpsTargetError(RuntimeError):
+    """A safe-to-report target-resolution failure; contains no credential data."""
 
 
 class SshTransport(Protocol):
-    def verify(self, handle: DeployKeyHandle, target: HostOpsTarget, key_material: bytes) -> dict: ...
-    def place_secret(self, handle: DeployKeyHandle, target: HostOpsTarget, name: str, secret: bytes, key_material: bytes) -> dict: ...
-    def deploy_plugin(self, handle: DeployKeyHandle, target: HostOpsTarget, plugin: str, key_material: bytes) -> dict: ...
+    def verify(self, target: HostOpsTarget) -> dict: ...
+    def place_secret(self, target: HostOpsTarget, secret: bytes) -> dict: ...
+    def deploy_plugin(self, target: HostOpsTarget, plugin: str) -> dict: ...
 
 
 class OpenSshTransport:
-    """Fixed OpenSSH invocations only; no caller-controlled command or argv field."""
+    """Fixed master-operator OpenSSH invocations; no caller-controlled command/argv."""
 
     def __init__(self, runner: Callable = subprocess.run):
         self._runner = runner
 
     @staticmethod
-    def _base(handle: DeployKeyHandle, target: HostOpsTarget) -> list[str]:
-        # The key path is safe only after DeployKeyLoader.with_material validated it.
-        return ["ssh", "-i", str(handle.secret_path), "-o", "BatchMode=yes", "-o",
-                "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10",
-                f"{target.app_user}@{target.host}"]
+    def _ssh(remote: str) -> list[str]:
+        return ["ssh"] + _MASTER_SSH_OPTS + [_MASTER_LOGIN, remote]
 
-    def verify(self, handle, target, key_material):
-        # `true` has a deterministic exit status: zero only after authentication.
-        # A timeout is never evidence of a usable credential.
+    def verify(self, target: HostOpsTarget) -> dict:
+        """Read-only reachability + writability probe. No mutation, no shell payload."""
+        wr = shlex.quote(target.webroot)
+        remote = f"test -w {wr}/wp-content/mu-plugins && test -w {wr}/wp-config.php && echo OK"
         try:
-            completed = self._runner(self._base(handle, target) + ["true"],
-                                     capture_output=True, text=True,
-                                     timeout=15, check=False)
+            completed = self._runner(self._ssh(remote), capture_output=True, text=True,
+                                     timeout=20, check=False)
         except subprocess.TimeoutExpired:
-            return {"authenticated": False, "probe": "ssh_true", "reason": "timeout"}
-        return {"authenticated": completed.returncode == 0, "probe": "ssh_true"}
+            return {"authenticated": False, "probe": "master_ssh", "reason": "timeout"}
+        return {"authenticated": completed.returncode == 0,
+                "writable": (completed.stdout or "").strip() == "OK", "probe": "master_ssh"}
 
-    def place_secret(self, handle, target, name, secret, key_material):
-        remote = f"umask 077; cat > /home/{target.app_user}/{name}; chmod 600 /home/{target.app_user}/{name}; test -f /home/{target.app_user}/{name}"
-        completed = self._runner(self._base(handle, target) + [remote], input=secret,
-                                 capture_output=True, timeout=20, check=False)
-        return {"written": completed.returncode == 0, "read_back": completed.returncode == 0, "name": name}
+    def place_secret(self, target: HostOpsTarget, secret: bytes) -> dict:
+        """Define the publish-gate constant in wp-config via wp-cli, then read it back.
 
-    def deploy_plugin(self, handle, target, plugin, key_material):
-        # The source and destination are fixed by the allowlisted plugin name.
+        The value is compared in-process; it is never returned or logged (L18).
+        """
+        value = secret.decode("ascii")
+        wr = shlex.quote(target.webroot)
+        remote = (
+            f"cd {wr} && wp config set {_SECRET_CONSTANT} \"$(cat)\" "
+            f"--type=constant --quiet && wp config get {_SECRET_CONSTANT}"
+        )
+        # Secret material flows only on stdin.  The SSH argv and remote command
+        # contain fixed syntax plus allowlisted identifiers (L18).
+        completed = self._runner(self._ssh(remote), input=value, capture_output=True, text=True,
+                                 timeout=30, check=False)
+        ok = completed.returncode == 0 and completed.stdout.strip() == value
+        return {"written": completed.returncode == 0, "read_back": ok, "name": _SECRET_CONSTANT}
+
+    def deploy_plugin(self, target: HostOpsTarget, plugin: str) -> dict:
+        # Source + destination fixed by the allowlisted plugin name.
         artifact = f"/opt/kai-plugins/{plugin}.php"
-        destination = f"/home/{target.app_user}/public_html/wp-content/mu-plugins/{plugin}.php"
-        completed = self._runner(["scp", "-i", str(handle.secret_path), "-o", "BatchMode=yes",
-                                  "-o", "StrictHostKeyChecking=yes", artifact,
-                                  f"{target.app_user}@{target.host}:{destination}"],
-                                 capture_output=True, text=True, timeout=30, check=False)
+        destination = f"{target.webroot}/wp-content/mu-plugins/{plugin}.php"
+        completed = self._runner(
+            # Cloudways' server-master endpoint supports legacy scp transport;
+            # force it rather than assuming an SFTP subsystem is available.
+            ["scp", "-O"] + _MASTER_SSH_OPTS + [artifact, f"{_MASTER_LOGIN}:{destination}"],
+            capture_output=True, text=True, timeout=40, check=False)
         if completed.returncode != 0:
             return {"deployed": False, "read_back": False, "plugin": plugin}
-        readback = self._runner(self._base(handle, target) + [f"test -f {destination}"],
+        readback = self._runner(self._ssh(f"test -f {shlex.quote(destination)}"),
                                 capture_output=True, text=True, timeout=20, check=False)
         return {"deployed": True, "read_back": readback.returncode == 0, "plugin": plugin}
 
 
-def _target(site_key: str, handle: DeployKeyHandle) -> HostOpsTarget:
+def _target(site_key: str) -> HostOpsTarget:
     try:
         site = json.loads(_SITES_JSON.read_text()).get("sites", {}).get(site_key, {})
         host = str(site.get("cloudways_fqdn", ""))
+        server_id = str(site.get("cloudways_server_id", ""))
     except (OSError, json.JSONDecodeError) as exc:
-        raise HostOpsIdentityError("hostops site configuration unavailable") from exc
-    if not _SAFE_COMPONENT.fullmatch(host):
-        raise HostOpsIdentityError("hostops target host is invalid or unavailable")
-    return HostOpsTarget(host=host, app_user=handle.cloudways_sys_user, app_id=handle.cloudways_app_id)
+        raise HostOpsTargetError("hostops site configuration unavailable") from exc
+    app_user = str(site.get("cloudways_sys_user", ""))
+    app_id = str(site.get("cloudways_app_id", ""))
+    if not all(_SAFE_COMPONENT.fullmatch(value) for value in (host, server_id, app_user, app_id)):
+        raise HostOpsTargetError("hostops target is invalid or unavailable")
+    return HostOpsTarget(host=host, app_user=app_user, app_id=app_id, server_id=server_id)
 
 
 def _safe_error(exc: Exception) -> CapabilityResult:
@@ -117,60 +164,63 @@ def _gate(gate_id: object, operation: str, site: str) -> str | None:
     return gate_id if engine.consume_hostops_gate(gate_id, operation, site) else None
 
 
-def _context(site: str, resolver=None, loader=None):
-    resolver = resolver or HostOpsIdentityResolver()
-    loader = loader or DeployKeyLoader()
-    handle = resolver.resolve(site)
-    return handle, loader, _target(site, handle)
+def _context(site: str) -> HostOpsTarget:
+    return _target(site)
+
+
+def audit_identity(site: str) -> str:
+    """Resolve the app identity for gates without loading a per-app SSH key."""
+    return _context(site).audit_identity
 
 
 @capability("hostops.status")
-def status(site: str, *, resolver=None, loader=None, **_) -> CapabilityResult:
-    """Validate key presence/mode/owner without reading private-key bytes."""
+def status(site: str, *, transport: SshTransport | None = None, **_) -> CapabilityResult:
+    """Read-only master reachability + webroot writability; no mutation."""
     try:
-        resolver = resolver or HostOpsIdentityResolver()
-        loader = loader or DeployKeyLoader()
-        handle = resolver.resolve(site)
-        loader.validate(handle)
-        return CapabilityResult(ok=True, status="succeeded", data={"identity": handle.audit_identity, "key_present": True},
-                                verification={"verified": True, "evidence": {"mode": "0600", "owner_uid": loader._runtime_uid}})
-    except (HostOpsIdentityError, OSError) as exc:
+        target = _context(site)
+        proof = (transport or OpenSshTransport()).verify(target)
+        return CapabilityResult(ok=proof.get("authenticated", False),
+                                status="succeeded" if proof.get("authenticated") else "failed_recoverable",
+                                data={"identity": target.audit_identity, "reachable": proof.get("authenticated", False)},
+                                verification={"verified": proof.get("writable", False), "evidence": proof})
+    except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
         return _safe_error(exc)
 
 
 @capability("hostops.verify")
-def verify(site: str, *, resolver=None, loader=None, transport: SshTransport | None = None, **_) -> CapabilityResult:
-    """Perform a no-command SSH authentication probe through the loader boundary."""
+def verify(site: str, *, transport: SshTransport | None = None, **_) -> CapabilityResult:
+    """Master-operator SSH reachability probe (no mutation)."""
     try:
-        handle, loader, target = _context(site, resolver, loader)
-        proof = loader.with_material(handle, lambda material: (transport or OpenSshTransport()).verify(handle, target, material))
+        target = _context(site)
+        proof = (transport or OpenSshTransport()).verify(target)
         if proof.get("authenticated"):
-            return CapabilityResult(ok=True, status="succeeded", data={"identity": handle.audit_identity}, verification={"verified": True, "evidence": proof}, transport_used="hostops_ssh")
-        return CapabilityResult(ok=False, status="failed_recoverable", error={"type": "ssh_auth_failed", "identity": handle.audit_identity})
-    except (HostOpsIdentityError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
+            return CapabilityResult(ok=True, status="succeeded", data={"identity": target.audit_identity},
+                                    verification={"verified": True, "evidence": proof}, transport_used="hostops_ssh")
+        return CapabilityResult(ok=False, status="failed_recoverable", error={"type": "ssh_auth_failed", "identity": target.audit_identity})
+    except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
         return _safe_error(exc)
 
 
 @capability("hostops.place_secret")
-def place_secret(site: str, secret_name: str, secret: InMemorySecret, gate_id: object = None, *, resolver=None, loader=None, transport: SshTransport | None = None, **_) -> CapabilityResult:
-    """Place an in-memory secret through stdin only after a verified gate handle."""
+def place_secret(site: str, secret_name: str, secret: InMemorySecret, gate_id: object = None, *, transport: SshTransport | None = None, **_) -> CapabilityResult:
+    """Define the publish-gate secret in wp-config, only after a verified gate."""
     if not _SAFE_SECRET_NAME.fullmatch(secret_name) or not isinstance(secret, InMemorySecret):
         return CapabilityResult(ok=False, status="failed_final", error={"type": "input_not_allowed"})
     approved = _gate(gate_id, "place_secret", site)
     if approved is None:
         return CapabilityResult(ok=False, status="failed_final", error={"type": "gate_required"})
     try:
-        handle, loader, target = _context(site, resolver, loader)
-        proof = loader.with_material(handle, lambda material: (transport or OpenSshTransport()).place_secret(handle, target, secret_name, secret.material, material))
+        target = _context(site)
+        proof = (transport or OpenSshTransport()).place_secret(target, secret.material)
         if proof.get("written") and proof.get("read_back"):
-            return CapabilityResult(ok=True, status="succeeded", data={"identity": handle.audit_identity, "secret_name": secret_name}, verification={"verified": True, "evidence": {**proof, "gate_id": approved}}, transport_used="hostops_ssh")
+            return CapabilityResult(ok=True, status="succeeded", data={"identity": target.audit_identity, "secret_name": secret_name}, verification={"verified": True, "evidence": {**proof, "gate_id": approved}}, transport_used="hostops_ssh")
         return CapabilityResult(ok=False, status="failed_recoverable", error={"type": "hostops_write_failed"})
-    except (HostOpsIdentityError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
+    except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
         return _safe_error(exc)
 
 
 @capability("hostops.deploy_plugin")
-def deploy_plugin(site: str, plugin: str, gate_id: object = None, *, resolver=None, loader=None, transport: SshTransport | None = None, **_) -> CapabilityResult:
+def deploy_plugin(site: str, plugin: str, gate_id: object = None, *, transport: SshTransport | None = None, **_) -> CapabilityResult:
     """Deploy only a named, allowlisted plugin after a verified gate handle."""
     if plugin not in _PLUGIN_ALLOWLIST:
         return CapabilityResult(ok=False, status="failed_final", error={"type": "plugin_not_allowed"})
@@ -178,39 +228,31 @@ def deploy_plugin(site: str, plugin: str, gate_id: object = None, *, resolver=No
     if approved is None:
         return CapabilityResult(ok=False, status="failed_final", error={"type": "gate_required"})
     try:
-        handle, loader, target = _context(site, resolver, loader)
-        proof = loader.with_material(handle, lambda material: (transport or OpenSshTransport()).deploy_plugin(handle, target, plugin, material))
+        target = _context(site)
+        proof = (transport or OpenSshTransport()).deploy_plugin(target, plugin)
         if proof.get("deployed") and proof.get("read_back"):
-            return CapabilityResult(ok=True, status="succeeded", data={"identity": handle.audit_identity, "plugin": plugin}, verification={"verified": True, "evidence": {**proof, "gate_id": approved}}, transport_used="hostops_ssh")
+            return CapabilityResult(ok=True, status="succeeded", data={"identity": target.audit_identity, "plugin": plugin}, verification={"verified": True, "evidence": {**proof, "gate_id": approved}}, transport_used="hostops_ssh")
         return CapabilityResult(ok=False, status="failed_recoverable", error={"type": "plugin_deploy_failed"})
-    except (HostOpsIdentityError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
+    except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
         return _safe_error(exc)
 
 
 @capability("hostops.provision")
 def provision(site: str, rotate: bool = False, **_) -> CapabilityResult:
-    """System-context provisioning of the per-app deploy key + publish-gate secret.
+    """Mint the publish-gate payload secret for a site (master-operator model).
 
-    Deliberately NOT council-gated: it mints KAI\'s OWN credentials (deploy key +
-    approval secret), which is infrastructure, not a site-content mutation. The
-    site mutations it enables (place_secret / deploy_plugin) stay council-gated.
-    Runs only in the orchestrator\'s trusted context; private-key and secret bytes
-    never reach an argv, log, or CapabilityResult (L18).
+    Per-app deploy keys are retired (Cloudways grants no app-user SSH login); this
+    now only ensures KAI's own minted publish-gate secret exists in the payload
+    store — the value KAI sends as the X-KAI-Publish-Gate header and defines
+    site-side via place_secret. Secret bytes never reach an argv, log, or result.
     """
-    from hostops_provision import provision as _provision, HostOpsProvisionError
+    from hostops_provision import provision_secret as _provision_secret, HostOpsProvisionError
     try:
-        outcome = _provision(site, rotate=bool(rotate))
-    except (HostOpsProvisionError, HostOpsIdentityError, OSError, subprocess.SubprocessError) as exc:
+        outcome = _provision_secret(site, rotate=bool(rotate))
+    except (HostOpsProvisionError, OSError, subprocess.SubprocessError) as exc:
         return _safe_error(exc)
     return CapabilityResult(
-        ok=outcome.key_authenticated,
-        status="succeeded" if outcome.key_authenticated else "failed_recoverable",
-        data={
-            "site": outcome.site,
-            "deploy_key": outcome.deploy_key,
-            "payload_secret": outcome.payload_secret,
-            "identity": outcome.audit_identity,
-        },
-        verification={"verified": outcome.key_authenticated,
-                      "evidence": {"key_authenticated": outcome.key_authenticated}},
+        ok=True, status="succeeded",
+        data={"site": outcome["site"], "payload_secret": outcome["payload_secret"]},
+        verification={"verified": True, "evidence": {"payload_secret": outcome["payload_secret"]}},
     )
