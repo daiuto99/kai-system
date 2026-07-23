@@ -218,7 +218,8 @@ def place_secret(site: str, secret_name: str, secret: InMemorySecret, gate_id: o
         proof = (transport or OpenSshTransport()).place_secret(target, secret.material)
         if proof.get("written") and proof.get("read_back"):
             evidence = {**proof, "authorization": "autonomous" if approved == "autonomous" else "gate"}
-            if approved != "autonomous": evidence["gate_id"] = approved
+            if approved != "autonomous":
+                evidence["gate_id"] = approved
             return CapabilityResult(ok=True, status="succeeded", data={"identity": target.audit_identity, "secret_name": secret_name}, verification={"verified": True, "evidence": evidence}, transport_used="hostops_ssh")
         return CapabilityResult(ok=False, status="failed_recoverable", error={"type": "hostops_write_failed"})
     except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
@@ -238,7 +239,8 @@ def deploy_plugin(site: str, plugin: str, gate_id: object = None, *, transport: 
         proof = (transport or OpenSshTransport()).deploy_plugin(target, plugin)
         if proof.get("deployed") and proof.get("read_back"):
             evidence = {**proof, "authorization": "autonomous" if approved == "autonomous" else "gate"}
-            if approved != "autonomous": evidence["gate_id"] = approved
+            if approved != "autonomous":
+                evidence["gate_id"] = approved
             return CapabilityResult(ok=True, status="succeeded", data={"identity": target.audit_identity, "plugin": plugin}, verification={"verified": True, "evidence": evidence}, transport_used="hostops_ssh")
         return CapabilityResult(ok=False, status="failed_recoverable", error={"type": "plugin_deploy_failed"})
     except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
