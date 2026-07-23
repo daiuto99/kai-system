@@ -419,6 +419,45 @@ class SeededViolationTests(unittest.TestCase):
         self.assertIn("open_issue_ids", data)
         self.assertEqual(data["open_issue_ids"].get(key), 1234)
 
+    def test_two_restart_simulations_reuse_the_one_persisted_open_issue(self):
+        """KAI-949: reset process state twice; a continuing failure never refiles."""
+        key = "backup_integrity"
+        self.result_path.write_text(json.dumps({
+            "open_issue_refs": {key: {"sequence_id": 4242, "issue_id": "issue-4242"}},
+        }))
+        calls = []
+
+        for _restart in range(2):
+            self.inv._prev_state.clear()
+            self.inv._violation_issue_ids.clear()
+            self.inv._violation_issue_refs.clear()
+            checks = self._make_checks(key, "continuing failure")
+            with mock.patch.object(self.inv, "_mapped_issue_is_open", return_value=True), \
+                 mock.patch.object(self.inv, "_file_invariant_issue", side_effect=lambda *a: calls.append(a)), \
+                 mock.patch.object(self.inv, "_slack_post"), \
+                 mock.patch.object(self.inv, "_load_secret", return_value="fake-token"), \
+                 mock.patch.object(self.inv, "INVARIANTS", checks):
+                self.inv.run_invariants()
+
+            self.assertEqual(self.inv._violation_issue_ids[key], 4242)
+
+        self.assertEqual(calls, [], "continuing failure must reuse, never refile")
+
+    def test_recovery_closes_the_mapped_issue_before_clearing_dedup(self):
+        """KAI-949: a real pass closes the standing ticket, not merely memory."""
+        key = "backup_integrity"
+        self.inv._violation_issue_ids[key] = 4242
+        self.inv._violation_issue_refs[key] = {"sequence_id": 4242, "issue_id": "issue-4242"}
+        checks = self._make_checks("__none__", "")
+        with mock.patch.object(self.inv, "_close_invariant_issue", return_value=True) as close, \
+             mock.patch.object(self.inv, "_slack_post"), \
+             mock.patch.object(self.inv, "_load_secret", return_value="fake-token"), \
+             mock.patch.object(self.inv, "INVARIANTS", checks):
+            self.inv.run_invariants()
+        close.assert_called_once_with(key)
+        self.assertNotIn(key, self.inv._violation_issue_ids)
+        self.assertNotIn(key, self.inv._violation_issue_refs)
+
     def test_deferred_invariant_is_not_counted_as_failing(self):
         """Watchdog summary must not turn pass=None deferrals into failures."""
         checks = [("real_failure", "Real Failure", lambda: (False, "seeded"))]

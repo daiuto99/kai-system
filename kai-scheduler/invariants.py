@@ -71,12 +71,22 @@ _daily_digest_sent: str = ""   # date string (YYYY-MM-DD)
 # Dedup: one Plane issue per failure period per invariant (cleared on recovery)
 _violation_issue_ids: dict[str, int] = {}  # key → Plane sequence_id
 _violation_issue_refs: dict[str, dict] = {}  # key → {sequence_id, issue_id}
+_issue_refs_restored = False
 
 # Plane constants (mirrors triage.py)
 _PLANE_API = "http://host.docker.internal:8090/api/v1"
 _PLANE_WS  = "sonicink"
 _KAI_PROJECT = "78c49227-82d4-477d-a920-66b08cb91c56"
 _plane_backlog_state_id: str | None = None
+_plane_completed_state_id: str | None = None
+
+# 2026-07-23 board cleanup retained exactly these standing trackers.  Their
+# hand-authored descriptions predate the generated <code>key</code> marker, so
+# they must be adopted explicitly until a real recovery closes them.
+_STANDING_INVARIANT_ISSUES = {
+    "ledger_pointer_consistent": {"sequence_id": 946, "issue_id": "a4134d16-af76-4a58-b35f-d462651ea251"},
+    "session_saves_current": {"sequence_id": 921, "issue_id": "bebd628f-75f1-4bda-aec0-987144b6587f"},
+}
 
 # KAI-882 (L18): the scheduler container receives these host configs as
 # read-only mounts. The Mac is covered separately by the Layer-2 LaunchAgent
@@ -163,22 +173,116 @@ def _get_plane_backlog_state() -> str | None:
 
 def _restore_invariant_issue_refs() -> None:
     """Restore durable failure→issue mappings after scheduler restarts."""
-    if _violation_issue_ids or not RESULT_PATH.exists() or RESULT_PATH.stat().st_size == 0:
+    global _issue_refs_restored
+    if _issue_refs_restored:
         return
+    if RESULT_PATH.exists() and RESULT_PATH.stat().st_size:
+        try:
+            previous = json.loads(RESULT_PATH.read_text())
+            refs = previous.get("open_issue_refs", {})
+            for key, ref in refs.items():
+                seq = ref.get("sequence_id")
+                issue_id = ref.get("issue_id")
+                if isinstance(seq, int) and issue_id:
+                    _violation_issue_ids[key] = seq
+                    _violation_issue_refs[key] = {"sequence_id": seq, "issue_id": issue_id}
+        except Exception as e:
+            log.error("invariants: failed to restore issue mappings: %s", e)
+    for key, ref in _STANDING_INVARIANT_ISSUES.items():
+        if key not in _violation_issue_ids:
+            _violation_issue_ids[key] = ref["sequence_id"]
+            _violation_issue_refs[key] = dict(ref)
+    # Plane closes the cache gap: tickets from an earlier process still become
+    # visible to a first-run recovery and can be closed on an actual pass.
+    for key, _label, _fn in INVARIANTS:
+        if key not in _violation_issue_ids:
+            _adopt_open_invariant_issue(key)
+    _issue_refs_restored = True
+
+
+def _find_open_invariant_issue(key: str) -> dict | bool | None:
+    """Find the one current Plane [INV] ticket for ``key``.
+
+    Plane is authoritative across scheduler restarts; invariants.json only
+    accelerates the common case.  The invariant key is structural metadata in
+    the generated description, not a timestamped title heuristic.
+    """
+    token = _load_secret("plane_api_token")
+    if not token:
+        return False
     try:
-        previous = json.loads(RESULT_PATH.read_text())
-        refs = previous.get("open_issue_refs", {})
-        for key, ref in refs.items():
-            seq = ref.get("sequence_id")
-            issue_id = ref.get("issue_id")
-            if isinstance(seq, int) and issue_id:
-                _violation_issue_ids[key] = seq
-                _violation_issue_refs[key] = {
-                    "sequence_id": seq,
-                    "issue_id": issue_id,
-                }
+        headers = {"X-API-Key": token}
+        states = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/states/",
+            headers=headers, timeout=10,
+        )
+        states.raise_for_status()
+        closed = {s["id"] for s in json.loads(states.text).get("results", [])
+                  if s.get("group") in ("completed", "cancelled")}
+        issues = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/issues/?per_page=100",
+            headers=headers, timeout=10,
+        )
+        issues.raise_for_status()
+        candidates = json.loads(issues.text).get("results", [])
+        marker = f"<code>{key}</code>"
+        matches = [issue for issue in candidates
+                   if issue.get("state") not in closed
+                   and issue.get("name", "").startswith("[INV] ")
+                   and marker in issue.get("description_html", "")]
+        if not matches:
+            return None
+        matches.sort(key=lambda issue: issue.get("created_at", ""))
+        issue = matches[0]
+        return {"sequence_id": issue.get("sequence_id"), "issue_id": issue.get("id")}
     except Exception as e:
-        log.error("invariants: failed to restore issue mappings: %s", e)
+        log.error("invariants: Plane lookup failed for %s: %s", key, e)
+        return False
+
+
+def _adopt_open_invariant_issue(key: str) -> bool | None:
+    """Repopulate an empty/stale mapping from the authoritative Plane board."""
+    found = _find_open_invariant_issue(key)
+    if found is False:
+        return None
+    if not found or not isinstance(found.get("sequence_id"), int) or not found.get("issue_id"):
+        return False
+    _violation_issue_ids[key] = found["sequence_id"]
+    _violation_issue_refs[key] = found
+    return True
+
+
+def _close_invariant_issue(key: str) -> bool:
+    """Close the one mapped ticket only after this invariant actually passes."""
+    ref = _violation_issue_refs.get(key)
+    if not ref:
+        return True
+    token = _load_secret("plane_api_token")
+    if not token:
+        return False
+    global _plane_completed_state_id
+    try:
+        headers = {"X-API-Key": token, "Content-Type": "application/json"}
+        if not _plane_completed_state_id:
+            states = httpx.get(
+                f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/states/",
+                headers=headers, timeout=10,
+            )
+            states.raise_for_status()
+            _plane_completed_state_id = next(
+                (s["id"] for s in json.loads(states.text).get("results", []) if s.get("group") == "completed"), None
+            )
+        if not _plane_completed_state_id:
+            return False
+        response = httpx.patch(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/issues/{ref['issue_id']}/",
+            headers=headers, json={"state": _plane_completed_state_id}, timeout=10,
+        )
+        response.raise_for_status()
+        return json.loads(response.text).get("state") == _plane_completed_state_id
+    except Exception as e:
+        log.error("invariants: failed to close recovered issue for %s: %s", key, e)
+        return False
 
 
 def _mapped_issue_is_open(key: str) -> bool | None:
@@ -276,6 +380,12 @@ def _ensure_invariant_issue(key: str, label: str, detail: str) -> bool:
             return False
         _violation_issue_ids.pop(key, None)
         _violation_issue_refs.pop(key, None)
+    adopted = _adopt_open_invariant_issue(key)
+    if adopted is True:
+        log.info("invariants: dedup — restored KAI-%s for %s from Plane", _violation_issue_ids[key], key)
+        return True
+    if adopted is None:
+        return False
     _file_invariant_issue(key, label, detail)
     return key in _violation_issue_ids
 
@@ -1364,10 +1474,13 @@ def run_invariants(send_daily_digest: bool = False):
             if d5_fn:
                 ok_d5, msg_d5 = d5_fn(key, detail)
                 log.info("D5[%s]: %s — %s", key, "ok" if ok_d5 else "FAIL", msg_d5)
-        elif prev is False and passed:
+        elif passed and key in _violation_issue_ids:
             recoveries.append(f"  :white_check_mark: *{label}*")
-            _violation_issue_ids.pop(key, None)         # clear dedup on recovery
-            _violation_issue_refs.pop(key, None)
+            if _close_invariant_issue(key):
+                _violation_issue_ids.pop(key, None)
+                _violation_issue_refs.pop(key, None)
+            else:
+                results[key]["issue_mapping"] = "FAILED_TO_CLOSE"
         _prev_state[key] = passed
 
     # Append deferred entries — shown as distinct state on dashboard (not pass/fail)
