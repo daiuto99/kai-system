@@ -10,6 +10,12 @@ autonomous execution. Rules:
 check_policy() is the single call site used by the capability router.
 """
 from __future__ import annotations
+import json
+from pathlib import Path
+
+from autonomy_decisions import classify
+
+_SITES_JSON = Path("/vault/00_System/wordpress_sites.json")
 
 # ── Policy table ──────────────────────────────────────────────────────────────
 # Every capability must be explicitly listed. An absent entry is a denial, not
@@ -30,9 +36,9 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "wordpress.purge_varnish": {"classification": "mutating", "rule": "requires_approval", "reason": "Changes public cache state"},
     "wordpress.set_front_page": {"classification": "mutating", "rule": "requires_approval", "reason": "Changes a public homepage"},
     "wordpress.set_option":  {"classification": "mutating", "rule": "requires_approval", "reason": "Changes WordPress configuration"},
-    "hostops.place_secret": {"classification": "mutating", "rule": "requires_approval", "reason": "Places an app secret on a production host"},
-    "hostops.deploy_plugin": {"classification": "mutating", "rule": "requires_approval", "reason": "Deploys an allowlisted plugin to a production host"},
-    "hostops.provision":    {"classification": "mutating", "rule": "requires_approval", "reason": "Mints the publish-gate payload secret for a gated production-host deploy"},
+    "hostops.place_secret": {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
+    "hostops.deploy_plugin": {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
+    "hostops.provision":    {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
 
     # ── Self-modification — disabled unless a separate approval path is built ──
     "self_modify.apply":        {"classification": "mutating", "rule": "never", "reason": "Self-modify is disabled"},
@@ -77,10 +83,25 @@ AUTONOMY_POLICIES: dict[str, dict] = {
 
 # ── Engine ────────────────────────────────────────────────────────────────────
 
-_VALID_RULES = {"allow", "requires_approval", "never"}
+_VALID_RULES = {"allow", "requires_approval", "contextual", "never"}
 
 
-def check_policy(capability_name: str, caller: str) -> tuple[str, str | None]:
+def hostops_action(capability_name: str, inputs: dict | None = None) -> dict:
+    """Build trusted hostops context; ownership never comes from request input."""
+    inputs = inputs or {}
+    site = str(inputs.get("site", ""))
+    owner = "unknown"
+    try:
+        owner = str(json.loads(_SITES_JSON.read_text()).get("sites", {}).get(site, {}).get("owner", "unknown"))
+    except (OSError, ValueError):
+        pass
+    return {"op": capability_name.removeprefix("hostops."),
+            "target": inputs.get("secret_name") or inputs.get("plugin") or "",
+            "site": site, "owner": owner, "risk": inputs.get("risk", ""),
+            "external_party": owner.lower() != "leo"}
+
+
+def check_policy(capability_name: str, caller: str, inputs: dict | None = None) -> tuple[str, str | None]:
     """Consult the autonomy policy for a given capability + caller.
 
     Returns (action, reason):
@@ -107,6 +128,10 @@ def check_policy(capability_name: str, caller: str) -> tuple[str, str | None]:
             f"'{capability_name}' is permanently disabled by autonomy policy. "
             + (f"Reason: {note}" if note else "")
         )
+
+    if rule == "contextual":
+        decision = classify(hostops_action(capability_name, inputs))
+        return ("allow", decision.reason) if decision.mode == "autonomous" else ("requires_approval", decision.reason)
 
     if rule == "requires_approval":
         return "requires_approval", (

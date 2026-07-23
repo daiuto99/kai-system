@@ -93,6 +93,9 @@ services:
     volumes:
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
+      - /home/leo/kai-system/shared:/shared:ro
+    environment:
+      - PYTHONPATH=/shared
     env_file:
       - .env
     secrets:

@@ -133,6 +133,13 @@ class HostopsDeployWorkflow(Workflow):
         if not self._requested(op, ctx):
             return self._skip(f"no {op} requested")
 
+        # The shared org-model decision is evaluated *before* a council gate is
+        # created.  Autonomous work therefore never reaches the council/T2 path.
+        from policy.autonomy import check_policy
+        action, reason = check_policy(f"hostops.{op}", "workflow", ctx)
+        if action == "allow":
+            return self._skip(f"autonomous: {reason}")
+
         from capabilities import get_capability
         gate_fn = get_capability("council.gate")
         site = ctx.get("site", "")
@@ -180,8 +187,10 @@ class HostopsDeployWorkflow(Workflow):
         site = ctx.get("site", "")
         secret_name = ctx.get("secret_name", "")
 
+        from policy.autonomy import check_policy
+        policy_action, _ = check_policy("hostops.place_secret", "workflow", ctx)
         gate_id = engine.find_resolved_hostops_gate(self.job_id, "place_secret", site)
-        if not gate_id:
+        if policy_action != "allow" and not gate_id:
             return CapabilityResult(
                 ok=False, status="failed_permanent", error={"type": "gate_required"},
             )
@@ -209,8 +218,10 @@ class HostopsDeployWorkflow(Workflow):
         site = ctx.get("site", "")
         plugin = ctx.get("plugin", "")
 
+        from policy.autonomy import check_policy
+        policy_action, _ = check_policy("hostops.deploy_plugin", "workflow", ctx)
         gate_id = engine.find_resolved_hostops_gate(self.job_id, "deploy_plugin", site)
-        if not gate_id:
+        if policy_action != "allow" and not gate_id:
             return CapabilityResult(
                 ok=False, status="failed_permanent", error={"type": "gate_required"},
             )

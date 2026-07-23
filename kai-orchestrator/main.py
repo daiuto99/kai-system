@@ -1089,7 +1089,7 @@ def run_capability_endpoint(name: str, body: dict, request: Request):
 
     # Autonomy policy gate — consulted before destructive gate
     from policy.autonomy import check_policy
-    _policy_action, _policy_reason = check_policy(name, caller)
+    _policy_action, _policy_reason = check_policy(name, caller, inputs)
     if _policy_action in {"block_never", "block_unlisted"}:
         raise HTTPException(status_code=403, detail=_policy_reason)
 

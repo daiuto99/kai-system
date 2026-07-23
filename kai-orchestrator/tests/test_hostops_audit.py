@@ -171,3 +171,24 @@ def test_non_mutation_capability_is_not_audited(tmp_path, monkeypatch):
 
     conn = _factory(tmp_path / "orch.db")()
     assert conn.execute("SELECT COUNT(*) c FROM hostops_audit").fetchone()["c"] == 0
+
+
+def test_skipped_hostops_step_is_not_audited_as_a_mutation(tmp_path, monkeypatch):
+    conn = _setup(tmp_path, monkeypatch)
+    conn.commit()
+    conn.close()
+    result = types.SimpleNamespace(ok=True, verification={"verified": True}, data={"skipped": True})
+    hostops_audit.record_mutation("job1", "step1", "hostops.place_secret", "site-a", result)
+    conn = _factory(tmp_path / "orch.db")()
+    assert conn.execute("SELECT COUNT(*) c FROM hostops_audit").fetchone()["c"] == 0
+
+
+def test_autonomous_execution_is_reconciled_without_a_gate(tmp_path, monkeypatch):
+    conn = _setup(tmp_path, monkeypatch)
+    conn.execute(
+        "INSERT INTO hostops_audit (id,ts,job_id,step_id,actor,operation,site,gate_id,authorization,outcome) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        ("a1", "2026-07-23T00:00:01Z", "job1", "step1", "cloudways-app:leo", "deploy_plugin", "leo-site", None, "autonomous", "succeeded"),
+    )
+    conn.commit()
+    conn.close()
+    assert hostops_audit.reconcile()["ok"] is True

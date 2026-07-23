@@ -117,6 +117,30 @@ def test_gate_skips_when_op_not_requested():
     gate.assert_not_called()
 
 
+def test_low_risk_leo_owned_op_skips_council_gate(monkeypatch):
+    gate = mock.Mock()
+    monkeypatch.setattr("policy.autonomy.check_policy", lambda *args: ("allow", "low-risk Leo-owned action"))
+    with mock.patch("capabilities.get_capability", return_value=gate):
+        result = _wf()._run_gate(
+            "deploy_plugin_gate", {"id": "s3"}, {"site": "site-a", "plugin": "kai-publish-gate"}
+        )
+    assert result.ok and result.data["skipped"] is True
+    assert "autonomous" in result.data["reason"]
+    gate.assert_not_called()
+
+
+def test_external_or_high_risk_op_still_opens_bound_gate(monkeypatch):
+    gate = mock.Mock(return_value=CapabilityResult(ok=True, status="awaiting_gate", data={"gate_id": "g3"}, verification={"verified": False}))
+    monkeypatch.setattr("policy.autonomy.check_policy", lambda *args: ("requires_approval", "external-facing"))
+    with (
+        mock.patch("capabilities.get_capability", return_value=gate),
+        mock.patch("capabilities.hostops.audit_identity", return_value="cloudways-app:app1:usr1"),
+    ):
+        result = _wf()._run_gate("deploy_plugin_gate", {"id": "s3"}, {"site": "site-a", "plugin": "kai-publish-gate"})
+    assert result.status == "awaiting_gate"
+    assert gate.call_args.kwargs["brief"]["site"] == "site-a"
+
+
 # ── Exec steps fail closed without a resolved gate ─────────────────────────────
 
 def test_place_secret_exec_refuses_without_resolved_gate():

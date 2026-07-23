@@ -80,3 +80,16 @@ def test_requires_approval_applies_to_every_authenticated_identity(monkeypatch):
             json={"caller": "admin", "inputs": {"path": "x", "content": "x"}},
         )
     assert response.status_code == 403
+
+
+def test_hostops_policy_defers_to_org_model_with_trusted_owner(tmp_path, monkeypatch):
+    from policy import autonomy
+    sites = tmp_path / "wordpress_sites.json"
+    sites.write_text('{"sites":{"leo-site":{"owner":"leo"},"client-site":{"owner":"client"}}}')
+    org = tmp_path / "org_model.json"
+    org.write_text('{"routing_rules":{"infrastructure_task":{"high_risk_threshold":["structural change"]}}}')
+    monkeypatch.setattr(autonomy, "_SITES_JSON", sites)
+    monkeypatch.setattr("autonomy_decisions._ORG_MODEL_PATH", org)
+    assert autonomy.check_policy("hostops.deploy_plugin", "caller", {"site": "leo-site", "plugin": "kai-publish-gate"})[0] == "allow"
+    assert autonomy.check_policy("hostops.deploy_plugin", "caller", {"site": "client-site", "plugin": "kai-publish-gate"})[0] == "requires_approval"
+    assert autonomy.check_policy("hostops.deploy_plugin", "caller", {"site": "leo-site", "risk": "structural change"})[0] == "requires_approval"

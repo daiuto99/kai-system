@@ -156,8 +156,12 @@ def _safe_error(exc: Exception) -> CapabilityResult:
     return CapabilityResult(ok=False, status="failed_final", error={"type": "hostops_unavailable", "message": str(exc)})
 
 
-def _gate(gate_id: object, operation: str, site: str) -> str | None:
-    """Accept only a persistent, approved, operation/site-bound single-use gate."""
+def _gate(gate_id: object, operation: str, site: str, **inputs) -> str | None:
+    """Use org-model policy; consume a bound human gate only when required."""
+    from policy.autonomy import check_policy
+    policy_action, _ = check_policy(f"hostops.{operation}", "workflow", {"site": site, **inputs})
+    if policy_action == "allow":
+        return "autonomous"
     if not isinstance(gate_id, str) or not gate_id:
         return None
     from engine import engine
@@ -206,14 +210,16 @@ def place_secret(site: str, secret_name: str, secret: InMemorySecret, gate_id: o
     """Define the publish-gate secret in wp-config, only after a verified gate."""
     if not _SAFE_SECRET_NAME.fullmatch(secret_name) or not isinstance(secret, InMemorySecret):
         return CapabilityResult(ok=False, status="failed_final", error={"type": "input_not_allowed"})
-    approved = _gate(gate_id, "place_secret", site)
+    approved = _gate(gate_id, "place_secret", site, secret_name=secret_name)
     if approved is None:
         return CapabilityResult(ok=False, status="failed_final", error={"type": "gate_required"})
     try:
         target = _context(site)
         proof = (transport or OpenSshTransport()).place_secret(target, secret.material)
         if proof.get("written") and proof.get("read_back"):
-            return CapabilityResult(ok=True, status="succeeded", data={"identity": target.audit_identity, "secret_name": secret_name}, verification={"verified": True, "evidence": {**proof, "gate_id": approved}}, transport_used="hostops_ssh")
+            evidence = {**proof, "authorization": "autonomous" if approved == "autonomous" else "gate"}
+            if approved != "autonomous": evidence["gate_id"] = approved
+            return CapabilityResult(ok=True, status="succeeded", data={"identity": target.audit_identity, "secret_name": secret_name}, verification={"verified": True, "evidence": evidence}, transport_used="hostops_ssh")
         return CapabilityResult(ok=False, status="failed_recoverable", error={"type": "hostops_write_failed"})
     except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
         return _safe_error(exc)
@@ -224,14 +230,16 @@ def deploy_plugin(site: str, plugin: str, gate_id: object = None, *, transport: 
     """Deploy only a named, allowlisted plugin after a verified gate handle."""
     if plugin not in _PLUGIN_ALLOWLIST:
         return CapabilityResult(ok=False, status="failed_final", error={"type": "plugin_not_allowed"})
-    approved = _gate(gate_id, "deploy_plugin", site)
+    approved = _gate(gate_id, "deploy_plugin", site, plugin=plugin)
     if approved is None:
         return CapabilityResult(ok=False, status="failed_final", error={"type": "gate_required"})
     try:
         target = _context(site)
         proof = (transport or OpenSshTransport()).deploy_plugin(target, plugin)
         if proof.get("deployed") and proof.get("read_back"):
-            return CapabilityResult(ok=True, status="succeeded", data={"identity": target.audit_identity, "plugin": plugin}, verification={"verified": True, "evidence": {**proof, "gate_id": approved}}, transport_used="hostops_ssh")
+            evidence = {**proof, "authorization": "autonomous" if approved == "autonomous" else "gate"}
+            if approved != "autonomous": evidence["gate_id"] = approved
+            return CapabilityResult(ok=True, status="succeeded", data={"identity": target.audit_identity, "plugin": plugin}, verification={"verified": True, "evidence": evidence}, transport_used="hostops_ssh")
         return CapabilityResult(ok=False, status="failed_recoverable", error={"type": "plugin_deploy_failed"})
     except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
         return _safe_error(exc)

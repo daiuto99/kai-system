@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS hostops_audit (
     operation  TEXT NOT NULL,
     site       TEXT,
     gate_id    TEXT,
+    authorization TEXT,
     outcome    TEXT NOT NULL
 )
 """
@@ -54,6 +55,9 @@ def _ensure_table(conn) -> None:
     # also runs under tests with a minimal DB — create-if-not-exists keeps both
     # the write and the reconcile paths robust without a migration ordering rule.
     conn.execute(_CREATE_TABLE)
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(hostops_audit)").fetchall()}
+    if "authorization" not in columns:
+        conn.execute("ALTER TABLE hostops_audit ADD COLUMN authorization TEXT")
 
 
 def _consumed_gate(conn, job_id: str, operation: str, site: str):
@@ -91,14 +95,21 @@ def record_mutation(job_id: str, step_id: str, capability: str, site: str, resul
     if operation is None:
         return  # not a hostops mutation — nothing to audit
 
+    # Workflow branch skips are verified no-ops, not host mutations.  Recording
+    # one as an execution creates a false gate_id=None reconciliation alert.
+    data = getattr(result, "data", None) or {}
+    if isinstance(data, dict) and data.get("skipped"):
+        return
+
     outcome = "succeeded" if getattr(result, "ok", False) else "failed"
 
     gate_id = None
+    authorization = None
     verification = getattr(result, "verification", None) or {}
     evidence = verification.get("evidence", {}) if isinstance(verification, dict) else {}
     if isinstance(evidence, dict):
         gate_id = evidence.get("gate_id")
-    data = getattr(result, "data", None) or {}
+        authorization = evidence.get("authorization")
     actor = data.get("identity") if isinstance(data, dict) else None
 
     conn = get_conn()
@@ -110,9 +121,9 @@ def record_mutation(job_id: str, step_id: str, capability: str, site: str, resul
             if actor is None and brief:
                 actor = brief.get("audit_identity")
         conn.execute(
-            "INSERT INTO hostops_audit (id,ts,job_id,step_id,actor,operation,site,gate_id,outcome) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (new_id(), now_iso(), job_id, step_id, actor, operation, site, gate_id, outcome),
+            "INSERT INTO hostops_audit (id,ts,job_id,step_id,actor,operation,site,gate_id,authorization,outcome) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (new_id(), now_iso(), job_id, step_id, actor, operation, site, gate_id, authorization, outcome),
         )
         conn.commit()
         logger.info("hostops audit: %s by %s on %s outcome=%s gate=%s",
@@ -132,6 +143,8 @@ def _reconcile_one(conn, record) -> str | None:
     gate_id = record["gate_id"]
     operation = record["operation"]
     site = record["site"]
+    if record["authorization"] == "autonomous":
+        return None
     if not gate_id:
         return "executed mutation has no gate_id"
     row = conn.execute(
@@ -166,7 +179,7 @@ def reconcile() -> dict:
         conn = get_conn()  # inside the try: a connection-time failure IS the "store unreadable" case
         _ensure_table(conn)
         records = conn.execute(
-            "SELECT id,ts,job_id,actor,operation,site,gate_id,outcome FROM hostops_audit ORDER BY ts"
+            "SELECT id,ts,job_id,actor,operation,site,gate_id,authorization,outcome FROM hostops_audit ORDER BY ts"
         ).fetchall()
         unreconciled = []
         for record in records:
