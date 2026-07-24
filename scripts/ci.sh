@@ -7,6 +7,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+python3 scripts/green_baseline.py
+
 SERVICES=(
     "kai-worker-api:kai-worker-api"
     "kai-council-api:kai-council-api"
@@ -51,7 +53,8 @@ echo "  whole-repo guards"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 python3 -m pytest -v --tb=short -m whole_repo \
     kai-worker-api/tests/test_internal_auth_guard.py \
-    scripts/tests/test_ruff_baseline.py || FAIL=1
+    scripts/tests/test_ruff_baseline.py \
+    scripts/tests/test_green_baseline.py || FAIL=1
 PYTHONPATH="$ROOT/kai-council-api" python3 -m pytest -v --tb=short -m whole_repo \
     kai-council-api/tests/test_kai807_council_boundary.py || FAIL=1
 
@@ -61,4 +64,4 @@ if [ "$FAIL" -ne 0 ]; then
     exit 1
 fi
 
-echo "[PASS] All services: baseline ruff + service tests + whole-repo guards green."
+echo "[PASS] All services: green baseline + baseline ruff + service tests + whole-repo guards green."
