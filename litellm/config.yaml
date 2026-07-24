@@ -34,6 +34,14 @@ model_list:
       model: ollama_chat/qwen2.5:7b
       api_base: http://kai-ollama:11434
 
+  # Intel Mac mini (71-kai-mini) local-inference node — AR-0, added 2026-07-24.
+  # CPU/64GB node reached over Tailscale; ~1.23x the worker CPU. Additive alias;
+  # default local route stays on kai-ollama until fallback wiring lands (tracked).
+  - model_name: qwen-mid-mini
+    litellm_params:
+      model: ollama_chat/qwen2.5:7b
+      api_base: http://100.106.160.41:11434
+
 litellm_settings:
   drop_params: true
   request_timeout: 90
