@@ -96,22 +96,33 @@ try:
                 os.remove(work)
     check("F3 undo reversal (mutate -> restore -> mutation gone)", reversal_ok, detail)
 finally:
-    # Fail-closed cleanup: ALWAYS runs, even if the probe raised. (New issue, Codex.)
+    # Fail-closed cleanup: ALWAYS runs, and BOTH container and directory residue
+    # are VERIFIED gone. env.cleanup() exceptions are only warnings, so we also
+    # force-remove the container by name and confirm it no longer exists — a
+    # teardown exception can no longer silently leak a container. (Codex final.)
+    cname = getattr(env, "_container_name", "") or ""
     try:
         env.cleanup(force_remove=True)
         env.wait_for_cleanup(timeout=20)
     except Exception as e:
         print(f"(cleanup warning: container teardown: {e})")
-    r = subprocess.run(
+    if cname:
+        subprocess.run(["docker", "rm", "-f", cname], capture_output=True, text=True)
+    container_gone = True
+    if cname:
+        container_gone = subprocess.run(
+            ["docker", "ps", "-aq", "--filter", f"name=^{cname}$"],
+            capture_output=True, text=True).stdout.strip() == ""
+    subprocess.run(
         ["docker", "run", "--rm", "-v", f"{os.path.join(HBASE,'sandboxes','docker')}:/x",
          "alpine", "rm", "-rf", f"/x/{TASK}"],
         capture_output=True, text=True,
     )
-    residue_removed = (r.returncode == 0) and not os.path.exists(
-        os.path.join(HBASE, "sandboxes", "docker", TASK))
+    dir_gone = not os.path.exists(os.path.join(HBASE, "sandboxes", "docker", TASK))
+    residue_removed = container_gone and dir_gone
 
 if residue_removed is False:
-    check("probe cleanup (no residue)", False, "sandbox dir remained after cleanup")
+    check("probe cleanup (no residue)", False, "container or sandbox dir remained after cleanup")
 
 print("=== KAI-959 SAFETY-FLOOR PROBE RESULTS (live-config driven) ===")
 for inv, verdict, detail in results:
