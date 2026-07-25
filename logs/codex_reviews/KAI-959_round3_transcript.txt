@@ -1,0 +1,551 @@
+Reading additional input from stdin...
+OpenAI Codex v0.145.0
+--------
+workdir: /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019f9a2f-b552-7e23-81e8-b284bfeda19c
+--------
+user
+Independent VERIFIER for KAI-959 (cross-provider: Claude built, you verify). FINAL re-verification
+of kai-system commit c64ef27. READ-ONLY (worker via `ssh kai`; do not modify files/containers/
+Hermes state). You previously found these still-open items — confirm each is now closed, and hunt
+for any NEW regression the fixes introduced:
+  #2 Gate 0 bypassable by trailing override args (--network=host, --privileged, --user=0,
+     --read-only=false) since docker_extra_args is applied last.
+  #5 F3 was mechanism-only (readability), not a real reversal.
+  NEW(prev) Probe cleanup not fail-closed.
+
+DO:
+  1. ssh kai 'cd /home/leo/kai-system && git show --stat c64ef27' and read hermes_gate0.sh +
+     hermes_safety_floor_probes.py changes.
+  2. #2 — verify Gate 0 config check EXACT-matches docker_extra_args. PROVE it: build a temp
+     config that appends --network=host and --privileged after the hardened set and run
+     `ssh kai 'HERMES_CONFIG=/tmp/x.yaml /home/leo/kai-system/scripts/hermes_gate0.sh'` — expect
+     RED. Also run the real Gate 0 (default config) — expect GREEN. Clean up /tmp/x.yaml.
+  3. #5 — read the F3 block: confirm it MUTATES a temp DB seeded from the newest state-snapshot,
+     RESTORES from the snapshot, and asserts the mutation is gone (real reversal, temp-only).
+     Run the probe: ssh kai 'cd /home/leo/.hermes/hermes-agent && ./venv/bin/python /home/leo/kai-system/scripts/hermes_safety_floor_probes.py'
+     — expect F3 reversal PASS and overall GREEN.
+  4. NEW — confirm cleanup is in a finally block that always runs and verifies residue removal;
+     confirm ssh kai 'ls /home/leo/.hermes/sandboxes/docker/' has no kai959floorprobe.
+  5. ssh kai 'cd /home/leo/kai-system && python3 scripts/green_baseline.py' → GREEN.
+  6. Confirm no reusable unhardened labeled containers: ssh kai 'docker ps -a --filter label=hermes-agent=1 -q | wc -l' == 0.
+
+OUTPUT exactly:
+  KAI-959 FINAL — <PASS | FAIL>
+  #2: <closed/open + one line>
+  #5: <closed/open + one line>
+  cleanup: <closed/open + one line>
+  GATE0: <green/red>  BYPASS-REJECTED: <yes/no>  PROBE: <green/red>  BASELINE: <green/red>
+  NEW REGRESSIONS: <list or none>
+  RECOMMENDATION: <mark Plane 21ef40be Done | do NOT close — reason>
+codex
+I’ll perform the requested read-only SSH verification, including the temporary config test and its cleanup, then return only the exact output format you specified.
+exec
+/bin/zsh -lc "ssh kai 'cd /home/leo/kai-system && git show --stat --oneline c64ef27 && git show --format=fuller --no-ext-diff c64ef27 -- scripts/hermes_gate0.sh scripts/hermes_safety_floor_probes.py'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 143ms:
+c64ef27 KAI-959: close remaining Codex findings (#2 Gate0 bypass, #5 F3 reversal, cleanup)
+ scripts/hermes_gate0.sh               |  11 ++--
+ scripts/hermes_safety_floor_probes.py | 116 ++++++++++++++++++++--------------
+ 2 files changed, 74 insertions(+), 53 deletions(-)
+commit c64ef27300deceb32be74851087c5017bf9a447a
+Author:     Leo Daiuto <leo@kai-system.local>
+AuthorDate: Sat Jul 25 16:39:26 2026 +0000
+Commit:     Leo Daiuto <leo@kai-system.local>
+CommitDate: Sat Jul 25 16:39:26 2026 +0000
+
+    KAI-959: close remaining Codex findings (#2 Gate0 bypass, #5 F3 reversal, cleanup)
+    
+    #2: Gate 0 config check now EXACT-matches docker_extra_args, rejecting trailing
+      override syntax (--network=host, --privileged, --user=0, --read-only=false) that
+      Hermes applies last. Verified: bypass config -> GATE0 RED.
+    #5: F3 probe now performs a real snapshot reversal — seed temp DB from newest
+      state-snapshot, mutate, restore, assert mutation gone (safe: temp copy only).
+    New issue: probe cleanup is fail-closed (try/finally always runs; residue removal
+      verified).
+    
+    Re-verified: Gate 0 GREEN, adversarial bypass RED, F1/F2/F3 GREEN.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/scripts/hermes_gate0.sh b/scripts/hermes_gate0.sh
+index 0ad4346..27d3332 100755
+--- a/scripts/hermes_gate0.sh
++++ b/scripts/hermes_gate0.sh
+@@ -12,16 +12,19 @@ red(){ echo "GATE0 RED — $1"; exit 1; }
+ # 1. Config posture — the locked hardened default profile. Fully validated:
+ #    backend, docker_network, exactly-one --network hermes-ember (no contradictory
+ #    trailing flag), --read-only, non-root. (Findings #2/#4, Codex verify 2026-07-25.)
+-"$PY" - "$CONFIG" <<'PY' || red "config posture (backend/docker_network/run_as_host_user/--read-only/single --network hermes-ember)"
++"$PY" - "$CONFIG" <<'PY' || red "config posture (backend/docker_network/run_as_host_user/docker_extra_args exact-match)"
+ import sys, yaml
+ t = (yaml.safe_load(open(sys.argv[1])) or {}).get("terminal", {})
+ ex = t.get("docker_extra_args", []) or []
+ assert t.get("backend") == "docker", "terminal.backend != docker"
+ assert t.get("docker_network") is True, "terminal.docker_network is not true"
+ assert t.get("docker_run_as_host_user") is True, "docker_run_as_host_user is not true"
+-assert "--read-only" in ex, "docker_extra_args missing --read-only"
+-assert ex.count("--network") == 1, "docker_extra_args must contain exactly one --network"
+-assert ex[ex.index("--network") + 1] == "hermes-ember", "--network value is not hermes-ember"
++# EXACT match — docker_extra_args is applied LAST and overrides defaults, so any
++# extra/trailing token (e.g. --network=host, --privileged, --user=0,
++# --read-only=false) could silently weaken posture. Only the exact hardened set
++# passes. Widening the profile is a deliberate edit here. (Finding #2, Codex.)
++assert ex == ["--read-only", "--network", "hermes-ember"], \
++    f"docker_extra_args must be EXACTLY ['--read-only','--network','hermes-ember'], got {ex}"
+ PY
+ 
+ # 2. Egress network posture — internal net; ONLY kai-litellm + hermes sandboxes attached
+diff --git a/scripts/hermes_safety_floor_probes.py b/scripts/hermes_safety_floor_probes.py
+index e218d47..a3dcc24 100755
+--- a/scripts/hermes_safety_floor_probes.py
++++ b/scripts/hermes_safety_floor_probes.py
+@@ -2,19 +2,17 @@
+ """KAI-959 Safety-Floor probes (F1/F2/F3) — portable.
+ 
+ Creates a throwaway sandbox via Hermes's OWN DockerEnvironment, driven by the
+-LIVE default-profile config (not hardcoded args — finding #3, Codex verify
+-2026-07-25), actively probes the three safety-floor invariants, safely
+-demonstrates F3 snapshot restorability, cleans up fully (incl. root-owned
+-mountpoints), and prints a bucketed verdict. Exit 0 only if all SAFETY-FLOOR
+-checks pass.
++LIVE default-profile config, actively probes the three safety-floor invariants,
++performs a REAL snapshot mutate->restore->verify reversal (safely, on a temp DB
++seeded from the newest state-snapshot), and cleans up fail-closed (cleanup always
++runs and residue removal is verified). Exit 0 only if all SAFETY-FLOOR checks pass.
+ 
+-Runs unchanged on the mini (ticket 864c4804) once a docker runtime + Hermes are
+-provisioned there. Buckets per docs/HERMES_CHASSIS_SPIKE_DESIGN.md §2:
+-SAFETY FLOOR = non-negotiable; a fail is RED and reported, never re-bucketed.
++Runs unchanged on the mini (ticket 864c4804) once docker + Hermes are provisioned.
++Buckets per docs/HERMES_CHASSIS_SPIKE_DESIGN.md §2: SAFETY FLOOR = non-negotiable.
+ """
+ import sys, os, subprocess, glob, sqlite3, shutil, tempfile, yaml
+ AGENT = os.environ.get("HERMES_AGENT_DIR", "/home/leo/.hermes/hermes-agent")
+-HBASE = os.path.dirname(AGENT)  # /home/leo/.hermes
++HBASE = os.path.dirname(AGENT)
+ sys.path.insert(0, AGENT)
+ os.chdir(AGENT)
+ from tools.environments.docker import DockerEnvironment
+@@ -22,8 +20,6 @@ from tools.environments.docker import DockerEnvironment
+ IMAGE = os.environ.get("HERMES_SANDBOX_IMAGE", "nikolaik/python-nodejs:python3.11-nodejs20")
+ TASK = "kai959floorprobe"
+ 
+-# Drive the probe from the LIVE default-profile config, so it verifies the real
+-# shipped profile — not an author-chosen set of hardened flags.
+ t = (yaml.safe_load(open(os.path.join(HBASE, "config.yaml"))) or {}).get("terminal", {})
+ env = DockerEnvironment(
+     image=IMAGE, persistent_filesystem=True, task_id=TASK,
+@@ -43,57 +39,79 @@ echo "EMBER=$(curl -s -o /dev/null -w '%{http_code}' --max-time 6 http://kai-lit
+ echo "CLOUD=$(curl -s -o /dev/null -w '%{http_code}' --max-time 6 https://api.openai.com 2>/dev/null)"
+ touch /workspace/w 2>/dev/null && echo "WS=writable" || echo "WS=readonly"
+ """
+-raw = env.execute(PROBE)
+-out = raw.get("output") if isinstance(raw, dict) else str(raw)
+-kv = dict(l.split("=", 1) for l in out.splitlines() if "=" in l and not l.startswith(" "))
+ 
+ results = []
+ def check(inv, ok, detail):
+     results.append((inv, "PASS" if ok else "CONCERN", detail))
+ 
+-# F1 — sandbox escape
+-check("F1 non-root user",      kv.get("UID") not in (None, "0"),          f"uid={kv.get('UID')}")
+-check("F1 read-only rootfs",   kv.get("ROOTFS") == "readonly",            kv.get("ROOTFS"))
+-check("F1 no docker.sock",     kv.get("SOCK") == "absent",                kv.get("SOCK"))
+-check("F1 caps dropped",       (kv.get("CAPEFF") or "").strip() == "0000000000000000", f"CapEff={kv.get('CAPEFF')}")
+-check("F1 workspace writable", kv.get("WS") == "writable",                kv.get("WS"))
+-# F2 — egress lockdown
+-check("F2 Ember reachable",    kv.get("EMBER") == "200",                  f"health={kv.get('EMBER')}")
+-check("F2 cloud blocked",      (kv.get("CLOUD", "") in ("000", "")),      f"cloud={kv.get('CLOUD')} (000=no route)")
+-
+-# F3 — recoverability: audit trail populated + a REAL (safe) snapshot restore.
+-# We copy the newest state-snapshot DB to a temp file and open it, proving the
+-# undo artifact actually restores to a valid Hermes state DB — WITHOUT touching
+-# live state (finding #5). This is a genuine reversal test on a copy.
+-audit_ok = (os.path.getsize(os.path.join(HBASE, "state.db")) > 0
+-            and len(os.listdir(os.path.join(HBASE, "sessions"))) > 0)
+-check("F3 audit trail present", audit_ok, "state.db + sessions/ populated")
+-
+-snaps = sorted(glob.glob(os.path.join(HBASE, "state-snapshots", "*", "state.db")))
+-tables = []
+-if snaps:
+-    tmp = tempfile.mktemp(suffix=".db")
+-    shutil.copy(snaps[-1], tmp)
++def _tables(db):
++    con = sqlite3.connect(db)
+     try:
+-        con = sqlite3.connect(tmp)
+-        tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+-        con.close()
++        return {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+     finally:
+-        os.remove(tmp)
+-check("F3 undo restorable (snapshot DB loads to valid Hermes state)",
+-      bool(snaps) and len(tables) > 0,
+-      f"{len(snaps)} snapshot(s); newest restores to {len(tables)} tables")
++        con.close()
+ 
+-# cleanup — container + host sandbox dir (incl. root-owned skills mountpoint, finding #3)
++residue_removed = None
+ try:
+-    env.cleanup(force_remove=True)
+-    env.wait_for_cleanup(timeout=20)
++    raw = env.execute(PROBE)
++    out = raw.get("output") if isinstance(raw, dict) else str(raw)
++    kv = dict(l.split("=", 1) for l in out.splitlines() if "=" in l and not l.startswith(" "))
++
++    # F1 — sandbox escape
++    check("F1 non-root user",      kv.get("UID") not in (None, "0"),          f"uid={kv.get('UID')}")
++    check("F1 read-only rootfs",   kv.get("ROOTFS") == "readonly",            kv.get("ROOTFS"))
++    check("F1 no docker.sock",     kv.get("SOCK") == "absent",                kv.get("SOCK"))
++    check("F1 caps dropped",       (kv.get("CAPEFF") or "").strip() == "0000000000000000", f"CapEff={kv.get('CAPEFF')}")
++    check("F1 workspace writable", kv.get("WS") == "writable",                kv.get("WS"))
++    # F2 — egress lockdown
++    check("F2 Ember reachable",    kv.get("EMBER") == "200",                  f"health={kv.get('EMBER')}")
++    check("F2 cloud blocked",      kv.get("CLOUD", "") in ("000", ""),        f"cloud={kv.get('CLOUD')} (000=no route)")
++
++    # F3 — audit trail populated
++    audit_ok = (os.path.getsize(os.path.join(HBASE, "state.db")) > 0
++                and len(os.listdir(os.path.join(HBASE, "sessions"))) > 0)
++    check("F3 audit trail present", audit_ok, "state.db + sessions/ populated")
++
++    # F3 — REAL reversal: seed a temp DB from the newest snapshot, mutate it,
++    # restore the snapshot over it, and prove the mutation is gone. Safe: only a
++    # temp copy is touched; live state is never modified. (Finding #5.)
++    snaps = sorted(glob.glob(os.path.join(HBASE, "state-snapshots", "*", "state.db")))
++    reversal_ok, detail = False, "no state-snapshot found"
++    if snaps:
++        work = tempfile.mktemp(suffix=".db")
++        try:
++            shutil.copy(snaps[-1], work)
++            base = _tables(work)
++            con = sqlite3.connect(work)
++            con.execute("CREATE TABLE kai959_reversal_probe(x)")
++            con.execute("INSERT INTO kai959_reversal_probe VALUES (1)")
++            con.commit(); con.close()
++            mutated = "kai959_reversal_probe" in _tables(work)
++            shutil.copy(snaps[-1], work)              # the undo operation
++            after = _tables(work)
++            reversal_ok = mutated and "kai959_reversal_probe" not in after and after == base
++            detail = f"mutated={mutated}, restored_clean={'kai959_reversal_probe' not in after}, tables={len(after)}"
++        finally:
++            if os.path.exists(work):
++                os.remove(work)
++    check("F3 undo reversal (mutate -> restore -> mutation gone)", reversal_ok, detail)
+ finally:
+-    subprocess.run(
++    # Fail-closed cleanup: ALWAYS runs, even if the probe raised. (New issue, Codex.)
++    try:
++        env.cleanup(force_remove=True)
++        env.wait_for_cleanup(timeout=20)
++    except Exception as e:
++        print(f"(cleanup warning: container teardown: {e})")
++    r = subprocess.run(
+         ["docker", "run", "--rm", "-v", f"{os.path.join(HBASE,'sandboxes','docker')}:/x",
+          "alpine", "rm", "-rf", f"/x/{TASK}"],
+-        capture_output=True,
++        capture_output=True, text=True,
+     )
++    residue_removed = (r.returncode == 0) and not os.path.exists(
++        os.path.join(HBASE, "sandboxes", "docker", TASK))
++
++if residue_removed is False:
++    check("probe cleanup (no residue)", False, "sandbox dir remained after cleanup")
+ 
+ print("=== KAI-959 SAFETY-FLOOR PROBE RESULTS (live-config driven) ===")
+ for inv, verdict, detail in results:
+
+exec
+/bin/zsh -lc "ssh kai 'cd /home/leo/kai-system && sed -n \"1,240p\" scripts/hermes_gate0.sh && sed -n \"1,300p\" scripts/hermes_safety_floor_probes.py'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 198ms:
+#!/usr/bin/env bash
+# KAI-959 Gate 0 — fail-closed check that the Hermes hardened default profile is
+# in force. READ-ONLY. Exit 0 = GREEN, exit 1 = RED (names the first failing
+# invariant). Mirrors the KAI-958 green-baseline pattern. Portable: the mini
+# ticket (864c4804) runs this unchanged once the mini is provisioned.
+set -uo pipefail
+CONFIG=${HERMES_CONFIG:-/home/leo/.hermes/config.yaml}
+NET=${HERMES_EMBER_NET:-hermes-ember}
+PY=${HERMES_PY:-/home/leo/.hermes/hermes-agent/venv/bin/python}
+red(){ echo "GATE0 RED — $1"; exit 1; }
+
+# 1. Config posture — the locked hardened default profile. Fully validated:
+#    backend, docker_network, exactly-one --network hermes-ember (no contradictory
+#    trailing flag), --read-only, non-root. (Findings #2/#4, Codex verify 2026-07-25.)
+"$PY" - "$CONFIG" <<'PY' || red "config posture (backend/docker_network/run_as_host_user/docker_extra_args exact-match)"
+import sys, yaml
+t = (yaml.safe_load(open(sys.argv[1])) or {}).get("terminal", {})
+ex = t.get("docker_extra_args", []) or []
+assert t.get("backend") == "docker", "terminal.backend != docker"
+assert t.get("docker_network") is True, "terminal.docker_network is not true"
+assert t.get("docker_run_as_host_user") is True, "docker_run_as_host_user is not true"
+# EXACT match — docker_extra_args is applied LAST and overrides defaults, so any
+# extra/trailing token (e.g. --network=host, --privileged, --user=0,
+# --read-only=false) could silently weaken posture. Only the exact hardened set
+# passes. Widening the profile is a deliberate edit here. (Finding #2, Codex.)
+assert ex == ["--read-only", "--network", "hermes-ember"], \
+    f"docker_extra_args must be EXACTLY ['--read-only','--network','hermes-ember'], got {ex}"
+PY
+
+# 2. Egress network posture — internal net; ONLY kai-litellm + hermes sandboxes attached
+docker network inspect "$NET" >/dev/null 2>&1 || red "network $NET missing"
+[ "$(docker network inspect "$NET" --format '{{.Internal}}')" = "true" ] || red "$NET is not internal"
+docker network inspect "$NET" --format '{{range .Containers}}{{.Name}} {{end}}' \
+  | grep -qw kai-litellm || red "kai-litellm not attached to $NET"
+for cname in $(docker network inspect "$NET" --format '{{range .Containers}}{{.Name}} {{end}}'); do
+  [ "$cname" = "kai-litellm" ] && continue
+  [ "$(docker inspect -f '{{index .Config.Labels "hermes-agent"}}' "$cname" 2>/dev/null)" = "1" ] \
+    || red "$NET has unexpected (non-Ember, non-hermes) attachment: $cname"
+done
+
+# 3. Live sandbox posture — every hermes-agent=1 container (running OR stopped, since
+#    Hermes reuse matches labels across all states — finding #1) must conform.
+for c in $(docker ps -aq --filter label=hermes-agent=1); do
+  n=$(docker inspect -f '{{.Name}}' "$c" | sed 's#^/##')
+  [ "$(docker inspect -f '{{.Config.User}}' "$c")" = "1000:1000" ] || red "$n: user != 1000:1000 (root)"
+  [ "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$c")" = "true" ] || red "$n: rootfs not read-only"
+  docker inspect -f '{{json .HostConfig.CapDrop}}' "$c" | grep -q '"ALL"' || red "$n: cap-drop ALL missing"
+  docker inspect -f '{{json .HostConfig.SecurityOpt}}' "$c" | grep -q no-new-privileges || red "$n: no-new-privileges missing"
+  nets=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$c" | xargs)
+  [ "$nets" = "$NET" ] || red "$n: networks != {$NET} (got: $nets)"
+done
+
+echo "GATE0 GREEN — Hermes hardened default profile in force (config + $NET + $(docker ps -aq --filter label=hermes-agent=1 | wc -l | xargs) labeled sandbox(es), all conforming)"
+#!/usr/bin/env python3
+"""KAI-959 Safety-Floor probes (F1/F2/F3) — portable.
+
+Creates a throwaway sandbox via Hermes's OWN DockerEnvironment, driven by the
+LIVE default-profile config, actively probes the three safety-floor invariants,
+performs a REAL snapshot mutate->restore->verify reversal (safely, on a temp DB
+seeded from the newest state-snapshot), and cleans up fail-closed (cleanup always
+runs and residue removal is verified). Exit 0 only if all SAFETY-FLOOR checks pass.
+
+Runs unchanged on the mini (ticket 864c4804) once docker + Hermes are provisioned.
+Buckets per docs/HERMES_CHASSIS_SPIKE_DESIGN.md §2: SAFETY FLOOR = non-negotiable.
+"""
+import sys, os, subprocess, glob, sqlite3, shutil, tempfile, yaml
+AGENT = os.environ.get("HERMES_AGENT_DIR", "/home/leo/.hermes/hermes-agent")
+HBASE = os.path.dirname(AGENT)
+sys.path.insert(0, AGENT)
+os.chdir(AGENT)
+from tools.environments.docker import DockerEnvironment
+
+IMAGE = os.environ.get("HERMES_SANDBOX_IMAGE", "nikolaik/python-nodejs:python3.11-nodejs20")
+TASK = "kai959floorprobe"
+
+t = (yaml.safe_load(open(os.path.join(HBASE, "config.yaml"))) or {}).get("terminal", {})
+env = DockerEnvironment(
+    image=IMAGE, persistent_filesystem=True, task_id=TASK,
+    cpu=t.get("container_cpu", 1), memory=t.get("container_memory", 5120),
+    disk=t.get("container_disk", 51200),
+    network=t.get("docker_network", True),
+    run_as_host_user=t.get("docker_run_as_host_user", False),
+    extra_args=t.get("docker_extra_args", []) or [],
+)
+
+PROBE = r"""
+echo "UID=$(id -u)"
+touch /rootfs_probe 2>/dev/null && echo "ROOTFS=writable" || echo "ROOTFS=readonly"
+test -S /var/run/docker.sock && echo "SOCK=present" || echo "SOCK=absent"
+echo "CAPEFF=$(awk '/CapEff/{print $2}' /proc/self/status)"
+echo "EMBER=$(curl -s -o /dev/null -w '%{http_code}' --max-time 6 http://kai-litellm:4000/health/liveliness)"
+echo "CLOUD=$(curl -s -o /dev/null -w '%{http_code}' --max-time 6 https://api.openai.com 2>/dev/null)"
+touch /workspace/w 2>/dev/null && echo "WS=writable" || echo "WS=readonly"
+"""
+
+results = []
+def check(inv, ok, detail):
+    results.append((inv, "PASS" if ok else "CONCERN", detail))
+
+def _tables(db):
+    con = sqlite3.connect(db)
+    try:
+        return {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        con.close()
+
+residue_removed = None
+try:
+    raw = env.execute(PROBE)
+    out = raw.get("output") if isinstance(raw, dict) else str(raw)
+    kv = dict(l.split("=", 1) for l in out.splitlines() if "=" in l and not l.startswith(" "))
+
+    # F1 — sandbox escape
+    check("F1 non-root user",      kv.get("UID") not in (None, "0"),          f"uid={kv.get('UID')}")
+    check("F1 read-only rootfs",   kv.get("ROOTFS") == "readonly",            kv.get("ROOTFS"))
+    check("F1 no docker.sock",     kv.get("SOCK") == "absent",                kv.get("SOCK"))
+    check("F1 caps dropped",       (kv.get("CAPEFF") or "").strip() == "0000000000000000", f"CapEff={kv.get('CAPEFF')}")
+    check("F1 workspace writable", kv.get("WS") == "writable",                kv.get("WS"))
+    # F2 — egress lockdown
+    check("F2 Ember reachable",    kv.get("EMBER") == "200",                  f"health={kv.get('EMBER')}")
+    check("F2 cloud blocked",      kv.get("CLOUD", "") in ("000", ""),        f"cloud={kv.get('CLOUD')} (000=no route)")
+
+    # F3 — audit trail populated
+    audit_ok = (os.path.getsize(os.path.join(HBASE, "state.db")) > 0
+                and len(os.listdir(os.path.join(HBASE, "sessions"))) > 0)
+    check("F3 audit trail present", audit_ok, "state.db + sessions/ populated")
+
+    # F3 — REAL reversal: seed a temp DB from the newest snapshot, mutate it,
+    # restore the snapshot over it, and prove the mutation is gone. Safe: only a
+    # temp copy is touched; live state is never modified. (Finding #5.)
+    snaps = sorted(glob.glob(os.path.join(HBASE, "state-snapshots", "*", "state.db")))
+    reversal_ok, detail = False, "no state-snapshot found"
+    if snaps:
+        work = tempfile.mktemp(suffix=".db")
+        try:
+            shutil.copy(snaps[-1], work)
+            base = _tables(work)
+            con = sqlite3.connect(work)
+            con.execute("CREATE TABLE kai959_reversal_probe(x)")
+            con.execute("INSERT INTO kai959_reversal_probe VALUES (1)")
+            con.commit(); con.close()
+            mutated = "kai959_reversal_probe" in _tables(work)
+            shutil.copy(snaps[-1], work)              # the undo operation
+            after = _tables(work)
+            reversal_ok = mutated and "kai959_reversal_probe" not in after and after == base
+            detail = f"mutated={mutated}, restored_clean={'kai959_reversal_probe' not in after}, tables={len(after)}"
+        finally:
+            if os.path.exists(work):
+                os.remove(work)
+    check("F3 undo reversal (mutate -> restore -> mutation gone)", reversal_ok, detail)
+finally:
+    # Fail-closed cleanup: ALWAYS runs, even if the probe raised. (New issue, Codex.)
+    try:
+        env.cleanup(force_remove=True)
+        env.wait_for_cleanup(timeout=20)
+    except Exception as e:
+        print(f"(cleanup warning: container teardown: {e})")
+    r = subprocess.run(
+        ["docker", "run", "--rm", "-v", f"{os.path.join(HBASE,'sandboxes','docker')}:/x",
+         "alpine", "rm", "-rf", f"/x/{TASK}"],
+        capture_output=True, text=True,
+    )
+    residue_removed = (r.returncode == 0) and not os.path.exists(
+        os.path.join(HBASE, "sandboxes", "docker", TASK))
+
+if residue_removed is False:
+    check("probe cleanup (no residue)", False, "sandbox dir remained after cleanup")
+
+print("=== KAI-959 SAFETY-FLOOR PROBE RESULTS (live-config driven) ===")
+for inv, verdict, detail in results:
+    print(f"  [{verdict}] {inv} — {detail}")
+concerns = [r for r in results if r[1] == "CONCERN"]
+print("VERDICT:", "GREEN — all safety-floor invariants pass" if not concerns else f"RED — {len(concerns)} CONCERN(s)")
+sys.exit(0 if not concerns else 1)
+
+codex
+The config check is an exact list equality, and F3 now performs a genuine temp-copy mutation/restore comparison. I’m running the adversarial Gate 0 case and the live checks next; I’m also checking whether cleanup failures truly force a red result, not just whether cleanup sits in `finally`.
+exec
+/bin/zsh -lc "ssh kai 'set -u
+trap '\\''rm -f /tmp/x.yaml'\\'' EXIT
+/home/leo/.hermes/hermes-agent/venv/bin/python - <<'\\''PY'\\''
+import yaml
+src = \"/home/leo/.hermes/config.yaml\"
+dst = \"/tmp/x.yaml\"
+with open(src) as f:
+    cfg = yaml.safe_load(f) or {}
+terminal = cfg.setdefault(\"terminal\", {})
+terminal[\"docker_extra_args\"] = list(terminal.get(\"docker_extra_args\", []) or []) + [\"--network=host\", \"--privileged\"]
+with open(dst, \"w\") as f:
+    yaml.safe_dump(cfg, f)
+print(terminal[\"docker_extra_args\"])
+PY
+set +e
+HERMES_CONFIG=/tmp/x.yaml /home/leo/kai-system/scripts/hermes_gate0.sh
+bypass_rc="'$?
+set -e
+rm -f /tmp/x.yaml
+trap - EXIT
+printf "BYPASS_RC=%s'"\\n\" \""'$bypass_rc"
+if [ "$bypass_rc" -eq 0 ]; then exit 20; fi
+/home/leo/kai-system/scripts/hermes_gate0.sh'"'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 481ms:
+['--read-only', '--network', 'hermes-ember', '--network=host', '--privileged']
+Traceback (most recent call last):
+  File "<stdin>", line 11, in <module>
+AssertionError: docker_extra_args must be EXACTLY ['--read-only','--network','hermes-ember'], got ['--read-only', '--network', 'hermes-ember', '--network=host', '--privileged']
+GATE0 RED — config posture (backend/docker_network/run_as_host_user/docker_extra_args exact-match)
+BYPASS_RC=1
+GATE0 GREEN — Hermes hardened default profile in force (config + hermes-ember + 0 labeled sandbox(es), all conforming)
+
+exec
+/bin/zsh -lc "ssh kai 'cd /home/leo/.hermes/hermes-agent
+./venv/bin/python /home/leo/kai-system/scripts/hermes_safety_floor_probes.py
+probe_rc="'$?
+printf "PROBE_RC=%s'"\\n\" \""'$probe_rc"
+printf "RESIDUE_MATCHES:'"\\n\"
+find /home/leo/.hermes/sandboxes/docker -maxdepth 1 -name '\\''*kai959floorprobe*'\\'' -print
+printf \"TMP_CONFIG_PRESENT=%s\\n\" \""'$(test -e /tmp/x.yaml && echo yes || echo no)"
+cd /home/leo/kai-system
+python3 scripts/green_baseline.py
+baseline_rc=$?
+printf "BASELINE_RC=%s'"\\n\" \""'$baseline_rc"
+printf "LABELED_CONTAINER_COUNT=%s'"\\n\" \""'$(docker ps -a --filter label=hermes-agent=1 -q | wc -l | xargs)"
+exit $(( probe_rc != 0 || baseline_rc != 0 ))'"'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 20077ms:
+Docker storage driver does not support per-container disk limits (requires overlay2 on XFS with pquota). Container will run without disk quota.
+=== KAI-959 SAFETY-FLOOR PROBE RESULTS (live-config driven) ===
+  [PASS] F1 non-root user — uid=1000
+  [PASS] F1 read-only rootfs — readonly
+  [PASS] F1 no docker.sock — absent
+  [PASS] F1 caps dropped — CapEff=0000000000000000
+  [PASS] F1 workspace writable — writable
+  [PASS] F2 Ember reachable — health=200
+  [PASS] F2 cloud blocked — cloud=000 (000=no route)
+  [PASS] F3 audit trail present — state.db + sessions/ populated
+  [PASS] F3 undo reversal (mutate -> restore -> mutation gone) — mutated=True, restored_clean=True, tables=19
+VERDICT: GREEN — all safety-floor invariants pass
+PROBE_RC=0
+RESIDUE_MATCHES:
+TMP_CONFIG_PRESENT=no
+KAI GREEN BASELINE — START
+GREEN [services_up] 4 required services up
+GREEN [session_brief] session brief reachable and warm boot fresh
+GREEN [worker_auth_fail_closed] unauthenticated worker request denied (401)
+GREEN [plane_reachable] Plane reachable (82 open issue(s))
+GREEN [qdrant_up] Qdrant healthz reachable
+GREEN [litellm_models] LiteLLM /v1/models exposes qwen-mid and qwen-mid-worker
+GREEN [qwen_mid_route_and_fallback] qwen-mid routes to 71-kai-mini with worker fallback
+GREEN [secret_permissions] 12 runtime secrets are owner-only
+GREEN [source_drift] no whitespace/source-integrity drift
+KAI GREEN BASELINE — GREEN
+BASELINE_RC=0
+LABELED_CONTAINER_COUNT=0
+
+exec
+/bin/zsh -lc "ssh kai 'printf \"SNAPSHOTS:\\n\"; find /home/leo/.hermes/state-snapshots -mindepth 2 -maxdepth 2 -name state.db -printf \"%T@ %p\\n\" | sort -nr | head -5; printf \"SANDBOX_DIR:\\n\"; ls -la /home/leo/.hermes/sandboxes/docker/; printf \"LABELED_CONTAINERS:\\n\"; docker ps -a --filter label=hermes-agent=1 --format \"{{.ID}} {{.Names}} {{.Status}}\"; cd /home/leo/kai-system && git status --short && git rev-parse HEAD'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 149ms:
+SNAPSHOTS:
+1784836441.1774177430 /home/leo/.hermes/state-snapshots/20260723-195401-spike-f4/state.db
+SANDBOX_DIR:
+total 16
+drwxrwxr-x 4 leo leo 4096 Jul 25 16:51 .
+drwxrwxr-x 4 leo leo 4096 Jul 23 21:10 ..
+drwxrwxr-x 4 leo leo 4096 Jul 23 21:10 default
+drwxrwxr-x 4 leo leo 4096 Jul 23 21:10 prompt-backend-probe
+LABELED_CONTAINERS:
+ M logs/orchestrator_backup.log
+c64ef27300deceb32be74851087c5017bf9a447a
+
+codex
+KAI-959 FINAL — FAIL
+#2: closed — exact-match rejects trailing --network=host and --privileged; adversarial Gate 0 returned RED.
+#5: closed — F3 mutates a snapshot-seeded temp DB, restores it, and confirms the mutation is gone.
+cleanup: open — finally runs and directory residue is verified, but container teardown exceptions are warning-only and container residue is not verified.
+GATE0: green  BYPASS-REJECTED: yes  PROBE: green  BASELINE: green
+NEW REGRESSIONS: none
+RECOMMENDATION: do NOT close — cleanup is not fully fail-closed when container teardown fails.
+tokens used
+35,069
+KAI-959 FINAL — FAIL
+#2: closed — exact-match rejects trailing --network=host and --privileged; adversarial Gate 0 returned RED.
+#5: closed — F3 mutates a snapshot-seeded temp DB, restores it, and confirms the mutation is gone.
+cleanup: open — finally runs and directory residue is verified, but container teardown exceptions are warning-only and container residue is not verified.
+GATE0: green  BYPASS-REJECTED: yes  PROBE: green  BASELINE: green
+NEW REGRESSIONS: none
+RECOMMENDATION: do NOT close — cleanup is not fully fail-closed when container teardown fails.

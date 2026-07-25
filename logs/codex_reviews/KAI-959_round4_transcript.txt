@@ -1,0 +1,701 @@
+Reading additional input from stdin...
+OpenAI Codex v0.145.0
+--------
+workdir: /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019f9a54-a377-7181-85f2-60bdd6f7a4c4
+--------
+user
+Independent VERIFIER for KAI-959, FINAL confirmation of kai-system commit 5b8f6b2. READ-ONLY
+(worker via `ssh kai`). Your ONLY remaining prior finding was: probe cleanup not fully fail-closed
+— env.cleanup() teardown exceptions were warning-only and container residue was not verified.
+
+Confirm it is closed:
+  1. ssh kai 'cd /home/leo/kai-system && git show 5b8f6b2' — read the probe cleanup finally block.
+     Confirm it: force-removes the container by name after env.cleanup(), verifies the container no
+     longer exists, and sets residue_removed only if BOTH container and dir are gone.
+  2. Run the probe: ssh kai 'cd /home/leo/.hermes/hermes-agent && ./venv/bin/python /home/leo/kai-system/scripts/hermes_safety_floor_probes.py'
+     Expect GREEN with no "probe cleanup (no residue)" concern.
+  3. ssh kai 'docker ps -aq --filter label=hermes-agent=1 | wc -l'  → 0 (no leak).
+  4. Re-confirm the whole floor still holds: Gate 0 GREEN, adversarial bypass RED
+     (build /tmp/x.yaml appending --network=host + --privileged, run with HERMES_CONFIG, expect RED,
+     rm it), green baseline GREEN.
+
+OUTPUT exactly:
+  KAI-959 FINAL2 — <PASS | FAIL>
+  cleanup: <closed/open + one line>
+  GATE0: <green/red>  BYPASS-REJECTED: <yes/no>  PROBE: <green/red>  BASELINE: <green/red>  LEAK: <0/n>
+  NEW REGRESSIONS: <list or none>
+  RECOMMENDATION: <mark Plane 21ef40be Done | do NOT close — reason>
+codex
+I’m running the requested read-only verification on `kai`, including the temporary bypass test and cleanup.
+exec
+/bin/zsh -lc "ssh kai 'cd /home/leo/kai-system && git show --stat --oneline 5b8f6b2 && git show --format=fuller --no-ext-diff 5b8f6b2'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 178ms:
+5b8f6b2 KAI-959: fully fail-closed probe cleanup (verify container removal)
+ scripts/hermes_safety_floor_probes.py | 21 ++++++++++++++++-----
+ 1 file changed, 16 insertions(+), 5 deletions(-)
+commit 5b8f6b267735217bce2b54213c053b03df6c01df
+Author:     Leo Daiuto <leo@kai-system.local>
+AuthorDate: Sat Jul 25 16:53:44 2026 +0000
+Commit:     Leo Daiuto <leo@kai-system.local>
+CommitDate: Sat Jul 25 16:53:44 2026 +0000
+
+    KAI-959: fully fail-closed probe cleanup (verify container removal)
+    
+    Codex final finding: env.cleanup() exceptions were warning-only and container
+    residue was not verified. Now force-remove the probe container by name and confirm
+    it no longer exists; residue_removed requires BOTH container and dir gone.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/scripts/hermes_safety_floor_probes.py b/scripts/hermes_safety_floor_probes.py
+index a3dcc24..f21d20c 100755
+--- a/scripts/hermes_safety_floor_probes.py
++++ b/scripts/hermes_safety_floor_probes.py
+@@ -96,22 +96,33 @@ try:
+                 os.remove(work)
+     check("F3 undo reversal (mutate -> restore -> mutation gone)", reversal_ok, detail)
+ finally:
+-    # Fail-closed cleanup: ALWAYS runs, even if the probe raised. (New issue, Codex.)
++    # Fail-closed cleanup: ALWAYS runs, and BOTH container and directory residue
++    # are VERIFIED gone. env.cleanup() exceptions are only warnings, so we also
++    # force-remove the container by name and confirm it no longer exists — a
++    # teardown exception can no longer silently leak a container. (Codex final.)
++    cname = getattr(env, "_container_name", "") or ""
+     try:
+         env.cleanup(force_remove=True)
+         env.wait_for_cleanup(timeout=20)
+     except Exception as e:
+         print(f"(cleanup warning: container teardown: {e})")
+-    r = subprocess.run(
++    if cname:
++        subprocess.run(["docker", "rm", "-f", cname], capture_output=True, text=True)
++    container_gone = True
++    if cname:
++        container_gone = subprocess.run(
++            ["docker", "ps", "-aq", "--filter", f"name=^{cname}$"],
++            capture_output=True, text=True).stdout.strip() == ""
++    subprocess.run(
+         ["docker", "run", "--rm", "-v", f"{os.path.join(HBASE,'sandboxes','docker')}:/x",
+          "alpine", "rm", "-rf", f"/x/{TASK}"],
+         capture_output=True, text=True,
+     )
+-    residue_removed = (r.returncode == 0) and not os.path.exists(
+-        os.path.join(HBASE, "sandboxes", "docker", TASK))
++    dir_gone = not os.path.exists(os.path.join(HBASE, "sandboxes", "docker", TASK))
++    residue_removed = container_gone and dir_gone
+ 
+ if residue_removed is False:
+-    check("probe cleanup (no residue)", False, "sandbox dir remained after cleanup")
++    check("probe cleanup (no residue)", False, "container or sandbox dir remained after cleanup")
+ 
+ print("=== KAI-959 SAFETY-FLOOR PROBE RESULTS (live-config driven) ===")
+ for inv, verdict, detail in results:
+
+exec
+/bin/zsh -lc "ssh kai 'cd /home/leo/kai-system && rg -n \"Gate 0|GATE0|HERMES_CONFIG|green baseline|safety.floor|network=host|privileged\" . --glob \""'!*.pyc" --glob "!.git/**"'"'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ exited 127 in 192ms:
+bash: line 1: rg: command not found
+
+exec
+/bin/zsh -lc "ssh kai 'cd /home/leo/kai-system && grep -RInE \"Gate 0|GATE0|HERMES_CONFIG|green baseline|safety.floor|network=host|privileged\" . --exclude=\"*.pyc\" --exclude-dir=.git'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 419ms:
+./kai-scheduler/watchdog.py:289:    """HOSTOPS-(d) (KAI-820, seq915) Layer-2 audit: every executed privileged
+./kai-scheduler/watchdog.py:731:    "hostops_reconcile": ("system",    "A privileged host-op may have run without a matching approval — possible bypass"),
+./kai-web/public/architecture.html:2053:  <div><div class="container-name">hostops_deploy</div><div class="container-meta">hostops_deploy workflow — KAI-820 HOSTOPS-(c): gated privileged host-ops. <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
+./kai-council-api/tests/test_hostops_gate_human_only.py:1:"""HOSTOPS-(c): privileged host-op gates are human-only.
+./kai-council-api/routes_council_gate.py:48:# HOSTOPS-(c): privileged host mutations are ALWAYS human-only. They are handled
+./kai-council-api/routes_council_gate.py:835:        f"*Subject:* privileged host-op `{op}` on `{site}`\n"
+./kai-orchestrator/workflows/hostops_deploy.py:1:"""hostops_deploy workflow — KAI-820 HOSTOPS-(c): gated privileged host-ops.
+./scripts/ci.sh:67:echo "[PASS] All services: green baseline + baseline ruff + service tests + whole-repo guards green."
+./scripts/hermes_safety_floor_probes.py:5:LIVE default-profile config, actively probes the three safety-floor invariants,
+./scripts/hermes_safety_floor_probes.py:131:print("VERDICT:", "GREEN — all safety-floor invariants pass" if not concerns else f"RED — {len(concerns)} CONCERN(s)")
+./scripts/hermes_gate0.sh:2:# KAI-959 Gate 0 — fail-closed check that the Hermes hardened default profile is
+./scripts/hermes_gate0.sh:7:CONFIG=${HERMES_CONFIG:-/home/leo/.hermes/config.yaml}
+./scripts/hermes_gate0.sh:10:red(){ echo "GATE0 RED — $1"; exit 1; }
+./scripts/hermes_gate0.sh:23:# extra/trailing token (e.g. --network=host, --privileged, --user=0,
+./scripts/hermes_gate0.sh:53:echo "GATE0 GREEN — Hermes hardened default profile in force (config + $NET + $(docker ps -aq --filter label=hermes-agent=1 | wc -l | xargs) labeled sandbox(es), all conforming)"
+
+exec
+/bin/zsh -lc "ssh kai 'cd /home/leo/kai-system && sed -n \"1,180p\" scripts/hermes_gate0.sh && sed -n \"1,180p\" scripts/hermes_safety_floor_probes.py && git log --oneline --decorate -12 --all'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 207ms:
+#!/usr/bin/env bash
+# KAI-959 Gate 0 — fail-closed check that the Hermes hardened default profile is
+# in force. READ-ONLY. Exit 0 = GREEN, exit 1 = RED (names the first failing
+# invariant). Mirrors the KAI-958 green-baseline pattern. Portable: the mini
+# ticket (864c4804) runs this unchanged once the mini is provisioned.
+set -uo pipefail
+CONFIG=${HERMES_CONFIG:-/home/leo/.hermes/config.yaml}
+NET=${HERMES_EMBER_NET:-hermes-ember}
+PY=${HERMES_PY:-/home/leo/.hermes/hermes-agent/venv/bin/python}
+red(){ echo "GATE0 RED — $1"; exit 1; }
+
+# 1. Config posture — the locked hardened default profile. Fully validated:
+#    backend, docker_network, exactly-one --network hermes-ember (no contradictory
+#    trailing flag), --read-only, non-root. (Findings #2/#4, Codex verify 2026-07-25.)
+"$PY" - "$CONFIG" <<'PY' || red "config posture (backend/docker_network/run_as_host_user/docker_extra_args exact-match)"
+import sys, yaml
+t = (yaml.safe_load(open(sys.argv[1])) or {}).get("terminal", {})
+ex = t.get("docker_extra_args", []) or []
+assert t.get("backend") == "docker", "terminal.backend != docker"
+assert t.get("docker_network") is True, "terminal.docker_network is not true"
+assert t.get("docker_run_as_host_user") is True, "docker_run_as_host_user is not true"
+# EXACT match — docker_extra_args is applied LAST and overrides defaults, so any
+# extra/trailing token (e.g. --network=host, --privileged, --user=0,
+# --read-only=false) could silently weaken posture. Only the exact hardened set
+# passes. Widening the profile is a deliberate edit here. (Finding #2, Codex.)
+assert ex == ["--read-only", "--network", "hermes-ember"], \
+    f"docker_extra_args must be EXACTLY ['--read-only','--network','hermes-ember'], got {ex}"
+PY
+
+# 2. Egress network posture — internal net; ONLY kai-litellm + hermes sandboxes attached
+docker network inspect "$NET" >/dev/null 2>&1 || red "network $NET missing"
+[ "$(docker network inspect "$NET" --format '{{.Internal}}')" = "true" ] || red "$NET is not internal"
+docker network inspect "$NET" --format '{{range .Containers}}{{.Name}} {{end}}' \
+  | grep -qw kai-litellm || red "kai-litellm not attached to $NET"
+for cname in $(docker network inspect "$NET" --format '{{range .Containers}}{{.Name}} {{end}}'); do
+  [ "$cname" = "kai-litellm" ] && continue
+  [ "$(docker inspect -f '{{index .Config.Labels "hermes-agent"}}' "$cname" 2>/dev/null)" = "1" ] \
+    || red "$NET has unexpected (non-Ember, non-hermes) attachment: $cname"
+done
+
+# 3. Live sandbox posture — every hermes-agent=1 container (running OR stopped, since
+#    Hermes reuse matches labels across all states — finding #1) must conform.
+for c in $(docker ps -aq --filter label=hermes-agent=1); do
+  n=$(docker inspect -f '{{.Name}}' "$c" | sed 's#^/##')
+  [ "$(docker inspect -f '{{.Config.User}}' "$c")" = "1000:1000" ] || red "$n: user != 1000:1000 (root)"
+  [ "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$c")" = "true" ] || red "$n: rootfs not read-only"
+  docker inspect -f '{{json .HostConfig.CapDrop}}' "$c" | grep -q '"ALL"' || red "$n: cap-drop ALL missing"
+  docker inspect -f '{{json .HostConfig.SecurityOpt}}' "$c" | grep -q no-new-privileges || red "$n: no-new-privileges missing"
+  nets=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$c" | xargs)
+  [ "$nets" = "$NET" ] || red "$n: networks != {$NET} (got: $nets)"
+done
+
+echo "GATE0 GREEN — Hermes hardened default profile in force (config + $NET + $(docker ps -aq --filter label=hermes-agent=1 | wc -l | xargs) labeled sandbox(es), all conforming)"
+#!/usr/bin/env python3
+"""KAI-959 Safety-Floor probes (F1/F2/F3) — portable.
+
+Creates a throwaway sandbox via Hermes's OWN DockerEnvironment, driven by the
+LIVE default-profile config, actively probes the three safety-floor invariants,
+performs a REAL snapshot mutate->restore->verify reversal (safely, on a temp DB
+seeded from the newest state-snapshot), and cleans up fail-closed (cleanup always
+runs and residue removal is verified). Exit 0 only if all SAFETY-FLOOR checks pass.
+
+Runs unchanged on the mini (ticket 864c4804) once docker + Hermes are provisioned.
+Buckets per docs/HERMES_CHASSIS_SPIKE_DESIGN.md §2: SAFETY FLOOR = non-negotiable.
+"""
+import sys, os, subprocess, glob, sqlite3, shutil, tempfile, yaml
+AGENT = os.environ.get("HERMES_AGENT_DIR", "/home/leo/.hermes/hermes-agent")
+HBASE = os.path.dirname(AGENT)
+sys.path.insert(0, AGENT)
+os.chdir(AGENT)
+from tools.environments.docker import DockerEnvironment
+
+IMAGE = os.environ.get("HERMES_SANDBOX_IMAGE", "nikolaik/python-nodejs:python3.11-nodejs20")
+TASK = "kai959floorprobe"
+
+t = (yaml.safe_load(open(os.path.join(HBASE, "config.yaml"))) or {}).get("terminal", {})
+env = DockerEnvironment(
+    image=IMAGE, persistent_filesystem=True, task_id=TASK,
+    cpu=t.get("container_cpu", 1), memory=t.get("container_memory", 5120),
+    disk=t.get("container_disk", 51200),
+    network=t.get("docker_network", True),
+    run_as_host_user=t.get("docker_run_as_host_user", False),
+    extra_args=t.get("docker_extra_args", []) or [],
+)
+
+PROBE = r"""
+echo "UID=$(id -u)"
+touch /rootfs_probe 2>/dev/null && echo "ROOTFS=writable" || echo "ROOTFS=readonly"
+test -S /var/run/docker.sock && echo "SOCK=present" || echo "SOCK=absent"
+echo "CAPEFF=$(awk '/CapEff/{print $2}' /proc/self/status)"
+echo "EMBER=$(curl -s -o /dev/null -w '%{http_code}' --max-time 6 http://kai-litellm:4000/health/liveliness)"
+echo "CLOUD=$(curl -s -o /dev/null -w '%{http_code}' --max-time 6 https://api.openai.com 2>/dev/null)"
+touch /workspace/w 2>/dev/null && echo "WS=writable" || echo "WS=readonly"
+"""
+
+results = []
+def check(inv, ok, detail):
+    results.append((inv, "PASS" if ok else "CONCERN", detail))
+
+def _tables(db):
+    con = sqlite3.connect(db)
+    try:
+        return {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        con.close()
+
+residue_removed = None
+try:
+    raw = env.execute(PROBE)
+    out = raw.get("output") if isinstance(raw, dict) else str(raw)
+    kv = dict(l.split("=", 1) for l in out.splitlines() if "=" in l and not l.startswith(" "))
+
+    # F1 — sandbox escape
+    check("F1 non-root user",      kv.get("UID") not in (None, "0"),          f"uid={kv.get('UID')}")
+    check("F1 read-only rootfs",   kv.get("ROOTFS") == "readonly",            kv.get("ROOTFS"))
+    check("F1 no docker.sock",     kv.get("SOCK") == "absent",                kv.get("SOCK"))
+    check("F1 caps dropped",       (kv.get("CAPEFF") or "").strip() == "0000000000000000", f"CapEff={kv.get('CAPEFF')}")
+    check("F1 workspace writable", kv.get("WS") == "writable",                kv.get("WS"))
+    # F2 — egress lockdown
+    check("F2 Ember reachable",    kv.get("EMBER") == "200",                  f"health={kv.get('EMBER')}")
+    check("F2 cloud blocked",      kv.get("CLOUD", "") in ("000", ""),        f"cloud={kv.get('CLOUD')} (000=no route)")
+
+    # F3 — audit trail populated
+    audit_ok = (os.path.getsize(os.path.join(HBASE, "state.db")) > 0
+                and len(os.listdir(os.path.join(HBASE, "sessions"))) > 0)
+    check("F3 audit trail present", audit_ok, "state.db + sessions/ populated")
+
+    # F3 — REAL reversal: seed a temp DB from the newest snapshot, mutate it,
+    # restore the snapshot over it, and prove the mutation is gone. Safe: only a
+    # temp copy is touched; live state is never modified. (Finding #5.)
+    snaps = sorted(glob.glob(os.path.join(HBASE, "state-snapshots", "*", "state.db")))
+    reversal_ok, detail = False, "no state-snapshot found"
+    if snaps:
+        work = tempfile.mktemp(suffix=".db")
+        try:
+            shutil.copy(snaps[-1], work)
+            base = _tables(work)
+            con = sqlite3.connect(work)
+            con.execute("CREATE TABLE kai959_reversal_probe(x)")
+            con.execute("INSERT INTO kai959_reversal_probe VALUES (1)")
+            con.commit(); con.close()
+            mutated = "kai959_reversal_probe" in _tables(work)
+            shutil.copy(snaps[-1], work)              # the undo operation
+            after = _tables(work)
+            reversal_ok = mutated and "kai959_reversal_probe" not in after and after == base
+            detail = f"mutated={mutated}, restored_clean={'kai959_reversal_probe' not in after}, tables={len(after)}"
+        finally:
+            if os.path.exists(work):
+                os.remove(work)
+    check("F3 undo reversal (mutate -> restore -> mutation gone)", reversal_ok, detail)
+finally:
+    # Fail-closed cleanup: ALWAYS runs, and BOTH container and directory residue
+    # are VERIFIED gone. env.cleanup() exceptions are only warnings, so we also
+    # force-remove the container by name and confirm it no longer exists — a
+    # teardown exception can no longer silently leak a container. (Codex final.)
+    cname = getattr(env, "_container_name", "") or ""
+    try:
+        env.cleanup(force_remove=True)
+        env.wait_for_cleanup(timeout=20)
+    except Exception as e:
+        print(f"(cleanup warning: container teardown: {e})")
+    if cname:
+        subprocess.run(["docker", "rm", "-f", cname], capture_output=True, text=True)
+    container_gone = True
+    if cname:
+        container_gone = subprocess.run(
+            ["docker", "ps", "-aq", "--filter", f"name=^{cname}$"],
+            capture_output=True, text=True).stdout.strip() == ""
+    subprocess.run(
+        ["docker", "run", "--rm", "-v", f"{os.path.join(HBASE,'sandboxes','docker')}:/x",
+         "alpine", "rm", "-rf", f"/x/{TASK}"],
+        capture_output=True, text=True,
+    )
+    dir_gone = not os.path.exists(os.path.join(HBASE, "sandboxes", "docker", TASK))
+    residue_removed = container_gone and dir_gone
+
+if residue_removed is False:
+    check("probe cleanup (no residue)", False, "container or sandbox dir remained after cleanup")
+
+print("=== KAI-959 SAFETY-FLOOR PROBE RESULTS (live-config driven) ===")
+for inv, verdict, detail in results:
+    print(f"  [{verdict}] {inv} — {detail}")
+concerns = [r for r in results if r[1] == "CONCERN"]
+print("VERDICT:", "GREEN — all safety-floor invariants pass" if not concerns else f"RED — {len(concerns)} CONCERN(s)")
+sys.exit(0 if not concerns else 1)
+5b8f6b2 (HEAD -> main, origin/main) KAI-959: fully fail-closed probe cleanup (verify container removal)
+c64ef27 KAI-959: close remaining Codex findings (#2 Gate0 bypass, #5 F3 reversal, cleanup)
+357f364 KAI-959: remediate Codex verify findings (#1-#5)
+a973cb8 KAI-959: Hermes hardened default profile + Gate 0 (F1/F2/F3 green, worker-first)
+df1cace KAI-958: add shared green baseline gate
+bfecb23 Session close: AR-0 Step 1 LIVE — corrected the Apple-Silicon planning erro — 2026-07-24
+3892098 litellm: flip qwen-mid default local route to 71-kai-mini, worker as fallback (AR-0)
+18fbd0a litellm: register 71-kai-mini (Intel) ollama backend as qwen-mid-mini (AR-0)
+c8a13e8 KAI-948 CI-fix: split E701 one-liners in hostops.py; repoint autonomy_policy tests to autonomy_decisions._ORG_MODEL_PATH after the shared-engine refactor
+2490eb3 KAI-949: persist invariant issue lifecycle
+c1df9f4 KAI-948: unify hostops autonomy policy
+c6a5ff8 KAI-928: land master-operator hostops transport
+
+exec
+/bin/zsh -lc "ssh kai 'cd /home/leo/kai-system && git show --stat --oneline df1cace && git show --format= --name-only df1cace && git show df1cace --'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 526ms:
+df1cace KAI-958: add shared green baseline gate
+ scripts/ci.sh                        |   7 +-
+ scripts/green_baseline.py            | 202 +++++++++++++++++++++++++++++++++++
+ scripts/tests/test_green_baseline.py |  49 +++++++++
+ 3 files changed, 256 insertions(+), 2 deletions(-)
+scripts/ci.sh
+scripts/green_baseline.py
+scripts/tests/test_green_baseline.py
+commit df1cace41f7d5e97a544f8022e726cdf39a1305c
+Author: Leo Daiuto <leo@kai-system.local>
+Date:   Fri Jul 24 19:34:16 2026 +0000
+
+    KAI-958: add shared green baseline gate
+
+diff --git a/scripts/ci.sh b/scripts/ci.sh
+index 5c99398..559fccd 100755
+--- a/scripts/ci.sh
++++ b/scripts/ci.sh
+@@ -7,6 +7,8 @@ set -euo pipefail
+ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ cd "$ROOT"
+ 
++python3 scripts/green_baseline.py
++
+ SERVICES=(
+     "kai-worker-api:kai-worker-api"
+     "kai-council-api:kai-council-api"
+@@ -51,7 +53,8 @@ echo "  whole-repo guards"
+ echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+ python3 -m pytest -v --tb=short -m whole_repo \
+     kai-worker-api/tests/test_internal_auth_guard.py \
+-    scripts/tests/test_ruff_baseline.py || FAIL=1
++    scripts/tests/test_ruff_baseline.py \
++    scripts/tests/test_green_baseline.py || FAIL=1
+ PYTHONPATH="$ROOT/kai-council-api" python3 -m pytest -v --tb=short -m whole_repo \
+     kai-council-api/tests/test_kai807_council_boundary.py || FAIL=1
+ 
+@@ -61,4 +64,4 @@ if [ "$FAIL" -ne 0 ]; then
+     exit 1
+ fi
+ 
+-echo "[PASS] All services: baseline ruff + service tests + whole-repo guards green."
++echo "[PASS] All services: green baseline + baseline ruff + service tests + whole-repo guards green."
+diff --git a/scripts/green_baseline.py b/scripts/green_baseline.py
+new file mode 100755
+index 0000000..674f1fa
+--- /dev/null
++++ b/scripts/green_baseline.py
+@@ -0,0 +1,202 @@
++#!/usr/bin/env python3
++"""AR-0 canonical read-only green-baseline smoke/invariant suite.
++
++This runs on the worker host. It intentionally performs only probes: no writes,
++no restarts, no model completions, and no Plane mutations.
++"""
++from __future__ import annotations
++
++import base64
++import json
++import re
++import subprocess
++import sys
++import urllib.error
++import urllib.request
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Callable
++
++
++ROOT = Path(__file__).resolve().parents[1]
++SECRETS = ROOT / "secrets"
++WORKER_API = "http://100.78.94.80:8001"
++LITELLM_CONTAINER = "kai-litellm"
++
++
++@dataclass(frozen=True)
++class Check:
++    name: str
++    probe: Callable[[], str]
++
++
++def _command(*args: str, timeout: int = 8) -> str:
++    result = subprocess.run(args, text=True, capture_output=True, timeout=timeout, check=False)
++    if result.returncode:
++        detail = (result.stderr or result.stdout).strip().replace("\n", " ")
++        raise RuntimeError(detail[:240] or f"exit {result.returncode}")
++    return result.stdout.strip()
++
++
++def _request(url: str, *, auth: str | None = None, expected: int = 200, timeout: int = 5) -> bytes:
++    headers = {}
++    if auth:
++        token = base64.b64encode(auth.encode()).decode()
++        headers["Authorization"] = f"Basic {token}"
++    request = urllib.request.Request(url, headers=headers)
++    try:
++        with urllib.request.urlopen(request, timeout=timeout) as response:
++            if response.status != expected:
++                raise RuntimeError(f"HTTP {response.status}, expected {expected}")
++            return response.read()
++    except urllib.error.HTTPError as exc:
++        if exc.code == expected:
++            return exc.read()
++        raise RuntimeError(f"HTTP {exc.code}, expected {expected}") from exc
++    except Exception as exc:
++        raise RuntimeError(f"request failed: {type(exc).__name__}") from exc
++
++
++def _worker_auth() -> str:
++    auth_path = SECRETS / "kai_worker_auth.txt"
++    try:
++        value = auth_path.read_text().strip()
++    except OSError as exc:
++        raise RuntimeError("worker auth secret unavailable") from exc
++    if not value or ":" not in value:
++        raise RuntimeError("worker auth secret malformed")
++    return value
++
++
++def check_services() -> str:
++    expected = {"kai-worker-api": "healthy", "kai-litellm": "healthy", "kai-qdrant": "running", "plane-api": "running"}
++    for service, wanted in expected.items():
++        status = _command("docker", "inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", service)
++        if status != wanted:
++            raise RuntimeError(f"{service} is {status!r}, expected {wanted!r}")
++    return f"{len(expected)} required services up"
++
++
++def check_session_brief() -> str:
++    body = _request(f"{WORKER_API}/session/brief", auth=_worker_auth())
++    brief = json.loads(body)
++    if not brief.get("ok") or brief.get("warmboot_required") is not False:
++        raise RuntimeError("brief is not fresh/ok")
++    return "session brief reachable and warm boot fresh"
++
++
++def check_worker_auth_fails_closed() -> str:
++    _request(f"{WORKER_API}/session/brief", expected=401)
++    return "unauthenticated worker request denied (401)"
++
++
++def check_plane() -> str:
++    body = _request(f"{WORKER_API}/plane/issues?include_done=false", auth=_worker_auth(), timeout=15)
++    return f"Plane reachable ({parse_plane_open_issues(body.decode())} open issue(s))"
++
++
++def parse_plane_open_issues(payload: str) -> int:
++    data = json.loads(payload)
++    if isinstance(data, list):
++        return len(data)
++    projects = data.get("projects") if isinstance(data, dict) else None
++    if not isinstance(projects, list):
++        raise RuntimeError("Plane response has no projects/issue list")
++    if not all(isinstance(project, dict) and isinstance(project.get("issues"), list) for project in projects):
++        raise RuntimeError("Plane project response has invalid issues")
++    return sum(len(project["issues"]) for project in projects)
++
++
++def check_qdrant() -> str:
++    _request("http://localhost:6333/healthz")
++    return "Qdrant healthz reachable"
++
++
++def parse_model_ids(payload: str) -> set[str]:
++    data = json.loads(payload)
++    return {item["id"] for item in data.get("data", []) if isinstance(item, dict) and "id" in item}
++
++
++def check_litellm_models() -> str:
++    code = """import json, urllib.request
++from pathlib import Path
++key = Path('/run/secrets/litellm_master_key').read_text().strip()
++request = urllib.request.Request('http://localhost:4000/v1/models', headers={'Authorization': f'Bearer {key}'})
++print(urllib.request.urlopen(request, timeout=5).read().decode())
++"""
++    models = parse_model_ids(_command("docker", "exec", LITELLM_CONTAINER, "python3", "-c", code))
++    missing = {"qwen-mid", "qwen-mid-worker"} - models
++    if missing:
++        raise RuntimeError("models missing: " + ", ".join(sorted(missing)))
++    return "LiteLLM /v1/models exposes qwen-mid and qwen-mid-worker"
++
++
++def check_qwen_route_contract() -> str:
++    try:
++        config = (ROOT / "litellm" / "config.yaml").read_text()
++    except OSError as exc:
++        raise RuntimeError("LiteLLM config unavailable") from exc
++    primary = re.search(r"- model_name: qwen-mid\s+litellm_params:.*?api_base: (\S+)", config, re.S)
++    fallback = re.search(r"- model_name: qwen-mid-worker\s+litellm_params:", config, re.S)
++    has_chain = re.search(r'fallbacks:\s*\[\{"qwen-mid":\s*\["qwen-mid-worker"\]\}\]', config)
++    if not primary or not fallback or not has_chain:
++        raise RuntimeError("qwen-mid primary/fallback contract missing")
++    if "100.106.160.41:11434" not in primary.group(1):
++        raise RuntimeError("qwen-mid primary is not the 71-kai-mini endpoint")
++    return "qwen-mid routes to 71-kai-mini with worker fallback"
++
++
++def check_secret_permissions() -> str:
++    code = """from pathlib import Path
++files = [path for path in Path('/run/secrets').iterdir() if path.is_file()]
++bad = sum(bool(path.stat().st_mode & 0o077) for path in files)
++print(f'{len(files)} {bad}')
++"""
++    count_raw, unsafe_raw = _command("docker", "exec", "kai-worker-api", "python3", "-c", code).split()
++    count, unsafe = int(count_raw), int(unsafe_raw)
++    if not count:
++        raise RuntimeError("no runtime secret files found")
++    if unsafe:
++        raise RuntimeError(f"{unsafe} runtime secret file(s) are group/world-readable")
++    return f"{count} runtime secrets are owner-only"
++
++
++def check_source_drift() -> str:
++    _command("git", "-C", str(ROOT), "diff", "--check")
++    return "no whitespace/source-integrity drift"
++
++
++def checks() -> tuple[Check, ...]:
++    return (
++        Check("services_up", check_services),
++        Check("session_brief", check_session_brief),
++        Check("worker_auth_fail_closed", check_worker_auth_fails_closed),
++        Check("plane_reachable", check_plane),
++        Check("qdrant_up", check_qdrant),
++        Check("litellm_models", check_litellm_models),
++        Check("qwen_mid_route_and_fallback", check_qwen_route_contract),
++        Check("secret_permissions", check_secret_permissions),
++        Check("source_drift", check_source_drift),
++    )
++
++
++def run_suite(suite: tuple[Check, ...] | None = None) -> int:
++    suite = suite or checks()
++    print("KAI GREEN BASELINE — START")
++    failed: list[str] = []
++    for check in suite:
++        try:
++            detail = check.probe()
++            print(f"GREEN [{check.name}] {detail}")
++        except Exception as exc:
++            failed.append(check.name)
++            print(f"RED [{check.name}] {exc}")
++    if failed:
++        print("KAI GREEN BASELINE — RED: " + ", ".join(failed))
++        return 1
++    print("KAI GREEN BASELINE — GREEN")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(run_suite())
+diff --git a/scripts/tests/test_green_baseline.py b/scripts/tests/test_green_baseline.py
+new file mode 100644
+index 0000000..e897a11
+--- /dev/null
++++ b/scripts/tests/test_green_baseline.py
+@@ -0,0 +1,49 @@
++import importlib.util
++import io
++from pathlib import Path
++import sys
++import unittest
++from contextlib import redirect_stdout
++
++
++MODULE = Path(__file__).parents[1] / "green_baseline.py"
++SPEC = importlib.util.spec_from_file_location("green_baseline", MODULE)
++baseline = importlib.util.module_from_spec(SPEC)
++assert SPEC.loader is not None
++sys.modules[SPEC.name] = baseline
++SPEC.loader.exec_module(baseline)
++
++
++class GreenBaselineTests(unittest.TestCase):
++    def test_declares_the_canonical_required_checks(self):
++        self.assertEqual(
++            [check.name for check in baseline.checks()],
++            [
++                "services_up", "session_brief", "worker_auth_fail_closed",
++                "plane_reachable", "qdrant_up", "litellm_models",
++                "qwen_mid_route_and_fallback", "secret_permissions", "source_drift",
++            ],
++        )
++
++    def test_models_parser_reads_openai_shape(self):
++        self.assertEqual(
++            baseline.parse_model_ids('{"data":[{"id":"qwen-mid"},{"id":"qwen-mid-worker"}]}'),
++            {"qwen-mid", "qwen-mid-worker"},
++        )
++
++    def test_plane_parser_reads_grouped_worker_response(self):
++        self.assertEqual(
++            baseline.parse_plane_open_issues('{"projects":[{"issues":[{}, {}]},{"issues":[{}]}]}'),
++            3,
++        )
++
++    def test_suite_returns_red_and_names_the_failed_check(self):
++        good = baseline.Check("green", lambda: "ok")
++        bad = baseline.Check("broken", lambda: (_ for _ in ()).throw(RuntimeError("nope")))
++        with redirect_stdout(io.StringIO()) as output:
++            self.assertEqual(baseline.run_suite((good, bad)), 1)
++        self.assertIn("KAI GREEN BASELINE — RED: broken", output.getvalue())
++
++
++if __name__ == "__main__":
++    unittest.main()
+
+codex
+The commit’s `finally` block now captures the container name, force-removes it after Hermes cleanup, verifies absence with Docker, removes the sandbox directory, and requires both checks for `residue_removed`. I’m now exercising the live floor and bypass rejection.
+exec
+/bin/zsh -lc "ssh kai 'cd /home/leo/.hermes/hermes-agent && ./venv/bin/python /home/leo/kai-system/scripts/hermes_safety_floor_probes.py'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 11247ms:
+Docker storage driver does not support per-container disk limits (requires overlay2 on XFS with pquota). Container will run without disk quota.
+=== KAI-959 SAFETY-FLOOR PROBE RESULTS (live-config driven) ===
+  [PASS] F1 non-root user — uid=1000
+  [PASS] F1 read-only rootfs — readonly
+  [PASS] F1 no docker.sock — absent
+  [PASS] F1 caps dropped — CapEff=0000000000000000
+  [PASS] F1 workspace writable — writable
+  [PASS] F2 Ember reachable — health=200
+  [PASS] F2 cloud blocked — cloud=000 (000=no route)
+  [PASS] F3 audit trail present — state.db + sessions/ populated
+  [PASS] F3 undo reversal (mutate -> restore -> mutation gone) — mutated=True, restored_clean=True, tables=19
+VERDICT: GREEN — all safety-floor invariants pass
+
+exec
+/bin/zsh -lc "ssh kai 'docker ps -aq --filter label=hermes-agent=1 | wc -l'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 233ms:
+0
+
+exec
+/bin/zsh -lc "ssh kai 'cd /home/leo/kai-system && ./scripts/hermes_gate0.sh'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 365ms:
+GATE0 GREEN — Hermes hardened default profile in force (config + hermes-ember + 0 labeled sandbox(es), all conforming)
+
+exec
+/bin/zsh -lc "ssh kai 'set -euo pipefail; cd /home/leo/kai-system; cp /home/leo/.hermes/config.yaml /tmp/x.yaml; trap '\\''rm -f /tmp/x.yaml'\\'' EXIT; /home/leo/.hermes/hermes-agent/venv/bin/python -c '\\''import yaml; p=\"/tmp/x.yaml\"; d=yaml.safe_load(open(p)) or {}; d[\"terminal\"][\"docker_extra_args\"] += [\"--network=host\", \"--privileged\"]; open(p, \"w\").write(yaml.safe_dump(d, sort_keys=False))'\\''; set +e; HERMES_CONFIG=/tmp/x.yaml ./scripts/hermes_gate0.sh; rc="'$?; set -e; echo "BYPASS_EXIT=$rc"; test "$rc" -ne 0'"'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 234ms:
+Traceback (most recent call last):
+  File "<stdin>", line 11, in <module>
+AssertionError: docker_extra_args must be EXACTLY ['--read-only','--network','hermes-ember'], got ['--read-only', '--network', 'hermes-ember', '--network=host', '--privileged']
+GATE0 RED — config posture (backend/docker_network/run_as_host_user/docker_extra_args exact-match)
+BYPASS_EXIT=1
+
+exec
+/bin/zsh -lc "ssh kai 'test "'! -e /tmp/x.yaml && echo TMP_CLEAN=1; cd /home/leo/kai-system && python3 scripts/green_baseline.py'"'" in /private/tmp/claude-501/-Users-leodaiuto-sonicink/d8cba2ad-ccee-475f-980c-80829233c433/scratchpad
+ succeeded in 9204ms:
+TMP_CLEAN=1
+KAI GREEN BASELINE — START
+GREEN [services_up] 4 required services up
+GREEN [session_brief] session brief reachable and warm boot fresh
+GREEN [worker_auth_fail_closed] unauthenticated worker request denied (401)
+GREEN [plane_reachable] Plane reachable (82 open issue(s))
+GREEN [qdrant_up] Qdrant healthz reachable
+GREEN [litellm_models] LiteLLM /v1/models exposes qwen-mid and qwen-mid-worker
+GREEN [qwen_mid_route_and_fallback] qwen-mid routes to 71-kai-mini with worker fallback
+GREEN [secret_permissions] 12 runtime secrets are owner-only
+GREEN [source_drift] no whitespace/source-integrity drift
+KAI GREEN BASELINE — GREEN
+
+codex
+KAI-959 FINAL2 — PASS
+cleanup: closed — force-removes by name, verifies container absence, and requires both container and directory gone
+GATE0: green  BYPASS-REJECTED: yes  PROBE: green  BASELINE: green  LEAK: 0
+NEW REGRESSIONS: none
+RECOMMENDATION: mark Plane 21ef40be Done
+tokens used
+38,023
+KAI-959 FINAL2 — PASS
+cleanup: closed — force-removes by name, verifies container absence, and requires both container and directory gone
+GATE0: green  BYPASS-REJECTED: yes  PROBE: green  BASELINE: green  LEAK: 0
+NEW REGRESSIONS: none
+RECOMMENDATION: mark Plane 21ef40be Done
