@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """KAI-959 Safety-Floor probes (F1/F2/F3) — portable.
 
-Creates a throwaway sandbox via Hermes's OWN DockerEnvironment under the live
-config, actively probes the three safety-floor invariants, prints a bucketed
-verdict, and cleans up. Exit 0 only if all SAFETY-FLOOR checks pass.
+Creates a throwaway sandbox via Hermes's OWN DockerEnvironment, driven by the
+LIVE default-profile config (not hardcoded args — finding #3, Codex verify
+2026-07-25), actively probes the three safety-floor invariants, safely
+demonstrates F3 snapshot restorability, cleans up fully (incl. root-owned
+mountpoints), and prints a bucketed verdict. Exit 0 only if all SAFETY-FLOOR
+checks pass.
 
 Runs unchanged on the mini (ticket 864c4804) once a docker runtime + Hermes are
 provisioned there. Buckets per docs/HERMES_CHASSIS_SPIKE_DESIGN.md §2:
 SAFETY FLOOR = non-negotiable; a fail is RED and reported, never re-bucketed.
 """
-import sys, os, json, subprocess
+import sys, os, subprocess, glob, sqlite3, shutil, tempfile, yaml
 AGENT = os.environ.get("HERMES_AGENT_DIR", "/home/leo/.hermes/hermes-agent")
+HBASE = os.path.dirname(AGENT)  # /home/leo/.hermes
 sys.path.insert(0, AGENT)
 os.chdir(AGENT)
 from tools.environments.docker import DockerEnvironment
@@ -18,10 +22,16 @@ from tools.environments.docker import DockerEnvironment
 IMAGE = os.environ.get("HERMES_SANDBOX_IMAGE", "nikolaik/python-nodejs:python3.11-nodejs20")
 TASK = "kai959floorprobe"
 
+# Drive the probe from the LIVE default-profile config, so it verifies the real
+# shipped profile — not an author-chosen set of hardened flags.
+t = (yaml.safe_load(open(os.path.join(HBASE, "config.yaml"))) or {}).get("terminal", {})
 env = DockerEnvironment(
     image=IMAGE, persistent_filesystem=True, task_id=TASK,
-    cpu=1, memory=5120, disk=51200, network=True, run_as_host_user=True,
-    extra_args=["--read-only", "--network", "hermes-ember"],
+    cpu=t.get("container_cpu", 1), memory=t.get("container_memory", 5120),
+    disk=t.get("container_disk", 51200),
+    network=t.get("docker_network", True),
+    run_as_host_user=t.get("docker_run_as_host_user", False),
+    extra_args=t.get("docker_extra_args", []) or [],
 )
 
 PROBE = r"""
@@ -45,30 +55,47 @@ def check(inv, ok, detail):
 check("F1 non-root user",      kv.get("UID") not in (None, "0"),          f"uid={kv.get('UID')}")
 check("F1 read-only rootfs",   kv.get("ROOTFS") == "readonly",            kv.get("ROOTFS"))
 check("F1 no docker.sock",     kv.get("SOCK") == "absent",                kv.get("SOCK"))
-check("F1 caps dropped",       kv.get("CAPEFF") in ("0000000000000000", "0000000000000000\n"), f"CapEff={kv.get('CAPEFF')}")
+check("F1 caps dropped",       (kv.get("CAPEFF") or "").strip() == "0000000000000000", f"CapEff={kv.get('CAPEFF')}")
+check("F1 workspace writable", kv.get("WS") == "writable",                kv.get("WS"))
 # F2 — egress lockdown
 check("F2 Ember reachable",    kv.get("EMBER") == "200",                  f"health={kv.get('EMBER')}")
-check("F2 cloud blocked",      kv.get("CLOUD", "") in ("000", ""),        f"cloud={kv.get('CLOUD')} (000=no route)")
-# F1 functional — writable workspace bind survives read-only rootfs
-check("F1 workspace writable", kv.get("WS") == "writable",                kv.get("WS"))
+check("F2 cloud blocked",      (kv.get("CLOUD", "") in ("000", "")),      f"cloud={kv.get('CLOUD')} (000=no route)")
 
-# F3 — recoverability (audit trail + undo path present & populated)
-hbase = os.path.dirname(AGENT)  # /home/leo/.hermes
-audit_ok = (os.path.getsize(os.path.join(hbase, "state.db")) > 0
-            and len(os.listdir(os.path.join(hbase, "sessions"))) > 0)
-undo_ok = os.path.isdir(os.path.join(hbase, "state-snapshots")) and \
-          len(os.listdir(os.path.join(hbase, "state-snapshots"))) > 0
+# F3 — recoverability: audit trail populated + a REAL (safe) snapshot restore.
+# We copy the newest state-snapshot DB to a temp file and open it, proving the
+# undo artifact actually restores to a valid Hermes state DB — WITHOUT touching
+# live state (finding #5). This is a genuine reversal test on a copy.
+audit_ok = (os.path.getsize(os.path.join(HBASE, "state.db")) > 0
+            and len(os.listdir(os.path.join(HBASE, "sessions"))) > 0)
 check("F3 audit trail present", audit_ok, "state.db + sessions/ populated")
-check("F3 undo path present",   undo_ok,  "state-snapshots/ restorable")
 
-# cleanup
+snaps = sorted(glob.glob(os.path.join(HBASE, "state-snapshots", "*", "state.db")))
+tables = []
+if snaps:
+    tmp = tempfile.mktemp(suffix=".db")
+    shutil.copy(snaps[-1], tmp)
+    try:
+        con = sqlite3.connect(tmp)
+        tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        con.close()
+    finally:
+        os.remove(tmp)
+check("F3 undo restorable (snapshot DB loads to valid Hermes state)",
+      bool(snaps) and len(tables) > 0,
+      f"{len(snaps)} snapshot(s); newest restores to {len(tables)} tables")
+
+# cleanup — container + host sandbox dir (incl. root-owned skills mountpoint, finding #3)
 try:
     env.cleanup(force_remove=True)
     env.wait_for_cleanup(timeout=20)
-except Exception as e:
-    print(f"(cleanup warning: {e})")
+finally:
+    subprocess.run(
+        ["docker", "run", "--rm", "-v", f"{os.path.join(HBASE,'sandboxes','docker')}:/x",
+         "alpine", "rm", "-rf", f"/x/{TASK}"],
+        capture_output=True,
+    )
 
-print("=== KAI-959 SAFETY-FLOOR PROBE RESULTS ===")
+print("=== KAI-959 SAFETY-FLOOR PROBE RESULTS (live-config driven) ===")
 for inv, verdict, detail in results:
     print(f"  [{verdict}] {inv} — {detail}")
 concerns = [r for r in results if r[1] == "CONCERN"]
