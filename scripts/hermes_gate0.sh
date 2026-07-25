@@ -12,16 +12,19 @@ red(){ echo "GATE0 RED — $1"; exit 1; }
 # 1. Config posture — the locked hardened default profile. Fully validated:
 #    backend, docker_network, exactly-one --network hermes-ember (no contradictory
 #    trailing flag), --read-only, non-root. (Findings #2/#4, Codex verify 2026-07-25.)
-"$PY" - "$CONFIG" <<'PY' || red "config posture (backend/docker_network/run_as_host_user/--read-only/single --network hermes-ember)"
+"$PY" - "$CONFIG" <<'PY' || red "config posture (backend/docker_network/run_as_host_user/docker_extra_args exact-match)"
 import sys, yaml
 t = (yaml.safe_load(open(sys.argv[1])) or {}).get("terminal", {})
 ex = t.get("docker_extra_args", []) or []
 assert t.get("backend") == "docker", "terminal.backend != docker"
 assert t.get("docker_network") is True, "terminal.docker_network is not true"
 assert t.get("docker_run_as_host_user") is True, "docker_run_as_host_user is not true"
-assert "--read-only" in ex, "docker_extra_args missing --read-only"
-assert ex.count("--network") == 1, "docker_extra_args must contain exactly one --network"
-assert ex[ex.index("--network") + 1] == "hermes-ember", "--network value is not hermes-ember"
+# EXACT match — docker_extra_args is applied LAST and overrides defaults, so any
+# extra/trailing token (e.g. --network=host, --privileged, --user=0,
+# --read-only=false) could silently weaken posture. Only the exact hardened set
+# passes. Widening the profile is a deliberate edit here. (Finding #2, Codex.)
+assert ex == ["--read-only", "--network", "hermes-ember"], \
+    f"docker_extra_args must be EXACTLY ['--read-only','--network','hermes-ember'], got {ex}"
 PY
 
 # 2. Egress network posture — internal net; ONLY kai-litellm + hermes sandboxes attached
