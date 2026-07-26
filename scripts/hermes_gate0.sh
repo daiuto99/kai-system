@@ -42,7 +42,11 @@ done
 #    Hermes reuse matches labels across all states — finding #1) must conform.
 for c in $(docker ps -aq --filter label=hermes-agent=1); do
   n=$(docker inspect -f '{{.Name}}' "$c" | sed 's#^/##')
-  [ "$(docker inspect -f '{{.Config.User}}' "$c")" = "1000:1000" ] || red "$n: user != 1000:1000 (root)"
+  # Safety floor = NON-ROOT (not a specific uid). Hardcoding 1000:1000 (the worker
+  # leo uid) falsely REDs on other hosts — e.g. 71-kai-mini where the host user is
+  # 501 and run_as_host_user maps 501:501 (KAI-975 mini leg). Assert uid != 0 / unset.
+  u=$(docker inspect -f '{{.Config.User}}' "$c"); uid=${u%%:*}
+  { [ -n "$u" ] && [ "$uid" != "0" ] && [ "$uid" != "root" ]; } || red "$n: container user is root/unset (got: ${u:-<empty>}); safety floor requires non-root"
   [ "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$c")" = "true" ] || red "$n: rootfs not read-only"
   docker inspect -f '{{json .HostConfig.CapDrop}}' "$c" | grep -q '"ALL"' || red "$n: cap-drop ALL missing"
   docker inspect -f '{{json .HostConfig.SecurityOpt}}' "$c" | grep -q no-new-privileges || red "$n: no-new-privileges missing"
