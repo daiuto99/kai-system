@@ -32,9 +32,13 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "calendar.create_event": {"classification": "mutating", "rule": "requires_approval",
                               "reason": "Creates a real calendar event visible to Leo"},
     "wordpress.create_page": {"classification": "mutating", "rule": "requires_approval", "reason": "Creates a WordPress page"},
-    "wordpress.publish":     {"classification": "mutating", "rule": "requires_approval", "reason": "Publishes public WordPress content"},
+    # Draft-only rule (Leo, 2026-07-26): KAI never publishes WordPress content — every
+    # new page stays a draft; Leo publishes manually in WP until he lifts this. Hard-
+    # disabled for ALL callers (not just requires_approval). Lift only on Leo's direction
+    # by restoring rule="requires_approval".
+    "wordpress.publish":     {"classification": "mutating", "rule": "never", "reason": "Draft-only rule (Leo 2026-07-26): KAI never publishes; Leo publishes manually until confidence"},
     "wordpress.purge_varnish": {"classification": "mutating", "rule": "requires_approval", "reason": "Changes public cache state"},
-    "wordpress.set_front_page": {"classification": "mutating", "rule": "requires_approval", "reason": "Changes a public homepage"},
+    "wordpress.set_front_page": {"classification": "mutating", "rule": "never", "reason": "Draft-only rule (Leo 2026-07-26): setting a live homepage is a publish action — disabled until Leo lifts it"},
     "wordpress.set_option":  {"classification": "mutating", "rule": "requires_approval", "reason": "Changes WordPress configuration"},
     "hostops.place_secret": {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
     "hostops.deploy_plugin": {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
