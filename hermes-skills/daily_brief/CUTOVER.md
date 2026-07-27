@@ -1,9 +1,22 @@
 # AR-2 Daily Brief — Cutover & Retirement (handoff)
 
 **Status:** Skill built + shadow parity PROVEN (5/5 green, see `shadow/comparison_log.md`).
-**Blocked on:** SSH access to `71-kai-mini` (100.106.160.41) — the Hermes runtime.
-Neither the Mac nor the worker has a key authorized there; the mini's Hermes is
-colima/docker (AR-0). This is the only step left and it needs mini access.
+**Remaining:** stand up the Hermes runtime on `71-kai-mini`, install this skill, cron it
+in shadow for a few mornings, then flip to live with Leo's go.
+
+**Mini access (CORRECTED — it is reachable):**
+```bash
+ssh -o IdentitiesOnly=yes -i ~/.ssh/kai_worker leodaiuto@100.106.160.41   # 71-kai-mini
+```
+(An earlier "blocked on SSH" reading was an ssh-agent too-many-keys artifact — the
+`IdentitiesOnly=yes` + user `leodaiuto` invocation works. On the mini, `docker`/`colima`
+are at `~/.local/bin`; use a login shell: `zsh -lc "docker ps"`.)
+
+**Real gap:** colima IS running on the mini and the Ember litellm gateway (`kai-litellm`)
+is up, but **no Hermes container is running there** — `docker ps -a` shows only
+`kai-litellm`. AR-0's autostart brought up colima + Ember but not Hermes. So step 0 of
+cutover is to bring the Hermes runtime up on the mini under the hardened profile
+(re-run the AR-0 bring-up / Gate-0 + F1/F2/F3 probes), THEN do the steps below.
 
 ## What is DONE (live-verified this session)
 - `daily_brief` skill authored: `SKILL.md` + `scripts/build_brief.py` +
