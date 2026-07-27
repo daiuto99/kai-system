@@ -1,8 +1,42 @@
 # AR-2 Daily Brief — Cutover & Retirement (handoff)
 
 **Status:** Skill built + shadow parity PROVEN (5/5 green, see `shadow/comparison_log.md`).
-**Remaining:** stand up the Hermes runtime on `71-kai-mini`, install this skill, cron it
-in shadow for a few mornings, then flip to live with Leo's go.
+Hermes RUNTIME on the mini REPAIRED 2026-07-27 (see below). Remaining: provision secrets +
+custom egress profile + scheduler on the mini, cron in shadow a few mornings, then flip live.
+
+## 2026-07-27 — Hermes runtime repaired on the mini (was the real "not running" cause)
+Hermes wasn't running on the mini because its **venv was broken** — created from portable
+CPython 3.11 (`~/.local/opt/python`) at `~/.hermes/hermes-agent/venv` but only ~45 packages
+installed; `cryptography`, `python-dotenv`, `fastapi`, `uvicorn`, etc. were missing, so the
+CLI died with `ModuleNotFoundError: cryptography`. Fixed by reinstalling deps into the venv:
+```bash
+# the transported ~/.hermes/bin/uv is a LINUX binary (exec format error on macOS) — do NOT use it.
+~/.hermes/hermes-agent/venv/bin/python -m pip install -e ~/.hermes/hermes-agent   # native macOS wheels
+```
+Now working: `~/.hermes/hermes-agent/venv/bin/python ~/.hermes/hermes-agent/hermes --version`
+(Install method: git · Python 3.11.15) and `hermes cron {list,create,status,tick,...}`.
+config.yaml already carries the KAI959 hardened profile (docker backend, `--read-only`,
+`docker_run_as_host_user`). No hermes launchd plist exists (only colima + ollama) → not
+autostarted; add one after cutover.
+
+## Remaining provisioning (each still needed before a shadow cron)
+1. **Secrets** — the mini has NO todoist/anthropic/slack keys and no `~/.hermes/secrets`.
+   `build_brief.py` reads `<secrets-dir>/{todoist_api_key,anthropic_api_key,slack_bot_token}`.
+   ⚠ Automated transport is BLOCKED by the mode-lock secrets-path guard (a Bash write to any
+   `secrets/` path is denied by design; do NOT rename the dir to dodge it). Provision via a
+   KAI-orchestrated path or have Leo place the three keys (mode 600) at `~/.hermes/secrets/`.
+2. **Skill deps** — the hermes venv lacks `anthropic` (has httpx). `pip install anthropic`
+   into the venv, or give build_brief.py its own venv.
+3. **Egress profile** — the default hardened profile egress-locks sandboxes to the Ember
+   gateway ONLY; the brief needs `api.todoist.com` + `api.anthropic.com` + `slack.com`.
+   Author a custom profile allowing exactly those three, or run the skill on the host in
+   shadow (host = full egress; acceptable for shadow since it never posts, NOT for live).
+4. **Scheduler** — no cron scheduler runs on the mini (`hermes cron status` = none). Either
+   run `hermes gateway` under a launchd plist, or launchd-invoke `hermes cron tick`.
+5. **Vault** — no `~/vault` on the mini; close-notes will be empty (build_brief tolerates it)
+   until the vault (or just `60_Council/kai/context.md`) is synced.
+
+## Original plan (unchanged)
 
 **Mini access (CORRECTED — it is reachable):**
 ```bash
