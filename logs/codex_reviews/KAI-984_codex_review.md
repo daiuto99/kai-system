@@ -84,3 +84,32 @@ The loop caught real defects (Online string-truthiness, `$`-regex newline bypass
 trust-root injection, missing BackendState gate, explicit-null Online). Settled non-holes: valid-target-
 with-missing-sibling (correct to allow); BaseException propagation (still fail-closed). Known tracked gap:
 allowlist file tamper-protection = increment 4 (Leo-run). Suggested future test-hardening noted by Codex.
+
+## Increment 2 — provision_policy (secret-name x node authorization)
+
+### Round 1 -> FAIL
+```
+KAI-984-INC2 VERIFICATION — FAIL
+FAIL-CLOSED: Guard denials and exceptions deny correctly, but secret-name authorization is bypassable.
+ALLOW-PATH HOLES: `provisionable={"random_secret"}` allows `"random_secret"`; a hostile `str` subclass containing `"../etc/passwd"` can spoof iteration/hash/equality and is allowed.
+CONCERNS:
+ 1. `authorize_provision` trusts a caller-supplied allowlist instead of enforcing `PROVISIONABLE_SECRETS`.
+ 2. `isinstance(secret_name, str)` permits hostile subclasses; the safer `_valid_secret_name()` is unused.
+MISSING TESTS: caller cannot widen the allowlist; hostile `str` subclasses deny; guard exceptions deny; exact allow/deny `tailnet_ip` and `node_id` propagation
+RECOMMENDATION: do NOT — fix first
+```
+
+### Round 2 -> PASS
+```
+KAI-984-INC2 VERIFICATION — PASS
+FAIL-CLOSED: Confirmed; 16 tests and 212 adversarial probes passed, including guard denial, guard exception, and verdict propagation.
+ALLOW-PATH HOLES: none found
+CONCERNS:
+ 1. No implementation-level concerns found.
+MISSING TESTS: explicit guard-exception denial; denied-guard node_id preservation; uppercase, Unicode, backslash, tab, CR, and NUL secret-name cases
+RECOMMENDATION: trust for next increment
+```
+
+Outcome: PASS at round 2 (16 tests + 212 probes). Fixed: caller could widen the provisionable
+allowlist via a parameter (now the module constant is the sole policy); isinstance(str) admitted
+hostile str subclasses (now exact type(name) is str). Bounds BOTH which-secret and which-node.
