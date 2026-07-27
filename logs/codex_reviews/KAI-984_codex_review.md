@@ -113,3 +113,58 @@ RECOMMENDATION: trust for next increment
 Outcome: PASS at round 2 (16 tests + 212 probes). Fixed: caller could widen the provisionable
 allowlist via a parameter (now the module constant is the sole policy); isinstance(str) admitted
 hostile str subclasses (now exact type(name) is str). Bounds BOTH which-secret and which-node.
+
+---
+
+## increment 3 — provision_capability + provision_audit (the composition layer)
+
+Protocol: Claude built → Codex verified directly (`codex exec`, cross-provider, workspace-write
+sandbox), driven by Claude in-session. Verify prompt scoped to the design threat model (R2/R3/R5):
+untrusted = the Claude SESSION as requester (name-only, never the value); the server-side gate /
+secret_source / transport / clock / notifier are TRUSTED (they hold the real secrets — what we
+protect WITH, not against). Landed commit: `285bdb3` (supersedes first build `5e8afac`).
+
+| Round | Verdict | Real defect(s) fixed | Notes |
+|------|---------|----------------------|-------|
+| 1 | FAIL | truthiness-not-strict-True (approval + transport verdict); `except Exception` lets BaseException escape; exc content in reason | first pass |
+| 2 | FAIL | outcome-taxonomy bug (pre-transport crash recorded `failed` → false §4.5 violation) → new `errored`; `type(exc).__name__` / `repr(type())` → fixed literals; node_id isinstance guard | |
+| 3 | FAIL | eager approval_id flatten pre-read (lazy-object vector); R6 audit-persist failure downgrades success to not-ok + loud | |
+| 4 | FAIL | post-transport verdict exception → `failed` not `errored`; invariant fail-loud on non-AuditRecord; exact-type node_id | ran tests: 55/55 |
+| 5 | FAIL | empty-secret via bytes-subclass `__len__` lie → coerce+check real length; ts shape-validation; unknown-outcome fail-loud; exact-type tailnet_ip | |
+| 6 | FAIL | **LEAK-PATHS: none. FAIL-CLOSED: holds.** read_records never-raises on invalid UTF-8; raising clock still persists; verify_store fail-loud on corrupt/truncated lines | threat model scoped |
+| 7 | FAIL | **LEAK: none / FAIL-CLOSED: holds.** unreadable store (vs absent) → fail-loud | probes: no escape |
+| 8 | FAIL | active-exception-context leak (audit/notify moved outside `except`); `bytes(memoryview())` true buffer; exact-type record/outcome | real new leak found |
+| 9 | FAIL | **LEAK: none / FAIL-CLOSED: holds / INVARIANT: correct.** unhashable outcome (`{"outcome":[]}`) → TypeError escape fixed | |
+| 10 | FAIL | **FAIL-CLOSED holds / INVARIANT correct.** null transport result before notify | plateau — see residuals |
+
+Final: 132 tests green on the worker (Codex ephemeral runners independently passed 55→73 cases as
+the suite grew). LEAK-PATHS reported `none` in rounds 6, 7, 9; round 8 surfaced one genuine new
+in-model leak (since fixed); round 10's two "leaks" are out-of-model (below).
+
+### Accepted residuals — OUT of the design threat model (pending Leo ratification before inc4)
+
+The verdict stayed `do NOT` because Codex, by construction, keeps probing OUTSIDE the stated threat
+model. These are NOT in-model vulnerabilities:
+
+- **R-A — malicious TRUSTED component.** A `secret_source` returning an object with a hostile
+  `__del__` that decodes-and-raises the value; a `transport` that stuffs `material` into its result
+  dict combined with a `notifier` that introspects caller-frame locals. Each requires a server-side
+  component we build and trust to be actively malicious — and such a component already HOLDS the
+  value and could exfiltrate it directly. The capability layer categorically cannot defend a
+  component that owns the secret. (Mitigations still taken where cheap: fixed-literal reasons,
+  audit/notify outside `except`, null `result`/`material`/`data` references, `bytes(memoryview())`.)
+- **R-B — caller passes the value AS metadata.** Structural L18 = there is no value PARAMETER on
+  `build_record`; that holds. A caller shoving the raw value into `requester`/`secret_name`/`ts` is
+  caller misuse indistinguishable from legitimate data — not a module hole. ts is additionally
+  shape-validated so it cannot carry arbitrary bytes.
+- **R-C — R6 store-integrity is deploy-level.** "Written where the executing process cannot rewrite
+  it" is an append-only-storage / separate-principal deploy step, not a code property. In code:
+  append is O_APPEND+fsync+full-write-loop with no update/delete API; verify_store fail-louds on any
+  corrupt/truncated/unreadable line; a success that cannot be durably audited reports not-ok + loud
+  #devops. An audit-store-down denial still fires the loud notify (the denial moved nothing).
+
+Recommendation (Claude, architect): the load-bearing security floor — no in-model value leak,
+fail-closed at every branch, correct §4.5 blast-radius invariant — is verified across 10 independent
+adversarial rounds. Accept R-A/R-B/R-C as documented residuals and treat inc3 as verified-complete;
+R-C's append-only-storage hardening and enrollment confirmation are prerequisites for inc4 (first
+live provisioning). Awaiting Leo's ratification of that call.
