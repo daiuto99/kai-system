@@ -168,3 +168,18 @@ fail-closed at every branch, correct §4.5 blast-radius invariant — is verifie
 adversarial rounds. Accept R-A/R-B/R-C as documented residuals and treat inc3 as verified-complete;
 R-C's append-only-storage hardening and enrollment confirmation are prerequisites for inc4 (first
 live provisioning). Awaiting Leo's ratification of that call.
+
+---
+
+## RATIFIED — Leo, 2026-07-27
+
+inc3 is **verified-complete**. Leo accepted the documented out-of-model residuals (R-A malicious
+trusted component / R-B caller-passes-value-as-metadata / R-C R6 append-only storage = deploy-level)
+after the 10-round adversarial pass established the in-model floor: **LEAK-PATHS none, FAIL-CLOSED holds,
+§4.5 INVARIANT correct** (rounds 6/7/9/10). 132 tests green; landed `285bdb3`.
+
+Scope of ratification: inc3 (`provision_capability` + `provision_audit`) only. KAI-984 stays **In Progress** —
+inc4 remains: the live Slack-approval adapter + SSH tailnet transport (inc3 injects them as stubs), the
+scheduler-invariant wiring, Leo's enrollment ceremony (tamper-protect allowlist + `enrollment_status=confirmed`),
+and the first live provision to 71-kai-mini (which unblocks AR-2). Standing rule recorded: memory
+`feedback_codex_residual_acceptance`.
