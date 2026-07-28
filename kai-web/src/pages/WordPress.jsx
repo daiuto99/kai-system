@@ -292,7 +292,7 @@ export default function WordPress() {
 }
 
 function StatusChip({ tone, label, title }) {
-  const c = tone === 'good' ? '#10b981' : tone === 'warn' ? '#f59e0b' : '#6b7280'
+  const c = tone === 'good' ? '#10b981' : tone === 'warn' ? '#f59e0b' : tone === 'bad' ? '#ef4444' : '#6b7280'
   return (
     <span title={title} style={{
       fontSize: 11, padding: '2px 8px', borderRadius: 4, fontWeight: 500,
@@ -301,18 +301,40 @@ function StatusChip({ tone, label, title }) {
   )
 }
 
+function DriftChip({ d }) {
+  const s = d?.status
+  const when = d?.checked_at ? ` · ${d.checked_at}` : ''
+  if (s === 'clean')        return <StatusChip tone="good" label="✓ clean" title={`${d.summary || 'no drift'}${when}`} />
+  if (s === 'drift')        return <StatusChip tone="bad"  label={`⚠ ${d.highs || 0} blocking`} title={`${d.summary || ''}${when}`} />
+  if (s === 'no_profile')   return <StatusChip tone="none" label="— no profile" title="No BUILD_PROFILE — not checkable" />
+  if (s === 'fetch_failed') return <StatusChip tone="warn" label="unreachable" title={d.summary} />
+  return <StatusChip tone="none" label="— not scanned" title={d?.detail} />
+}
+
 // MAINTAIN health board (WP-20.6a) — read-only per-property status matrix.
 // Dimensions with no live reader are shown honestly as not-automated, never faked green.
 function HealthBoard({ data, onRefresh }) {
+  const [scanning, setScanning] = useState(false)
   if (!data) return null
   const props = data.properties || []
   const th = { textAlign: 'left', padding: '8px 12px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap' }
   const td = { padding: '10px 12px', borderTop: '1px solid var(--border)', fontSize: 12, verticalAlign: 'top' }
+
+  async function scanDrift() {
+    setScanning(true)
+    try { await api.post('/wordpress/drift/scan', {}); await onRefresh() }
+    catch(e) { /* surfaced via board state on next load */ }
+    setScanning(false)
+  }
+
   return (
     <div>
-      {/* Note + refresh */}
+      {/* Note + actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1, lineHeight: 1.5 }}>{data.note}</span>
+        <button onClick={scanDrift} disabled={scanning} title="Run a live brand-drift scan of each property's homepage" style={{ background: scanning ? 'var(--surface)' : '#6366f1', border: '1px solid #6366f1', borderRadius: 6, cursor: scanning ? 'default' : 'pointer', color: scanning ? 'var(--text-muted)' : '#fff', padding: '5px 12px', fontSize: 12, fontWeight: 600, display: 'flex', gap: 6, alignItems: 'center' }}>
+          <Activity size={13} style={scanning ? { animation: 'spin 1s linear infinite' } : undefined} /> {scanning ? 'Scanning…' : 'Scan drift'}
+        </button>
         <button onClick={onRefresh} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--text-muted)', padding: '5px 10px', fontSize: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
           <RefreshCw size={13} /> Refresh
         </button>
@@ -354,7 +376,7 @@ function HealthBoard({ data, onRefresh }) {
                     ? <StatusChip tone={p.brand_sync.logo_set ? 'good' : 'none'} label={`${p.brand_sync.logo_set ? 'logo ✓' : 'logo —'}${p.brand_sync.as_of ? ' · ' + p.brand_sync.as_of : ''}`} title={`Last brand-consistency run: ${p.brand_sync.as_of || 'unknown'}`} />
                     : <StatusChip tone="none" label="— never run" />}
                 </td>
-                <td style={td}><StatusChip tone="warn" label="not tracked" title={p.drift?.detail} /></td>
+                <td style={td}><DriftChip d={p.drift} /></td>
                 <td style={td}><StatusChip tone="warn" label="manual gate" title={p.standards_floor?.detail} /></td>
                 <td style={td}><StatusChip tone="warn" label="not wired" title={p.backup?.detail} /></td>
               </tr>

@@ -632,6 +632,17 @@ def update_wp_task(task_id: str, updates: dict):
 
 WP_BRAND_RESULT_FILE = VAULT_PATH / "00_System" / "wp_brand_consistency_result.json"
 WP_PROPERTIES_DIR = VAULT_PATH / "60_Council" / "properties"
+WP_DRIFT_STATE_FILE = VAULT_PATH / "00_System" / "wp_drift_state.json"
+
+
+def _load_drift_state() -> dict:
+    """Per-slug persisted brand-drift results (WP-20.2b). Read-only, never raises."""
+    if WP_DRIFT_STATE_FILE.exists():
+        try:
+            return json.loads(WP_DRIFT_STATE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
 
 
 def _read_build_profile(slug: str) -> dict:
@@ -687,10 +698,12 @@ def wordpress_health():
     """
     sites = _load_sites()
     brand_map, brand_as_of = _brand_sync_map()
+    drift_state = _load_drift_state()
     rows = []
     for slug, v in sites.items():
         bp = _read_build_profile(slug)
         bs = brand_map.get(slug, {})
+        ds = drift_state.get(slug)
         rows.append({
             "slug": slug,
             "url": v.get("url", ""),
@@ -703,8 +716,16 @@ def wordpress_health():
                 "coming_soon_updated": bool(bs.get("cs_page_updated")),
                 "as_of": brand_as_of,
             },
-            "drift": {"status": "not_tracked",
-                      "detail": "detector runs inline at the write chokepoint; no persisted per-property result yet (WP-20.2b)"},
+            "drift": (
+                {"status": ds.get("status", "no_check"),
+                 "checked_at": ds.get("checked_at"),
+                 "highs": ds.get("highs"), "warns": ds.get("warns"),
+                 "summary": ds.get("summary", ""),
+                 "detail": ds.get("summary", "")}
+                if ds else
+                {"status": "no_check",
+                 "detail": "no drift scan run yet — click Scan (WP-20.2b, live homepage read)"}
+            ),
             "standards_floor": {"status": "manual_gate",
                                 "detail": "WCAG 2.2 AA / perf / security / content enforced via LSE gate — no automated checker yet"},
             "backup": {"status": "not_wired",
@@ -714,9 +735,55 @@ def wordpress_health():
         "properties": rows,
         "count": len(rows),
         "legend": {
-            "live": ["brand_profile", "brand_sync"],
-            "not_automated": ["drift", "standards_floor", "backup"],
+            "live": ["brand_profile", "brand_sync", "drift"],
+            "not_automated": ["standards_floor", "backup"],
         },
-        "note": ("MAINTAIN board v1 (WP-20.6a). Read-only. Dimensions marked "
-                 "not_automated have no reader yet — shown honestly, never faked."),
+        "note": ("MAINTAIN board (WP-20.6a + drift WP-20.2b). Read-only. Drift is a live "
+                 "homepage scan (click Scan). standards_floor / backup have no reader yet — "
+                 "shown honestly as not-automated, never faked."),
     }
+
+
+@router.post("/wordpress/drift/scan")
+def wordpress_drift_scan():
+    """WP-20.2b — run the brand-drift detector against each property's LIVE homepage
+    and persist per-property results to wp_drift_state.json.
+
+    Reads the public homepage (HTTP GET) and the internal brand profile only, then
+    writes an INTERNAL vault state file. Performs NO WordPress mutation — the
+    WP-20.3/.4 anti-bypass chokepoint is untouched. Properties with no BUILD_PROFILE
+    are recorded as not-checkable (honest) without a network fetch. Per-property
+    failures are captured, never fatal to the whole scan.
+    """
+    import datetime
+    import brand_drift  # importable in this container: /shared on PYTHONPATH
+    sites = _load_sites()
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    state = {}
+    for slug, v in sites.items():
+        entry = {"checked_at": now}
+        if not _read_build_profile(slug).get("present"):
+            entry.update({"checked": False, "drift": False, "status": "no_profile",
+                          "summary": "no BUILD_PROFILE — not checkable"})
+            state[slug] = entry
+            continue
+        url = v.get("url", "")
+        try:
+            r = httpx.get(url, timeout=10, follow_redirects=True)
+            r.raise_for_status()
+            result = brand_drift.detect(slug, r.text)
+            findings = result.get("findings", []) or []
+            entry.update({
+                "checked": bool(result.get("checked")),
+                "drift": bool(result.get("drift")),
+                "status": "drift" if result.get("drift") else "clean",
+                "highs": sum(1 for f in findings if f.get("severity") == "high"),
+                "warns": sum(1 for f in findings if f.get("severity") == "warn"),
+                "summary": result.get("summary", ""),
+            })
+        except Exception as e:
+            entry.update({"checked": False, "drift": False, "status": "fetch_failed",
+                          "summary": f"could not read {url}: {type(e).__name__}"})
+        state[slug] = entry
+    _atomic_write_json(WP_DRIFT_STATE_FILE, state)
+    return {"ok": True, "scanned": len(state), "checked_at": now, "state": state}
