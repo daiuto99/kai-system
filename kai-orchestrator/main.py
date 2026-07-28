@@ -159,12 +159,14 @@ def _create_plane_bug(title: str, description: str) -> str:
 def _register_workflows():
     from workflows.hello_world import HelloWorldWorkflow
     from workflows.wordpress_publish_homepage import PublishHomepageWorkflow
+    from workflows.wordpress_build_page_draft import BuildPageDraftWorkflow
     from workflows.capability_chain import CapabilityChainWorkflow
     from workflows.devops_self_modify import DevopsSelfModifyWorkflow
     from workflows.hostops_deploy import HostopsDeployWorkflow
     WORKFLOW_REGISTRY["hello_world"] = HelloWorldWorkflow
     WORKFLOW_REGISTRY["capability_chain"] = CapabilityChainWorkflow
     WORKFLOW_REGISTRY["wordpress.publish_homepage"] = PublishHomepageWorkflow
+    WORKFLOW_REGISTRY["wordpress.build_page_draft"] = BuildPageDraftWorkflow
     WORKFLOW_REGISTRY["devops.self_modify"] = DevopsSelfModifyWorkflow
     WORKFLOW_REGISTRY["hostops.deploy"] = HostopsDeployWorkflow
 
