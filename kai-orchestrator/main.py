@@ -1,5 +1,5 @@
 """kai-orchestrator — FastAPI entrypoint."""
-import json, logging, os, threading, time, hmac
+import json, logging, os, threading, time, hmac, sqlite3
 from datetime import datetime, timedelta, timezone
 import time as _time
 from pathlib import Path
@@ -324,7 +324,16 @@ def run_workflow(body: dict):
     wf_class = WORKFLOW_REGISTRY.get(workflow_type)
     if not wf_class:
         return {"error": f"Unknown workflow type: {workflow_type}"}
-    wf = wf_class.start(inputs)
+    try:
+        wf = wf_class.start(inputs)
+    except sqlite3.IntegrityError as e:
+        # one_active_build: only one live build per (site, type). Surface a
+        # clean error instead of a raw 500 so the dashboard launcher can show it.
+        if "one_active_build" in str(e):
+            return {"error": "a build is already in progress for this site — "
+                             "resolve or cancel it before starting another",
+                    "code": "build_in_progress"}
+        raise
     threading.Thread(target=_run_and_notify, args=(wf.job_id, wf), daemon=True).start()
     return {"job_id": wf.job_id, "status": "started"}
 

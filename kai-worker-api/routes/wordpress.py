@@ -787,3 +787,84 @@ def wordpress_drift_scan():
         state[slug] = entry
     _atomic_write_json(WP_DRIFT_STATE_FILE, state)
     return {"ok": True, "scanned": len(state), "checked_at": now, "state": state}
+
+
+# ── WP-20.6b/c — dashboard BUILD launcher over the governed drafts-only workflow ──
+# The dashboard NEVER writes to WordPress directly. A BUILD action starts the
+# orchestrator's wordpress.build_page_draft workflow (dev gate + creative gate +
+# WP write chokepoint + brand-drift check, status=draft, no publish, no homepage
+# overwrite). This route is a launcher over that chokepoint — the WP-20.6 §2
+# "invents no new write path" invariant, restated for the dashboard.
+
+_ORCH_URL = os.environ.get("ORCHESTRATOR_URL", "http://kai-orchestrator:8003")
+
+
+class BuildDraftRequest(BaseModel):
+    page_title: str
+    page_content: Optional[str] = None
+    brief_path: Optional[str] = None
+
+
+@router.post("/wordpress/{site_id}/build-draft")
+def build_draft(site_id: str, req: BuildDraftRequest):
+    """Launch the governed drafts-only page workflow for a property.
+
+    Routes through wordpress.build_page_draft on the orchestrator — the same
+    chokepoint as publish, minus the publish/homepage steps. Produces a DRAFT
+    only; both human gates (dev + creative) must be approved before any write.
+    Returns the job_id so the dashboard can poll gate/step status.
+    """
+    site = _get_site(site_id)  # validates the property exists + has creds; site_id is the slug
+    inputs = {"site": site_id, "page_title": req.page_title}
+    if req.page_content:
+        inputs["page_content"] = req.page_content
+    if req.brief_path:
+        inputs["brief_path"] = req.brief_path
+    payload = {"type": "wordpress.build_page_draft", "inputs": inputs}
+    try:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(f"{_ORCH_URL}/workflows/run", json=payload)
+    except httpx.RequestError as e:
+        logger.exception("orchestrator unreachable for build-draft")
+        raise HTTPException(502, f"orchestrator unreachable: {e}")
+    if r.status_code != 200:
+        raise HTTPException(502, f"orchestrator returned {r.status_code}: {r.text[:200]}")
+    body = _safe_json(r)
+    if isinstance(body, dict) and body.get("_error"):
+        raise HTTPException(502, "orchestrator returned non-JSON response")
+    if isinstance(body, dict) and body.get("error"):
+        raise HTTPException(400, body["error"])
+    return {"job_id": body.get("job_id"), "status": body.get("status"),
+            "site": site_id, "url": site.get("url")}
+
+
+@router.get("/wordpress/build-draft/{job_id}")
+def build_draft_status(job_id: str):
+    """Poll a build-draft job for the dashboard.
+
+    Returns step/gate status ONLY — never the raw orchestrator step results,
+    which carry WP creds in cleartext (see the redaction bug filed under
+    WP-20.6d). Keeping this surface free of secrets is deliberate.
+    """
+    try:
+        with httpx.Client(timeout=15) as client:
+            r = client.get(f"{_ORCH_URL}/jobs/{job_id}")
+    except httpx.RequestError as e:
+        raise HTTPException(502, f"orchestrator unreachable: {e}")
+    if r.status_code != 200:
+        raise HTTPException(502, f"orchestrator returned {r.status_code}")
+    data = _safe_json(r)
+    if isinstance(data, dict) and data.get("_error"):
+        raise HTTPException(502, "orchestrator returned non-JSON response")
+    job = data.get("job", {}) or {}
+    steps = [
+        {"name": s.get("name"), "status": s.get("status"),
+         "capability": s.get("capability") or "approval_gate"}
+        for s in (data.get("steps", []) or [])
+    ]
+    awaiting = next((s["name"] for s in steps
+                     if s["status"] in ("awaiting_gate", "pending_leo")), None)
+    wrote = any(s["name"] == "create_page_draft" and s["status"] == "succeeded"
+                for s in steps)
+    return {"job_id": job_id, "status": job.get("status"),
+            "awaiting_gate": awaiting, "draft_written": wrote, "steps": steps}
