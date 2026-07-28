@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
-import { Globe, FileText, Layout, Plus, ExternalLink, RefreshCw, CheckCircle, Clock, AlertCircle, ChevronRight, Layers } from 'lucide-react'
+import { Globe, FileText, Layout, Plus, ExternalLink, RefreshCw, CheckCircle, Clock, AlertCircle, ChevronRight, Layers, Activity, Palette, ShieldCheck, HardDrive } from 'lucide-react'
 
 const STATUS_COLOR = {
   publish:  '#10b981',
@@ -25,6 +25,9 @@ export default function WordPress() {
   const [pages, setPages]         = useState([])
   const [tasks, setTasks]         = useState([])
   const [view, setView]           = useState('pages')  // pages | posts | tasks
+  const [board, setBoard]         = useState('health')  // health | sites — MAINTAIN is the default landing (WP-20.6a)
+  const [health, setHealth]       = useState(null)
+  const [healthLoading, setHealthLoading] = useState(false)
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState(null)
   const navigate = useNavigate()
@@ -32,6 +35,14 @@ export default function WordPress() {
   useEffect(() => { loadSites() }, [])
   useEffect(() => { if (activeSite) loadContent(activeSite) }, [activeSite, view])
   useEffect(() => { loadTasks() }, [])
+  useEffect(() => { if (board === 'health' && !health) loadHealth() }, [board])
+
+  async function loadHealth() {
+    setHealthLoading(true)
+    try { setHealth(await api.get('/wordpress/health')) }
+    catch(e) { setError('Could not load health board') }
+    setHealthLoading(false)
+  }
 
   async function loadSites() {
     try {
@@ -82,6 +93,32 @@ export default function WordPress() {
         </span>
       </div>
 
+      {/* Board toggle — MAINTAIN (health) is the default landing (WP-20.6a) */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+        {[
+          { id: 'health', label: 'Health', icon: Activity },
+          { id: 'sites',  label: 'Sites',  icon: Globe },
+        ].map(({ id, label, icon: Icon }) => (
+          <button key={id} onClick={() => setBoard(id)} style={{
+            padding: '6px 16px', borderRadius: 6, border: '1px solid var(--border)',
+            cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: board === id ? '#6366f1' : 'transparent',
+            color: board === id ? '#fff' : 'var(--text-muted)',
+            borderColor: board === id ? '#6366f1' : 'var(--border)',
+          }}>
+            <Icon size={14} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {board === 'health' && (
+        healthLoading
+          ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}><RefreshCw size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+          : <HealthBoard data={health} onRefresh={loadHealth} />
+      )}
+
+      {board === 'sites' && (<>
       {/* Site tabs */}
       <div style={{
         display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20,
@@ -249,6 +286,85 @@ export default function WordPress() {
 
         </div>
       )}
+      </>)}
+    </div>
+  )
+}
+
+function StatusChip({ tone, label, title }) {
+  const c = tone === 'good' ? '#10b981' : tone === 'warn' ? '#f59e0b' : '#6b7280'
+  return (
+    <span title={title} style={{
+      fontSize: 11, padding: '2px 8px', borderRadius: 4, fontWeight: 500,
+      background: `${c}18`, color: c, whiteSpace: 'nowrap', cursor: title ? 'help' : 'default',
+    }}>{label}</span>
+  )
+}
+
+// MAINTAIN health board (WP-20.6a) — read-only per-property status matrix.
+// Dimensions with no live reader are shown honestly as not-automated, never faked green.
+function HealthBoard({ data, onRefresh }) {
+  if (!data) return null
+  const props = data.properties || []
+  const th = { textAlign: 'left', padding: '8px 12px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap' }
+  const td = { padding: '10px 12px', borderTop: '1px solid var(--border)', fontSize: 12, verticalAlign: 'top' }
+  return (
+    <div>
+      {/* Note + refresh */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1, lineHeight: 1.5 }}>{data.note}</span>
+        <button onClick={onRefresh} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--text-muted)', padding: '5px 10px', fontSize: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
+          <RefreshCw size={13} /> Refresh
+        </button>
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 14, fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+        <span style={{ display: 'flex', gap: 5, alignItems: 'center' }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} /> live reader</span>
+        <span style={{ display: 'flex', gap: 5, alignItems: 'center' }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b' }} /> not automated yet — status not faked</span>
+      </div>
+
+      <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
+          <thead>
+            <tr>
+              <th style={th}>Property</th>
+              <th style={th}><Palette size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Brand Profile</th>
+              <th style={th}>Brand Sync</th>
+              <th style={th}>Drift</th>
+              <th style={th}><ShieldCheck size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Standards</th>
+              <th style={th}><HardDrive size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Backup</th>
+            </tr>
+          </thead>
+          <tbody>
+            {props.map(p => (
+              <tr key={p.slug}>
+                <td style={td}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{p.slug}</div>
+                  <a href={p.url} target="_blank" rel="noopener" style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none' }}>{(p.url || '').replace(/^https?:\/\//, '')}</a>
+                  {p.business && <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--text-muted)' }}>{p.business}</span>}
+                </td>
+                <td style={td}>
+                  {p.brand_profile?.present
+                    ? <StatusChip tone="good" label={`✓ ${p.brand_profile.palette_count} colors · ${(p.brand_profile.fonts || []).length} fonts`} title={(p.brand_profile.fonts || []).join(', ')} />
+                    : <StatusChip tone="none" label="— no profile" title="No per-property BUILD_PROFILE seeded yet" />}
+                </td>
+                <td style={td}>
+                  {p.brand_sync?.present
+                    ? <StatusChip tone={p.brand_sync.logo_set ? 'good' : 'none'} label={`${p.brand_sync.logo_set ? 'logo ✓' : 'logo —'}${p.brand_sync.as_of ? ' · ' + p.brand_sync.as_of : ''}`} title={`Last brand-consistency run: ${p.brand_sync.as_of || 'unknown'}`} />
+                    : <StatusChip tone="none" label="— never run" />}
+                </td>
+                <td style={td}><StatusChip tone="warn" label="not tracked" title={p.drift?.detail} /></td>
+                <td style={td}><StatusChip tone="warn" label="manual gate" title={p.standards_floor?.detail} /></td>
+                <td style={td}><StatusChip tone="warn" label="not wired" title={p.backup?.detail} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10 }}>
+        {props.length} properties · read-only · no writes from this view
+      </div>
     </div>
   )
 }

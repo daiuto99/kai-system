@@ -622,3 +622,101 @@ def update_wp_task(task_id: str, updates: dict):
             _save_tasks(tasks)
             return {"ok": True, "task": t}
     raise HTTPException(404, f"Task '{task_id}' not found")
+
+
+# ── MAINTAIN health board (WP-20.6a) ──────────────────────────────────────────
+# Read-only per-property status. Invariant: this endpoint performs NO writes and
+# opens NO new mutation path — it only reads live sources already on disk.
+# Dimensions with no automated reader are reported honestly as not-yet-automated
+# rather than faked green (no-theater floor). Scope: docs/WP_DASHBOARD_SCOPE_2026-07-28.md.
+
+WP_BRAND_RESULT_FILE = VAULT_PATH / "00_System" / "wp_brand_consistency_result.json"
+WP_PROPERTIES_DIR = VAULT_PATH / "60_Council" / "properties"
+
+
+def _read_build_profile(slug: str) -> dict:
+    """Read a property's BUILD_PROFILE §9 machine-readable JSON block (read-only).
+
+    Returns {"present": bool, "fonts": [...], "palette_count": int}. Never raises.
+    """
+    import re
+    bp = WP_PROPERTIES_DIR / slug / "BUILD_PROFILE.md"
+    if not bp.exists():
+        return {"present": False, "fonts": [], "palette_count": 0}
+    try:
+        text = bp.read_text(encoding="utf-8")
+        blocks = re.findall(r"```json\s*(.*?)```", text, re.DOTALL)
+        if not blocks:
+            return {"present": True, "fonts": [], "palette_count": 0}
+        tokens = json.loads(blocks[-1])
+        return {
+            "present": True,
+            "fonts": tokens.get("fonts", []) or [],
+            "palette_count": len(tokens.get("palette", []) or []),
+        }
+    except Exception:
+        # A malformed profile still counts as "present"; we just can't parse tokens.
+        return {"present": True, "fonts": [], "palette_count": 0}
+
+
+def _brand_sync_map():
+    """Return (per-slug last brand-consistency result, as_of date str) or ({}, None)."""
+    import datetime
+    if not WP_BRAND_RESULT_FILE.exists():
+        return {}, None
+    try:
+        data = json.loads(WP_BRAND_RESULT_FILE.read_text(encoding="utf-8"))
+        as_of = datetime.datetime.utcfromtimestamp(
+            WP_BRAND_RESULT_FILE.stat().st_mtime).strftime("%Y-%m-%d")
+        return {r.get("site"): r for r in data if isinstance(r, dict)}, as_of
+    except Exception:
+        return {}, None
+
+
+@router.get("/wordpress/health")
+def wordpress_health():
+    """MAINTAIN health board (WP-20.6a) — read-only per-property status.
+
+    Aggregates ONLY live on-disk sources. No writes, no side effects, no new
+    mutation path (the WP-20.3/.4 anti-bypass invariant). Per property:
+      - brand_profile  : LIVE  — per-property BUILD_PROFILE presence + tokens (WP-20.1)
+      - brand_sync     : LIVE  — last wp_brand_consistency run + file date
+      - drift          : not_tracked  — detector is inline at write chokepoint; no persisted per-property result yet (WP-20.2b)
+      - standards_floor: manual_gate  — WCAG/perf/security/content via LSE gate; no automated checker exists
+      - backup         : not_wired    — Cloudways backup freshness not yet integrated
+    """
+    sites = _load_sites()
+    brand_map, brand_as_of = _brand_sync_map()
+    rows = []
+    for slug, v in sites.items():
+        bp = _read_build_profile(slug)
+        bs = brand_map.get(slug, {})
+        rows.append({
+            "slug": slug,
+            "url": v.get("url", ""),
+            "business": v.get("business", ""),
+            "provisioned": v.get("provisioned", False),
+            "brand_profile": bp,
+            "brand_sync": {
+                "present": bool(bs),
+                "logo_set": bool(bs.get("site_icon_set")),
+                "coming_soon_updated": bool(bs.get("cs_page_updated")),
+                "as_of": brand_as_of,
+            },
+            "drift": {"status": "not_tracked",
+                      "detail": "detector runs inline at the write chokepoint; no persisted per-property result yet (WP-20.2b)"},
+            "standards_floor": {"status": "manual_gate",
+                                "detail": "WCAG 2.2 AA / perf / security / content enforced via LSE gate — no automated checker yet"},
+            "backup": {"status": "not_wired",
+                       "detail": "Cloudways backup-freshness not yet integrated"},
+        })
+    return {
+        "properties": rows,
+        "count": len(rows),
+        "legend": {
+            "live": ["brand_profile", "brand_sync"],
+            "not_automated": ["drift", "standards_floor", "backup"],
+        },
+        "note": ("MAINTAIN board v1 (WP-20.6a). Read-only. Dimensions marked "
+                 "not_automated have no reader yet — shown honestly, never faked."),
+    }
