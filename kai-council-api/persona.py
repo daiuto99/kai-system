@@ -8,7 +8,7 @@ from council_config import ORCHESTRATOR_URL
 logger = logging.getLogger(__name__)
 
 
-def load_persona(advisor: str, channel: str = None) -> str:
+def load_persona(advisor: str, channel: str = None, property: str = None) -> str:
     """CONTEXT_SPEC §3/§13 Tier 5 migration: persona.py ceases to be an
     assembly point. The former assemble_prompt()/_register() local-file
     assembly logic now lives in kai-orchestrator/context_service.py as
@@ -20,6 +20,8 @@ def load_persona(advisor: str, channel: str = None) -> str:
         params = {"advisor": advisor}
         if channel:
             params["channel"] = channel
+        if property:
+            params["property"] = property
         r = httpx.get(f"{ORCHESTRATOR_URL}/context/persona", params=params, timeout=15)
     except httpx.HTTPError as e:
         logger.error("load_persona: Memory Service unreachable (advisor=%s): %s", advisor, e)

@@ -542,7 +542,7 @@ def context_assemble(body: dict):
 
 
 @app.get("/context/persona")
-def context_persona(advisor: str, channel: str = None):
+def context_persona(advisor: str, channel: str = None, property: str = None):
     """§3/§13 Tier 5 — lightweight persona-only load (no ConversationKey,
     no Tier 1-4 machinery). This is what persona.py::load_persona() calls now
     that persona.py has ceased to be an assembly point: workflow callers
@@ -550,7 +550,7 @@ def context_persona(advisor: str, channel: str = None):
     invariant (kai-scheduler, via kai-council-api's persona_check diagnostic)
     both just need standing-context text, not a conversation package."""
     import context_service
-    result = context_service.tier5_standing_context(advisor, channel=channel)
+    result = context_service.tier5_standing_context(advisor, channel=channel, property=property)
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result["error"])
     return {"ok": True, **result}

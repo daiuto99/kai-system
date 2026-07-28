@@ -571,7 +571,8 @@ def _tier5_project_status(project: str) -> str:
     return f'<project_status project="{project}">\n{header}\n</project_status>'
 
 
-def tier5_standing_context(advisor: str, channel: str = None, project: str = None) -> dict:
+def tier5_standing_context(advisor: str, channel: str = None, project: str = None,
+                           property: str = None) -> dict:
     """§5 Tier 5 — standing context: KEYSTONE, day-state note, project STATUS
     if relevant, persona/org/style (migrated from load_persona, §3 — persona.py
     ceases to be an assembly point). §7 block order: persona+voice, KEYSTONE+
@@ -633,6 +634,31 @@ def tier5_standing_context(advisor: str, channel: str = None, project: str = Non
         _register_block(blocks, "build_profile",
                          "<build_profile>\n" + build_profile_file.read_text(encoding="utf-8") +
                          "\n</build_profile>", "stable")
+
+    # WP-20.1 — per-property BUILD_PROFILE auto-load. When a request targets a
+    # specific property (WordPress site slug), its canonical brand spec at
+    # 60_Council/properties/<slug>/BUILD_PROFILE.md is loaded and registered
+    # AFTER the agency build_profile so it reads as the more-specific override
+    # (palette/type/voice for that property win over agency defaults). The slug
+    # is sanitized against path traversal before touching the filesystem. A slug
+    # that resolves to no profile is a visible warning (brand data gap), never a
+    # silent skip — the felt-difference §3(b) gate and the WP-20.2 drift detector
+    # both depend on this block being present when a property is in scope.
+    if property:
+        slug = re.sub(r"[^a-z0-9_-]", "", str(property).strip().lower())
+        prop_profile = COUNCIL_PATH / "properties" / slug / "BUILD_PROFILE.md" if slug else None
+        if slug and prop_profile.exists():
+            _register_block(blocks, "property_build_profile",
+                            "<property_build_profile property=\"" + slug + "\">\n"
+                            "This property's brand spec is canonical and OVERRIDES the agency "
+                            "build_profile defaults above for anything brand-bearing on this site.\n\n"
+                            + prop_profile.read_text(encoding="utf-8") +
+                            "\n</property_build_profile>", "stable")
+        else:
+            warnings.append(
+                f"property_build_profile_missing: no brand spec at "
+                f"properties/{slug or property}/BUILD_PROFILE.md — brand-bearing work "
+                f"on this property has no canonical spec (escalate Creative gate, do not improvise)")
 
     style_guide = COUNCIL_PATH / "JARVIS_STYLE_GUIDE.md"
     if style_guide.exists():

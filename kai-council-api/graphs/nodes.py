@@ -60,7 +60,10 @@ def advisor_node(state: KAIState) -> KAIState:
     advisor = state["target_advisor"]
     channel = state["channel"].lstrip("#")
 
-    system_prompt = load_persona(advisor, channel)
+    # WP-20.1 — forward the targeted property (WP site slug) when the request
+    # carries one, so the advisor loads that property's canonical brand spec on
+    # top of the agency build_profile. Absent for non-WP turns (stays None).
+    system_prompt = load_persona(advisor, channel, property=state.get("property"))
 
     messages = list(state.get("history", [])[-10:])
     messages.append({"role": "user", "content": state["message"]})
