@@ -97,6 +97,7 @@ export default function WordPress() {
       <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
         {[
           { id: 'health', label: 'Health', icon: Activity },
+          { id: 'build',  label: 'Build',  icon: Layout },
           { id: 'sites',  label: 'Sites',  icon: Globe },
         ].map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setBoard(id)} style={{
@@ -116,6 +117,10 @@ export default function WordPress() {
         healthLoading
           ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}><RefreshCw size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
           : <HealthBoard data={health} onRefresh={loadHealth} />
+      )}
+
+      {board === 'build' && (
+        <BuildBoard properties={health?.properties || []} />
       )}
 
       {board === 'sites' && (<>
@@ -289,6 +294,128 @@ export default function WordPress() {
       </>)}
     </div>
   )
+}
+
+// BUILD mode (WP-20.6b/c) — launcher over the governed drafts-only workflow.
+// This view NEVER writes to WordPress directly: it starts wordpress.build_page_draft
+// on the orchestrator (dev + creative gates, brand-drift, status=draft, no publish, no
+// homepage overwrite) and shows the job's gate/step status. Both gates are approved by
+// Leo in Slack. Status is polled from an endpoint that returns step state only — never
+// raw step results (those carry creds), so nothing secret reaches this surface.
+function BuildBoard({ properties }) {
+  const [slug, setSlug] = useState('')
+  const [title, setTitle] = useState('')
+  const [brief, setBrief] = useState('')
+  const [job, setJob] = useState(null)
+  const [status, setStatus] = useState(null)
+  const [launching, setLaunching] = useState(false)
+  const [error, setError] = useState(null)
+
+  const terminal = status && ['succeeded', 'failed_permanent', 'cancelled'].includes(status.status)
+
+  useEffect(() => {
+    if (!job?.job_id || terminal) return
+    let live = true
+    const tick = async () => {
+      try { const s = await api.get(`/wordpress/build-draft/${job.job_id}`); if (live) setStatus(s) }
+      catch (e) { /* keep last status on a transient poll error */ }
+    }
+    tick()
+    const iv = setInterval(tick, 3000)
+    return () => { live = false; clearInterval(iv) }
+  }, [job, terminal])
+
+  async function launch() {
+    setError(null)
+    if (!slug || !title.trim()) { setError('Pick a property and enter a page title.'); return }
+    setLaunching(true); setStatus(null); setJob(null)
+    try {
+      const body = { page_title: title.trim() }
+      if (brief.trim()) body.brief_path = brief.trim()
+      const r = await api.post(`/wordpress/${slug}/build-draft`, body)
+      setJob(r)
+    } catch (e) {
+      setError(String(e.message || e))
+    }
+    setLaunching(false)
+  }
+
+  const label = { fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, display: 'block', marginBottom: 5 }
+  const field = { width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', boxSizing: 'border-box' }
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 16 }}>
+        Start a <strong>governed drafts-only build</strong>. Routes through the dev + creative gates and the
+        brand-drift check, and creates a <strong>draft</strong> page — it never publishes and never touches the live
+        homepage. You approve both gates in Slack before anything is written.
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 720, marginBottom: 14 }}>
+        <div>
+          <label style={label}>Property</label>
+          <select value={slug} onChange={e => setSlug(e.target.value)} style={field}>
+            <option value="">— select —</option>
+            {properties.map(p => (
+              <option key={p.slug} value={p.slug} disabled={!p.brand_profile?.present}>
+                {p.slug}{p.brand_profile?.present ? '' : ' (no brand profile)'}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label style={label}>Page title</label>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="About" style={field} />
+        </div>
+      </div>
+      <div style={{ maxWidth: 720, marginBottom: 14 }}>
+        <label style={label}>Brief path (optional)</label>
+        <input value={brief} onChange={e => setBrief(e.target.value)} placeholder="/vault/20_Projects/wordpress/<property>/style.md" style={field} />
+      </div>
+
+      <button onClick={launch} disabled={launching} style={{
+        background: launching ? 'var(--surface)' : '#6366f1', border: '1px solid #6366f1', borderRadius: 6,
+        cursor: launching ? 'default' : 'pointer', color: launching ? 'var(--text-muted)' : '#fff',
+        padding: '7px 16px', fontSize: 13, fontWeight: 600, display: 'inline-flex', gap: 6, alignItems: 'center',
+      }}>
+        <Layout size={14} /> {launching ? 'Starting…' : 'Start governed draft build'}
+      </button>
+      {error && <div style={{ marginTop: 10, fontSize: 12, color: '#ef4444' }}>{error}</div>}
+
+      {job && (
+        <div style={{ marginTop: 20, border: '1px solid var(--border)', borderRadius: 8, padding: 16, maxWidth: 720 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>Job {job.job_id?.slice(0, 8)}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{status?.status || 'starting…'}</span>
+            {status?.draft_written
+              ? <span style={{ marginLeft: 'auto', fontSize: 11, color: '#10b981', display: 'flex', gap: 4, alignItems: 'center' }}><CheckCircle size={12} /> draft written</span>
+              : <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>no write yet</span>}
+          </div>
+          {status?.awaiting_gate && (
+            <div style={{ fontSize: 12, color: '#f59e0b', marginBottom: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
+              <Clock size={13} /> Awaiting <strong>{status.awaiting_gate}</strong> — approve in Slack to continue.
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {(status?.steps || []).map(s => (
+              <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                <StepDot status={s.status} />
+                <span style={{ color: s.status === 'succeeded' ? 'var(--text)' : 'var(--text-muted)' }}>{s.name}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-muted)' }}>{s.status}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StepDot({ status }) {
+  const c = status === 'succeeded' ? '#10b981'
+    : (status === 'awaiting_gate' || status === 'pending_leo') ? '#f59e0b'
+    : (status && status.startsWith('failed')) ? '#ef4444' : '#6b7280'
+  return <span style={{ width: 8, height: 8, borderRadius: '50%', background: c, flexShrink: 0 }} />
 }
 
 function StatusChip({ tone, label, title }) {
