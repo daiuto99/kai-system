@@ -98,6 +98,7 @@ export default function WordPress() {
         {[
           { id: 'health', label: 'Health', icon: Activity },
           { id: 'build',  label: 'Build',  icon: Layout },
+          { id: 'edit',   label: 'Edit',   icon: FileText },
           { id: 'sites',  label: 'Sites',  icon: Globe },
         ].map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setBoard(id)} style={{
@@ -120,7 +121,11 @@ export default function WordPress() {
       )}
 
       {board === 'build' && (
-        <BuildBoard properties={health?.properties || []} />
+        <BuildBoard mode="build" properties={health?.properties || []} />
+      )}
+
+      {board === 'edit' && (
+        <BuildBoard mode="edit" properties={health?.properties || []} />
       )}
 
       {board === 'sites' && (<>
@@ -302,9 +307,12 @@ export default function WordPress() {
 // homepage overwrite) and shows the job's gate/step status. Both gates are approved by
 // Leo in Slack. Status is polled from an endpoint that returns step state only — never
 // raw step results (those carry creds), so nothing secret reaches this surface.
-function BuildBoard({ properties }) {
+function BuildBoard({ mode = 'build', properties }) {
+  const isEdit = mode === 'edit'
   const [slug, setSlug] = useState('')
   const [title, setTitle] = useState('')
+  const [pageId, setPageId] = useState('')
+  const [content, setContent] = useState('')
   const [brief, setBrief] = useState('')
   const [job, setJob] = useState(null)
   const [status, setStatus] = useState(null)
@@ -327,12 +335,24 @@ function BuildBoard({ properties }) {
 
   async function launch() {
     setError(null)
-    if (!slug || !title.trim()) { setError('Pick a property and enter a page title.'); return }
+    if (!slug) { setError('Pick a property.'); return }
+    if (isEdit) {
+      if (!pageId || !content.trim()) { setError('Enter the page id and the new draft content.'); return }
+    } else if (!title.trim()) { setError('Enter a page title.'); return }
     setLaunching(true); setStatus(null); setJob(null)
     try {
-      const body = { page_title: title.trim() }
-      if (brief.trim()) body.brief_path = brief.trim()
-      const r = await api.post(`/wordpress/${slug}/build-draft`, body)
+      let r
+      if (isEdit) {
+        const body = { page_id: Number(pageId), page_content: content.trim() }
+        if (title.trim()) body.page_title = title.trim()
+        if (brief.trim()) body.brief_path = brief.trim()
+        r = await api.post(`/wordpress/${slug}/edit-draft`, body)
+      } else {
+        const body = { page_title: title.trim() }
+        if (content.trim()) body.page_content = content.trim()
+        if (brief.trim()) body.brief_path = brief.trim()
+        r = await api.post(`/wordpress/${slug}/build-draft`, body)
+      }
       setJob(r)
     } catch (e) {
       setError(String(e.message || e))
@@ -346,9 +366,13 @@ function BuildBoard({ properties }) {
   return (
     <div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 16 }}>
-        Start a <strong>governed drafts-only build</strong>. Routes through the dev + creative gates and the
-        brand-drift check, and creates a <strong>draft</strong> page — it never publishes and never touches the live
-        homepage. You approve both gates in Slack before anything is written.
+        {isEdit
+          ? <>Edit an <strong>existing draft</strong> page. Routes through the dev + creative gates and the brand-drift
+             check, and updates the page <strong>as a draft</strong> — it refuses any page that is not already a draft
+             (editing a live page is the publish workflow&apos;s job). You approve both gates in Slack first.</>
+          : <>Start a <strong>governed drafts-only build</strong>. Routes through the dev + creative gates and the
+             brand-drift check, and creates a <strong>draft</strong> page — it never publishes and never touches the live
+             homepage. You approve both gates in Slack before anything is written.</>}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 720, marginBottom: 14 }}>
@@ -363,10 +387,29 @@ function BuildBoard({ properties }) {
             ))}
           </select>
         </div>
-        <div>
-          <label style={label}>Page title</label>
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="About" style={field} />
+        {isEdit ? (
+          <div>
+            <label style={label}>Page id</label>
+            <input type="number" value={pageId} onChange={e => setPageId(e.target.value)} placeholder="20" style={field} />
+          </div>
+        ) : (
+          <div>
+            <label style={label}>Page title</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="About" style={field} />
+          </div>
+        )}
+      </div>
+      {isEdit && (
+        <div style={{ maxWidth: 720, marginBottom: 14 }}>
+          <label style={label}>Page title (optional)</label>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="leave blank to keep the current title" style={field} />
         </div>
+      )}
+      <div style={{ maxWidth: 720, marginBottom: 14 }}>
+        <label style={label}>{isEdit ? 'New draft content (HTML)' : 'Page content (optional, HTML)'}</label>
+        <textarea value={content} onChange={e => setContent(e.target.value)} rows={5}
+          placeholder="<p>Strategy-led consulting for companies building what's next.</p>"
+          style={{ ...field, resize: 'vertical', fontFamily: 'ui-monospace, Menlo, monospace' }} />
       </div>
       <div style={{ maxWidth: 720, marginBottom: 14 }}>
         <label style={label}>Brief path (optional)</label>
@@ -378,7 +421,7 @@ function BuildBoard({ properties }) {
         cursor: launching ? 'default' : 'pointer', color: launching ? 'var(--text-muted)' : '#fff',
         padding: '7px 16px', fontSize: 13, fontWeight: 600, display: 'inline-flex', gap: 6, alignItems: 'center',
       }}>
-        <Layout size={14} /> {launching ? 'Starting…' : 'Start governed draft build'}
+        <Layout size={14} /> {launching ? 'Starting…' : (isEdit ? 'Start governed draft edit' : 'Start governed draft build')}
       </button>
       {error && <div style={{ marginTop: 10, fontSize: 12, color: '#ef4444' }}>{error}</div>}
 
