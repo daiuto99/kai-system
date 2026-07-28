@@ -8,6 +8,42 @@ from transports.base import safe_request
 from transports import wp_rest_kai_route, ssh_php_eval, cloudways_ssh_purge
 from . import capability, get_transports
 from wp_write_preflight import preflight as wp_write_preflight
+import brand_drift
+import logging
+
+_log = logging.getLogger(__name__)
+
+
+def _run_brand_drift(site: str, property: str, content: str) -> dict:
+    """WP-20.2 — check authored page content against the property's brand spec and,
+    on blocking drift, file a content_bug (routed to Creative) so drift lands on the
+    board instead of being caught by eyeball. Never raises: a detector/filing failure
+    must not break a draft write (drafts are low-risk; live overwrite is guarded by
+    WP-20.4). The `property` slug wins when given (a brand may be built on a different
+    host site — e.g. a the71c draft staged on sette-uno); else it derives from `site`."""
+    slug = property or _site_key(site)
+    try:
+        report = brand_drift.detect(slug, content)
+    except Exception as e:  # detector must never take down the write path
+        _log.warning("brand-drift detector errored for %s: %s", slug, e)
+        return {"slug": slug, "checked": False, "drift": False, "error": str(e), "findings": []}
+    if report.get("drift"):
+        highs = [f for f in report.get("findings", []) if f.get("severity") == "high"]
+        detail = "; ".join(f["detail"] for f in highs) or report.get("summary", "")
+        _log.warning("BRAND DRIFT on %s (site=%s): %s", slug, site, detail)
+        try:
+            from main import _create_plane_bug  # lazy: avoids capability<->main import cycle
+            bug_id = _create_plane_bug(
+                f"[BRAND DRIFT] {slug} — {len(highs)} blocking issue(s) on an authored page",
+                f"Property {slug} (site {site}): {detail}. "
+                f"Content routed through wordpress.create_page failed the brand-drift "
+                f"check (WP-20.2). Review against the property BUILD_PROFILE before publish.",
+            )
+            if bug_id:
+                report["content_bug_id"] = bug_id
+        except Exception as e:
+            _log.warning("brand-drift content_bug filing failed for %s: %s", slug, e)
+    return report
 
 TRANSPORTS = {
     "wp_rest_kai_route": wp_rest_kai_route,
@@ -116,8 +152,14 @@ def get_front_page(site: str, creds: dict, **_) -> CapabilityResult:
 
 @capability("wordpress.create_page")
 def create_page(site: str, title: str, content: str, status: str = "draft",
-                creds: dict = None, caller: str = "", **_) -> CapabilityResult:
+                creds: dict = None, caller: str = "", property: str = None,
+                **_) -> CapabilityResult:
     wp_write_preflight(caller, "create_page")
+    # WP-20.2 — brand-drift check on the authored content BEFORE the write. Draft
+    # creation still proceeds (drafts are iterative; live overwrite is guarded by
+    # WP-20.4) but drift is recorded in the result (audit trail, §5.4) and, when
+    # blocking, filed as a content_bug to Creative.
+    brand_drift_report = _run_brand_drift(site, property, content)
     marker = uuid.uuid4().hex[:12]
     tagged_content = f"{content}\n<!-- kai-marker:{marker} -->"
     r = safe_request(
@@ -129,7 +171,8 @@ def create_page(site: str, title: str, content: str, status: str = "draft",
     )
     if r.ok and r.data:
         return CapabilityResult(ok=True, status="succeeded",
-            data={"id": r.data["id"], "link": r.data.get("link"), "marker": marker},
+            data={"id": r.data["id"], "link": r.data.get("link"), "marker": marker,
+                  "brand_drift": brand_drift_report},
             transport_used="wp_rest")
     return CapabilityResult(ok=False, status="failed_recoverable",
         error={"type": "create_failed", "status_code": r.status_code,
