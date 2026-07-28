@@ -868,3 +868,45 @@ def build_draft_status(job_id: str):
                 for s in steps)
     return {"job_id": job_id, "status": job.get("status"),
             "awaiting_gate": awaiting, "draft_written": wrote, "steps": steps}
+
+
+# ── WP-20.6c — dashboard EDIT launcher over the governed drafts-only edit workflow ──
+# Same chokepoint as BUILD, but targets an existing DRAFT page via
+# wordpress.edit_page_draft (which refuses to touch a published/live page).
+class EditDraftRequest(BaseModel):
+    page_id: int
+    page_content: str
+    page_title: Optional[str] = None
+    brief_path: Optional[str] = None
+
+
+@router.post("/wordpress/{site_id}/edit-draft")
+def edit_draft(site_id: str, req: EditDraftRequest):
+    """Launch the governed drafts-only EDIT workflow for an existing draft page.
+
+    Routes through wordpress.edit_page_draft on the orchestrator (dev + creative
+    gates, brand-drift, drafts-only guard — refuses non-draft pages). Returns the
+    job_id so the dashboard can poll gate/step status via /wordpress/build-draft/{job_id}.
+    """
+    site = _get_site(site_id)  # validates the property exists + has creds; site_id is the slug
+    inputs = {"site": site_id, "page_id": req.page_id, "page_content": req.page_content}
+    if req.page_title:
+        inputs["page_title"] = req.page_title
+    if req.brief_path:
+        inputs["brief_path"] = req.brief_path
+    payload = {"type": "wordpress.edit_page_draft", "inputs": inputs}
+    try:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(f"{_ORCH_URL}/workflows/run", json=payload)
+    except httpx.RequestError as e:
+        logger.exception("orchestrator unreachable for edit-draft")
+        raise HTTPException(502, f"orchestrator unreachable: {e}")
+    if r.status_code != 200:
+        raise HTTPException(502, f"orchestrator returned {r.status_code}: {r.text[:200]}")
+    body = _safe_json(r)
+    if isinstance(body, dict) and body.get("_error"):
+        raise HTTPException(502, "orchestrator returned non-JSON response")
+    if isinstance(body, dict) and body.get("error"):
+        raise HTTPException(400, body["error"])
+    return {"job_id": body.get("job_id"), "status": body.get("status"),
+            "site": site_id, "page_id": req.page_id, "url": site.get("url")}

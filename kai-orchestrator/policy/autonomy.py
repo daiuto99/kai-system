@@ -32,6 +32,7 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "calendar.create_event": {"classification": "mutating", "rule": "requires_approval",
                               "reason": "Creates a real calendar event visible to Leo"},
     "wordpress.create_page": {"classification": "mutating", "rule": "requires_approval", "reason": "Creates a WordPress page"},
+    "wordpress.update_page": {"classification": "mutating", "rule": "requires_approval", "reason": "Edits an existing WordPress draft page (drafts-only; refuses non-draft)"},
     # Draft-only rule (Leo, 2026-07-26): KAI never publishes WordPress content — every
     # new page stays a draft; Leo publishes manually in WP until he lifts this. Hard-
     # disabled for ALL callers (not just requires_approval). Lift only on Leo's direction

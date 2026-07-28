@@ -270,3 +270,55 @@ def verify_live(site: str, url: str = None, marker: str = None,
             data={"marker": marker, "url": target, "found": True})
     return CapabilityResult(ok=False, status="failed_recoverable",
         error={"type": "marker_not_found", "cloudflare_blocked": r.is_cloudflare_challenge})
+
+
+@capability("wordpress.update_page")
+def update_page(site: str, page_id: int, content: str, title: str = None,
+                status: str = "draft", creds: dict = None, caller: str = "",
+                property: str = None, **_) -> CapabilityResult:
+    """WP-20.6c EDIT — update an EXISTING page, drafts-only.
+
+    Mirrors create_page (write-preflight + brand-drift before the write) but
+    targets an existing page id. Drafts-only by construction: it refuses to
+    mutate a published/live page — editing live content is the guarded publish
+    workflow's job (WP-20.4), never this path. A draft stays a draft.
+    """
+    wp_write_preflight(caller, "update_page")
+
+    # Drafts-only guard: read the current page; refuse anything that isn't a draft.
+    cur = safe_request(
+        "GET", f"https://{creds['fqdn']}/wp-json/wp/v2/pages/{page_id}?context=edit",
+        auth=("kai", creds["app_password"]), verify=False,
+    )
+    if not (cur.ok and cur.data):
+        return CapabilityResult(ok=False, status="failed_recoverable",
+            error={"type": "page_not_found", "page_id": page_id,
+                   "status_code": cur.status_code, "detail": cur.body_preview})
+    cur_status = cur.data.get("status")
+    if cur_status not in ("draft", "pending", "auto-draft"):
+        return CapabilityResult(ok=False, status="failed_permanent",
+            error={"type": "not_a_draft", "page_id": page_id, "page_status": cur_status,
+                   "detail": "EDIT is drafts-only; editing a published/live page requires "
+                             "the guarded publish workflow (WP-20.4), not this path."})
+
+    # Brand-drift on the edited content BEFORE the write (same as create_page).
+    brand_drift_report = _run_brand_drift(site, property, content)
+    marker = uuid.uuid4().hex[:12]
+    tagged_content = f"{content}\n<!-- kai-marker:{marker} -->"
+    payload = {"content": tagged_content, "status": "draft", "template": "kai-blank"}
+    if title:
+        payload["title"] = title
+    r = safe_request(
+        "POST", f"https://{creds['fqdn']}/wp-json/wp/v2/pages/{page_id}",
+        auth=("kai", creds["app_password"]),
+        json=payload,
+        verify=False,
+    )
+    if r.ok and r.data:
+        return CapabilityResult(ok=True, status="succeeded",
+            data={"id": r.data["id"], "link": r.data.get("link"), "marker": marker,
+                  "brand_drift": brand_drift_report},
+            transport_used="wp_rest")
+    return CapabilityResult(ok=False, status="failed_recoverable",
+        error={"type": "update_failed", "status_code": r.status_code,
+               "detail": r.body_preview})
