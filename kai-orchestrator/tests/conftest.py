@@ -1,4 +1,5 @@
-import os as _os, sys as _sys
+import os as _os
+import sys as _sys
 # --- mirror runtime PYTHONPATH=/shared for host test runs (WP-20.4 guard tests) ---
 _SHARED = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "shared"))
 if _os.path.isdir(_SHARED) and _SHARED not in _sys.path:
