@@ -16,6 +16,7 @@ COPY watchdog.py .
 COPY security_watchdog.py .
 COPY execution_registry.py .
 COPY triage.py .
+COPY tg_alert.py .
 COPY invariants.py .
 COPY test_watchdog_dedup.py .
 

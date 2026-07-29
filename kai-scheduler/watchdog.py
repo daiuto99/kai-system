@@ -96,18 +96,9 @@ def _load_secret(name: str) -> str:
 
 
 def _slack_alert(token: str, message: str):
-    """Post to #devops as the DevOps persona."""
-    try:
-        httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#devops", "text": message,
-                  "username": "DevOps",
-                  "icon_url": "https://kai.sonicink.space/avatar-devops.png"},
-            timeout=10,
-        )
-    except Exception as e:
-        log.error("watchdog slack alert failed: %s", e)
+    """AR-5.1: rerouted to Telegram (sole surface). Legacy `token` arg ignored."""
+    from tg_alert import tg_alert
+    tg_alert(f"[DevOps] {message}")
 
 
 def _should_alert(key: str) -> bool:

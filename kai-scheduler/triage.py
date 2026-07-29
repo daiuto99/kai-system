@@ -206,20 +206,15 @@ def slack_triage_alert(
         now_hm = datetime.now().strftime("%H:%M")
         action = f"no error captured — check kai-scheduler logs around {now_hm}"
 
-    msg = f"Issue: *{label}* — Status: Action needed — {action} ({plane_ref})"
+    msg = f"Issue: {label} — Status: Action needed — {action} ({plane_ref})"
 
+    # AR-5.1: rerouted to Telegram (sole surface).
     try:
-        httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": channel, "text": msg,
-                  "username": f"KAI {team_role.capitalize()}",
-                  "icon_emoji": ":rotating_light:"},
-            timeout=10,
-        )
-        log.info("triage: Slack alert sent for %s (ticket %s) → %s", function_name, plane_ref, channel)
+        from tg_alert import tg_alert
+        tg_alert(f"[{team_role.capitalize()}] {msg}")
+        log.info("triage: Telegram alert sent for %s (ticket %s)", function_name, plane_ref)
     except Exception as e:
-        log.error("triage: Slack alert failed: %s", e)
+        log.error("triage: Telegram alert failed: %s", e)
 
 
 _LITELLM_URL = "http://kai-litellm:4000"

@@ -52,20 +52,9 @@ def _load_secret(name: str) -> str:
 
 
 def _slack_security(text: str):
-    """JARVIS §6: CRITICAL-shape posts to #devops. No legacy fallback channel."""
-    token = _load_secret("slack_bot_token")
-    if not token:
-        return
-    try:
-        httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#devops", "text": text,
-                  "username": "KAI Security", "icon_emoji": ":shield:"},
-            timeout=10,
-        )
-    except Exception as e:
-        log.error(f"Slack security post error: {e}")
+    """AR-5.1: rerouted to Telegram (sole surface)."""
+    from tg_alert import tg_alert
+    tg_alert(f"[Security] {text}")
 
 
 def _dedup(key: str, window_hours: int = 24) -> bool:

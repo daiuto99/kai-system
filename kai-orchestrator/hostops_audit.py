@@ -166,6 +166,30 @@ def _reconcile_one(conn, record) -> str | None:
     return None
 
 
+def _ensure_ack_table(conn) -> None:
+    """AR-5.1: append-only acknowledgment of dev-era audit records. Records are
+    never deleted (the trail is append-only); an ack marks a reviewed record as
+    reconciled so a real future bypass still stands out."""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS hostops_audit_ack ("
+        "audit_id TEXT PRIMARY KEY, acked_at TEXT, actor TEXT, reason TEXT)"
+    )
+
+
+def acknowledge(audit_id: str, reason: str, actor: str = "leo") -> None:
+    """Mark one audit record reviewed+reconciled (retained, not deleted)."""
+    conn = get_conn()
+    try:
+        _ensure_ack_table(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO hostops_audit_ack (audit_id, acked_at, actor, reason) VALUES (?,?,?,?)",
+            (audit_id, now_iso(), actor, reason),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def reconcile() -> dict:
     """Reconcile every executed mutation against the consumed-gate store.
 
@@ -178,11 +202,15 @@ def reconcile() -> dict:
     try:
         conn = get_conn()  # inside the try: a connection-time failure IS the "store unreadable" case
         _ensure_table(conn)
+        _ensure_ack_table(conn)
+        acked = {r[0] for r in conn.execute("SELECT audit_id FROM hostops_audit_ack").fetchall()}
         records = conn.execute(
             "SELECT id,ts,job_id,actor,operation,site,gate_id,authorization,outcome FROM hostops_audit ORDER BY ts"
         ).fetchall()
         unreconciled = []
         for record in records:
+            if record["id"] in acked:
+                continue
             reason = _reconcile_one(conn, record)
             if reason:
                 unreconciled.append({
