@@ -27,18 +27,10 @@ def _slack_token() -> str:
 
 
 def _post_slack(text: str):
-    token = _slack_token()
-    if not token:
-        return
-    try:
-        httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": SLACK_CHANNEL, "text": text},
-            timeout=10,
-        )
-    except Exception as e:
-        logger.error(f"Slack post error: {e}")
+    # AR-5.3: rerouted to Telegram (sole surface, AR-5). Name kept so call sites
+    # stay unchanged; fail-soft via the shared chokepoint.
+    from tg_alert import tg_alert
+    tg_alert(text)
 
 
 def _load() -> list:

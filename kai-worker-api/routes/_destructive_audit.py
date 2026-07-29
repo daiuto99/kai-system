@@ -47,22 +47,16 @@ def audit_before(endpoint: str, detail: dict, operator: str, reason: str) -> dic
     with open(AUDIT_LOG, "a") as f:
         f.write(json.dumps(record) + "\n")
 
-    # Slack mirror to #kai-system (non-blocking on failure — audit log is the source of truth)
-    token = _slack_token()
-    if token:
-        try:
-            text = (
-                f":rotating_light: *Destructive op* — `{endpoint}`\n"
-                f"*Operator:* {operator}  |  *Reason:* {reason}\n"
-                f"*Detail:* `{json.dumps(detail)}`  |  *ts:* {record['ts']}"
-            )
-            httpx.post(
-                "https://slack.com/api/chat.postMessage",
-                headers={"Authorization": f"Bearer {token}"},
-                json={"channel": _SLACK_CHANNEL, "text": text, "username": "KAI DevOps"},
-                timeout=10,
-            )
-        except Exception as e:
-            logger.warning("audit slack mirror failed (audit log written): %s", e)
+    # AR-5.3: Telegram mirror (sole surface, AR-5) — non-blocking on failure;
+    # the append-only JSONL above is the source of truth.
+    try:
+        from tg_alert import tg_alert
+        tg_alert(
+            f"🚨 Destructive op — {endpoint}\n"
+            f"Operator: {operator}  |  Reason: {reason}\n"
+            f"Detail: {json.dumps(detail)}  |  ts: {record['ts']}"
+        )
+    except Exception as e:
+        logger.warning("audit telegram mirror failed (audit log written): %s", e)
 
     return record

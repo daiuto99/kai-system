@@ -79,21 +79,10 @@ def _slack_token() -> str:
 
 
 def _post_slack(channel_id: str, text: str):
-    if not channel_id:
-        return
-    token = _slack_token()
-    if not token:
-        return
-    try:
-        httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": channel_id, "text": text,
-                  "username": "Creative", "icon_url": "https://kai.sonicink.space/avatar-creative.png"},
-            timeout=10,
-        )
-    except Exception as e:
-        logger.error("_post_slack: %s", e)
+    # AR-5.3: rerouted to Telegram (sole surface, AR-5). Signature kept so call
+    # sites stay unchanged; `channel_id` is now ignored. Fail-soft chokepoint.
+    from tg_alert import tg_alert
+    tg_alert(text)
 
 
 # ── Qdrant helpers ─────────────────────────────────────────────────────────────
