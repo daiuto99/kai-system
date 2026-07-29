@@ -461,6 +461,17 @@ function StepDot({ status }) {
   return <span style={{ width: 8, height: 8, borderRadius: '50%', background: c, flexShrink: 0 }} />
 }
 
+// Standards-floor chip (WP-20.6) — security + content are computed live from the
+// homepage scan; WCAG 2.2 AA and Core Web Vitals stay honestly manual (need Lighthouse/axe).
+function StandardsChip({ s }) {
+  const st = s?.status
+  if (st === 'pass')     return <StatusChip tone="good" label="✓ sec+content" title={s.detail} />
+  if (st === 'advisory') return <StatusChip tone="warn" label={`advisory · ${(s.advisory || []).length}`} title={s.detail} />
+  if (st === 'issues')   return <StatusChip tone="bad"  label={`issues · ${(s.issues || []).length}`} title={s.detail} />
+  if (st === 'error')    return <StatusChip tone="warn" label="scan error" title={s.detail} />
+  return <StatusChip tone="none" label="— scan" title={s?.detail || 'run Scan to compute security + content'} />
+}
+
 function StatusChip({ tone, label, title }) {
   const c = tone === 'good' ? '#10b981' : tone === 'warn' ? '#f59e0b' : tone === 'bad' ? '#ef4444' : '#6b7280'
   return (
@@ -547,8 +558,8 @@ function HealthBoard({ data, onRefresh }) {
                     : <StatusChip tone="none" label="— never run" />}
                 </td>
                 <td style={td}><DriftChip d={p.drift} /></td>
-                <td style={td}><StatusChip tone="warn" label="manual gate" title={p.standards_floor?.detail} /></td>
-                <td style={td}><StatusChip tone="warn" label="not wired" title={p.backup?.detail} /></td>
+                <td style={td}><StandardsChip s={p.standards_floor} /></td>
+                <td style={td}><StatusChip tone="none" label="— blocked" title={p.backup?.detail} /></td>
               </tr>
             ))}
           </tbody>

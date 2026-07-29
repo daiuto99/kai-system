@@ -726,21 +726,76 @@ def wordpress_health():
                 {"status": "no_check",
                  "detail": "no drift scan run yet — click Scan (WP-20.2b, live homepage read)"}
             ),
-            "standards_floor": {"status": "manual_gate",
-                                "detail": "WCAG 2.2 AA / perf / security / content enforced via LSE gate — no automated checker yet"},
+            "standards_floor": _standards_row(ds),
             "backup": {"status": "not_wired",
-                       "detail": "Cloudways backup-freshness not yet integrated"},
+                       "detail": "Cloudways backup-freshness blocked — API token stale (403); needs key refresh (bug f4a0f291)"},
         })
     return {
         "properties": rows,
         "count": len(rows),
         "legend": {
-            "live": ["brand_profile", "brand_sync", "drift"],
-            "not_automated": ["standards_floor", "backup"],
+            "live": ["brand_profile", "brand_sync", "drift", "standards_floor (security+content)"],
+            "not_automated": ["standards_floor (WCAG/CWV)", "backup"],
         },
         "note": ("MAINTAIN board (WP-20.6a + drift WP-20.2b). Read-only. Drift is a live "
-                 "homepage scan (click Scan). standards_floor / backup have no reader yet — "
+                 "homepage scan (click Scan). standards_floor security+content is computed from the same live scan (WCAG/CWV stay manual); backup is blocked on a stale Cloudways key — "
                  "shown honestly as not-automated, never faked."),
+    }
+
+
+def _compute_standards(resp) -> dict:
+    """WP-20.6 standards-floor reader — the sub-dimensions computable from a single
+    homepage fetch: security posture + content hygiene. WCAG 2.2 AA and Core Web
+    Vitals are NOT computed here (they need Lighthouse/axe) and are reported as
+    not_automated, never faked. `resp` is an httpx.Response after redirects.
+    """
+    try:
+        low = (resp.text or "").lower()
+        headers = {k.lower(): v for k, v in resp.headers.items()}
+        checks = {
+            "https": str(resp.url).lower().startswith("https"),
+            "hsts": "strict-transport-security" in headers,
+            "x_content_type_options": "x-content-type-options" in headers,
+            "no_lorem": "lorem ipsum" not in low,
+            "has_title": "<title" in low and "<title></title>" not in low.replace(" ", ""),
+            "og_tags": ("og:title" in low or "og:image" in low),
+            "meta_description": 'name="description"' in low,
+        }
+        hard = ["https", "no_lorem", "has_title"]          # a launchable floor
+        soft = ["hsts", "x_content_type_options", "og_tags", "meta_description"]
+        issues = [k for k in hard if not checks[k]]
+        advisory = [k for k in soft if not checks[k]]
+        return {
+            "checked": True,
+            "checks": checks,
+            "issues": issues,
+            "advisory": advisory,
+            "computed_status": "issues" if issues else ("advisory" if advisory else "pass"),
+            "not_automated": ["wcag_2.2_aa", "core_web_vitals"],
+        }
+    except Exception as e:
+        return {"checked": False, "computed_status": "error", "detail": type(e).__name__}
+
+
+def _standards_row(ds: dict) -> dict:
+    """Build the MAINTAIN standards_floor cell from persisted scan state (honest)."""
+    st = (ds or {}).get("standards")
+    if not st or not st.get("checked"):
+        return {"status": "no_check",
+                "detail": "run Scan to compute security + content; WCAG 2.2 AA / Core Web Vitals stay manual (need Lighthouse/axe)"}
+    if st.get("issues"):
+        tail = "hard-floor issues: " + ", ".join(st["issues"])
+    elif st.get("advisory"):
+        tail = "advisory gaps: " + ", ".join(st["advisory"])
+    else:
+        tail = "all computed checks pass"
+    return {
+        "status": st.get("computed_status", "no_check"),
+        "checks": st.get("checks", {}),
+        "issues": st.get("issues", []),
+        "advisory": st.get("advisory", []),
+        "not_automated": st.get("not_automated", []),
+        "detail": "security+content computed from live homepage; WCAG 2.2 AA + Core Web Vitals still manual. " + tail,
     }
 
 
@@ -781,6 +836,7 @@ def wordpress_drift_scan():
                 "warns": sum(1 for f in findings if f.get("severity") == "warn"),
                 "summary": result.get("summary", ""),
             })
+            entry["standards"] = _compute_standards(r)
         except Exception as e:
             entry.update({"checked": False, "drift": False, "status": "fetch_failed",
                           "summary": f"could not read {url}: {type(e).__name__}"})
