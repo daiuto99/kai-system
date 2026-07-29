@@ -101,14 +101,18 @@ def tg_send(token: str, chat_id: int, text: str):
 # (callback_data = gate:approve:{id} / gate:reject:{id}). The button click
 # arrives here as a callback_query update; we resolve it against the council.
 
-def _answer_callback(token: str, callback_query_id: object) -> None:
-    """Clear the Telegram button spinner after handling a callback."""
+def _answer_callback(token: str, callback_query_id: object, text: str = "") -> None:
+    """Clear the Telegram button spinner after handling a callback. An optional
+    `text` shows a short toast to the tapper (used to confirm mode-lock action)."""
     if not callback_query_id:
         return
     try:
+        payload = {"callback_query_id": callback_query_id}
+        if text:
+            payload["text"] = text
         httpx.post(
             f"https://api.telegram.org/bot{token}/answerCallbackQuery",
-            json={"callback_query_id": callback_query_id},
+            json=payload,
             timeout=10,
         )
     except Exception as e:
@@ -156,6 +160,57 @@ def _handle_gate_callback(token: str, cbq: dict, allowed: "frozenset[int]") -> N
     _answer_callback(token, cbq.get("id"))
 
 
+# ── Mode-lock unlock approvals over Telegram (AR-5.x / KAI-999) ────────────────
+# The KAI-mediated mode-lock approval (kai-worker-api routes/mode_lock.py) posts
+# an inline keyboard with callback_data `modelock:{once,deny,session}:{req_id}`.
+# The tap arrives here; we forward the decision to the worker-api, which mutates
+# the approval store and edits the original prompt in place.
+
+def _handle_modelock_callback(token: str, cbq: dict, allowed: "frozenset[int]") -> None:
+    data = cbq.get("data") or ""
+    parts = data.split(":", 2)
+    if len(parts) != 3 or parts[0] != "modelock" or parts[1] not in ("once", "deny", "session"):
+        _answer_callback(token, cbq.get("id"))
+        return
+    action, request_id = parts[1], parts[2]
+    chat_id = cbq.get("message", {}).get("chat", {}).get("id")
+    user = cbq.get("from", {}).get("username") or "leo"
+
+    # Allowlist guard — only an approved chat may resolve an unlock. Deny-all
+    # when the allowlist is empty (same posture as _handle_gate_callback).
+    if chat_id not in allowed:
+        log.warning("Mode-lock callback from non-allowed chat %s — ignored", chat_id)
+        _answer_callback(token, cbq.get("id"))
+        return
+
+    toast = "Recorded."
+    try:
+        r = httpx.post(
+            f"{WORKER_API}/mode_lock/telegram_action_internal",
+            json={"request_id": request_id, "action": action, "user": user},
+            auth=worker_auth(),
+            timeout=15,
+        )
+        if r.status_code == 200:
+            body = r.json()
+            status = body.get("status", "?")
+            if body.get("already_decided"):
+                toast = f"Already resolved ({status})."
+            else:
+                toast = {
+                    "approved_once": "Allowed once — tool will retry.",
+                    "denied": "Denied.",
+                    "approved_session": "Session unlocked (1h).",
+                }.get(status, f"Recorded: {status}")
+        else:
+            toast = f"Resolve failed — HTTP {r.status_code}."
+    except Exception as e:
+        log.error("Mode-lock resolve error: %s", type(e).__name__)
+        toast = "Could not reach the worker to resolve the unlock."
+
+    _answer_callback(token, cbq.get("id"), text=toast)
+
+
 # ── Slack helpers (kept for health alerts only) ────────────────────────────────
 
 def slack_post(token: str, channel: str, text: str,
@@ -196,10 +251,13 @@ def telegram_poll_loop():
 
             for upd in updates:
                 offset = upd["update_id"] + 1
-                # AR-5.2: inline approve/reject button click on a council gate.
+                # Inline button taps: mode-lock unlock (KAI-999) or council gate.
                 cbq = upd.get("callback_query")
                 if cbq:
-                    _handle_gate_callback(token, cbq, allowed_chat_ids)
+                    if (cbq.get("data") or "").startswith("modelock:"):
+                        _handle_modelock_callback(token, cbq, allowed_chat_ids)
+                    else:
+                        _handle_gate_callback(token, cbq, allowed_chat_ids)
                     continue
                 msg = upd.get("message")
                 if not msg:

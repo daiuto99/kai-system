@@ -4,16 +4,24 @@ Replaces the binary YES unlock with a contextual, Leo-in-the-loop approval flow:
 
   1. Gate hook on Mac denies a write tool.
   2. Hook POSTs /mode_lock/request_approval with {tool, target, reason}.
-  3. This worker route persists the request, posts an interactive Slack
-     message to Leo with 3 buttons (Allow once / Deny / Allow session 1h),
-     returns request_id.
-  4. Hook polls GET /mode_lock/approval_status/{request_id}?consume=1 until
-     it sees a terminal status or timeout.
-  5. Leo taps a button → Slack POSTs /mode_lock/slack_callback → entry
-     updated to approved_once / approved_session / denied.
+  3. This worker route persists the request, posts an interactive Telegram
+     message to Leo with 3 inline buttons (Allow once / Deny / Allow session
+     1h), returns request_id.
+  4. Hook checks GET /mode_lock/approval_status/{request_id}?consume=1 (the
+     remote path is async — the in-session `YES` fast path remains the default;
+     the Telegram tap is for when Leo is away, with a generous window).
+  5. Leo taps a button → the tap arrives as a Telegram callback_query on the
+     kai-scheduler poll loop, which forwards it to
+     /mode_lock/telegram_action_internal → entry updated to approved_once /
+     approved_session / denied.
   6. Hook reads approved → exits 0 (tool retries transparently from Claude's
      side). approved_once is consumed on first poll-read; approved_session
      stays valid until expires_at.
+
+AR-5.x (KAI-999): the remote approval channel moved from Slack (retired, AR-5)
+to Telegram. The Slack callback + helpers are kept dormant for the eventual
+HTTP cutover but are no longer used to post requests. See memory
+feedback_mode_lock_approval_telegram.
 
 Storage: JSON file at /vault/00_System/mode_lock_approvals.json with fcntl
 flock for concurrency safety. Pattern matches clarification_store.py.
@@ -38,6 +46,7 @@ import httpx as _mlhx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from safe_http import safe_json
+from redact import redact
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -49,9 +58,43 @@ STORE_PATH = Path(os.environ.get(
     "MODE_LOCK_STORE_PATH",
     "/vault/00_System/mode_lock_approvals.json",
 ))
-DEFAULT_REQUEST_TTL_S = int(os.environ.get("MODE_LOCK_REQUEST_TTL_S", "300"))
+# Generous default window: the remote (Telegram) path is async and Leo may be
+# away/busy, so a pending request stays tappable for an hour rather than the
+# old ~5-min Slack window (KAI-999).
+DEFAULT_REQUEST_TTL_S = int(os.environ.get("MODE_LOCK_REQUEST_TTL_S", "3600"))
 DEFAULT_SESSION_TTL_S = int(os.environ.get("MODE_LOCK_SESSION_TTL_S", "3600"))
 SLACK_CHANNEL = os.environ.get("MODE_LOCK_SLACK_CHANNEL", "#devops")
+
+TELEGRAM_API = "https://api.telegram.org"
+
+
+# ── Telegram helpers (remote approval channel — AR-5.x/KAI-999) ──────────────
+
+def _telegram_token() -> str:
+    p = Path("/run/secrets/telegram_bot_token")
+    return p.read_text().strip() if p.exists() else os.environ.get("TELEGRAM_BOT_TOKEN", "")
+
+
+def _telegram_chat_id() -> int | None:
+    """Destination chat for the approval prompt: explicit override, else the
+    first entry of the Telegram allowlist (Leo's chat). None → cannot post."""
+    override = os.environ.get("MODE_LOCK_TELEGRAM_CHAT_ID")
+    if override:
+        try:
+            return int(override.strip())
+        except ValueError:
+            pass
+    p = Path("/run/secrets/telegram_allowed_chat_ids")
+    if p.exists():
+        for line in p.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                return int(line)
+            except ValueError:
+                continue
+    return None
 
 
 # ── Slack helpers (reused pattern from routes/slack.py) ──────────────────────
@@ -320,6 +363,85 @@ def _update_slack_message(channel: str, ts: str, header_text: str,
     })
 
 
+# ── Telegram message rendering (remote approval channel) ─────────────────────
+
+def _telegram_text(tool: str, target: str, reason: str, requester: str) -> str:
+    target_display = target or "(none)"
+    if len(target_display) > 300:
+        target_display = target_display[:297] + "..."
+    reason_display = reason or "(no reason provided)"
+    if len(reason_display) > 600:
+        reason_display = reason_display[:597] + "..."
+    return (
+        "🔐 *KAI Mode Lock — Approval*\n"
+        f"*Tool:* `{tool}`\n"
+        f"*Requester:* `{requester}`\n"
+        f"*Target:* `{target_display}`\n"
+        f"*Reason:* {reason_display}"
+    )
+
+
+def _post_telegram_request(request_id: str, tool: str, target: str, reason: str,
+                           requester: str) -> dict:
+    """Post the approval prompt with an inline keyboard. callback_data is
+    `modelock:{once,deny,session}:{request_id}` — handled by the kai-scheduler
+    Telegram poll loop, which forwards to /mode_lock/telegram_action_internal."""
+    token = _telegram_token()
+    chat_id = _telegram_chat_id()
+    if not token or chat_id is None:
+        return {"ok": False, "error": "no_telegram_token_or_chat"}
+    keyboard = [
+        [
+            {"text": "✅ Allow once", "callback_data": f"modelock:once:{request_id}"},
+            {"text": "❌ Deny", "callback_data": f"modelock:deny:{request_id}"},
+        ],
+        [
+            {"text": "🔓 Allow session (1h)", "callback_data": f"modelock:session:{request_id}"},
+        ],
+    ]
+    payload = {
+        "chat_id": chat_id,
+        "text": _telegram_text(tool, target, reason, requester),
+        "parse_mode": "Markdown",
+        "reply_markup": {"inline_keyboard": keyboard},
+    }
+    try:
+        r = _mlhx.post(f"{TELEGRAM_API}/bot{token}/sendMessage", json=payload, timeout=15)
+    except Exception as e:
+        # L18: httpx error text embeds the bot-token URL — never propagate raw.
+        logger.error("mode_lock: telegram post failed: %s", type(e).__name__)
+        return {"ok": False, "error": type(e).__name__}
+    body = safe_json(r)
+    if not body.get("ok"):
+        logger.error("mode_lock: telegram post rejected: %s", redact(body, token))
+        return {"ok": False, "error": "telegram_rejected"}
+    result = body.get("result") or {}
+    return {"ok": True, "chat_id": chat_id, "message_id": result.get("message_id")}
+
+
+def _update_telegram_message(chat_id, message_id, text: str) -> None:
+    """Edit the original prompt in place to reflect the decision (drops the
+    inline keyboard by omitting reply_markup)."""
+    if chat_id is None or not message_id:
+        return
+    token = _telegram_token()
+    if not token:
+        return
+    try:
+        _mlhx.post(
+            f"{TELEGRAM_API}/bot{token}/editMessageText",
+            json={
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "parse_mode": "Markdown",
+            },
+            timeout=10,
+        )
+    except Exception as e:
+        logger.error("mode_lock: telegram edit failed: %s", type(e).__name__)
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 class ApprovalRequest(BaseModel):
@@ -373,6 +495,8 @@ def request_approval(req: ApprovalRequest) -> ApprovalResponse:
                 "session_id": sess.get("id"),
                 "slack_channel": None,
                 "slack_ts": None,
+                "telegram_chat_id": None,
+                "telegram_message_id": None,
             }
             data["requests"][request_id] = entry
             save()
@@ -397,22 +521,26 @@ def request_approval(req: ApprovalRequest) -> ApprovalResponse:
             "decision_kind": None,
             "slack_channel": None,
             "slack_ts": None,
+            "telegram_chat_id": None,
+            "telegram_message_id": None,
         }
         data["requests"][request_id] = entry
         save()
 
-    # Slack post happens OUTSIDE the lock to keep the critical section short.
-    resp = _post_slack_request(request_id, req.tool, req.target, req.reason,
-                               req.requester)
+    # Telegram post happens OUTSIDE the lock to keep the critical section short
+    # (AR-5.x/KAI-999 — Slack retired). The remote path is best-effort: if the
+    # post fails, the in-session `YES` fast path is still the way in.
+    resp = _post_telegram_request(request_id, req.tool, req.target, req.reason,
+                                  req.requester)
     if resp.get("ok"):
         with _store_session() as (data, save):
             entry = data["requests"].get(request_id)
             if entry:
-                entry["slack_channel"] = resp.get("channel")
-                entry["slack_ts"] = resp.get("ts")
+                entry["telegram_chat_id"] = resp.get("chat_id")
+                entry["telegram_message_id"] = resp.get("message_id")
                 save()
     else:
-        logger.warning("mode_lock: slack post failed for %s: %s",
+        logger.warning("mode_lock: telegram post failed for %s: %s",
                        request_id, resp.get("error"))
 
     return ApprovalResponse(
@@ -452,35 +580,45 @@ def approval_status(request_id: str, consume: int = 0) -> ApprovalResponse:
         )
 
 
-def _apply_block_actions(payload: dict) -> dict:
-    """Apply a Slack block_actions payload to mode_lock state.
-    Shared by /slack_callback (HTTP, sig-verified) and /slack_action_internal
-    (socket-mode bot forward, trusted by docker-internal-only exposure)."""
-    if payload.get("type") != "block_actions":
-        return {"ok": True, "ignored": payload.get("type")}
+_ACTION_MAP = {
+    "once":    ("approved_once",    "allow_once"),
+    "deny":    ("denied",           "deny"),
+    "session": ("approved_session", "allow_session"),
+}
 
-    actions = payload.get("actions") or []
-    if not actions:
-        return {"ok": True, "ignored": "no actions"}
+# Slack action_id → canonical action key (dormant Slack cutover path).
+_SLACK_ACTION_MAP = {
+    "mode_lock_allow_once":    "once",
+    "mode_lock_deny":          "deny",
+    "mode_lock_allow_session": "session",
+}
 
-    action = actions[0]
-    action_id = action.get("action_id", "")
-    request_id = action.get("value", "")
-    user = (payload.get("user") or {}).get("name", "unknown")
-    channel = (payload.get("channel") or {}).get("id")
-    message_ts = (payload.get("message") or {}).get("ts")
 
+def _decision_render(new_status: str, user: str, requester: str) -> tuple[str, str]:
+    """(header, summary) text for a decided request — surface-agnostic."""
+    summary = {
+        "approved_once":    f"✅ *Allowed once* by {user} — tool will retry now.",
+        "denied":           f"❌ *Denied* by {user}.",
+        "approved_session": f"🔓 *Session unlocked (1h)* by {user} — all writes from `{requester}` auto-approved.",
+    }[new_status]
+    header = {
+        "approved_once":    "🔐 KAI Mode Lock — Approved (once)",
+        "denied":           "🔐 KAI Mode Lock — Denied",
+        "approved_session": "🔓 KAI Mode Lock — Session unlocked",
+    }[new_status]
+    return header, summary
+
+
+def _apply_decision(request_id: str, action: str, user: str) -> dict:
+    """Apply a decision to a pending request. Surface-agnostic state mutation
+    shared by the Slack callback and the Telegram callback forward. `action`
+    is one of once / deny / session. On a fresh decision the result carries the
+    entry `snapshot` so the caller can render the surface-specific update."""
     if not request_id:
         return {"ok": False, "error": "no request_id"}
-
-    decision_map = {
-        "mode_lock_allow_once":    ("approved_once",    "allow_once"),
-        "mode_lock_deny":          ("denied",           "deny"),
-        "mode_lock_allow_session": ("approved_session", "allow_session"),
-    }
-    if action_id not in decision_map:
-        return {"ok": False, "error": f"unknown action_id: {action_id}"}
-    new_status, decision_kind = decision_map[action_id]
+    if action not in _ACTION_MAP:
+        return {"ok": False, "error": f"unknown action: {action}"}
+    new_status, decision_kind = _ACTION_MAP[action]
 
     now = _now()
     with _store_session() as (data, save):
@@ -495,6 +633,7 @@ def _apply_block_actions(payload: dict) -> dict:
                 "ok": True,
                 "already_decided": True,
                 "status": entry.get("status"),
+                "snapshot": dict(entry),
             }
 
         entry["status"] = new_status
@@ -518,21 +657,42 @@ def _apply_block_actions(payload: dict) -> dict:
         save()
         snapshot = dict(entry)
 
-    decided_summary = {
-        "approved_once":    f"✅ *Allowed once* by {user} — tool will retry now.",
-        "denied":           f"❌ *Denied* by {user}.",
-        "approved_session": f"🔓 *Session unlocked (1h)* by {user} — all writes from `{snapshot.get('requester')}` auto-approved.",
-    }[new_status]
-    header = {
-        "approved_once":    "🔐 KAI Mode Lock — Approved (once)",
-        "denied":           "🔐 KAI Mode Lock — Denied",
-        "approved_session": "🔐 KAI Mode Lock — Session unlocked",
-    }[new_status]
+    return {"ok": True, "status": new_status, "request_id": request_id,
+            "snapshot": snapshot}
+
+
+def _apply_block_actions(payload: dict) -> dict:
+    """Apply a Slack block_actions payload to mode_lock state (dormant — the
+    live remote channel is Telegram as of AR-5.x/KAI-999; kept for the eventual
+    Slack HTTP cutover)."""
+    if payload.get("type") != "block_actions":
+        return {"ok": True, "ignored": payload.get("type")}
+
+    actions = payload.get("actions") or []
+    if not actions:
+        return {"ok": True, "ignored": "no actions"}
+
+    action = actions[0]
+    action_id = action.get("action_id", "")
+    request_id = action.get("value", "")
+    user = (payload.get("user") or {}).get("name", "unknown")
+    channel = (payload.get("channel") or {}).get("id")
+    message_ts = (payload.get("message") or {}).get("ts")
+
+    if action_id not in _SLACK_ACTION_MAP:
+        return {"ok": False, "error": f"unknown action_id: {action_id}"}
+
+    result = _apply_decision(request_id, _SLACK_ACTION_MAP[action_id], user)
+    if not result.get("ok") or result.get("already_decided"):
+        return result
+
+    snapshot = result["snapshot"]
+    header, summary = _decision_render(result["status"], user,
+                                       snapshot.get("requester"))
     _update_slack_message(channel or snapshot.get("slack_channel"),
                           message_ts or snapshot.get("slack_ts"),
-                          header, decided_summary)
-
-    return {"ok": True, "status": new_status, "request_id": request_id}
+                          header, summary)
+    return {"ok": True, "status": result["status"], "request_id": request_id}
 
 
 @router.post("/mode_lock/slack_callback")
@@ -567,6 +727,35 @@ async def slack_action_internal(request: Request):
     if not isinstance(payload, dict):
         raise HTTPException(400, "missing payload object")
     return _apply_block_actions(payload)
+
+
+class TelegramAction(BaseModel):
+    request_id: str = Field(..., description="mode_lock request id")
+    action: str = Field(..., description="once | deny | session")
+    user: str = Field("leo", description="Telegram username that tapped")
+
+
+@router.post("/mode_lock/telegram_action_internal")
+def telegram_action_internal(body: TelegramAction):
+    """Forwarded Telegram callback_query decision from the kai-scheduler poll
+    loop (AR-5.x/KAI-999). No signature check — endpoint is docker-network
+    internal only (nginx port-8080 webhook block omits it; port-80 has basic
+    auth). The scheduler enforces the Telegram chat allowlist before forwarding,
+    so a tap that reaches here is already from an approved chat."""
+    result = _apply_decision(body.request_id, body.action, body.user)
+    if not result.get("ok"):
+        return result
+    if result.get("already_decided"):
+        return {"ok": True, "already_decided": True, "status": result.get("status"),
+                "request_id": body.request_id}
+
+    snapshot = result["snapshot"]
+    header, summary = _decision_render(result["status"], body.user,
+                                       snapshot.get("requester"))
+    _update_telegram_message(snapshot.get("telegram_chat_id"),
+                             snapshot.get("telegram_message_id"),
+                             f"{header}\n{summary}")
+    return {"ok": True, "status": result["status"], "request_id": body.request_id}
 
 
 @router.get("/mode_lock/sessions")
