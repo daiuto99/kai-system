@@ -29,50 +29,19 @@ def load_secret(name: str) -> str:
 
 # ── Slack helpers ──────────────────────────────────────────────────────────────
 
+# AR-5.3: Slack retired (AR-5). This module is DEAD (not imported/run — the live
+# scheduler is kai-scheduler/scheduler.py). Functions kept as dormant no-ops.
+
 def slack_post(token: str, channel: str, text: str,
-               username: str = "KAI", icon_url: str = "https://kai.sonicink.space/icon-192.png"):
-    try:
-        r = httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": channel, "text": text, "username": username, "icon_url": icon_url},
-            timeout=15,
-        )
-        return r.json()
-    except Exception as e:
-        log.error(f"Slack post error: {e}")
-        return {"ok": False}
+               username: str = "KAI", icon_url: str = "") -> dict:
+    return {"ok": False, "retired": "Slack retired (AR-5)"}
 
 
 def slack_get_user_id(token: str, email: str) -> str | None:
-    try:
-        r = httpx.get(
-            "https://slack.com/api/users.lookupByEmail",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"email": email},
-            timeout=10,
-        )
-        d = r.json()
-        if d.get("ok"):
-            return d["user"]["id"]
-    except Exception as e:
-        log.error(f"Slack user lookup error: {e}")
     return None
 
 
 def slack_open_dm(token: str, user_id: str) -> str | None:
-    try:
-        r = httpx.post(
-            "https://slack.com/api/conversations.open",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"users": user_id},
-            timeout=10,
-        )
-        d = r.json()
-        if d.get("ok"):
-            return d["channel"]["id"]
-    except Exception as e:
-        log.error(f"Slack DM open error: {e}")
     return None
 
 

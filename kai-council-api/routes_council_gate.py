@@ -294,28 +294,8 @@ def _slack_token() -> str:
 
 
 def _slack_post(channel: str, text: str, blocks: list = None, attachments: list = None) -> str:
-    token = _slack_token()
-    if not token:
-        logger.warning("No Slack token — gate notification skipped")
-        return ""
-    payload = {"channel": channel, "text": text}
-    if blocks:
-        payload["blocks"] = blocks
-    if attachments:
-        payload["attachments"] = attachments
-    try:
-        r = httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json=payload,
-            timeout=10,
-        )
-        data = r.json()
-        if data.get("ok"):
-            return data.get("ts", "")
-        logger.warning("Slack post failed: %s", data.get("error"))
-    except Exception as e:
-        logger.exception("Slack post error: %s", e)
+    # AR-5.3: Slack retired (AR-5) — dormant no-op. Gate notifications go to
+    # Telegram via _tg_send_gate; the resolve/hostops FYI posts are retired.
     return ""
 
 

@@ -250,17 +250,13 @@ def post_capture_response(slack_token: str, channel: str, thread_ts: str,
         "music": "🎵", "video": "🎬"
     }.get(classification["type"], "📌")
 
-    msg = f"{type_emoji} *{classification['title']}*\n_{classification['summary']}_\n\nSaved to vault."
+    msg = f"{type_emoji} {classification['title']}\n{classification['summary']}\n\nSaved to vault."
     if routing:
-        msg += f"\n\n→ This looks like it belongs in *#{routing}*. Want me to route it there?"
+        msg += f"\n\n→ This looks like it belongs in #{routing}."
 
-    with httpx.Client() as client:
-        client.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {slack_token}"},
-            json={"channel": channel, "thread_ts": thread_ts, "text": msg, "mrkdwn": True},
-            timeout=15.0,
-        )
+    # AR-5.3: rerouted to Telegram (sole surface). thread_ts/channel dropped.
+    from tg_alert import tg_alert
+    tg_alert(msg)
 
 
 def gather_capture_context(text: str) -> dict:

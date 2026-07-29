@@ -138,16 +138,12 @@ def _capability_auth_headers() -> dict[str, str]:
 
 
 def _slack_post(token: str, text: str):
+    # AR-5.3: rerouted to Telegram (sole surface). Legacy token arg ignored.
     try:
-        httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#devops", "text": text,
-                  "username": "KAI Invariants", "icon_emoji": ":shield:"},
-            timeout=10,
-        )
+        from tg_alert import tg_alert
+        tg_alert(text)
     except Exception as e:
-        log.error("invariant slack post failed: %s", e)
+        log.error("invariant alert (telegram) failed: %s", e)
 
 
 def _get_plane_backlog_state() -> str | None:
@@ -444,22 +440,8 @@ def inv_council_api_latency() -> tuple[bool, str]:
 
 
 def inv_slack_token() -> tuple[bool, str]:
-    """Slack bot token passes auth.test."""
-    token = _load_secret("slack_bot_token")
-    if not token:
-        return False, "slack_bot_token secret not mounted"
-    try:
-        r = httpx.post(
-            "https://slack.com/api/auth.test",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10,
-        )
-        data = r.json()
-        if data.get("ok"):
-            return True, f"bot={data.get('bot_id','?')}"
-        return False, f"auth failed: {data.get('error','unknown')}"
-    except Exception as e:
-        return False, f"auth.test error: {e}"
+    """AR-5.3: Slack retired (AR-5) — token no longer required; invariant retired."""
+    return True, "retired (AR-5) — Slack not in use"
 
 
 def inv_execution_registry_freshness() -> tuple[bool, str]:

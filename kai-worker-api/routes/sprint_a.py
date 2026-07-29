@@ -34,9 +34,6 @@ import sprint_a_handlers as handlers
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-SLACK_API = "https://slack.com/api"
-
-
 def _slack_token() -> str:
     p = Path("/run/secrets/slack_bot_token")
     return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
@@ -58,18 +55,8 @@ def _verify_slack_sig(raw_body: bytes, ts: str, sig: str) -> bool:
 
 
 def _slack_post(channel: str, text: str, thread_ts: str | None = None) -> dict:
-    payload = {"channel": channel, "text": text, "username": "KAI",
-               "icon_url": "https://kai.sonicink.space/icon-192.png"}
-    if thread_ts:
-        payload["thread_ts"] = thread_ts
-    try:
-        r = httpx.post(f"{SLACK_API}/chat.postMessage",
-                       headers={"Authorization": f"Bearer {_slack_token()}"},
-                       json=payload, timeout=15)
-        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-    except Exception as e:
-        logger.warning("slack post failed: %s", e)
-        return {"ok": False, "error": str(e)}
+    # AR-5.3: Slack retired (AR-5) — dormant no-op (Sprint-A clarifications on Telegram).
+    return {"ok": False, "retired": "Slack retired (AR-5)"}
 
 
 @router.post("/slack/interactions")

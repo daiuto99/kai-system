@@ -204,18 +204,8 @@ def check_ollama() -> tuple[bool, str]:
 
 
 def check_slack() -> tuple[bool, str]:
-    token = _load_secret("slack_bot_token")
-    if not token:
-        return False, "slack_bot_token missing"
-    try:
-        r = httpx.post("https://slack.com/api/auth.test",
-                       headers={"Authorization": f"Bearer {token}"}, timeout=10)
-        data = r.json()
-        if data.get("ok"):
-            return True, f"bot={data.get('bot_id','?')}"
-        return False, data.get("error", "auth failed")
-    except Exception as e:
-        return False, str(e)
+    # AR-5.3: Slack retired (AR-5) — nothing to health-check.
+    return True, "retired (AR-5)"
 
 
 def check_telegram() -> tuple[bool, str]:

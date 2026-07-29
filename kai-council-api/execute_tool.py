@@ -320,14 +320,11 @@ def _h_slack(client, tool_name, ti, advisor):
             icon_url = ADVISOR_AVATARS["kai"]
             label = ADVISOR_LABELS.get(adv, adv.capitalize())
             text = f"{label} says:\n{ti['message']}"
-        payload = {"channel": channel, "text": text, "username": username, "icon_url": icon_url}
-        r = client.post("https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json=payload)
-        data = r.json()
-        if not data.get("ok"):
-            return {"error": data.get("error", "slack error"), "detail": data}
-        return {"ok": True, "channel": channel}
+        # AR-5.3: rerouted to Telegram (sole surface). channel/username/icon ignored.
+        from tg_alert import tg_alert
+        if tg_alert(text):
+            return {"ok": True, "surface": "telegram"}
+        return {"error": "telegram send failed"}
     if tool_name == "deliver_asset":
         r = client.post(f"{WORKER_URL}/assets/deliver", json=ti, timeout=120)
         return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}

@@ -147,19 +147,27 @@ def detect_sections(brief: str) -> list[str]:
 
 
 def post_to_slack(brief: str, channel_id: str, secrets_dir: str) -> None:
-    """Post the brief to Slack (LIVE mode only)."""
-    token = load_secret("slack_bot_token", secrets_dir)
+    """AR-5.3: rerouted to Telegram (sole surface). Name/signature kept so call
+    sites stay unchanged; channel_id ignored. Self-contained (no shared import on
+    the hermes path): reads telegram secrets directly, best-effort."""
+    from pathlib import Path as _P
+    tok_f = _P("/run/secrets/telegram_bot_token")
+    ids_f = _P("/run/secrets/telegram_allowed_chat_ids")
+    token = tok_f.read_text().strip() if tok_f.exists() else load_secret("telegram_bot_token", secrets_dir)
+    raw = ids_f.read_text() if ids_f.exists() else ""
+    chat_ids = [c.strip() for c in raw.replace("\n", ",").split(",") if c.strip()]
+    if not token or not chat_ids:
+        return
     with httpx.Client() as client:
-        r = client.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": channel_id, "text": brief, "mrkdwn": True},
-            timeout=15.0,
-        )
-        r.raise_for_status()
-        data = r.json()
-        if not data.get("ok"):
-            raise RuntimeError(f"Slack error: {data.get('error')}")
+        for cid in chat_ids:
+            try:
+                client.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={"chat_id": int(cid), "text": brief},
+                    timeout=15.0,
+                )
+            except Exception:
+                pass
 
 
 def write_to_vault_context(brief: str, vault_path: Path) -> None:

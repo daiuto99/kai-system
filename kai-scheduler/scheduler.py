@@ -159,17 +159,13 @@ def _handle_gate_callback(token: str, cbq: dict, allowed: "frozenset[int]") -> N
 # ── Slack helpers (kept for health alerts only) ────────────────────────────────
 
 def slack_post(token: str, channel: str, text: str,
-               username: str = "KAI", icon_url: str = "https://kai.sonicink.space/avatar-kai.png"):
+               username: str = "KAI", icon_url: str = ""):
+    # AR-5.3: rerouted to Telegram (sole surface). token/channel/icon ignored.
     try:
-        r = httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": channel, "text": text, "username": username, "icon_url": icon_url},
-            timeout=15,
-        )
-        return r.json()
+        from tg_alert import tg_alert
+        return {"ok": bool(tg_alert(text))}
     except Exception as e:
-        log.error(f"Slack post error: {e}")
+        log.error("slack_post->telegram failed: %s", e)
         return {"ok": False}
 
 
@@ -695,27 +691,17 @@ def main():
         except Exception as e:
             log.error("weekly cron: vault write failed: %s", e)
             return
-        token = load_secret("slack_bot_token")
-        if token:
-            try:
-                with httpx.Client(timeout=10) as hc:
-                    hc.post(
-                        "https://slack.com/api/chat.postMessage",
-                        headers={"Authorization": "Bearer " + token},
-                        json={
-                            "channel": "#devops",
-                            "text": (
-                                ":spiral_calendar_pad: *KAI Weekly -- " + iso_week + "*\n"
-                                "Invariants: " + inv_summary + "\n"
-                                "Vault: `60_Council/learning/" + iso_week + ".md`\n"
-                                "_Sprint 6 will add events + pattern analysis._"
-                            ),
-                            "username": "KAI Weekly", "icon_emoji": ":calendar:",
-                        },
-                    )
-                log.info("weekly cron: Slack posted for %s", iso_week)
-            except Exception as e:
-                log.error("weekly cron: Slack failed: %s", e)
+        # AR-5.3: rerouted to Telegram (sole surface).
+        try:
+            from tg_alert import tg_alert
+            tg_alert(
+                "🗓️ KAI Weekly — " + iso_week + "\n"
+                "Invariants: " + inv_summary + "\n"
+                "Vault: 60_Council/learning/" + iso_week + ".md"
+            )
+            log.info("weekly cron: Telegram posted for %s", iso_week)
+        except Exception as e:
+            log.error("weekly cron: Telegram failed: %s", e)
 
     sched = BackgroundScheduler(timezone=tz)
 

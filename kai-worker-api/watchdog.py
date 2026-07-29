@@ -41,17 +41,12 @@ def _load_secret(name: str) -> str:
 
 
 def _slack_alert(token: str, message: str):
-    """Post to #kai-system."""
+    """AR-5.3: rerouted to Telegram (sole surface). token ignored."""
     try:
-        httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#devops", "text": message,
-                  "username": "KAI Watchdog", "icon_emoji": ":eyes:"},
-            timeout=10,
-        )
+        from tg_alert import tg_alert
+        tg_alert(message)
     except Exception as e:
-        log.error("watchdog slack alert failed: %s", e)
+        log.error("watchdog telegram alert failed: %s", e)
 
 
 def _should_alert(key: str) -> bool:
@@ -101,18 +96,8 @@ def check_ollama() -> tuple[bool, str]:
 
 
 def check_slack() -> tuple[bool, str]:
-    token = _load_secret("slack_bot_token")
-    if not token:
-        return False, "slack_bot_token missing"
-    try:
-        r = httpx.post("https://slack.com/api/auth.test",
-                       headers={"Authorization": f"Bearer {token}"}, timeout=10)
-        data = r.json()
-        if data.get("ok"):
-            return True, f"bot={data.get('bot_id','?')}"
-        return False, data.get("error", "auth failed")
-    except Exception as e:
-        return False, str(e)
+    # AR-5.3: Slack retired (AR-5) — nothing to health-check.
+    return True, "retired (AR-5)"
 
 
 def check_telegram() -> tuple[bool, str]:

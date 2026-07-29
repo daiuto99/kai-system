@@ -37,49 +37,13 @@ def _slack_token() -> str:
 
 
 def _resolve_leo_dm_channel() -> str | None:
-    """Open (or fetch) the KAI↔Leo DM channel. Returns channel_id or None."""
-    token = _slack_token()
-    if not token:
-        return None
-    try:
-        import httpx as _hx
-        r = _hx.post(
-            "https://slack.com/api/conversations.open",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"users": LEO_USER_ID},
-            timeout=10,
-        )
-        d = safe_json(r)
-        if d.get("ok"):
-            return d["channel"]["id"]
-        logger.warning("conversations.open failed: %s", d.get("error"))
-    except Exception as e:
-        logger.exception("conversations.open error: %s", e)
+    # AR-5.3: Slack retired (AR-5) — no DM channel; T2 prompts route via Telegram.
     return None
 
 
 def _post_slack_thread(entry: dict, approved: bool):
-    slack_token = _slack_token()
-    if not slack_token or not entry.get("slack_channel_id") or not entry.get("slack_ts"):
-        return
-    try:
-        import httpx as _hx
-        if entry.get("kind") == "hostops_gate":
-            status = "Approved — hostops gate resolved" if approved else "Rejected — hostops gate denied"
-        else:
-            status = "Approved — executing now" if approved else "Rejected"
-        _hx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {slack_token}"},
-            json={
-                "channel": entry["slack_channel_id"],
-                "thread_ts": entry["slack_ts"],
-                "text": status,
-            },
-            timeout=10,
-        )
-    except Exception as e:
-        logger.exception("T2 thread post error: %s", e)
+    # AR-5.3: Slack retired (AR-5) — dormant no-op (T2 result surfacing is Telegram).
+    return
 
 
 class T2ActionRequest(BaseModel):
@@ -122,35 +86,17 @@ def create_t2_action(req: T2ActionRequest):
         "kind": req.kind,
     }
 
-    slack_token = _slack_token()
-    dm_channel = _resolve_leo_dm_channel() if slack_token else None
-    if slack_token and dm_channel:
-        try:
-            import httpx as _t2hx
-            msg_text = (
-                f"*T2 Action Request* — `{action_id}`\n"
-                f"*Advisor:* {req.advisor.upper()}\n"
-                f"*Action:* {req.action}\n"
-                f"{('*Detail:* ' + req.detail) if req.detail else ''}\n\n"
-                f"React with ✅ to approve, ❌ to reject."
-            )
-            r = _t2hx.post(
-                "https://slack.com/api/chat.postMessage",
-                headers={"Authorization": f"Bearer {slack_token}"},
-                json={
-                    "channel": dm_channel,
-                    "text": msg_text,
-                    "username": "KAI",
-                    "icon_url": "https://kai.sonicink.space/avatar-kai.png",
-                },
-                timeout=10,
-            )
-            d = safe_json(r)
-            if d.get("ok"):
-                entry["slack_ts"] = d.get("ts")
-                entry["slack_channel_id"] = d.get("channel")
-        except Exception as e:
-            logger.exception("T2 Slack post error: %s", e)
+    # AR-5.3: rerouted to Telegram (sole surface). T2 request notification.
+    try:
+        from tg_alert import tg_alert
+        tg_alert(
+            f"T2 Action Request — {action_id}\n"
+            f"Advisor: {req.advisor.upper()}\n"
+            f"Action: {req.action}"
+            + (f"\nDetail: {req.detail}" if req.detail else "")
+        )
+    except Exception as e:
+        logger.exception("T2 Telegram post error: %s", e)
 
     queue.append(entry)
     _t2_save(queue)

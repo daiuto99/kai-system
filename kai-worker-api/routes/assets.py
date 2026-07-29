@@ -55,19 +55,7 @@ def _next_version(asset_dir: Path, ext: str) -> int:
 
 
 def _resolve_leo_dm_channel(token: str) -> str | None:
-    try:
-        r = httpx.post(
-            "https://slack.com/api/conversations.open",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"users": LEO_USER_ID},
-            timeout=10,
-        )
-        d = r.json()
-        if d.get("ok"):
-            return d["channel"]["id"]
-        logger.warning("conversations.open failed: %s", d.get("error"))
-    except Exception as e:
-        logger.exception("conversations.open: %s", e)
+    # AR-5.3: Slack retired (AR-5) — no DM channel.
     return None
 
 
@@ -105,49 +93,15 @@ def deliver_asset(req: DeliverAssetRequest):
     versioned_path = asset_dir / f"v{version}.{ext}"
     shutil.copy2(src, versioned_path)
 
-    token = _slack_token()
-    if not token:
-        return {"ok": False, "error": "Slack token not configured",
-                "vault_path": str(versioned_path), "version": version}
-
-    dm_channel = _resolve_leo_dm_channel(token)
-    if not dm_channel:
-        return {"ok": False, "error": "could not resolve Leo DM channel",
-                "vault_path": str(versioned_path), "version": version}
-
-    text = _attribution_text(advisor, req.context or f"new {slug} delivered")
-    msg_resp = httpx.post(
-        "https://slack.com/api/chat.postMessage",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "channel": dm_channel, "text": text,
-            "username": "KAI", "icon_url": KAI_AVATAR,
-        },
-        timeout=15,
-    ).json()
-    if not msg_resp.get("ok"):
-        return {"ok": False, "error": f"chat.postMessage: {msg_resp.get('error')}",
-                "vault_path": str(versioned_path), "version": version}
-    thread_ts = msg_resp.get("ts")
-
-    # Slack files.upload_v2 is a 3-step flow (getUploadURLExternal → PUT → completeUploadExternal).
-    # files.upload (legacy) is simpler and still works for small files; use that.
-    with open(versioned_path, "rb") as fh:
-        upload = httpx.post(
-            "https://slack.com/api/files.upload",
-            headers={"Authorization": f"Bearer {token}"},
-            data={
-                "channels": dm_channel,
-                "thread_ts": thread_ts,
-                "filename": f"{slug}_v{version}.{ext}",
-                "title": f"{slug}_v{version}",
-            },
-            files={"file": fh},
-            timeout=60,
-        ).json()
-    if not upload.get("ok"):
-        return {"ok": False, "error": f"files.upload: {upload.get('error')}",
-                "vault_path": str(versioned_path), "version": version, "slack_ts": thread_ts}
+    # AR-5.3: Slack retired (AR-5). The asset is versioned in the vault above;
+    # Slack DM + file-upload delivery is retired. Notify Leo on Telegram with the
+    # vault path (native Telegram file upload is a separate future build).
+    try:
+        from tg_alert import tg_alert
+        tg_alert(_attribution_text(advisor, req.context or f"new {slug} delivered")
+                 + f"\n(vault: {versioned_path})")
+    except Exception as e:
+        logger.warning("asset telegram notify failed: %s", e)
 
     return {
         "ok": True,
@@ -155,7 +109,7 @@ def deliver_asset(req: DeliverAssetRequest):
         "slug": slug,
         "version": version,
         "vault_path": str(versioned_path),
-        "slack_ts": thread_ts,
+        "delivered_via": "telegram_notice",
         "filename": f"{slug}_v{version}.{ext}",
     }
 

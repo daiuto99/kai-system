@@ -25,7 +25,6 @@ from redact import redact
 
 logger = logging.getLogger(__name__)
 
-SLACK_API = "https://slack.com/api"
 TELEGRAM_API = "https://api.telegram.org"
 
 # Action id namespace: "sprint_a_clarify:<pending_id>:<field>:<choice>"
@@ -79,48 +78,10 @@ def ask(pending_id: str, store_path: Path = store.DEFAULT_PATH) -> dict:
 # ---------------------------------------------------------------------------
 
 def _ask_slack(entry: dict, clar: dict, store_path: Path) -> dict:
-    # Idempotency: if we already posted (the bot's prompt msg ts is recorded
-    # as slack_thread_ts), do nothing. NB: at create-time slack_thread_ts may
-    # already be set to the *origin* thread; we distinguish via a flag.
-    if entry.get("surface_posted_at"):
-        return {"ok": True, "channel": "slack", "skipped": True,
-                "detail": "already posted"}
-
-    token = _slack_token()
-    if not token:
-        raise ClarificationSurfaceError("slack_bot_token unavailable")
-
-    blocks = _slack_blocks(entry["id"], clar)
-    payload: dict = {
-        "channel": entry["origin_chat_id"],
-        "text": clar.get("prompt") or "Which one?",  # fallback for notifications
-        "blocks": blocks,
-        "username": "KAI",
-        "icon_url": "https://kai.sonicink.space/icon-192.png",
-    }
-    if entry.get("slack_thread_ts"):
-        payload["thread_ts"] = entry["slack_thread_ts"]
-
-    r = httpx.post(
-        f"{SLACK_API}/chat.postMessage",
-        headers={"Authorization": f"Bearer {token}"},
-        json=payload,
-        timeout=15,
-    )
-    body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-    if not body.get("ok"):
-        logger.error("slack clarify post failed: %s", body)
-        return {"ok": False, "channel": "slack", "skipped": False,
-                "detail": f"slack error: {body.get('error')}"}
-
-    # Persist surface metadata so we know not to re-post and so callback handler
-    # can correlate Leo's button click back to the pending row.
-    _mark_surface_posted(entry["id"], {
-        "surface_posted_at": store._now(),
-        "slack_message_ts": body.get("ts"),
-    }, store_path)
-    return {"ok": True, "channel": "slack", "skipped": False,
-            "detail": f"posted ts={body.get('ts')}"}
+    # AR-5.3: Slack retired (AR-5) — dormant no-op. Sprint-A clarifications are
+    # asked over Telegram; this Slack branch is no longer used.
+    return {"ok": True, "channel": "slack", "skipped": True,
+            "detail": "retired (AR-5)"}
 
 
 def _slack_blocks(pending_id: str, clar: dict) -> list[dict]:

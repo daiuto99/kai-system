@@ -116,19 +116,10 @@ Keep it tight. No preamble. Just the brief."""
 
 
 def post_to_slack(brief: str, channel_id: str) -> None:
-    """Post the brief to Slack."""
-    token = load_secret("slack_bot_token")
-    with httpx.Client() as client:
-        r = client.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": channel_id, "text": brief, "mrkdwn": True},
-            timeout=15.0,
-        )
-        r.raise_for_status()
-        data = r.json()
-        if not data.get("ok"):
-            raise RuntimeError(f"Slack error: {data.get('error')}")
+    """AR-5.3: rerouted to Telegram (sole surface). Name/signature kept so call
+    sites stay unchanged; channel_id ignored; fail-soft via the shared chokepoint."""
+    from tg_alert import tg_alert
+    tg_alert(brief)
 
 
 def write_to_kai_context(brief: str, vault_path: Path) -> None:

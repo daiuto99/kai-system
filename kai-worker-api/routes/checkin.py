@@ -53,30 +53,13 @@ def _slack_token() -> str:
 
 
 def _slack_post(channel: str, text: str, thread_ts: str = None) -> dict:
-    import httpx
-    token = _slack_token()
-    payload = {
-        "channel": channel, "text": text,
-        "username": "KAI", "icon_url": "https://kai.sonicink.space/icon-192.png",
-    }
-    if thread_ts:
-        payload["thread_ts"] = thread_ts
-    r = httpx.post("https://slack.com/api/chat.postMessage",
-                   headers={"Authorization": f"Bearer {token}"},
-                   json=payload, timeout=15)
-    return safe_json(r)
+    # AR-5.3: rerouted to Telegram (sole surface). channel/thread_ts ignored.
+    from tg_alert import tg_alert
+    return {"ok": bool(tg_alert(text))}
 
 
 def _lookup_channel(name: str) -> str | None:
-    import httpx
-    token = _slack_token()
-    r = httpx.get("https://slack.com/api/conversations.list",
-                  headers={"Authorization": f"Bearer {token}"},
-                  params={"types": "public_channel,private_channel", "limit": 200},
-                  timeout=15)
-    for ch in safe_json(r).get("channels", []):
-        if ch["name"] == name.lstrip("#"):
-            return ch["id"]
+    # AR-5.3: Slack retired (AR-5) — no channel lookup.
     return None
 
 
