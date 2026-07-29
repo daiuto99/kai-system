@@ -134,18 +134,9 @@ def _post_slack_devops(text: str) -> None:
     """Minimal standalone Slack poster — mirrors main.py's _post_slack for the
     inv_context_t1 CRITICAL alert (§8). Kept local to avoid importing main.py."""
     try:
-        token = _SLACK_TOKEN_FILE.read_text().strip() if _SLACK_TOKEN_FILE.exists() else ""
-        if not token:
-            logger.warning("No Slack token — cannot post inv_context_t1 alert")
-            return
-        import httpx
-        httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "devops", "text": text, "username": "kai-orchestrator",
-                  "icon_emoji": ":rotating_light:"},
-            timeout=10,
-        )
+        # AR-5.3: rerouted to Telegram (sole surface) — inv_context_t1 CRITICAL (§8).
+        from tg_alert import tg_alert
+        tg_alert(text)
     except Exception as e:
         logger.exception("_post_slack_devops failed: %s", e)
 

@@ -18,30 +18,15 @@ MODEL = "claude-sonnet-4-6"
 # ── Slack helper ─────────────────────────────────────────────────────────────
 
 def _slack_post(text: str, thread_ts: str = None) -> str:
-    """Post to #devops. Returns ts of posted message."""
-    token = _slack_token()
-    if not token:
-        logger.warning("No Slack token — skipping notification")
-        return ""
-    payload = {"channel": SLACK_CHANNEL, "text": text,
-               "username": "DevOps",
-               "icon_url": "https://kai.sonicink.space/avatar-devops.png"}
-    if thread_ts:
-        payload["thread_ts"] = thread_ts
-    data = json.dumps(payload).encode()
-    req = ur.Request(
-        "https://slack.com/api/chat.postMessage",
-        data=data,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST",
-    )
+    """AR-5.3: rerouted to Telegram (sole surface). Name/signature kept so call
+    sites stay unchanged; thread_ts is ignored (Telegram has no threads) and no
+    ts is returned."""
     try:
-        with ur.urlopen(req, timeout=15) as resp:
-            result = json.loads(resp.read())
-            return result.get("ts", "")
+        from tg_alert import tg_alert
+        tg_alert(text)
     except Exception as e:
-        logger.error(f"Slack post failed: {e}")
-        return ""
+        logger.error(f"tg_alert failed: {e}")
+    return ""
 
 
 def _ts() -> str:

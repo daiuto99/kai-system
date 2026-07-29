@@ -45,24 +45,12 @@ def _get_slack_token() -> str | None:
 
 
 def _post_slack(text: str) -> bool:
-    token = _get_slack_token()
-    if not token:
-        log.warning("proposal-gen: no Slack token — skipping notification")
-        return False
+    """AR-5.3: rerouted to Telegram (sole surface). Name kept; call sites unchanged."""
     try:
-        r = httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": _SLACK_CHANNEL, "text": text},
-            timeout=10,
-        )
-        data = r.json()
-        if data.get("ok"):
-            return True
-        log.warning("proposal-gen Slack error: %s", data.get("error"))
-        return False
+        from tg_alert import tg_alert
+        return tg_alert(text)
     except Exception as exc:
-        log.warning("proposal-gen Slack exception: %s", exc)
+        log.warning("proposal-gen tg_alert exception: %s", exc)
         return False
 
 

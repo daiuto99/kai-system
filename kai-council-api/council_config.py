@@ -170,17 +170,8 @@ def _maybe_slack_alert(key: str, message: str):
         return
     _rate_alert_sent[alert_key] = True
     try:
-        from pathlib import Path as _Path
-        token_file = _Path("/run/secrets/slack_bot_token")
-        token = token_file.read_text().strip() if token_file.exists() else ""
-        if not token:
-            return
-        import httpx as _httpx
-        _httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "#devops", "text": message, "username": "DevOps", "icon_url": "https://kai.sonicink.space/avatar-devops.png"},
-            timeout=5,
-        )
+        # AR-5.3: rerouted to Telegram (sole surface). Dedup logic above preserved.
+        from tg_alert import tg_alert
+        tg_alert(message)
     except Exception:
         pass

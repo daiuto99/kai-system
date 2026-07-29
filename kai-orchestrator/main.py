@@ -77,25 +77,11 @@ def _plane_token() -> str:
     return p.read_text().strip() if p.exists() else os.environ.get("PLANE_API_TOKEN", "")
 
 def _post_slack(text: str, channel: str = _SLACK_SYSTEM_CHANNEL) -> bool:
-    token = _slack_token()
-    if not token:
-        log.warning("No Slack token — cannot post override ack")
-        return False
+    """AR-5.3: rerouted to Telegram (sole surface). Name/signature kept so call
+    sites stay unchanged; `channel` is ignored."""
     try:
-        import httpx
-        r = httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": channel, "text": text,
-                  "username": "kai-orchestrator",
-                  "icon_emoji": ":warning:"},
-            timeout=10,
-        )
-        data = r.json()
-        if not data.get("ok"):
-            log.warning("Slack postMessage error: %s", data.get("error"))
-            return False
-        return True
+        from tg_alert import tg_alert
+        return tg_alert(text)
     except Exception as e:
         log.exception("_post_slack failed: %s", e)
         return False
