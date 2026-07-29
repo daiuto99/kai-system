@@ -46,6 +46,7 @@ services:
       - todoist_api_key
       - habitsync_password
       - telegram_bot_token
+      - telegram_allowed_chat_ids
       - slack_signing_secret
       - oura_token
       - kai_worker_auth
@@ -108,6 +109,8 @@ services:
       - cloudways_ssh_key
       - kai_worker_auth
       - orchestrator_capability_auth
+      - telegram_bot_token
+      - telegram_allowed_chat_ids
     depends_on:
       kai-worker-api:
         condition: service_healthy
@@ -118,22 +121,26 @@ services:
       retries: 3
       start_period: 10s
 
-  kai-slack-bot:
-    build: ./kai-slack-bot
-    container_name: kai-slack-bot
-    restart: unless-stopped
-    secrets:
-      - slack_bot_token
-      - slack_app_token
-      - slack_signing_secret
-      - slack_bot_token_sky
-      - slack_app_token_sky
-      - slack_bot_token_roads
-      - slack_app_token_roads
-      - kai_worker_auth
-    depends_on:
-      kai-council-api:
-        condition: service_healthy
+  # RETIRED 2026-07-29 (AR-5.2 / KAI-991): Slack ingress killed. Gate approvals
+  # moved to Telegram (inline approve/reject buttons handled by the kai-scheduler
+  # long-poll loop). Slack tokens + remaining OUTBOUND _slack_post helpers are
+  # retired in AR-5.3. Kept commented (not deleted) as a retire-in-place record.
+  # kai-slack-bot:
+  #   build: ./kai-slack-bot
+  #   container_name: kai-slack-bot
+  #   restart: unless-stopped
+  #   secrets:
+  #     - slack_bot_token
+  #     - slack_app_token
+  #     - slack_signing_secret
+  #     - slack_bot_token_sky
+  #     - slack_app_token_sky
+  #     - slack_bot_token_roads
+  #     - slack_app_token_roads
+  #     - kai_worker_auth
+  #   depends_on:
+  #     kai-council-api:
+  #       condition: service_healthy
 
   kai-web:
     build: ./kai-web

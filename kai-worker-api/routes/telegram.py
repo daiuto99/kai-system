@@ -15,6 +15,7 @@ router = APIRouter()
 
 TELEGRAM_API = "https://api.telegram.org"
 TELEGRAM_SECRET = os.environ.get("TELEGRAM_SECRET", "")
+COUNCIL_API = os.environ.get("COUNCIL_API_URL", "http://kai-council-api:8002")
 
 
 def _tg_token() -> str:
@@ -88,6 +89,75 @@ def _handle_sprint_a_callback(cbq: dict) -> None:
         logger.warning("answerCallbackQuery failed: %s", _redact(e))
 
 
+def _allowed_gate_chat_ids() -> set[str]:
+    """Chat ids permitted to resolve council gates (one per line). Defense in
+    depth: only Leo's allowed chat receives the buttons, and only that chat may
+    resolve a gate even if a callback is otherwise crafted."""
+    p = Path("/run/secrets/telegram_allowed_chat_ids")
+    if not p.exists():
+        return set()
+    return {ln.strip() for ln in p.read_text().splitlines() if ln.strip()}
+
+
+def _handle_gate_callback(cbq: dict) -> None:
+    """AR-5.2: Telegram inline approve/reject for a council gate.
+
+    callback_data is `gate:approve:{gate_id}` or `gate:reject:{gate_id}`.
+    Resolves the gate by POSTing to kai-council-api /council/gate/{id}/resolve,
+    authenticated with the worker credential (same pattern as /message)."""
+    data = cbq.get("data") or ""
+    parts = data.split(":", 2)
+    if len(parts) != 3 or parts[0] != "gate" or parts[1] not in ("approve", "reject"):
+        return
+    action, gate_id = parts[1], parts[2]
+    approved = action == "approve"
+    chat_id = cbq.get("message", {}).get("chat", {}).get("id")
+
+    # Allowlist guard — only an approved chat may resolve a gate.
+    allowed = _allowed_gate_chat_ids()
+    if allowed and str(chat_id) not in allowed:
+        logger.warning("Gate callback from non-allowed chat %s — ignored", chat_id)
+        _answer_callback(cbq.get("id"))
+        return
+
+    try:
+        r = _tghttpx.post(
+            f"{COUNCIL_API}/council/gate/{gate_id}/resolve",
+            json={"approved": approved, "notes": "via Telegram", "resolver": "leo"},
+            timeout=30,
+            auth=_worker_auth(),
+        )
+        if r.status_code == 200:
+            reply = f"{'✅ Approved' if approved else '🛑 Rejected'} gate `{gate_id}`."
+        elif r.status_code == 409:
+            reply = f"⚠️ Gate `{gate_id}` was already resolved."
+        elif r.status_code == 404:
+            reply = f"⚠️ Gate `{gate_id}` not found — it may have expired."
+        else:
+            reply = f"⚠️ Gate resolve failed — HTTP {r.status_code}."
+    except Exception as e:
+        logger.error("Gate resolve error: %s", _redact(e))
+        reply = "⚠️ Could not reach the council to resolve the gate."
+
+    if chat_id:
+        _tg_send(chat_id, reply)
+    _answer_callback(cbq.get("id"))
+
+
+def _answer_callback(callback_query_id: object) -> None:
+    """Clear the Telegram button spinner after handling a callback."""
+    if not callback_query_id:
+        return
+    try:
+        _tghttpx.post(
+            f"{TELEGRAM_API}/bot{_tg_token()}/answerCallbackQuery",
+            json={"callback_query_id": callback_query_id},
+            timeout=10,
+        )
+    except Exception as e:
+        logger.warning("answerCallbackQuery failed: %s", _redact(e))
+
+
 def _try_sprint_a_freetext(chat_id: int, text: str) -> bool:
     """Return True if this message resolved (or retried) a recent pending
     clarification; the caller should NOT also send it to the council router."""
@@ -137,10 +207,14 @@ async def telegram_webhook(
 
     body = await request.json()
 
-    # Sprint A: inline-keyboard button click → resolve pending clarification.
+    # Inline-keyboard button click. AR-5.2 gate approvals use `gate:*`
+    # callback data; everything else is a Sprint-A clarification choice.
     cbq = body.get("callback_query")
     if cbq:
-        _handle_sprint_a_callback(cbq)
+        if (cbq.get("data") or "").startswith("gate:"):
+            _handle_gate_callback(cbq)
+        else:
+            _handle_sprint_a_callback(cbq)
         return {"ok": True}
 
     msg = body.get("message")

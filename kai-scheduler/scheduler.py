@@ -96,6 +96,66 @@ def tg_send(token: str, chat_id: int, text: str):
         log.error("Telegram send error: %s", type(e).__name__)
 
 
+# ── Gate approvals over Telegram (AR-5.2) ──────────────────────────────────────
+# Council sends a pending_leo gate as an inline approve/reject keyboard
+# (callback_data = gate:approve:{id} / gate:reject:{id}). The button click
+# arrives here as a callback_query update; we resolve it against the council.
+
+def _answer_callback(token: str, callback_query_id: object) -> None:
+    """Clear the Telegram button spinner after handling a callback."""
+    if not callback_query_id:
+        return
+    try:
+        httpx.post(
+            f"https://api.telegram.org/bot{token}/answerCallbackQuery",
+            json={"callback_query_id": callback_query_id},
+            timeout=10,
+        )
+    except Exception as e:
+        log.warning("answerCallbackQuery failed: %s", type(e).__name__)
+
+
+def _handle_gate_callback(token: str, cbq: dict, allowed: "frozenset[int]") -> None:
+    data = cbq.get("data") or ""
+    parts = data.split(":", 2)
+    if len(parts) != 3 or parts[0] != "gate" or parts[1] not in ("approve", "reject"):
+        _answer_callback(token, cbq.get("id"))
+        return
+    action, gate_id = parts[1], parts[2]
+    approved = action == "approve"
+    chat_id = cbq.get("message", {}).get("chat", {}).get("id")
+
+    # Allowlist guard — only an approved chat may resolve a gate. Deny-all when
+    # the allowlist is empty (matches _telegram_sender_allowed for messages).
+    if chat_id not in allowed:
+        log.warning("Gate callback from non-allowed chat %s — ignored", chat_id)
+        _answer_callback(token, cbq.get("id"))
+        return
+
+    try:
+        r = httpx.post(
+            f"{COUNCIL_API}/council/gate/{gate_id}/resolve",
+            json={"approved": approved, "notes": "via Telegram", "resolver": "leo"},
+            auth=worker_auth(),
+            timeout=30,
+        )
+        if r.status_code == 200:
+            reply = f"{'✅ Approved' if approved else '🛑 Rejected'} gate `{gate_id}`."
+        elif r.status_code == 409:
+            reply = f"⚠️ Gate `{gate_id}` was already resolved."
+        elif r.status_code == 404:
+            reply = f"⚠️ Gate `{gate_id}` not found — it may have expired."
+        else:
+            reply = f"⚠️ Gate resolve failed — HTTP {r.status_code}."
+    except Exception as e:
+        log.error("Gate resolve error: %s", type(e).__name__)
+        reply = "⚠️ Could not reach the council to resolve the gate."
+
+    if chat_id:
+        tg_send(token, chat_id, reply)
+    _answer_callback(token, cbq.get("id"))
+
+
 # ── Slack helpers (kept for health alerts only) ────────────────────────────────
 
 def slack_post(token: str, channel: str, text: str,
@@ -131,7 +191,8 @@ def telegram_poll_loop():
         try:
             r = httpx.get(
                 f"https://api.telegram.org/bot{token}/getUpdates",
-                params={"offset": offset, "timeout": 25, "allowed_updates": ["message"]},
+                params={"offset": offset, "timeout": 25,
+                        "allowed_updates": ["message", "callback_query"]},
                 timeout=35,
             )
             r.raise_for_status()
@@ -139,6 +200,11 @@ def telegram_poll_loop():
 
             for upd in updates:
                 offset = upd["update_id"] + 1
+                # AR-5.2: inline approve/reject button click on a council gate.
+                cbq = upd.get("callback_query")
+                if cbq:
+                    _handle_gate_callback(token, cbq, allowed_chat_ids)
+                    continue
                 msg = upd.get("message")
                 if not msg:
                     continue

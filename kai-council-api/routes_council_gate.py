@@ -208,6 +208,84 @@ class GateResolve(BaseModel):
     resolver: str = "leo"
 
 
+# ── Telegram gate-approval helpers (AR-5.2) ───────────────────────────────────
+# Gate approvals move from Slack to Telegram: the pending_leo prompt is sent to
+# Leo's allowed chat with inline approve/reject buttons. The button click is
+# handled by kai-worker-api routes/telegram.py, which POSTs back to
+# /council/gate/{id}/resolve. Slack ingress (kai-slack-bot) is retired in the
+# same ticket, so approvals never strand between surfaces.
+
+_TELEGRAM_API = "https://api.telegram.org"
+
+
+def _tg_token() -> str:
+    p = Path("/run/secrets/telegram_bot_token")
+    return p.read_text().strip() if p.exists() else os.environ.get("TELEGRAM_BOT_TOKEN", "")
+
+
+def _tg_gate_chat_ids() -> list[str]:
+    """Allowed chat ids that receive gate-approval prompts (one per line)."""
+    p = Path("/run/secrets/telegram_allowed_chat_ids")
+    if not p.exists():
+        return []
+    return [ln.strip() for ln in p.read_text().splitlines() if ln.strip()]
+
+
+def _tg_send_gate(gate_id: str, gate_type: str, summary: str) -> bool:
+    """Send the pending_leo gate prompt to Telegram with inline approve/reject
+    buttons. Returns True if at least one allowed chat was notified.
+
+    L18: never log httpx error text unredacted — it carries /bot<TOKEN>/ in the
+    request URL. We log only exception type + status, never the message body.
+    """
+    token = _tg_token()
+    if not token:
+        logger.warning("No telegram_bot_token — gate %s not sent to Telegram", gate_id)
+        return False
+    chat_ids = _tg_gate_chat_ids()
+    if not chat_ids:
+        logger.warning("No telegram_allowed_chat_ids — gate %s not sent to Telegram", gate_id)
+        return False
+
+    gate_label = {
+        "plan_gate": "Plan Approval", "dev_gate": "Dev Review",
+        "creative_gate": "Creative Review", "devops_gate": "DevOps Review",
+        "hostops_place_secret": "Host-Op: Place Secret",
+        "hostops_deploy_plugin": "Host-Op: Deploy Plugin",
+    }.get(gate_type, gate_type)
+    icon = {"plan_gate": "📋", "dev_gate": "⚙️", "creative_gate": "🎨",
+            "devops_gate": "🔧", "hostops_place_secret": "🔐",
+            "hostops_deploy_plugin": "🚀"}.get(gate_type, "🔒")
+
+    text = (
+        f"{icon} *Gate: {gate_label}*\n"
+        f"`{gate_id}`\n\n"
+        f"{summary}\n\n"
+        f"Artifacts: `vault/00_System/gates/{gate_id}/`"
+    )
+    keyboard = {"inline_keyboard": [[
+        {"text": "✅ Approve", "callback_data": f"gate:approve:{gate_id}"},
+        {"text": "🛑 Reject",  "callback_data": f"gate:reject:{gate_id}"},
+    ]]}
+
+    sent_any = False
+    for chat_id in chat_ids:
+        try:
+            r = httpx.post(
+                f"{_TELEGRAM_API}/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": text,
+                      "parse_mode": "Markdown", "reply_markup": keyboard},
+                timeout=15,
+            )
+            if r.status_code == 200 and r.json().get("ok"):
+                sent_any = True
+            else:
+                logger.warning("Telegram gate send failed for %s (status=%s)", gate_id, r.status_code)
+        except Exception as e:
+            logger.error("Telegram gate send error for %s: %s", gate_id, type(e).__name__)
+    return sent_any
+
+
 # ── Slack helpers ─────────────────────────────────────────────────────────────
 
 def _slack_token() -> str:
@@ -538,9 +616,16 @@ def _process_gate(req: GateRequest):
             summary=summary,
             kai_assessment=kai_assessment,
         )
-        blocks, attachments = _gate_slack_message(req.gate_id, gate_type, summary, kai_assessment, "Awaiting Leo's approval")
-        fallback = f"Gate {req.gate_id} ({gate_type}) needs your approval. Reply `approve {req.gate_id}` or `reject {req.gate_id}: reason`"
-        _slack_post("#devops", fallback, blocks, attachments)
+        # AR-5.2: Telegram is the approval surface. Inline approve/reject buttons
+        # go to Leo's allowed chat; the click resolves the gate via worker-api.
+        tg_ok = _tg_send_gate(req.gate_id, gate_type, summary)
+        if not tg_ok:
+            # Fallback ONLY if Telegram is unavailable, so a misconfig cannot
+            # strand a gate. Slack ingress (kai-slack-bot) is retired in AR-5.2;
+            # once it is gone this fallback is notify-only, not actionable.
+            blocks, attachments = _gate_slack_message(req.gate_id, gate_type, summary, kai_assessment, "Awaiting Leo's approval")
+            fallback = f"Gate {req.gate_id} ({gate_type}) needs your approval. Reply `approve {req.gate_id}` or `reject {req.gate_id}: reason`"
+            _slack_post("#devops", fallback, blocks, attachments)
         if gate_type in _HOSTOPS_GATE_TYPES:
             # The typed #devops route remains the durable fallback if this
             # notification surface is unavailable. The summary is reference-only.
