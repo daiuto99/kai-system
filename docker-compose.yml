@@ -402,6 +402,8 @@ services:
       - cloudways_ssh_key
       - kai_worker_auth
       - orchestrator_capability_auth
+      - telegram_bot_token
+      - telegram_allowed_chat_ids
       - source: wp_alexadaiuto_kai_app_password
         target: /run/wp_secrets/wp_alexadaiuto_kai_app_password.txt
       - source: wp_anthonydaiuto_kai_app_password
