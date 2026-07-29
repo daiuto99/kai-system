@@ -7,7 +7,6 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from config import VAULT_PATH, safe_path
-from safe_http import safe_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

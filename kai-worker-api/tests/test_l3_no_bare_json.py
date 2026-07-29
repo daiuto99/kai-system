@@ -8,14 +8,15 @@ ROUTES = APP / "routes"
 
 # KAI-882 follow-up 19569ce0 owns removal of this explicit deployed baseline.
 # This list is deliberately exact: new, moved, or stale entries fail CI.
+# Re-synced 2026-07-29 (AR-5.3): Slack retirement removed the assets.py DM/upload
+# .json() sites and the slack.py stub's body-parse; other exempted bare-json calls
+# shifted line numbers as dead Slack code was removed. No NEW bare-json introduced.
 LEGACY_EXEMPTIONS = {
-    "routes/assets.py:65", "routes/assets.py:127", "routes/assets.py:147",
     "routes/calendar.py:164", "routes/focus.py:57", "routes/focus.py:110",
-    "routes/focus.py:137", "routes/focus.py:187", "routes/inbox.py:118",
-    "routes/intake.py:105", "routes/intake.py:177", "routes/mode_lock.py:565",
+    "routes/focus.py:137", "routes/focus.py:187", "routes/inbox.py:112",
+    "routes/intake.py:94", "routes/intake.py:166", "routes/mode_lock.py:565",
     "routes/orchestrator.py:66", "routes/oura.py:31", "routes/oura.py:43",
-    "routes/sprint_a.py:69", "routes/sprint_a.py:126", "routes/telegram.py:138",
-    "routes/wordpress.py:61",
+    "routes/sprint_a.py:112", "routes/telegram.py:208", "routes/wordpress.py:61",
 }
 
 

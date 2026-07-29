@@ -328,7 +328,7 @@ def start_intake(advisor: str, body: dict):
         "queue": all_files,
     }
 
-    prompt = f"Is this a *reference* example (direction to follow) or an *avoid* example (what not to do)?"
+    prompt = "Is this a *reference* example (direction to follow) or an *avoid* example (what not to do)?"
     _post_slack(channel_id, f"Starting Creative intake for *{filename}*\n\n{prompt}")
     return {"ok": True, "stage": "q1", "prompt": prompt}
 

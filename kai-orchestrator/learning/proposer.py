@@ -12,7 +12,6 @@ import logging
 import os
 import pathlib
 
-import httpx
 
 log = logging.getLogger(__name__)
 

@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import httpx
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 

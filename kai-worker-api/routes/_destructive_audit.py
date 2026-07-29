@@ -13,7 +13,6 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-import httpx
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)

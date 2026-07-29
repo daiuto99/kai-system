@@ -2,7 +2,7 @@ import json
 import re
 import logging
 import os
-from datetime import datetime as _dt2, date as _d2, timedelta as _td2
+from datetime import datetime as _dt2, date as _d2
 from pathlib import Path
 import httpx
 from council_config import WORKER_URL, VAULT_PATH, ADVISOR_AVATARS, _slack_token, _worker_auth
@@ -310,17 +310,13 @@ def _h_slack(client, tool_name, ti, advisor):
         channel = ti.get("channel", "kai")
         if not channel.startswith("#"):
             channel = f"#{channel}"
-        # Self-posting advisors keep their identity; everyone else is relayed by KAI
+        # AR-5.3: rerouted to Telegram (sole surface). Self-posting advisors keep
+        # their name inline; everyone else is relayed with a "<label> says:" prefix.
         if adv in ADVISOR_AVATARS:
-            username = "KAI" if adv == "kai" else adv.capitalize()
-            icon_url = ADVISOR_AVATARS[adv]
             text = ti["message"]
         else:
-            username = "KAI"
-            icon_url = ADVISOR_AVATARS["kai"]
             label = ADVISOR_LABELS.get(adv, adv.capitalize())
             text = f"{label} says:\n{ti['message']}"
-        # AR-5.3: rerouted to Telegram (sole surface). channel/username/icon ignored.
         from tg_alert import tg_alert
         if tg_alert(text):
             return {"ok": True, "surface": "telegram"}
@@ -406,7 +402,6 @@ def _h_calendar(client, tool_name, ti, advisor):
                     end_str = end.get("dateTime", end.get("date", "")) if isinstance(end, dict) else str(end)
                     _day = ""
                     try:
-                        from zoneinfo import ZoneInfo as _ZI2
                         _dt_parsed = _dt2.fromisoformat(start_str[:10])
                         _day = _dt_parsed.strftime("%A")
                     except Exception:
@@ -476,7 +471,7 @@ def _h_knowledge(client, tool_name, ti, advisor):
 
 
 def _h_ingest(client, tool_name, ti, advisor):
-    import subprocess, shlex
+    import subprocess
     if tool_name == "ingest_knowledge":
         target = ti.get("path", f"/vault/60_Council/{ti.get('advisor', advisor)}/knowledge")
         target_advisor = ti.get("advisor", advisor)

@@ -25,7 +25,6 @@ import os
 from pathlib import Path
 from urllib.parse import parse_qs
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 import clarification_surface as surface

@@ -3,20 +3,6 @@
   "findings": [
     {
       "service": "kai-council-api",
-      "filename": "/app/council_config.py",
-      "code": "E402",
-      "row": 78,
-      "column": 1
-    },
-    {
-      "service": "kai-council-api",
-      "filename": "/app/execute_tool.py",
-      "code": "F401",
-      "row": 5,
-      "column": 66
-    },
-    {
-      "service": "kai-council-api",
       "filename": "/app/execute_tool.py",
       "code": "E402",
       "row": 21,
@@ -39,43 +25,22 @@
     {
       "service": "kai-council-api",
       "filename": "/app/execute_tool.py",
-      "code": "F401",
-      "row": 412,
-      "column": 58
-    },
-    {
-      "service": "kai-council-api",
-      "filename": "/app/execute_tool.py",
-      "code": "E401",
-      "row": 482,
-      "column": 5
-    },
-    {
-      "service": "kai-council-api",
-      "filename": "/app/execute_tool.py",
-      "code": "F401",
-      "row": 482,
+      "code": "E741",
+      "row": 485,
       "column": 24
     },
     {
       "service": "kai-council-api",
       "filename": "/app/execute_tool.py",
       "code": "E741",
-      "row": 493,
-      "column": 24
-    },
-    {
-      "service": "kai-council-api",
-      "filename": "/app/execute_tool.py",
-      "code": "E741",
-      "row": 777,
+      "row": 769,
       "column": 28
     },
     {
       "service": "kai-council-api",
       "filename": "/app/execute_tool.py",
       "code": "E401",
-      "row": 1083,
+      "row": 1075,
       "column": 13
     },
     {
@@ -88,22 +53,8 @@
     {
       "service": "kai-council-api",
       "filename": "/app/graphs/bug_nodes.py",
-      "code": "F401",
-      "row": 5,
-      "column": 21
-    },
-    {
-      "service": "kai-council-api",
-      "filename": "/app/graphs/bug_nodes.py",
-      "code": "F401",
-      "row": 7,
-      "column": 28
-    },
-    {
-      "service": "kai-council-api",
-      "filename": "/app/graphs/bug_nodes.py",
       "code": "W291",
-      "row": 143,
+      "row": 125,
       "column": 78
     },
     {
@@ -178,41 +129,6 @@
     },
     {
       "service": "kai-council-api",
-      "filename": "/app/router.py",
-      "code": "F401",
-      "row": 9,
-      "column": 21
-    },
-    {
-      "service": "kai-council-api",
-      "filename": "/app/router.py",
-      "code": "F401",
-      "row": 13,
-      "column": 59
-    },
-    {
-      "service": "kai-council-api",
-      "filename": "/app/router.py",
-      "code": "F401",
-      "row": 433,
-      "column": 26
-    },
-    {
-      "service": "kai-council-api",
-      "filename": "/app/router.py",
-      "code": "E401",
-      "row": 656,
-      "column": 5
-    },
-    {
-      "service": "kai-council-api",
-      "filename": "/app/router.py",
-      "code": "E741",
-      "row": 668,
-      "column": 20
-    },
-    {
-      "service": "kai-council-api",
       "filename": "/app/routes_bug_workflow.py",
       "code": "F401",
       "row": 7,
@@ -262,83 +178,6 @@
     },
     {
       "service": "kai-orchestrator",
-      "filename": "/app/capabilities/__init__.py",
-      "code": "E402",
-      "row": 48,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/capabilities/__init__.py",
-      "code": "E402",
-      "row": 49,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/capabilities/__init__.py",
-      "code": "E402",
-      "row": 51,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/capabilities/__init__.py",
-      "code": "E402",
-      "row": 52,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/capabilities/__init__.py",
-      "code": "E402",
-      "row": 53,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/capabilities/__init__.py",
-      "code": "E402",
-      "row": 54,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/capabilities/__init__.py",
-      "code": "E402",
-      "row": 55,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/capabilities/__init__.py",
-      "code": "E402",
-      "row": 56,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/capabilities/__init__.py",
-      "code": "E402",
-      "row": 57,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/capabilities/__init__.py",
-      "code": "E402",
-      "row": 58,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/capabilities/__init__.py",
-      "code": "E402",
-      "row": 59,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
       "filename": "/app/capabilities/self_modify.py",
       "code": "E741",
       "row": 429,
@@ -385,20 +224,6 @@
       "code": "E401",
       "row": 2,
       "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/main.py",
-      "code": "E402",
-      "row": 880,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/main.py",
-      "code": "F401",
-      "row": 931,
-      "column": 48
     },
     {
       "service": "kai-orchestrator",
@@ -625,48 +450,6 @@
       "column": 26
     },
     {
-      "service": "kai-orchestrator",
-      "filename": "/app/workflow_base.py",
-      "code": "F841",
-      "row": 27,
-      "column": 9
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/workflow_base.py",
-      "code": "E702",
-      "row": 125,
-      "column": 34
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/workflow_base.py",
-      "code": "E702",
-      "row": 159,
-      "column": 22
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/workflows/wordpress_publish_homepage.py",
-      "code": "E401",
-      "row": 18,
-      "column": 1
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/workflows/wordpress_publish_homepage.py",
-      "code": "F401",
-      "row": 22,
-      "column": 26
-    },
-    {
-      "service": "kai-orchestrator",
-      "filename": "/app/workflows/wordpress_publish_homepage.py",
-      "code": "F401",
-      "row": 23,
-      "column": 20
-    },
-    {
       "service": "kai-worker-api",
       "filename": "/app/clarification_surface.py",
       "code": "F401",
@@ -747,7 +530,7 @@
       "service": "kai-worker-api",
       "filename": "/app/routes/git_activity.py",
       "code": "E402",
-      "row": 17,
+      "row": 16,
       "column": 1
     },
     {
@@ -775,28 +558,21 @@
       "service": "kai-worker-api",
       "filename": "/app/routes/intake.py",
       "code": "E701",
-      "row": 287,
+      "row": 276,
       "column": 15
     },
     {
       "service": "kai-worker-api",
       "filename": "/app/routes/intake.py",
       "code": "E701",
-      "row": 288,
+      "row": 277,
       "column": 15
     },
     {
       "service": "kai-worker-api",
       "filename": "/app/routes/intake.py",
-      "code": "F541",
-      "row": 342,
-      "column": 14
-    },
-    {
-      "service": "kai-worker-api",
-      "filename": "/app/routes/intake.py",
       "code": "F841",
-      "row": 456,
+      "row": 445,
       "column": 5
     },
     {
@@ -955,41 +731,6 @@
     },
     {
       "service": "kai-worker-api",
-      "filename": "/app/routes/plane.py",
-      "code": "E702",
-      "row": 53,
-      "column": 42
-    },
-    {
-      "service": "kai-worker-api",
-      "filename": "/app/routes/plane.py",
-      "code": "E741",
-      "row": 66,
-      "column": 25
-    },
-    {
-      "service": "kai-worker-api",
-      "filename": "/app/routes/plane.py",
-      "code": "E741",
-      "row": 100,
-      "column": 50
-    },
-    {
-      "service": "kai-worker-api",
-      "filename": "/app/routes/plane.py",
-      "code": "E741",
-      "row": 112,
-      "column": 79
-    },
-    {
-      "service": "kai-worker-api",
-      "filename": "/app/routes/plane.py",
-      "code": "E741",
-      "row": 125,
-      "column": 29
-    },
-    {
-      "service": "kai-worker-api",
       "filename": "/app/routes/projects.py",
       "code": "F401",
       "row": 10,
@@ -1029,20 +770,6 @@
       "code": "E701",
       "row": 151,
       "column": 46
-    },
-    {
-      "service": "kai-worker-api",
-      "filename": "/app/routes/slack.py",
-      "code": "F401",
-      "row": 3,
-      "column": 8
-    },
-    {
-      "service": "kai-worker-api",
-      "filename": "/app/routes/slack.py",
-      "code": "F401",
-      "row": 7,
-      "column": 34
     },
     {
       "service": "kai-worker-api",
@@ -1130,13 +857,6 @@
     },
     {
       "service": "kai-worker-api",
-      "filename": "/app/routes/wordpress.py",
-      "code": "E401",
-      "row": 575,
-      "column": 5
-    },
-    {
-      "service": "kai-worker-api",
       "filename": "/app/routing_engine.py",
       "code": "F841",
       "row": 57,
@@ -1146,7 +866,7 @@
       "service": "kai-worker-api",
       "filename": "/app/scheduler.py",
       "code": "F841",
-      "row": 167,
+      "row": 136,
       "column": 13
     },
     {

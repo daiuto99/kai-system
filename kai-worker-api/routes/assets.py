@@ -14,7 +14,6 @@ import shutil
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-import httpx
 
 from config import VAULT_PATH
 

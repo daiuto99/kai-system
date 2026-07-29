@@ -42,13 +42,6 @@ def slack_lookup_user(email: str = None, name: str = None):
 @router.post("/slack/events")
 async def slack_events(request: Request):
     """Dormant. Slack Events ingress is retired; thread-reply clarifications and
-    check-in replies are handled on Telegram (kai-scheduler poll loop). Still
-    answers the URL-verification handshake so a lingering Slack app config does
-    not error, but processes no events."""
-    try:
-        body = await request.json()
-    except Exception:
-        return {"ok": True}
-    if isinstance(body, dict) and body.get("type") == "url_verification":
-        return {"challenge": body.get("challenge")}
+    check-in replies are handled on Telegram (kai-scheduler poll loop). Accepts
+    and ignores — no body parsing, no events processed."""
     return {"ok": True}
