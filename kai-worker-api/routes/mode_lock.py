@@ -594,17 +594,20 @@ _SLACK_ACTION_MAP = {
 
 
 def _decision_render(new_status: str, user: str, requester: str) -> tuple[str, str]:
-    """(header, summary) text for a decided request — surface-agnostic."""
+    """(header, summary) text for a decided request — surface-agnostic. Total by
+    construction: the live callers only ever pass once/deny/session (guarded by
+    the already_decided/not-ok early returns), but an unexpected status must
+    degrade to a generic line, never raise a KeyError that surfaces as a 500."""
     summary = {
         "approved_once":    f"✅ *Allowed once* by {user} — tool will retry now.",
         "denied":           f"❌ *Denied* by {user}.",
         "approved_session": f"🔓 *Session unlocked (1h)* by {user} — all writes from `{requester}` auto-approved.",
-    }[new_status]
+    }.get(new_status, f"🔐 *{new_status}* by {user}.")
     header = {
         "approved_once":    "🔐 KAI Mode Lock — Approved (once)",
         "denied":           "🔐 KAI Mode Lock — Denied",
         "approved_session": "🔓 KAI Mode Lock — Session unlocked",
-    }[new_status]
+    }.get(new_status, "🔐 KAI Mode Lock — Updated")
     return header, summary
 
 
