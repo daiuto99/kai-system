@@ -14,7 +14,7 @@ ROUTES = APP / "routes"
 LEGACY_EXEMPTIONS = {
     "routes/calendar.py:164", "routes/focus.py:57", "routes/focus.py:110",
     "routes/focus.py:137", "routes/focus.py:187", "routes/inbox.py:112",
-    "routes/intake.py:94", "routes/intake.py:166", "routes/mode_lock.py:565",
+    "routes/intake.py:94", "routes/intake.py:166", "routes/mode_lock.py:724",
     "routes/orchestrator.py:66", "routes/oura.py:31", "routes/oura.py:43",
     "routes/sprint_a.py:112", "routes/telegram.py:208", "routes/wordpress.py:61",
 }
