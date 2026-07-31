@@ -7,12 +7,20 @@ fail-soft: never raises into the caller's alert path. No parse_mode — alert te
 is arbitrary and must not trip Markdown parsing.
 """
 import logging
+import os
+import sys
 from pathlib import Path
 
 import httpx
 
 log = logging.getLogger(__name__)
 _API = "https://api.telegram.org"
+
+
+def _notify_suppressed_in_test() -> bool:
+    """COMMS P0 reality-gate: a test/synthetic context must never reach Leo's real Telegram.
+    True under pytest or when a harness sets KAI_NOTIFY_TEST_SINK=1. Inert in production."""
+    return ("pytest" in sys.modules) or (os.environ.get("KAI_NOTIFY_TEST_SINK") == "1")
 
 
 def _secret(name: str) -> str:
@@ -27,6 +35,9 @@ def _chat_ids() -> list[str]:
 
 def tg_alert(message: str) -> bool:
     """Send an alert to every allowed Telegram chat. Returns True if any send ok."""
+    if _notify_suppressed_in_test():
+        log.info("tg_alert SUPPRESSED (test context, not sent): %s", (message or "")[:180])
+        return False
     token = _secret("telegram_bot_token")
     if not token:
         log.error("tg_alert: telegram_bot_token missing — alert dropped")
