@@ -135,27 +135,39 @@ def test_register_webhook_response_body_redacted():
 
 
 def test_clarification_body_redacted():
+    # KAI-1004: the raw Telegram send + its token redaction moved into the notify()
+    # gateway. clarification_surface no longer touches httpx or the upstream response
+    # body, so a token-reflecting body can never reach the returned detail or the logs
+    # — a strictly stronger guarantee than the old [REDACTED]-substitution path. We
+    # drive the real transport (disable pytest auto-sink) with a token-reflecting body
+    # and assert nothing leaks into the detail or either module's logs.
     import clarification_surface as cs
+    import notify_gateway as ng
     entry = {"id": "test-pending", "origin_chat_id": "123"}
     clar = {"prompt": "Pick one:", "options": ["a", "b"]}
-    orig_token, orig_post = cs._telegram_token, cs.httpx.post
-    cs._telegram_token = lambda: FAKE_TOKEN
-    cs.httpx.post = lambda url, json=None, timeout=None: DummyResp(
+    orig_tm, orig_secret, orig_raw, orig_log = (
+        ng._test_mode, ng._secret, ng._raw_post, ng._LOG_PATH)
+    ng._test_mode = lambda: False
+    ng._secret = lambda name: FAKE_TOKEN if name == "telegram_bot_token" else "123"
+    ng._raw_post = lambda chat_id, text, reply_markup, parse_mode: DummyResp(
         200, {"ok": False,
               "description": f"reflected https://api.telegram.org/bot{ENCODED}/sendMessage"}
     )
+    ng._LOG_PATH = Path("/tmp/notify_test_redaction.jsonl")
     cap = _CaptureLog()
     cs.logger.addHandler(cap)
+    ng.log.addHandler(cap)
     try:
         out = cs._ask_telegram(entry, clar, Path("/tmp/does-not-exist"))
         assert out["ok"] is False
         _assert_clean(out["detail"])
-        assert "[REDACTED]" in out["detail"]
         for line in cap.lines:
             _assert_clean(line)
     finally:
         cs.logger.removeHandler(cap)
-        cs._telegram_token, cs.httpx.post = orig_token, orig_post
+        ng.log.removeHandler(cap)
+        ng._test_mode, ng._secret, ng._raw_post, ng._LOG_PATH = (
+            orig_tm, orig_secret, orig_raw, orig_log)
 
 
 def test_watchdog_check_telegram_redacts():

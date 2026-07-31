@@ -45,7 +45,9 @@ import httpx as _mlhx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from safe_http import safe_json
-from redact import redact
+# KAI-1004: the approval-card send + its token redaction moved into the notify()
+# gateway; the raw-body redact() call here is retired. _mlhx/safe_json remain in use
+# for editMessageText (in-place card edit on decision).
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

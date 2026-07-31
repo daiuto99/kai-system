@@ -18,10 +18,9 @@ import logging
 import os
 from pathlib import Path
 
-import httpx
-
 import clarification_store as store
-from redact import redact
+# KAI-1004: the raw Telegram send (and its token redaction) moved into the notify()
+# gateway; this module no longer imports httpx or redact directly.
 
 logger = logging.getLogger(__name__)
 

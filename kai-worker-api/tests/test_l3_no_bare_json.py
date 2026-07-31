@@ -11,12 +11,16 @@ ROUTES = APP / "routes"
 # Re-synced 2026-07-29 (AR-5.3): Slack retirement removed the assets.py DM/upload
 # .json() sites and the slack.py stub's body-parse; other exempted bare-json calls
 # shifted line numbers as dead Slack code was removed. No NEW bare-json introduced.
+# Re-synced 2026-07-31 (KAI-1004): the notify() gateway repointed telegram._tg_send
+# through the shared transport, removing ~6 lines above the webhook body-parse — the
+# telegram.py bare-json shifted 208 -> 202. mode_lock.py:727 is unchanged. No NEW
+# bare-json introduced.
 LEGACY_EXEMPTIONS = {
     "routes/calendar.py:164", "routes/focus.py:57", "routes/focus.py:110",
     "routes/focus.py:137", "routes/focus.py:187", "routes/inbox.py:112",
     "routes/intake.py:94", "routes/intake.py:166", "routes/mode_lock.py:727",
     "routes/orchestrator.py:66", "routes/oura.py:31", "routes/oura.py:43",
-    "routes/sprint_a.py:112", "routes/telegram.py:208", "routes/wordpress.py:61",
+    "routes/sprint_a.py:112", "routes/telegram.py:202", "routes/wordpress.py:61",
 }
 
 
