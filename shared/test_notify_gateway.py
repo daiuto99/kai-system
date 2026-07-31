@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""COMMS Phase 1 — notify() gateway tests (KAI-1004).
+
+Self-contained (no pytest dependency): run with `python3 test_notify_gateway.py`.
+Env is set BEFORE importing the gateway so the log/dedup paths point at temp files
+and test-mode is explicitly disabled (KAI_NOTIFY_TEST_SINK=0) — letting us exercise
+routing with a stubbed transport instead of the real Telegram send.
+
+Covers the P1 acceptance behaviors:
+  1. reality gate      — synthetic provenance → sink, never sent
+  2. dashboard routing — a technical alert (Rule B) → dashboard_only, transport untouched
+  3. approval routing  — audience=approval → delivered to Telegram
+  4. dedup             — a repeated standing condition notifies once
+  5. classify refine   — a low-risk Leo-owned action → dashboard (autonomous, not Leo)
+  6. pytest auto-sink  — with env unset under pytest, sends auto-suppress (P0 behavior)
+"""
+import os
+import tempfile
+
+_TMP = tempfile.mkdtemp(prefix="notify_test_")
+os.environ["KAI_NOTIFY_LOG"] = os.path.join(_TMP, "notify_log.jsonl")
+os.environ["KAI_NOTIFY_DEDUP"] = os.path.join(_TMP, "notify_dedup.json")
+os.environ["KAI_NOTIFY_TEST_SINK"] = "0"  # exercise routing; transport is stubbed
+os.environ["KAI_NOTIFY_DEDUP_WINDOW"] = "3600"
+
+import notify_gateway as ng  # noqa: E402
+
+# ── transport stub ──────────────────────────────────────────────────────────────
+_SENT: list = []
+
+
+class _FakeResp:
+    status_code = 200
+
+    def json(self):
+        return {"ok": True, "result": {"message_id": 4242}}
+
+
+def _install_stub():
+    _SENT.clear()
+
+    def _fake_raw_post(chat_id, text, reply_markup, parse_mode):
+        _SENT.append({"chat_id": chat_id, "text": text})
+        return _FakeResp()
+
+    ng._raw_post = _fake_raw_post
+    # a token must appear present so send_message() proceeds to _raw_post
+    ng._secret = lambda name: "test-token" if name == "telegram_bot_token" else "111"
+
+
+_RESULTS: list = []
+
+
+def check(name, cond):
+    _RESULTS.append((name, bool(cond)))
+    print(f"  {'PASS' if cond else 'FAIL'}  {name}")
+
+
+def test_reality_gate_synthetic():
+    _install_stub()
+    res = ng.notify(ng.Event(source="t", kind="alert", provenance="synthetic",
+                             audience="approval", title="synthetic fixture"))
+    check("synthetic → suppressed_synthetic", res.decision == "suppressed_synthetic")
+    check("synthetic → not delivered", res.delivered is False)
+    check("synthetic → transport untouched", len(_SENT) == 0)
+
+
+def test_dashboard_routing():
+    _install_stub()
+    delivered = ng.tg_alert("CRITICAL — invariant failure, container down")
+    check("technical alert → not delivered to Leo", delivered is False)
+    check("technical alert → transport untouched", len(_SENT) == 0)
+
+
+def test_approval_routing():
+    _install_stub()
+    res = ng.notify(ng.Event(source="gate", kind="gate", audience="approval",
+                             actionable=True, title="Plan approval"))
+    check("approval → delivered", res.delivered is True)
+    check("approval → destination telegram", res.destination == "telegram")
+    check("approval → transport called", len(_SENT) == 1)
+
+
+def test_dedup():
+    _install_stub()
+    ev1 = ng.Event(source="s", kind="alert", audience="approval",
+                   title="standing condition", dedup_key="cond-x")
+    ev2 = ng.Event(source="s", kind="alert", audience="approval",
+                   title="standing condition", dedup_key="cond-x")
+    r1 = ng.notify(ev1)
+    r2 = ng.notify(ev2)
+    check("dedup first → delivered", r1.delivered is True)
+    check("dedup second → suppressed_dedup", r2.decision == "suppressed_dedup")
+    check("dedup → only one transport call", len(_SENT) == 1)
+
+
+def test_classify_autonomous_dashboard():
+    _install_stub()
+    ng._classify = lambda action: ng.__dict__  # placeholder, overwritten below
+
+    class _D:
+        def __init__(self, mode, reason):
+            self.mode = mode
+            self.reason = reason
+
+    ng._classify = lambda action: _D("autonomous", "low-risk Leo-owned action")
+    res = ng.notify(ng.Event(source="ops", kind="action", audience="approval",
+                             action={"owner": "leo", "op": "restart"}))
+    check("classify autonomous → dashboard_only", res.decision == "dashboard_only")
+    check("classify autonomous → transport untouched", len(_SENT) == 0)
+
+    ng._classify = lambda action: _D("approve", "high-risk threshold")
+    res2 = ng.notify(ng.Event(source="ops", kind="action", audience="dashboard",
+                              action={"owner": "leo", "op": "deploy prod"}))
+    check("classify approve → delivered to Leo", res2.delivered is True)
+
+
+def test_pytest_auto_sink():
+    # Simulate an in-process contract test: no explicit env, pytest imported.
+    import sys
+    saved = os.environ.pop("KAI_NOTIFY_TEST_SINK", None)
+    sys.modules.setdefault("pytest", sys)  # make "pytest" appear imported
+    try:
+        _install_stub()
+        ok = ng.send_telegram(123, "should not send", reason="reply")
+        check("pytest auto-sink → send suppressed", ok is False)
+        check("pytest auto-sink → transport untouched", len(_SENT) == 0)
+    finally:
+        if saved is not None:
+            os.environ["KAI_NOTIFY_TEST_SINK"] = saved
+        if sys.modules.get("pytest") is sys:
+            del sys.modules["pytest"]
+
+
+def main():
+    print("notify() gateway tests:")
+    for fn in (test_reality_gate_synthetic, test_dashboard_routing,
+               test_approval_routing, test_dedup,
+               test_classify_autonomous_dashboard, test_pytest_auto_sink):
+        fn()
+    failed = [n for n, ok in _RESULTS if not ok]
+    print(f"\n{len(_RESULTS) - len(failed)}/{len(_RESULTS)} checks passed.")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

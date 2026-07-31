@@ -287,10 +287,14 @@ services:
       - TZ=America/New_York
       - DOCKER_HOST=tcp://docker-socket-proxy:2375
       - EXTERNAL_SCAN_HOST_IPS=192.168.68.30,100.78.94.80
+      # KAI-1004: import the shared notify() gateway (single Telegram chokepoint).
+      - PYTHONPATH=/shared
     volumes:
       - /home/leo/vault:/vault:rw
       - /home/leo/plane:/home/leo/plane:ro
       - /home/leo/backups:/backups:ro
+      # KAI-1004: shared notify_gateway module (read-only), like the other services.
+      - /home/leo/kai-system/shared:/shared:ro
       # KAI-882 L18: invariant reads remote config only; no repository write access.
       - /home/leo/kai-system/.git/config:/repos/kai-system/.git/config:ro
       - /home/leo/sonicink/.git/config:/repos/sonicink/.git/config:ro

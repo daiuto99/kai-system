@@ -237,18 +237,12 @@ def _tg_send_gate(gate_id: str, gate_type: str, summary: str) -> bool:
 
     L18: never log httpx error text unredacted — it carries /bot<TOKEN>/ in the
     request URL. We log only exception type + status, never the message body.
+
+    KAI-1004: a gate is a genuine approval only Leo can give — it routes to Telegram
+    via the single gateway transport (reason="gate"), which owns the raw send, the
+    Rule-A log, and the reality gate (test/synthetic suppressed by construction).
     """
-    # COMMS P0 reality-gate: a test/synthetic context must never reach Leo's real Telegram
-    # (in-process gate tests create real gates). Inert in production (no pytest imported).
-    import os
-    import sys
-    if ("pytest" in sys.modules) or (os.environ.get("KAI_NOTIFY_TEST_SINK") == "1"):
-        logger.info("gate %s Telegram SUPPRESSED (test context, not sent)", gate_id)
-        return False
-    token = _tg_token()
-    if not token:
-        logger.warning("No telegram_bot_token — gate %s not sent to Telegram", gate_id)
-        return False
+    from notify_gateway import send_telegram
     chat_ids = _tg_gate_chat_ids()
     if not chat_ids:
         logger.warning("No telegram_allowed_chat_ids — gate %s not sent to Telegram", gate_id)
@@ -277,19 +271,11 @@ def _tg_send_gate(gate_id: str, gate_type: str, summary: str) -> bool:
 
     sent_any = False
     for chat_id in chat_ids:
-        try:
-            r = httpx.post(
-                f"{_TELEGRAM_API}/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": text,
-                      "parse_mode": "Markdown", "reply_markup": keyboard},
-                timeout=15,
-            )
-            if r.status_code == 200 and r.json().get("ok"):
-                sent_any = True
-            else:
-                logger.warning("Telegram gate send failed for %s (status=%s)", gate_id, r.status_code)
-        except Exception as e:
-            logger.error("Telegram gate send error for %s: %s", gate_id, type(e).__name__)
+        if send_telegram(chat_id, text, reason="gate",
+                         reply_markup=keyboard, parse_mode="Markdown"):
+            sent_any = True
+        else:
+            logger.warning("Telegram gate send failed for %s", gate_id)
     return sent_any
 
 

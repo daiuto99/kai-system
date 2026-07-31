@@ -48,15 +48,10 @@ def slack_open_dm(token: str, user_id: str) -> str | None:
 # ── Telegram Long Polling ──────────────────────────────────────────────────────
 
 def tg_send(token: str, chat_id: int, text: str):
-    try:
-        httpx.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
-            timeout=15,
-        )
-    except Exception as e:
-        # L18: httpx error text embeds the bot-token URL — log the type only.
-        log.error("Telegram send error: %s", type(e).__name__)
+    # KAI-1004: routed through the single gateway transport. `token` ignored
+    # (gateway reads the secret); signature kept for the reply call sites.
+    from notify_gateway import send_telegram
+    send_telegram(chat_id, text, reason="reply", parse_mode="Markdown")
 
 
 def telegram_poll_loop():

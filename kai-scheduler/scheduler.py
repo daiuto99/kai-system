@@ -86,14 +86,12 @@ def _telegram_sender_allowed(chat_id: int, text: str, allowed: frozenset[int]) -
 # ── Telegram helper ────────────────────────────────────────────────────────────
 
 def tg_send(token: str, chat_id: int, text: str):
-    try:
-        httpx.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
-            timeout=15,
-        )
-    except Exception as e:
-        log.error("Telegram send error: %s", type(e).__name__)
+    # KAI-1004: conversational replies route through the single gateway transport.
+    # `token` is ignored (the gateway reads the secret) — signature kept so the
+    # inbound-reply call sites stay unchanged. These are Leo-initiated replies:
+    # always deliverable, logged (Rule A), not classified.
+    from notify_gateway import send_telegram
+    send_telegram(chat_id, text, reason="reply", parse_mode="Markdown")
 
 
 # ── Gate approvals over Telegram (AR-5.2) ──────────────────────────────────────

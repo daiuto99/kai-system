@@ -35,17 +35,11 @@ def _redact(e: object) -> str:
 
 
 def _tg_send(chat_id: int, text: str):
-    token = _tg_token()
-    if not token:
-        return
-    try:
-        _tghttpx.post(
-            f"{TELEGRAM_API}/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
-            timeout=15,
-        )
-    except Exception as e:
-        logger.error("Telegram send error: %s", _redact(e))
+    # KAI-1004: conversational replies route through the single gateway transport
+    # (reason="reply"): always deliverable, logged (Rule A), not classified. The
+    # gateway owns the raw send and its L18-safe error handling.
+    from notify_gateway import send_telegram
+    send_telegram(chat_id, text, reason="reply", parse_mode="Markdown")
 
 
 class TelegramUpdate(BaseModel):

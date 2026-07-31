@@ -398,24 +398,22 @@ def _post_telegram_request(request_id: str, tool: str, target: str, reason: str,
             {"text": "🔓 Allow session (1h)", "callback_data": f"modelock:session:{request_id}"},
         ],
     ]
-    payload = {
-        "chat_id": chat_id,
-        "text": _telegram_text(tool, target, reason, requester),
-        "parse_mode": "Markdown",
-        "reply_markup": {"inline_keyboard": keyboard},
-    }
-    try:
-        r = _mlhx.post(f"{TELEGRAM_API}/bot{token}/sendMessage", json=payload, timeout=15)
-    except Exception as e:
-        # L18: httpx error text embeds the bot-token URL — never propagate raw.
-        logger.error("mode_lock: telegram post failed: %s", type(e).__name__)
-        return {"ok": False, "error": type(e).__name__}
-    body = safe_json(r)
-    if not body.get("ok"):
-        logger.error("mode_lock: telegram post rejected: %s", redact(body, token))
+    # KAI-1004: the unlock approval card is a decision only Leo can give — it routes
+    # to Telegram via the single gateway transport (reason="mode_lock"), which owns
+    # the raw send, the Rule-A log and the reality gate. send_message() returns the
+    # message_id so the card can still be edited in place on decision (KAI-999).
+    from notify_gateway import send_message
+    res = send_message(
+        chat_id,
+        _telegram_text(tool, target, reason, requester),
+        reason="mode_lock",
+        parse_mode="Markdown",
+        reply_markup={"inline_keyboard": keyboard},
+    )
+    if not res.get("delivered"):
+        logger.error("mode_lock: telegram approval card not delivered")
         return {"ok": False, "error": "telegram_rejected"}
-    result = body.get("result") or {}
-    return {"ok": True, "chat_id": chat_id, "message_id": result.get("message_id")}
+    return {"ok": True, "chat_id": chat_id, "message_id": res.get("message_id")}
 
 
 def _update_telegram_message(chat_id, message_id, text: str) -> None:

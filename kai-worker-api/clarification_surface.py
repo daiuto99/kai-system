@@ -150,34 +150,20 @@ def _ask_telegram(entry: dict, clar: dict, store_path: Path) -> dict:
         text_lines.append(f"{i}. {opt}{marker}")
     text = "\n".join(text_lines)
 
-    payload: dict = {
-        "chat_id": int(entry["origin_chat_id"]),
-        "text": text,
-    }
-    if keyboard:
-        payload["reply_markup"] = {"inline_keyboard": keyboard}
-
-    try:
-        r = httpx.post(
-            f"{TELEGRAM_API}/bot{token}/sendMessage",
-            json=payload,
-            timeout=15,
-        )
-    except Exception as e:
-        # L18: httpx error text embeds the bot-token URL — never let it
-        # propagate into caller tracebacks/logs unredacted.
-        logger.error("telegram clarify post failed: %s", type(e).__name__)
+    # KAI-1004: a clarification is a decision KAI needs from Leo — it routes to
+    # Telegram via the single gateway transport (reason="clarify"), which owns the
+    # raw send, the Rule-A log and the reality gate. send_message() returns the
+    # message_id so the pending surface can still be tracked/edited.
+    from notify_gateway import send_message
+    reply_markup = {"inline_keyboard": keyboard} if keyboard else None
+    res = send_message(int(entry["origin_chat_id"]), text,
+                       reason="clarify", reply_markup=reply_markup)
+    if not res.get("delivered"):
+        logger.error("telegram clarify post failed (not delivered)")
         return {"ok": False, "channel": "telegram", "skipped": False,
-                "detail": f"{type(e).__name__} posting to Telegram"}
-    body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-    if not body.get("ok"):
-        # L18: the response body may reflect the token-bearing request URL —
-        # redact before logging or returning any part of it.
-        logger.error("telegram clarify post failed: %s", redact(body, token))
-        return {"ok": False, "channel": "telegram", "skipped": False,
-                "detail": f"telegram error: {redact(body.get('description'), token)}"}
+                "detail": "not delivered to Telegram"}
 
-    msg_id = body.get("result", {}).get("message_id")
+    msg_id = res.get("message_id")
     _mark_surface_posted(entry["id"], {
         "surface_posted_at": store._now(),
         "telegram_msg_id": msg_id,
