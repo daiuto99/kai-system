@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -47,6 +48,10 @@ _DEFAULT_ALLOWLIST = str(_HERE / "kai_node_allowlist.json")
 _DEFAULT_AUDIT = "/home/leo/kai-system/logs/provision_audit.jsonl"
 _DEFAULT_WORKER_API = "http://127.0.0.1:8001"
 _DEFAULT_AUTH_FILE = "/home/leo/kai-system/secrets/kai_worker_auth.txt"
+# On this worker `tailscaled` runs inside the `kai-tailscale` Docker container and there is NO
+# `tailscale` CLI on the host PATH — a bare `tailscale status` returns nothing => the guard would
+# deny every node. Read status through the container. Override with --tailscale-cmd for other hosts.
+_DEFAULT_TAILSCALE_CMD = ["docker", "exec", "kai-tailscale", "tailscale", "status", "--json"]
 # SINGLE SOURCE: the exact enrollment literal the tailnet guard already enforces. The whole system
 # reads ONE `enrollment_status` field, so the entrypoint gate and `tailnet_guard.load_allowlist`
 # MUST agree on the value — otherwise no single ceremony can ever satisfy both and provisioning is
@@ -77,11 +82,12 @@ def _notifier(message: str) -> None:
         pass
 
 
-def _tailscale_status() -> dict:
-    """Live `tailscale status --json`. Returns {} on any failure => the tailnet guard denies all."""
+def _tailscale_status(cmd: list[str] | None = None) -> dict:
+    """Live `tailscale status --json` (default: via the kai-tailscale container). Returns {} on any
+    failure => the tailnet guard denies all (fail-closed: an unreadable tailnet resolves nothing)."""
     try:
         out = subprocess.run(
-            ["tailscale", "status", "--json"], capture_output=True, text=True, timeout=15, check=False
+            cmd or _DEFAULT_TAILSCALE_CMD, capture_output=True, text=True, timeout=15, check=False
         )
         return json.loads(out.stdout) if out.returncode == 0 else {}
     except BaseException:  # noqa: BLE001 — unavailable status => empty => guard denies (fail-closed)
@@ -97,7 +103,20 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument("--audit", default=_DEFAULT_AUDIT)
     ap.add_argument("--worker-api", default=_DEFAULT_WORKER_API)
     ap.add_argument("--auth-file", default=_DEFAULT_AUTH_FILE)
+    # Target-node SSH wiring (the node's login/identity/secret path differ per node — e.g. the mini
+    # is a Mac: user `leodaiuto`, its own secret dir). Left at the transport defaults if omitted.
+    ap.add_argument("--ssh-user", default=None, help="login user on the target node")
+    ap.add_argument("--ssh-key", default=None, help="SSH identity file the target node accepts")
+    ap.add_argument("--remote-secrets-dir", default=None, help="secret store dir ON the target node")
+    ap.add_argument("--tailscale-cmd", default=None,
+                    help="shell command to read `tailscale status --json` (default: via kai-tailscale container)")
     args = ap.parse_args(argv)
+
+    tailscale_cmd = shlex.split(args.tailscale_cmd) if args.tailscale_cmd else None
+    transport_kwargs = {k: v for k, v in {
+        "ssh_user": args.ssh_user, "ssh_key": args.ssh_key,
+        "remote_secrets_dir": args.remote_secrets_dir,
+    }.items() if v is not None}
 
     # R1 enrollment gate — the single guard this entrypoint adds. Refuse until Leo confirms.
     if not enrollment_confirmed(args.allowlist):
@@ -116,9 +135,9 @@ def run(argv: list[str] | None = None) -> int:
         requester=args.requester,
         gate=TelegramApprovalGate(base_url=args.worker_api, auth_file=args.auth_file),
         secret_source=FileSecretSource(),
-        transport=provision_transport.OpenSshSecretTransport(),
+        transport=provision_transport.OpenSshSecretTransport(**transport_kwargs),
         allowlist_path=args.allowlist,
-        tailscale_status=_tailscale_status(),
+        tailscale_status=_tailscale_status(tailscale_cmd),
         audit_path=args.audit,
         notifier=_notifier,
     )
