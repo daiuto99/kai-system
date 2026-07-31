@@ -1,0 +1,2 @@
+{"approval_id": null, "node": "71-kai-mini", "node_id": "ntzBBuNMsE11CNTRL", "outcome": "denied_gate", "requester": "kai-session-20260731", "secret_name": "todoist_api_key", "tailnet_ip": "100.106.160.41", "ts": "2026-07-31T14:06:02Z"}
+{"approval_id": "3dae8a4feefe", "node": "71-kai-mini", "node_id": "ntzBBuNMsE11CNTRL", "outcome": "denied_gate", "requester": "kai-session-20260731", "secret_name": "todoist_api_key", "tailnet_ip": "100.106.160.41", "ts": "2026-07-31T14:12:40Z"}

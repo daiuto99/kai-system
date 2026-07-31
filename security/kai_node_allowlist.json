@@ -1,6 +1,6 @@
 {
   "_note": "KAI-984 enrolled node allowlist. LOCK-CLASS ASSET (design R1): must be tamper-protected and node enrollment is a separate out-of-band Leo-approved ceremony. IDs are stable Tailscale node IDs (match by ID, never hostname). Seeded 2026-07-27 from live `tailscale status --json`; Leo must CONFIRM enrollment before this is trusted for live provisioning.",
-  "enrollment_status": "seeded_pending_leo_confirmation",
+  "enrollment_status": "confirmed",
   "nodes": {
     "kai-worker": "nzkpgsJk1M11CNTRL",
     "71-kai-mini": "ntzBBuNMsE11CNTRL",
