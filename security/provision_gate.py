@@ -106,7 +106,11 @@ class TelegramApprovalGate:
         base_url: str = "http://127.0.0.1:8001",
         auth_file: str | None = None,
         poll_interval_s: float = 3.0,
-        timeout_s: float = 300.0,
+        # Generous per-action window: provisioning is the async/away-from-keyboard
+        # case KAI-999 widened the Telegram approval window to 1h for (mode_lock
+        # DEFAULT_REQUEST_TTL_S=3600). A 5-min window silently expired Leo's tap on
+        # the 2026-07-31 live test; match the mode-lock window here. Deny still on timeout.
+        timeout_s: float = 3600.0,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:

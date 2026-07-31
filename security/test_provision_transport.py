@@ -328,7 +328,10 @@ def test_enrollment_gate_bad_json_is_false(tmp_path):
     assert enrollment_confirmed(str(p)) is False
 
 
-def test_live_allowlist_is_still_pending_confirmation():
+def test_live_allowlist_is_confirmed():
+    # Retired the pre-enrollment tripwire: Leo ran the enrollment ceremony
+    # 2026-07-31 (enrollment_status seeded_pending_leo_confirmation -> confirmed).
+    # The live allowlist is now the enrolled, deliberately-confirmed state.
     from pathlib import Path
     live = Path(__file__).resolve().parent / "kai_node_allowlist.json"
-    assert enrollment_confirmed(str(live)) is False
+    assert enrollment_confirmed(str(live)) is True
