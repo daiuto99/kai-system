@@ -103,7 +103,11 @@ def load_node_transport(path: str, node: str) -> dict:
     CGNAT IP regardless — but wiring must fail closed, never silently fall through to a wrong default.
     Extra keys in the file (e.g. a `_note`, or nodes not being provisioned now) are ignored."""
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        # Reuse the tailnet-guard trust-root parser: REJECT duplicate keys (last-value-wins would
+        # let ambiguous/hostile JSON — a dup node name, or a dup transport field inside an entry —
+        # silently pick a value, a parser-differential spoof). Any dup raises => caught below => {}.
+        data = json.loads(Path(path).read_text(encoding="utf-8"),
+                          object_pairs_hook=tailnet_guard._reject_dupes)
         if not isinstance(data, dict):
             return {}
         entry = data.get(node)
@@ -182,15 +186,18 @@ def run(argv: list[str] | None = None) -> int:
         return 2
 
     # inc5 transport-config completeness gate — refuse a live run unless ALL THREE transport params
-    # are resolved for the target node (from node_transport.json or explicit flags). Kills the inc5
-    # defect: no silent fall-through to the broken single Linux default — an unconfigured node fails
-    # closed here rather than dying deep in the transport (or, worse, writing to a wrong path).
-    missing = [k for k in _TRANSPORT_KEYS if k not in transport_kwargs]
+    # resolve to a NON-EMPTY string for the target node (from node_transport.json or explicit flags).
+    # Value-completeness, not mere presence: an explicit empty flag (`--ssh-user ""`, which is not
+    # None so it DOES override the file entry) or any non-str must fail closed here, never construct a
+    # blank/mis-wired transport. Kills the inc5 defect: no silent fall-through to the broken single
+    # Linux default, and no empty-value bypass.
+    missing = [k for k in _TRANSPORT_KEYS
+               if type(transport_kwargs.get(k)) is not str or not transport_kwargs.get(k)]
     if missing:
         print(json.dumps({
             "ok": False, "status": "refused_no_transport_config", "node": args.node,
             "secret_name": args.secret,
-            "reason": f"no transport wiring for node '{args.node}' (missing: {', '.join(missing)}) — "
+            "reason": f"no complete transport wiring for node '{args.node}' (missing/empty: {', '.join(missing)}) — "
                       f"add it to {args.node_transport} or pass --ssh-user/--ssh-key/--remote-secrets-dir.",
         }))
         return 2

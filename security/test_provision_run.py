@@ -112,6 +112,24 @@ def test_load_node_transport_bad_param_types_fail_closed(tmp_path, bad):
     assert provision_run.load_node_transport(p, "n") == {}
 
 
+def test_load_node_transport_duplicate_node_key_fails_closed(tmp_path):
+    # Raw JSON with a duplicate top-level node key — last-value-wins in stock json.loads. Our loader
+    # must reject the ambiguity (parser-differential spoof) and return {}. (Codex inc5 finding #2.)
+    p = tmp_path / "dupnode.json"
+    p.write_text('{"n": {"ssh_user": "first", "ssh_key": "/k", "remote_secrets_dir": "/d"},'
+                 ' "n": {"ssh_user": "last", "ssh_key": "/k", "remote_secrets_dir": "/d"}}',
+                 encoding="utf-8")
+    assert provision_run.load_node_transport(str(p), "n") == {}
+
+
+def test_load_node_transport_duplicate_field_key_fails_closed(tmp_path):
+    # Duplicate transport-FIELD key inside an entry must also fail closed.
+    p = tmp_path / "dupfield.json"
+    p.write_text('{"n": {"ssh_user": "first", "ssh_user": "last",'
+                 ' "ssh_key": "/k", "remote_secrets_dir": "/d"}}', encoding="utf-8")
+    assert provision_run.load_node_transport(str(p), "n") == {}
+
+
 # ── run(): enrollment gate (R1) precedes everything ─────────────────────────────
 
 def test_run_refuses_unenrolled(tmp_path, transport_map, audit, capsys):
@@ -132,6 +150,27 @@ def test_run_refuses_node_without_transport_config(allowlist, transport_map, aud
     out = json.loads(capsys.readouterr().out)
     assert rc == 2 and out["status"] == "refused_no_transport_config"
     assert "remote_secrets_dir" in out["reason"]
+
+
+def test_run_refuses_empty_flag_override(allowlist, transport_map, audit, capsys):
+    # 71-kai-mini HAS valid file wiring, but an explicit empty --ssh-user "" overrides it. The gate
+    # must reject the blank value (value-completeness, not presence) — never build a blank transport.
+    # (Codex inc5 finding #1.)
+    rc = provision_run.run(["--node", "71-kai-mini", "--secret", "anthropic_api_key",
+                            "--allowlist", allowlist, "--node-transport", transport_map, "--audit", audit,
+                            "--ssh-user", ""])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 2 and out["status"] == "refused_no_transport_config"
+    assert "ssh_user" in out["reason"]
+
+
+def test_run_refuses_all_empty_flags(allowlist, transport_map, audit, capsys):
+    # Three empty flags on a node absent from the map must NOT satisfy the gate.
+    rc = provision_run.run(["--node", "mac-mini", "--secret", "anthropic_api_key",
+                            "--allowlist", allowlist, "--node-transport", transport_map, "--audit", audit,
+                            "--ssh-user", "", "--ssh-key", "", "--remote-secrets-dir", ""])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 2 and out["status"] == "refused_no_transport_config"
 
 
 def test_run_resolves_node_config_and_proceeds(allowlist, transport_map, audit,
