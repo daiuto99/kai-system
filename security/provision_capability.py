@@ -169,9 +169,15 @@ def provision_secret(
         # 1. WHICH secret + WHERE — the two verified pure layers. Deny => nothing moves.
         decision = provision_policy.authorize_provision(node, secret_name, allowlist, tailscale_status)
         if not decision.allowed:
+            # BUG 2e19606b: surface the SPECIFIC deny cause instead of a generic "policy denied".
+            # decision.reason distinguishes a secret-allowlist deny ("secret is not on the
+            # provisionable allowlist") from a tailnet-guard deny ("target denied: target node is
+            # not online in the tailnet", off-tailnet, not-enrolled, ...). It is value-free by
+            # construction — authorize_provision builds it from node/secret NAMES + fixed strings,
+            # and the secret VALUE is not read until AFTER approval — so surfacing it upholds R5.
             _audit("denied_policy", node_id=decision.node_id)
             return ProvisionResult(False, "denied_policy", node_s, decision.node_id,
-                                   secret_s, None, "policy denied")
+                                   secret_s, None, _safe(decision.reason))
 
         node_id, tailnet_ip = decision.node_id, decision.tailnet_ip
 

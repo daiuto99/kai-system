@@ -51,6 +51,13 @@ sys.path.insert(0, str(_HERE))
 # shared/ for the #devops notifier.
 sys.path.insert(0, str(_HERE.parent / "shared"))
 
+# BUG eddf7b8e: provision_run runs on the WORKER HOST, where notify_gateway's default log path
+# /vault/00_System/notify_log.jsonl is a CONTAINER mount point (root-owned/absent on the host),
+# so the best-effort #devops append PermissionErrors on every run. Point it at the host vault path
+# (owned 1000:1000 = leo, writable) BEFORE any lazy tg_alert->notify_gateway import binds _LOG_PATH.
+# setdefault => an explicit override or in-container use still wins.
+os.environ.setdefault("KAI_NOTIFY_LOG", "/home/leo/vault/00_System/notify_log.jsonl")
+
 import provision_capability  # noqa: E402
 import provision_transport  # noqa: E402
 import tailnet_guard  # noqa: E402
