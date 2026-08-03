@@ -9,14 +9,27 @@ server-held secret onto a tailnet KAI node. It wires the three live adapters int
         + OpenSshSecretTransport (tailnet write + sha256 read-back)
 
 It adds no security decision of its own — every allow/deny is made inside the verified capability.
-Its only added guard is the R1 ENROLLMENT GATE: it REFUSES to run unless the LOCK-CLASS allowlist is
-marked `enrollment_status: confirmed` (the exact literal `tailnet_guard` enforces — aliased via
-`tailnet_guard._CONFIRMED_ENROLLMENT` so the two gates can never drift). The seeded allowlist ships as
+Its only added guards are (a) the R1 ENROLLMENT GATE: it REFUSES to run unless the LOCK-CLASS
+allowlist is marked `enrollment_status: confirmed` (the exact literal `tailnet_guard` enforces —
+aliased via `tailnet_guard._CONFIRMED_ENROLLMENT` so the two gates can never drift); and (b) the
+inc5 TRANSPORT-CONFIG COMPLETENESS GATE (see below). The seeded allowlist ships as
 `seeded_pending_leo_confirmation`, so live provisioning is impossible until Leo performs the
 out-of-band enrollment ceremony (a separate Leo-hand act, never something a session does). This makes
 "someone runs this before enrollment is confirmed" fail-closed by construction.
 
-The value NEVER passes through this process except opaquely inside the capability→transport boundary;
+inc5 — node-aware transport wiring (2026-08-03). The target node's SSH login/identity/secret-store
+path differ per node (the worker is Linux `leo`; the 71-kai-mini is macOS `leodaiuto` under
+`/Users/...`). Previously the transport fell back to a single hardcoded Linux default whose ssh_key
+(`/home/leo/.ssh/kai_worker`) did not even exist — so a live cutover to the mini would fail-closed at
+transport. inc5 replaces that with a per-enrolled-node map in `node_transport.json`: `provision_run`
+resolves `{ssh_user, ssh_key, remote_secrets_dir}` for `--node` from that file (explicit
+`--ssh-*`/`--remote-secrets-dir` flags override it), and REFUSES to run unless all three are resolved
+for the target. So the broken single default is gone and an unconfigured node fails closed rather than
+silently using wrong params. This is deployment wiring, not a security boundary — the tailnet guard
+still pins every target to the enrolled node's verified CGNAT IP inside the capability — but a
+wrong/missing entry must fail closed, never silently misplace a secret.
+
+The value NEVER passes through this process except opaquely inside the capability->transport boundary;
 the only things printed are the secret NAME, the node, the outcome, and the approval id.
 
 Usage:
@@ -45,6 +58,7 @@ from provision_gate import TelegramApprovalGate  # noqa: E402
 from provision_source import FileSecretSource  # noqa: E402
 
 _DEFAULT_ALLOWLIST = str(_HERE / "kai_node_allowlist.json")
+_DEFAULT_NODE_TRANSPORT = str(_HERE / "node_transport.json")
 _DEFAULT_AUDIT = "/home/leo/kai-system/logs/provision_audit.jsonl"
 _DEFAULT_WORKER_API = "http://127.0.0.1:8001"
 _DEFAULT_AUTH_FILE = "/home/leo/kai-system/secrets/kai_worker_auth.txt"
@@ -57,6 +71,10 @@ _DEFAULT_TAILSCALE_CMD = ["docker", "exec", "kai-tailscale", "tailscale", "statu
 # MUST agree on the value — otherwise no single ceremony can ever satisfy both and provisioning is
 # bricked-closed forever. Importing the constant guarantees they can never drift apart.
 _CONFIRMED = tailnet_guard._CONFIRMED_ENROLLMENT
+
+# inc5: the three transport-wiring params a node entry must fully specify. Kept in sync with
+# OpenSshSecretTransport's constructor kwargs — these are the only per-node transport knobs.
+_TRANSPORT_KEYS = ("ssh_user", "ssh_key", "remote_secrets_dir")
 
 
 def enrollment_confirmed(allowlist_path: str) -> bool:
@@ -71,6 +89,35 @@ def enrollment_confirmed(allowlist_path: str) -> bool:
         return isinstance(data, dict) and data.get("enrollment_status") == _CONFIRMED
     except BaseException:  # noqa: BLE001 — no confirmation we cannot positively read
         return False
+
+
+def load_node_transport(path: str, node: str) -> dict:
+    """Return the per-node transport wiring {ssh_user, ssh_key, remote_secrets_dir} for `node` from
+    the node-transport config file, or {} on ANY problem (missing file, missing node, malformed
+    JSON, a non-string/empty param, a partial entry).
+
+    Fail-closed by design: a partial or wrongly-typed entry yields {} so `run()` refuses rather than
+    constructing a transport with a mix of file config and the module's (Linux) defaults. Only a
+    node entry that supplies ALL THREE params as non-empty strings is accepted. This is deployment
+    wiring, not a security decision — the tailnet guard still pins the target to the enrolled node's
+    CGNAT IP regardless — but wiring must fail closed, never silently fall through to a wrong default.
+    Extra keys in the file (e.g. a `_note`, or nodes not being provisioned now) are ignored."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return {}
+        entry = data.get(node)
+        if not isinstance(entry, dict):
+            return {}
+        out = {}
+        for k in _TRANSPORT_KEYS:
+            v = entry.get(k)
+            if type(v) is not str or not v:   # exact-type + non-empty; fail closed otherwise
+                return {}
+            out[k] = v
+        return out
+    except BaseException:  # noqa: BLE001 — unreadable/malformed wiring => {} => run() refuses
+        return {}
 
 
 def _notifier(message: str) -> None:
@@ -100,30 +147,51 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument("--secret", required=True, help="server-held secret NAME (never a value)")
     ap.add_argument("--requester", default="kai-session", help="audit identity of the requester")
     ap.add_argument("--allowlist", default=_DEFAULT_ALLOWLIST)
+    ap.add_argument("--node-transport", default=_DEFAULT_NODE_TRANSPORT,
+                    help="per-enrolled-node transport wiring map (ssh_user/ssh_key/remote_secrets_dir)")
     ap.add_argument("--audit", default=_DEFAULT_AUDIT)
     ap.add_argument("--worker-api", default=_DEFAULT_WORKER_API)
     ap.add_argument("--auth-file", default=_DEFAULT_AUTH_FILE)
-    # Target-node SSH wiring (the node's login/identity/secret path differ per node — e.g. the mini
-    # is a Mac: user `leodaiuto`, its own secret dir). Left at the transport defaults if omitted.
-    ap.add_argument("--ssh-user", default=None, help="login user on the target node")
-    ap.add_argument("--ssh-key", default=None, help="SSH identity file the target node accepts")
-    ap.add_argument("--remote-secrets-dir", default=None, help="secret store dir ON the target node")
+    # Target-node SSH wiring override (the node's login/identity/secret path differ per node — e.g.
+    # the mini is a Mac: user `leodaiuto`, its own secret dir). Normally resolved from
+    # --node-transport by node name; an explicit flag here OVERRIDES the file entry for that param.
+    ap.add_argument("--ssh-user", default=None, help="login user on the target node (overrides file)")
+    ap.add_argument("--ssh-key", default=None, help="SSH identity file the target node accepts (overrides file)")
+    ap.add_argument("--remote-secrets-dir", default=None, help="secret store dir ON the target node (overrides file)")
     ap.add_argument("--tailscale-cmd", default=None,
                     help="shell command to read `tailscale status --json` (default: via kai-tailscale container)")
     args = ap.parse_args(argv)
 
     tailscale_cmd = shlex.split(args.tailscale_cmd) if args.tailscale_cmd else None
-    transport_kwargs = {k: v for k, v in {
+
+    # inc5: resolve transport wiring for THIS node — file map first, explicit flags override.
+    file_cfg = load_node_transport(args.node_transport, args.node)
+    flag_cfg = {k: v for k, v in {
         "ssh_user": args.ssh_user, "ssh_key": args.ssh_key,
         "remote_secrets_dir": args.remote_secrets_dir,
     }.items() if v is not None}
+    transport_kwargs = {**file_cfg, **flag_cfg}  # explicit flags win over the file entry
 
-    # R1 enrollment gate — the single guard this entrypoint adds. Refuse until Leo confirms.
+    # R1 enrollment gate — the first guard this entrypoint adds. Refuse until Leo confirms.
     if not enrollment_confirmed(args.allowlist):
         print(json.dumps({
             "ok": False, "status": "refused_unenrolled", "node": args.node, "secret_name": args.secret,
             "reason": f"allowlist enrollment_status is not '{_CONFIRMED}' — run the out-of-band "
                       "enrollment ceremony (Leo-hand, lock-class asset) before live provisioning.",
+        }))
+        return 2
+
+    # inc5 transport-config completeness gate — refuse a live run unless ALL THREE transport params
+    # are resolved for the target node (from node_transport.json or explicit flags). Kills the inc5
+    # defect: no silent fall-through to the broken single Linux default — an unconfigured node fails
+    # closed here rather than dying deep in the transport (or, worse, writing to a wrong path).
+    missing = [k for k in _TRANSPORT_KEYS if k not in transport_kwargs]
+    if missing:
+        print(json.dumps({
+            "ok": False, "status": "refused_no_transport_config", "node": args.node,
+            "secret_name": args.secret,
+            "reason": f"no transport wiring for node '{args.node}' (missing: {', '.join(missing)}) — "
+                      f"add it to {args.node_transport} or pass --ssh-user/--ssh-key/--remote-secrets-dir.",
         }))
         return 2
 
