@@ -452,6 +452,12 @@ class ApprovalRequest(BaseModel):
         description="Identifier for the requesting machine/session",
     )
     ttl_s: int | None = Field(None, description="Override request TTL")
+    surface: str = Field(
+        "telegram",
+        description="Announcement channel: 'telegram' (away escalation, default) or 'present' "
+                    "(in-session/at-keyboard — surfaced in the session, NO Telegram push). The "
+                    "DECISION store is channel-agnostic either way; this only chooses how Leo is reached.",
+    )
 
 
 class ApprovalResponse(BaseModel):
@@ -526,21 +532,26 @@ def request_approval(req: ApprovalRequest) -> ApprovalResponse:
         data["requests"][request_id] = entry
         save()
 
-    # Telegram post happens OUTSIDE the lock to keep the critical section short
-    # (AR-5.x/KAI-999 — Slack retired). The remote path is best-effort: if the
-    # post fails, the in-session `YES` fast path is still the way in.
-    resp = _post_telegram_request(request_id, req.tool, req.target, req.reason,
-                                  req.requester)
-    if resp.get("ok"):
-        with _store_session() as (data, save):
-            entry = data["requests"].get(request_id)
-            if entry:
-                entry["telegram_chat_id"] = resp.get("chat_id")
-                entry["telegram_message_id"] = resp.get("message_id")
-                save()
-    else:
-        logger.warning("mode_lock: telegram post failed for %s: %s",
-                       request_id, resp.get("error"))
+    # Announcement channel (COMMS P2 — channel-agnostic approval). The DECISION store is
+    # platform-neutral; any Leo-locked channel resolves it via _apply_decision. Here we only pick
+    # HOW to reach Leo: 'present' = he is at the keyboard, surfaced in-session, NO Telegram push
+    # (Telegram is the away-only escalation); 'telegram' (default) = post the card for a remote tap.
+    if req.surface != "present":
+        # Telegram post happens OUTSIDE the lock to keep the critical section short
+        # (AR-5.x/KAI-999 — Slack retired). The remote path is best-effort: if the
+        # post fails, the in-session `YES` fast path is still the way in.
+        resp = _post_telegram_request(request_id, req.tool, req.target, req.reason,
+                                      req.requester)
+        if resp.get("ok"):
+            with _store_session() as (data, save):
+                entry = data["requests"].get(request_id)
+                if entry:
+                    entry["telegram_chat_id"] = resp.get("chat_id")
+                    entry["telegram_message_id"] = resp.get("message_id")
+                    save()
+        else:
+            logger.warning("mode_lock: telegram post failed for %s: %s",
+                           request_id, resp.get("error"))
 
     return ApprovalResponse(
         request_id=request_id,
@@ -757,6 +768,37 @@ def telegram_action_internal(body: TelegramAction):
     _update_telegram_message(snapshot.get("telegram_chat_id"),
                              snapshot.get("telegram_message_id"),
                              f"{header}\n{summary}")
+    return {"ok": True, "status": result["status"], "request_id": body.request_id}
+
+
+class PresentAction(BaseModel):
+    request_id: str = Field(..., description="mode_lock request id")
+    action: str = Field(..., description="once | deny | session")
+    approver: str = Field("leo", description="who approved in-session (audit)")
+
+
+@router.post("/mode_lock/present_action")
+def present_action(body: PresentAction):
+    """Resolve a pending approval from an IN-SESSION / at-keyboard Leo-locked channel
+    (COMMS P2 — channel-agnostic approval). The present-first sibling of
+    `telegram_action_internal`: it writes the SAME channel-neutral decision via `_apply_decision`,
+    so Leo's approval in ANY official channel locked to him is authoritative — no platform is
+    required, Telegram is not privileged, and nothing overrides an approval he gives in an approved
+    format.
+
+    Trust model (parallel to telegram_action_internal): this endpoint is docker-network internal
+    only (nginx port-8080 webhook block omits it; port-80 has basic auth). Just as the Telegram
+    path trusts kai-scheduler to have verified the tap came from Leo's allowlisted chat, the present
+    path trusts that the in-session CLI channel is Leo-locked — a call only happens inside an active
+    mode-lock unlock, which ONLY Leo's `YES`→UserPromptSubmit hook can create (the session cannot
+    forge that state). Blast radius for provisioning stays bounded by the tailnet-KAI-node allowlist
+    (design R2), unchanged. There is no Telegram card to edit in this path."""
+    result = _apply_decision(body.request_id, body.action, body.approver)
+    if not result.get("ok"):
+        return result
+    if result.get("already_decided"):
+        return {"ok": True, "already_decided": True, "status": result.get("status"),
+                "request_id": body.request_id}
     return {"ok": True, "status": result["status"], "request_id": body.request_id}
 
 

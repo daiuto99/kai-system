@@ -164,6 +164,9 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument("--remote-secrets-dir", default=None, help="secret store dir ON the target node (overrides file)")
     ap.add_argument("--tailscale-cmd", default=None,
                     help="shell command to read `tailscale status --json` (default: via kai-tailscale container)")
+    ap.add_argument("--surface", default="telegram", choices=["telegram", "present"],
+                    help="approval channel (COMMS P2): 'telegram' = away/remote tap (default); "
+                         "'present' = in-session/at-keyboard, no Telegram push")
     args = ap.parse_args(argv)
 
     tailscale_cmd = shlex.split(args.tailscale_cmd) if args.tailscale_cmd else None
@@ -208,7 +211,8 @@ def run(argv: list[str] | None = None) -> int:
         node=args.node,
         secret_name=args.secret,
         requester=args.requester,
-        gate=TelegramApprovalGate(base_url=args.worker_api, auth_file=args.auth_file),
+        gate=TelegramApprovalGate(base_url=args.worker_api, auth_file=args.auth_file,
+                                  surface=args.surface),
         secret_source=FileSecretSource(),
         transport=provision_transport.OpenSshSecretTransport(**transport_kwargs),
         allowlist_path=args.allowlist,

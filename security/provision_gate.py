@@ -111,12 +111,18 @@ class TelegramApprovalGate:
         # DEFAULT_REQUEST_TTL_S=3600). A 5-min window silently expired Leo's tap on
         # the 2026-07-31 live test; match the mode-lock window here. Deny still on timeout.
         timeout_s: float = 3600.0,
+        surface: str = "telegram",
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._client = client if client is not None else _UrllibClient(base_url, auth_file)
         self._poll = poll_interval_s
         self._timeout = timeout_s
+        # COMMS P2 channel-agnostic approval: 'present' surfaces the card in-session (no Telegram
+        # push — the away-only channel); 'telegram' (default) posts the remote card. Either way the
+        # gate polls the SAME channel-neutral decision store, so a present in-session approval and a
+        # remote Telegram tap resolve through identical logic — nothing is platform-locked.
+        self._surface = surface
         self._sleep = sleep
         self._monotonic = monotonic
 
@@ -138,6 +144,7 @@ class TelegramApprovalGate:
                     "reason": reason,
                     "requester": PROVISION_REQUESTER,  # decision #1: no session short-circuit
                     "ttl_s": int(self._timeout),
+                    "surface": self._surface,          # COMMS P2: present (keyboard) vs telegram (away)
                 },
             )
         except BaseException:  # noqa: BLE001 — a gate error is a denial, never an allow
