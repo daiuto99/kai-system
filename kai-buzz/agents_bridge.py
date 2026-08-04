@@ -83,13 +83,15 @@ AGENTS = [
         # so it doesn't re-own the channel or overwrite Roads's 1:1 profile.
         "name": "GearTalk", "key": "roads.key", "chan_file": "geartalk_channel.txt",
         "chan_name": "GearTalk", "about": "GearTalk — shared gear room.",
-        "avatar": "roads_avatar.png", "backend": "council", "council_channel": "roads", "join": True,
+        "avatar": "roads_avatar.png", "backend": "council", "council_channel": "roads",
+        "join": True, "addressed_only": True, "aliases": ["roads"],
     },
     {
         # Second voice in the same gear room: Sky (Studio 71) via the council.
         "name": "GearTalkSky", "key": "sky.key", "chan_file": "geartalk_channel.txt",
         "chan_name": "GearTalk", "about": "GearTalk — shared gear room.",
-        "avatar": "sky_avatar.png", "backend": "council", "council_channel": "sky", "join": True,
+        "avatar": "sky_avatar.png", "backend": "council", "council_channel": "sky",
+        "join": True, "addressed_only": True, "aliases": ["sky"],
     },
 ]
 
@@ -265,6 +267,11 @@ async def run_agent(cfg):
                 if ev["kind"] != 9 or ev["pubkey"] != LEO_PUBKEY or ev["id"] in seen:
                     continue
                 seen.add(ev["id"])
+                # Shared rooms: only answer when this agent is addressed by name.
+                if cfg.get("addressed_only"):
+                    low = ev.get("content", "").lower()
+                    if not any(a in low for a in cfg.get("aliases", [])):
+                        continue
                 log(cfg["name"], f"<< {ev['pubkey'][:8]}: {ev.get('content','')[:80]}")
                 try:
                     reply = await asyncio.to_thread(backend_reply, cfg, ev.get("content", ""), cid)
