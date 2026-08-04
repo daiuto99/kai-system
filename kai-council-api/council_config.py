@@ -46,6 +46,8 @@ ADVISOR_CHANNELS = {
     "kai":             "kai",
     "sky":             "sky",
     "roads":           "roads",
+    "beats":           "beats",
+    "coach":           "coach",
     "devops":          "devops",
     "m1smoke":         "m1smoke",
     "council":         "kai",

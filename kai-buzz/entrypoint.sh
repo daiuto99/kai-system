@@ -8,7 +8,7 @@ cd /app
 echo "[kai-buzz] starting advisor bridges + approval poller ($(date -u +%FT%TZ))"
 
 python3 -u agents_bridge.py KAI          &
-python3 -u agents_bridge.py Sky          &
+python3 -u sky_dm.py                     &   # Sky = NIP-17 DM agent (proof); others still channels
 python3 -u agents_bridge.py Roads        &
 python3 -u agents_bridge.py Reclamation  &
 python3 -u ember_bridge.py bridge        &
