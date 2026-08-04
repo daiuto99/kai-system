@@ -437,6 +437,31 @@ services:
       retries: 3
       start_period: 15s
 
+  kai-buzz:
+    build: ./kai-buzz
+    container_name: kai-buzz
+    restart: always
+    environment:
+      - BUZZ_AGENT_DIR=/agent
+      - CONNECT_URL=ws://host.docker.internal:3002
+      - RELAY_TAG=wss://kai-worker.tail7f43c5.ts.net
+      - RELAY_URL=ws://host.docker.internal:3000
+      - BUZZ_COUNCIL_URL=http://kai-web/council/message
+      - BUZZ_COUNCIL_BASE=http://kai-web/council/council
+      - LITELLM_URL=http://kai-litellm:4000/v1/chat/completions
+      - LITELLM_KEY_FILE=/run/secrets/litellm_master_key
+      - KAI_WEB_PW_FILE=/run/secrets/kai_web_password
+      - BUZZ_APPROVAL_HEARTBEAT=/vault/00_System/buzz_approve_heartbeat
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /home/leo/buzz-eval/agent:/agent:rw
+      - /home/leo/vault:/vault:rw
+    secrets:
+      - litellm_master_key
+      - kai_web_password
+
+
 volumes:
   qdrant-data:
   n8n_data:
