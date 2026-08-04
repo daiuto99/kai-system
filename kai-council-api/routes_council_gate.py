@@ -152,6 +152,18 @@ _GATES_STORE = PersistentGateStore(_VAULT_GATES)
 # the host-side buzz_approve.py poller sends the prompt to Leo's Buzz channel and
 # resolves from his verified reply, so we skip the parallel Telegram send below.
 _APPROVAL_SURFACE = os.environ.get("GATE_APPROVAL_SURFACE", "telegram").strip().lower()
+_BUZZ_HEARTBEAT_PATH = os.environ.get("BUZZ_APPROVAL_HEARTBEAT", "/vault/00_System/buzz_approve_heartbeat")
+_BUZZ_HEARTBEAT_MAX_AGE = int(os.environ.get("BUZZ_HEARTBEAT_MAX_AGE", "30"))
+
+def _buzz_alive() -> bool:
+    """True iff the Buzz approval poller wrote a heartbeat within the freshness
+    window. Fail-safe: any read error / stale beat -> False, so a dead Buzz poller
+    makes the Telegram backup fire (Telegram = lifeline when Buzz is down)."""
+    try:
+        ts = int(Path(_BUZZ_HEARTBEAT_PATH).read_text().strip())
+        return (datetime.now(timezone.utc).timestamp() - ts) <= _BUZZ_HEARTBEAT_MAX_AGE
+    except Exception:
+        return False
 
 
 def _update_gate(gate_id: str, **changes) -> dict:
@@ -618,11 +630,13 @@ def _process_gate(req: GateRequest):
         # Approval surface (b19bf598). Buzz-primary (adopted): the buzz_approve.py
         # poller prompts Leo on his Buzz channel and resolves from his verified reply,
         # so we do NOT also send Telegram. Default (telegram): unchanged AR-5.2 path.
-        if _APPROVAL_SURFACE == "buzz":
-            logger.info("Gate %s pending_leo — Buzz approval surface (buzz_approve poller will prompt)", req.gate_id)
+        if _APPROVAL_SURFACE == "buzz" and _buzz_alive():
+            logger.info("Gate %s pending_leo — Buzz primary (poller alive); Telegram backup on standby", req.gate_id)
         else:
-            # AR-5.2: Telegram is the approval surface. Inline approve/reject buttons
-            # go to Leo's allowed chat; the click resolves the gate via worker-api.
+            if _APPROVAL_SURFACE == "buzz":
+                logger.warning("Gate %s pending_leo — Buzz poller heartbeat STALE; Telegram backup firing", req.gate_id)
+            # Telegram approval prompt: the default surface, OR the lifeline backup
+            # when Buzz is primary but its poller is down. Inline approve/reject buttons.
             tg_ok = _tg_send_gate(req.gate_id, gate_type, summary)
             if not tg_ok:
                 # Fallback ONLY if Telegram is unavailable, so a misconfig cannot

@@ -97,6 +97,7 @@ services:
       - /home/leo/kai-system/shared:/shared:ro
     environment:
       - PYTHONPATH=/shared
+      - GATE_APPROVAL_SURFACE=buzz
     env_file:
       - .env
     secrets:
