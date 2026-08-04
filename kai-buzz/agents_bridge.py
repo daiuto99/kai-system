@@ -78,6 +78,13 @@ AGENTS = [
         "chan_name": "coach", "about": "Coach — fitness, recovery & accountability. DM 1:1.",
         "avatar": "coach_avatar.png", "backend": "council", "council_channel": "coach",
     },
+    {
+        # Shared gear room (KAI-owned). Roads answers here via the council; join-only
+        # so it doesn't re-own the channel or overwrite Roads's 1:1 profile.
+        "name": "GearTalk", "key": "roads.key", "chan_file": "geartalk_channel.txt",
+        "chan_name": "GearTalk", "about": "GearTalk — shared gear room.",
+        "avatar": "roads_avatar.png", "backend": "council", "council_channel": "roads", "join": True,
+    },
 ]
 
 
@@ -218,21 +225,23 @@ async def run_agent(cfg):
     pk = load_or_create_key(cfg["key"])
     cid = get_channel(cfg["chan_file"])
     me = xonly(pk)
-    avatar = await asyncio.to_thread(upload_avatar, pk, cfg["avatar"])
+    join = cfg.get("join")  # join a channel we don't own (a shared room): subscribe + reply only
+    avatar = None if join else await asyncio.to_thread(upload_avatar, pk, cfg["avatar"])
     log(cfg["name"], "pubkey", me, "channel", cid, "connect", CONNECT_URL, "tag", RELAY)
     async with websockets.connect(CONNECT_URL, max_size=2 ** 20) as ws:
         await authenticate(ws, pk)
-        # ensure private channel first (client-chosen UUID via h-tag; idempotent)
-        await ws.send(json.dumps(["EVENT", sign_event(pk, 9007,
-            [["h", cid], ["name", cfg["chan_name"]], ["visibility", "private"], ["about", cfg["about"]]], "")]))
-        await asyncio.sleep(1.0)  # let the channel commit before member/profile writes
-        # profile (kind:0): name + avatar
-        prof = {"name": cfg["name"], "display_name": cfg["name"], "about": cfg["about"]}
-        if avatar:
-            prof["picture"] = avatar
-        await ws.send(json.dumps(["EVENT", sign_event(pk, 0, [], json.dumps(prof))]))
-        # add Leo as a member
-        await ws.send(json.dumps(["EVENT", sign_event(pk, 9000, [["h", cid], ["p", LEO_PUBKEY], ["role", "member"]], "")]))
+        if not join:
+            # ensure private channel first (client-chosen UUID via h-tag; idempotent)
+            await ws.send(json.dumps(["EVENT", sign_event(pk, 9007,
+                [["h", cid], ["name", cfg["chan_name"]], ["visibility", "private"], ["about", cfg["about"]]], "")]))
+            await asyncio.sleep(1.0)  # let the channel commit before member/profile writes
+            # profile (kind:0): name + avatar
+            prof = {"name": cfg["name"], "display_name": cfg["name"], "about": cfg["about"]}
+            if avatar:
+                prof["picture"] = avatar
+            await ws.send(json.dumps(["EVENT", sign_event(pk, 0, [], json.dumps(prof))]))
+            # add Leo as a member
+            await ws.send(json.dumps(["EVENT", sign_event(pk, 9000, [["h", cid], ["p", LEO_PUBKEY], ["role", "member"]], "")]))
         # subscribe to live human messages
         await ws.send(json.dumps(["REQ", "sub", {"kinds": [9], "#h": [cid], "since": int(time.time())}]))
         log(cfg["name"], "online — listening")
