@@ -98,6 +98,7 @@ services:
     environment:
       - PYTHONPATH=/shared
       - GATE_APPROVAL_SURFACE=buzz
+      - GATE_TELEGRAM_ESCALATE_SECONDS=1800
     env_file:
       - .env
     secrets:
