@@ -767,6 +767,21 @@ def cost_summary():
     fixed_total = sum(v.get("usd", 0) for v in fixed_monthly.values() if isinstance(v, dict))
     month_total = round(month_cost + fixed_total, 2)
 
+    # Buzz API-cost line — Sky + Roads are Buzz-exclusive DM agents that hit the
+    # real Claude API via the council, so their spend IS the Buzz-over-API cost.
+    # (KAI-on-Buzz is not separately attributable — it folds into general KAI usage.)
+    _BUZZ_ADVISORS = ("sky", "roads")
+    def _buzz_rollup(by_adv: dict) -> dict:
+        cost = 0.0
+        calls = 0
+        for a in _BUZZ_ADVISORS:
+            e = by_adv.get(a, {})
+            cost += e.get("cost_usd", 0.0)
+            calls += e.get("calls", 0)
+        return {"advisors": list(_BUZZ_ADVISORS), "api_cost_usd": round(cost, 4), "calls": calls}
+    buzz_month = _buzz_rollup(by_advisor_month)
+    buzz_all_time = _buzz_rollup(usage_data.get("total", {}).get("by_advisor", {}))
+
     return {
         "ok": True,
         "today": {
@@ -786,12 +801,14 @@ def cost_summary():
             "by_advisor": by_advisor_month,
             "by_model": by_model_month,
             "fixed_monthly": fixed_monthly,
+            "buzz": buzz_month,
             "cache_hit_rate": _hit_rate(month_cache_read, month_cache_creation),
         },
         "all_time": {
             "cost_usd": round(usage_data.get("total", {}).get("cost_usd", 0), 2),
             "calls": usage_data.get("total", {}).get("calls", 0),
             "by_advisor": usage_data.get("total", {}).get("by_advisor", {}),
+            "buzz": buzz_all_time,
             "cache_hit_rate": _hit_rate(
                 usage_data.get("total", {}).get("cache_read", 0),
                 usage_data.get("total", {}).get("cache_creation", 0),

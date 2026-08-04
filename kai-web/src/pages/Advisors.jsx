@@ -357,6 +357,9 @@ function AdvisorCard({ advisor, isSelected, onClick, onIntake, isExec = false })
       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 14px' }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', letterSpacing: '-0.02em', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{advisor.name}</div>
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{advisor.role}</div>
+        {advisor.buzz && (
+          <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 7px', borderRadius: 5, background: 'rgba(139,92,246,0.22)', border: '1px solid rgba(139,92,246,0.5)', fontSize: 9, fontWeight: 700, color: '#c4b5fd', letterSpacing: '0.04em' }}>⚡ BUZZ</div>
+        )}
       </div>
 
       {/* Intake button */}
@@ -411,6 +414,7 @@ function KaiCard({ advisor, isSelected, onClick, onIntake }) {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <Badge {...(STATUS_BADGE[advisor.status] || STATUS_BADGE.active)} />
           {advisor.sidekick_enabled && <Badge label="SideKick" bg="#6366f118" color="#a5b4fc" border="#6366f130" />}
+          {advisor.buzz && <Badge label="Buzz" bg="rgba(139,92,246,0.15)" color="#c4b5fd" border="rgba(139,92,246,0.3)" />}
         </div>
       </div>
       {/* Intake button */}

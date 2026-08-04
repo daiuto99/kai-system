@@ -457,6 +457,9 @@
     const tokenMTD = m.token_cost_usd || 0;
     const fixedTotal = m.fixed_cost_usd || 0;
     const monthLabel = m.month || '—';
+    const buzz = m.buzz || {};
+    const buzzMTD = buzz.api_cost_usd || 0;
+    const buzzCalls = buzz.calls || 0;
 
     // Fixed line items
     const lineItems = Object.values(fixed).map(item => {
@@ -488,6 +491,12 @@
       <div class="cost-total-row">
         <span class="cost-total-label">Token MTD</span>
         <span class="cost-total-val" style="color:var(--warn)">${fmtUSD(tokenMTD)}</span>
+      </div>
+      <div class="cost-line-items">
+        <div class="cost-line">
+          <span class="cost-line-name">&#8627; Buzz API (Sky + Roads)</span>
+          <span class="cost-line-val ${buzzMTD === 0 ? 'zero' : ''}">${fmtUSD(buzzMTD)}${buzzCalls ? ' &middot; ' + buzzCalls + ' calls' : ''}</span>
+        </div>
       </div>
       <div class="partial-floor-badge" style="background:rgba(34,197,94,0.1);border-color:#22c55e;color:#86efac">
         <strong style="color:#22c55e">✓ COST WIRED</strong>

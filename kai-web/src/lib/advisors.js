@@ -2,6 +2,7 @@ export const ADVISORS = [
   {
     id:      'kai',
     channel: 'kai',
+    buzz:    true,
     name:    'KAI',
     role:    'Command',
     emoji:   '⚡',
@@ -52,6 +53,7 @@ export const ADVISORS = [
   {
     id:      'sky',
     channel: 'sky',
+    buzz:    true,
     name:    'Sky',
     role:    'Studio Assistant',
     emoji:   '🎙️',
@@ -62,6 +64,7 @@ export const ADVISORS = [
   {
     id:      'roads',
     channel: 'roads',
+    buzz:    true,
     name:    'Roads',
     role:    'Gear Guru & Roadie',
     emoji:   '🎸',

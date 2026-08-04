@@ -56,7 +56,7 @@ export default function Council() {
             <span className="text-xs kai-text-subtle">— {advisor?.role}</span>
           </div>
           <p className="text-xs kai-text-subtle mt-1">
-            Conversations happen in Slack. History shown here.
+            Conversations happen in Buzz (Nostr advisor channels). History shown here.
           </p>
         </div>
 
@@ -66,7 +66,7 @@ export default function Council() {
           ) : history.length === 0 ? (
             <div className="text-center kai-text-subtle py-12">
               <p className="text-sm">No conversation history yet.</p>
-              <p className="text-xs mt-1">Open #{active} in Slack to start.</p>
+              <p className="text-xs mt-1">Open #{active} in Buzz to start.</p>
             </div>
           ) : (
             <div className="space-y-4 max-w-2xl">

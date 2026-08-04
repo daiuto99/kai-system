@@ -305,7 +305,7 @@ export default function WordPress() {
 // This view NEVER writes to WordPress directly: it starts wordpress.build_page_draft
 // on the orchestrator (dev + creative gates, brand-drift, status=draft, no publish, no
 // homepage overwrite) and shows the job's gate/step status. Both gates are approved by
-// Leo in Slack. Status is polled from an endpoint that returns step state only — never
+// Leo approves the pending gate. Status is polled from an endpoint that returns step state only — never
 // raw step results (those carry creds), so nothing secret reaches this surface.
 function BuildBoard({ mode = 'build', properties }) {
   const isEdit = mode === 'edit'
@@ -369,10 +369,10 @@ function BuildBoard({ mode = 'build', properties }) {
         {isEdit
           ? <>Edit an <strong>existing draft</strong> page. Routes through the dev + creative gates and the brand-drift
              check, and updates the page <strong>as a draft</strong> — it refuses any page that is not already a draft
-             (editing a live page is the publish workflow&apos;s job). You approve both gates in Slack first.</>
+             (editing a live page is the publish workflow&apos;s job). You approve both gates first (via the pending-gate approval).</>
           : <>Start a <strong>governed drafts-only build</strong>. Routes through the dev + creative gates and the
              brand-drift check, and creates a <strong>draft</strong> page — it never publishes and never touches the live
-             homepage. You approve both gates in Slack before anything is written.</>}
+             homepage. You approve both gates before anything is written.</>}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 720, marginBottom: 14 }}>
@@ -436,7 +436,7 @@ function BuildBoard({ mode = 'build', properties }) {
           </div>
           {status?.awaiting_gate && (
             <div style={{ fontSize: 12, color: '#f59e0b', marginBottom: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
-              <Clock size={13} /> Awaiting <strong>{status.awaiting_gate}</strong> — approve in Slack to continue.
+              <Clock size={13} /> Awaiting <strong>{status.awaiting_gate}</strong> — approve the pending gate to continue.
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
