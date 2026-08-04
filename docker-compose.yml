@@ -444,6 +444,7 @@ services:
     environment:
       - BUZZ_AGENT_DIR=/agent
       - CONNECT_URL=ws://host.docker.internal:3002
+      - BUZZ_MEDIA_URL=http://host.docker.internal:3000/media/upload
       - RELAY_TAG=wss://kai-worker.tail7f43c5.ts.net
       - RELAY_URL=ws://host.docker.internal:3000
       - BUZZ_COUNCIL_URL=http://kai-web/council/message

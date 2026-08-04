@@ -25,6 +25,7 @@ RELAY = os.environ.get("RELAY_TAG", "wss://kai-worker.tail7f43c5.ts.net")
 # Actual TCP target: the local nginx proxy that forces Host=<community host>.
 CONNECT_URL = os.environ.get("CONNECT_URL", "ws://127.0.0.1:3002")
 RELAY_HOST = os.environ.get("RELAY_HOST", "kai-worker.tail7f43c5.ts.net")
+MEDIA_UPLOAD_URL = os.environ.get("BUZZ_MEDIA_URL", "http://localhost:3000/media/upload")
 AGENT_DIR = os.environ.get("BUZZ_AGENT_DIR", os.path.expanduser("~/buzz-eval/agent"))
 
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:4000/v1/chat/completions")
@@ -135,7 +136,7 @@ def upload_avatar(pk, path):
         auth = sign_event(pk, 24242, [["t", "upload"], ["x", sha],
                                       ["expiration", str(int(time.time()) + 300)]], "Upload avatar")
         hdr = "Nostr " + base64.b64encode(json.dumps(auth).encode()).decode()
-        req = urllib.request.Request("http://localhost:3000/media/upload", data=data, method="PUT",
+        req = urllib.request.Request(MEDIA_UPLOAD_URL, data=data, method="PUT",
                                      headers={"Authorization": hdr, "Content-Type": "image/png"})
         with urllib.request.urlopen(req, timeout=20) as r:
             desc = json.loads(r.read())
