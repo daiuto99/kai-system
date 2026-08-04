@@ -17,13 +17,14 @@ import asyncio, json, hashlib, time, os, sys, urllib.request
 import websockets
 from coincurve import PrivateKey
 
-RELAY = os.environ.get("RELAY_URL", "ws://100.78.94.80:3000")
-LITELLM_URL = "http://localhost:4000/v1/chat/completions"
-LITELLM_KEY = open(os.path.expanduser("~/kai-system/secrets/litellm_master_key.txt")).read().strip()
+CONNECT_URL = os.environ.get("CONNECT_URL", os.environ.get("RELAY_URL", "ws://127.0.0.1:3002"))
+RELAY_TAG = os.environ.get("RELAY_TAG", "wss://kai-worker.tail7f43c5.ts.net")
+LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:4000/v1/chat/completions")
+LITELLM_KEY = open(os.path.expanduser(os.environ.get("LITELLM_KEY_FILE", "~/kai-system/secrets/litellm_master_key.txt"))).read().strip()
 MODEL = os.environ.get("EMBER_MODEL", "qwen-mid")
 CHANNEL_NAME = "ember-lab"
 
-AGENT_DIR = os.path.expanduser("~/buzz-eval/agent")
+AGENT_DIR = os.environ.get("BUZZ_AGENT_DIR", os.path.expanduser("~/buzz-eval/agent"))
 EMBER_KEY = os.path.join(AGENT_DIR, "ember.key")
 TESTER_KEY = os.path.join(AGENT_DIR, "tester.key")
 CHANNEL_FILE = os.path.join(AGENT_DIR, "channel.txt")
@@ -124,7 +125,7 @@ async def authenticate(ws, pk):
         raw = await ws.recv()
         msg = json.loads(raw)
         if msg[0] == "AUTH":
-            ev = sign_event(pk, 22242, [["relay", RELAY], ["challenge", msg[1]]], "")
+            ev = sign_event(pk, 22242, [["relay", RELAY_TAG], ["challenge", msg[1]]], "")
             await ws.send(json.dumps(["AUTH", ev]))
         elif msg[0] == "OK":
             log("authed:", msg)
@@ -139,7 +140,7 @@ async def run_bridge():
     cid = get_channel(create=True)
     log("Ember pubkey:", xonly(pk))
     log("channel:", cid)
-    async with websockets.connect(RELAY, max_size=2 ** 20) as ws:
+    async with websockets.connect(CONNECT_URL, max_size=2 ** 20) as ws:
         await authenticate(ws, pk)
         # create the private channel (idempotent: relay reuses the h-tag UUID)
         await ws.send(json.dumps(["EVENT", sign_event(pk, 9007,
@@ -156,7 +157,7 @@ async def run_bridge():
         async for raw in ws:
             msg = json.loads(raw)
             if msg[0] == "AUTH":
-                ev = sign_event(pk, 22242, [["relay", RELAY], ["challenge", msg[1]]], "")
+                ev = sign_event(pk, 22242, [["relay", RELAY_TAG], ["challenge", msg[1]]], "")
                 await ws.send(json.dumps(["AUTH", ev]))
             elif msg[0] == "EVENT" and msg[1] == "ember":
                 ev = msg[2]
@@ -182,7 +183,7 @@ async def run_test():
     cid = get_channel(create=False)
     if not cid:
         log("no channel yet — start the bridge first"); return
-    async with websockets.connect(RELAY, max_size=2 ** 20) as ws:
+    async with websockets.connect(CONNECT_URL, max_size=2 ** 20) as ws:
         await authenticate(ws, pk)
         await ws.send(json.dumps(["REQ", "t", {"kinds": [9], "#h": [cid], "since": int(time.time())}]))
         q = "Ember, are you online? In one or two sentences, tell me what hardware you run on and confirm this conversation stays on my network."
@@ -193,7 +194,7 @@ async def run_test():
             async for raw in ws:
                 msg = json.loads(raw)
                 if msg[0] == "AUTH":
-                    ev = sign_event(pk, 22242, [["relay", RELAY], ["challenge", msg[1]]], "")
+                    ev = sign_event(pk, 22242, [["relay", RELAY_TAG], ["challenge", msg[1]]], "")
                     await ws.send(json.dumps(["AUTH", ev]))
                 elif msg[0] == "EVENT" and msg[2].get("pubkey") == ember_pub and msg[2]["kind"] == 9:
                     log("EMBER REPLIED >>>", msg[2]["content"])
@@ -212,7 +213,7 @@ async def run_add(pubkey_in):
     pk = load_or_create_key(EMBER_KEY)
     cid = get_channel(create=False)
     ev = sign_event(pk, 9000, [["h", cid], ["p", pubkey_hex], ["role", "member"]], "")
-    async with websockets.connect(RELAY, max_size=2 ** 20) as ws:
+    async with websockets.connect(CONNECT_URL, max_size=2 ** 20) as ws:
         await authenticate(ws, pk)
         await ws.send(json.dumps(["EVENT", ev]))
 
@@ -220,7 +221,7 @@ async def run_add(pubkey_in):
             async for raw in ws:
                 msg = json.loads(raw)
                 if msg[0] == "AUTH":
-                    a = sign_event(pk, 22242, [["relay", RELAY], ["challenge", msg[1]]], "")
+                    a = sign_event(pk, 22242, [["relay", RELAY_TAG], ["challenge", msg[1]]], "")
                     await ws.send(json.dumps(["AUTH", a]))
                 elif msg[0] == "OK" and msg[1] == ev["id"]:
                     log("add result:", "ACCEPTED" if msg[2] else "REJECTED", msg[3] or "")

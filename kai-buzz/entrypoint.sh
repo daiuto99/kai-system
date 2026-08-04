@@ -11,6 +11,7 @@ python3 -u agents_bridge.py KAI          &
 python3 -u agents_bridge.py Sky          &
 python3 -u agents_bridge.py Roads        &
 python3 -u agents_bridge.py Reclamation  &
+python3 -u ember_bridge.py bridge        &
 python3 -u buzz_approve.py               &
 
 # Wait for ANY child to exit, then fail so the container restarts the full set.
