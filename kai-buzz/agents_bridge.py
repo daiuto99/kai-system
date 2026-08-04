@@ -64,13 +64,6 @@ AGENTS = [
         "avatar": "kai_avatar.png", "backend": "council", "council_channel": "kai",
     },
     {
-        "name": "Reclamation", "key": "reclamation.key", "chan_file": "reclamation_channel.txt",
-        "chan_name": "reclamation",
-        "about": "The Reclamation Project — brainstorm with KAI; the brief stays loaded.",
-        "avatar": "kai_avatar.png", "backend": "council", "council_channel": "kai",
-        "context_file": "reclamation_brief.txt",
-    },
-    {
         "name": "Sky", "key": "sky.key", "chan_file": "sky_channel.txt",
         "chan_name": "sky", "about": "Sky — Studio 71 collaborator: sessions, signal flow, gear routing. DM 1:1.",
         "avatar": "sky_avatar.png", "backend": "council", "council_channel": "sky",
@@ -81,9 +74,9 @@ AGENTS = [
         "avatar": "roads_avatar.png", "backend": "council", "council_channel": "roads",
     },
     {
-        "name": "Ember", "key": "ember.key", "chan_file": "channel.txt",
-        "chan_name": "ember-lab", "about": "Ember — private local advisor (on your Mac mini).",
-        "avatar": "ember_avatar.png", "backend": "litellm", "model": "qwen-mid", "system": EMBER_SYSTEM,
+        "name": "Coach", "key": "coach.key", "chan_file": "coach_channel.txt",
+        "chan_name": "coach", "about": "Coach — fitness, recovery & accountability. DM 1:1.",
+        "avatar": "kai_avatar.png", "backend": "council", "council_channel": "coach",
     },
 ]
 
