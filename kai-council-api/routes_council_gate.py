@@ -148,6 +148,11 @@ class PersistentGateStore:
 
 _GATES_STORE = PersistentGateStore(_VAULT_GATES)
 
+# Approval surface (b19bf598): 'telegram' (default, live) or 'buzz'. When 'buzz',
+# the host-side buzz_approve.py poller sends the prompt to Leo's Buzz channel and
+# resolves from his verified reply, so we skip the parallel Telegram send below.
+_APPROVAL_SURFACE = os.environ.get("GATE_APPROVAL_SURFACE", "telegram").strip().lower()
+
 
 def _update_gate(gate_id: str, **changes) -> dict:
     try:
@@ -402,6 +407,27 @@ async def receive_gate(req: GateRequest, background_tasks: BackgroundTasks):
     return {"gate_id": req.gate_id, "status": "accepted"}
 
 
+@router.get("/council/gate/pending")
+def list_pending_gates():
+    """Gates awaiting Leo (status=pending_leo). Read-only; polled by the Buzz
+    approval process (buzz-eval/agent/buzz_approve.py) to send approval prompts."""
+    out = []
+    try:
+        for d in sorted(_GATES_STORE.root.iterdir()):
+            if not d.is_dir():
+                continue
+            entry = _GATES_STORE.get(d.name)
+            if entry and entry.get("status") == "pending_leo":
+                out.append({
+                    "gate_id": d.name,
+                    "gate_type": entry.get("gate_type"),
+                    "summary": entry.get("summary") or "",
+                })
+    except FileNotFoundError:
+        pass
+    return {"pending": out, "count": len(out)}
+
+
 @router.get("/council/gate/{gate_id}/state")
 def gate_state(gate_id: str):
     """Fallback poll — orchestrator checks here every 30s if callback was missed."""
@@ -589,16 +615,22 @@ def _process_gate(req: GateRequest):
             summary=summary,
             kai_assessment=kai_assessment,
         )
-        # AR-5.2: Telegram is the approval surface. Inline approve/reject buttons
-        # go to Leo's allowed chat; the click resolves the gate via worker-api.
-        tg_ok = _tg_send_gate(req.gate_id, gate_type, summary)
-        if not tg_ok:
-            # Fallback ONLY if Telegram is unavailable, so a misconfig cannot
-            # strand a gate. Slack ingress (kai-slack-bot) is retired in AR-5.2;
-            # once it is gone this fallback is notify-only, not actionable.
-            blocks, attachments = _gate_slack_message(req.gate_id, gate_type, summary, kai_assessment, "Awaiting Leo's approval")
-            fallback = f"Gate {req.gate_id} ({gate_type}) needs your approval. Reply `approve {req.gate_id}` or `reject {req.gate_id}: reason`"
-            _slack_post("#devops", fallback, blocks, attachments)
+        # Approval surface (b19bf598). Buzz-primary (adopted): the buzz_approve.py
+        # poller prompts Leo on his Buzz channel and resolves from his verified reply,
+        # so we do NOT also send Telegram. Default (telegram): unchanged AR-5.2 path.
+        if _APPROVAL_SURFACE == "buzz":
+            logger.info("Gate %s pending_leo — Buzz approval surface (buzz_approve poller will prompt)", req.gate_id)
+        else:
+            # AR-5.2: Telegram is the approval surface. Inline approve/reject buttons
+            # go to Leo's allowed chat; the click resolves the gate via worker-api.
+            tg_ok = _tg_send_gate(req.gate_id, gate_type, summary)
+            if not tg_ok:
+                # Fallback ONLY if Telegram is unavailable, so a misconfig cannot
+                # strand a gate. Slack ingress (kai-slack-bot) is retired in AR-5.2;
+                # once it is gone this fallback is notify-only, not actionable.
+                blocks, attachments = _gate_slack_message(req.gate_id, gate_type, summary, kai_assessment, "Awaiting Leo's approval")
+                fallback = f"Gate {req.gate_id} ({gate_type}) needs your approval. Reply `approve {req.gate_id}` or `reject {req.gate_id}: reason`"
+                _slack_post("#devops", fallback, blocks, attachments)
         if gate_type in _HOSTOPS_GATE_TYPES:
             # The typed #devops route remains the durable fallback if this
             # notification surface is unavailable. The summary is reference-only.
