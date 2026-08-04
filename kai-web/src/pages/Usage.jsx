@@ -63,6 +63,8 @@ export default function Usage() {
   const [range, setRange]     = useState('30d')
   const [tab, setTab]         = useState('advisor')
   const [expandedDate, setExpandedDate] = useState(null)
+  const [billing, setBilling] = useState(null)
+  const [billingErr, setBillingErr] = useState(null)
 
   async function load() {
     setLoading(true)
@@ -78,6 +80,16 @@ export default function Usage() {
   }
 
   useEffect(() => { load() }, [])
+
+  // Anthropic Admin billing (true total — build vs run). Separate endpoint; its
+  // own range so it doesn't gate the token-usage view if the admin key is absent.
+  useEffect(() => {
+    const days = (RANGES.find(r => r.id === range)?.days) || 30
+    setBilling(null); setBillingErr(null)
+    api.getAnthropicBilling(days)
+      .then(setBilling)
+      .catch(e => setBillingErr(e.message))
+  }, [range])
 
   const sortedDays = useMemo(() => {
     if (!data?.days) return []
@@ -151,6 +163,22 @@ export default function Usage() {
     return { projectedMonth, wow, cpc7, thisWeek, lastWeek }
   }, [sortedDays])
 
+  // Buzz comms spend — all Buzz activity (eval, agent, approvals) across every model,
+  // summed from by_trigger keys matching /buzz/. Per-model split needs backend model×trigger tagging.
+  const buzz = useMemo(() => {
+    let cost = 0, calls = 0, input = 0, output = 0
+    const rows = []
+    for (const [k, v] of Object.entries(agg.by_trigger)) {
+      if (/buzz/i.test(k)) {
+        cost += v.cost_usd; calls += v.calls; input += v.input; output += v.output
+        rows.push({ key: k, ...v })
+      }
+    }
+    rows.sort((a, b) => b.cost_usd - a.cost_usd)
+    const maxCost = Math.max(0.0001, ...rows.map(r => r.cost_usd))
+    return { cost, calls, input, output, rows: rows.map(r => ({ ...r, pct: (r.cost_usd / maxCost) * 100 })) }
+  }, [agg])
+
   const breakdownData = useMemo(() => {
     if (tab === 'hour') {
       const items = []
@@ -218,6 +246,9 @@ export default function Usage() {
         </div>
       ) : !data ? null : (
         <>
+          {/* All Anthropic charges — true billed total, build vs run */}
+          <BillingPanel billing={billing} err={billingErr} />
+
           {/* Top-line cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
             <Card icon={<DollarSign size={14} />} label="Total spend"     value={fmtUsd(agg.cost)} />
@@ -248,6 +279,46 @@ export default function Usage() {
                     <Sparkline data={planning.cpc7.map(p => p.cpc)} />
                   }
                   sub={planning.cpc7.length ? fmtUsd(planning.cpc7[planning.cpc7.length - 1]?.cpc || 0) + ' last' : ''} />
+          </div>
+
+          {/* Buzz comms cost */}
+          <div className="kai-card px-5 py-5 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-medium flex items-center gap-1.5">
+                <Zap size={14} className="kai-text-subtle" /> Buzz comms — all models
+              </h2>
+              <span className="text-xs kai-text-subtle">{fmtUsd(buzz.cost)} · {fmtInt(buzz.calls)} calls</span>
+            </div>
+            {buzz.rows.length === 0 ? (
+              <p className="text-xs kai-text-subtle py-6 text-center">No Buzz activity in range.</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  <Card label="Buzz spend"    value={fmtUsd(buzz.cost)} />
+                  <Card label="Buzz calls"    value={fmtInt(buzz.calls)} />
+                  <Card label="Avg / call"    value={fmtUsd(buzz.calls ? buzz.cost / buzz.calls : 0)} />
+                  <Card label="Tokens in/out" value={`${fmtKilo(buzz.input)}/${fmtKilo(buzz.output)}`} />
+                </div>
+                <div className="space-y-2">
+                  {buzz.rows.map(item => (
+                    <div key={item.key} className="flex items-center gap-3 text-xs">
+                      <div className="w-40 truncate kai-text-subtle" title={item.key}>{item.key}</div>
+                      <div className="flex-1 relative h-5 rounded bg-white/5 overflow-hidden">
+                        <div className="absolute inset-y-0 left-0 bg-kai-blue/60 rounded" style={{ width: `${item.pct}%` }} />
+                      </div>
+                      <div className="w-44 text-right tabular-nums text-[11px]">
+                        <span className="font-medium">{fmtUsd(item.cost_usd)}</span>
+                        <span className="kai-text-subtle"> · {item.calls} · {fmtKilo(item.input)}/{fmtKilo(item.output)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] kai-text-subtle mt-4">
+                  Buzz spend across all activity (eval, agent, approvals) in the selected range, all models combined.
+                  Per-model split for Buzz is pending backend model×trigger tagging.
+                </p>
+              </>
+            )}
           </div>
 
           {/* Daily cost chart */}
@@ -343,6 +414,61 @@ export default function Usage() {
         </>
       )}
     </div>
+  )
+}
+
+function BillingPanel({ billing, err }) {
+  const wrap = (body) => (
+    <div className="kai-card px-5 py-5 mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-medium flex items-center gap-1.5">
+          <DollarSign size={14} className="kai-text-subtle" /> All Anthropic charges — build vs run
+        </h2>
+      </div>
+      {body}
+    </div>
+  )
+  if (err) return wrap(<p className="text-xs text-red-400">Failed to load billing: {err}</p>)
+  if (!billing) return wrap(<p className="text-xs kai-text-subtle">Loading Anthropic billing…</p>)
+  if (billing.configured === false) return wrap(
+    <div className="text-xs kai-text-subtle leading-relaxed">
+      <div className="text-amber-400 font-medium mb-1">Admin key not configured</div>
+      This is the only source of your <span className="font-medium">true billed total</span> — including Claude Code
+      dev spend (the cost to build KAI) — which the internal usage tracker never sees.
+      <div className="mt-2">{billing.hint}</div>
+    </div>
+  )
+  if (billing.error) return wrap(
+    <p className="text-xs text-red-400">Anthropic Admin API error: {billing.error}
+      {billing.http_status ? ` (HTTP ${billing.http_status})` : ''}</p>
+  )
+  const b = billing.buckets || {}
+  return wrap(
+    <>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <Card label={`Total · ${billing.range_days}d`} value={fmtUsd(billing.total_usd)} />
+        <Card label="Build (Claude Code)" value={fmtUsd(b.build || 0)} sub="dev sessions" />
+        <Card label="Run (council · Buzz)" value={fmtUsd(b.run || 0)} sub="instrumented" />
+        <Card label="Unclassified" value={fmtUsd(b.unclassified || 0)}
+              sub={(billing.unmapped && billing.unmapped.length) ? `${billing.unmapped.length} workspace(s)` : ''} />
+      </div>
+      {(billing.by_model && billing.by_model.length > 0) && (
+        <div className="space-y-2">
+          {billing.by_model.slice(0, 8).map(item => (
+            <div key={item.key} className="flex items-center gap-3 text-xs">
+              <div className="w-56 truncate kai-text-subtle" title={item.key}>{item.key}</div>
+              <div className="flex-1" />
+              <div className="w-24 text-right tabular-nums font-medium">{fmtUsd(item.usd)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {(billing.unmapped && billing.unmapped.length > 0) && (
+        <p className="text-[10px] kai-text-subtle mt-4">
+          {billing.unmapped.length} workspace(s) not yet tagged build/run — map them in {billing.cost_map_slot}.
+        </p>
+      )}
+    </>
   )
 }
 

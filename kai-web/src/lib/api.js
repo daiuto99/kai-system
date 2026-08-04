@@ -99,6 +99,7 @@ export const api = {
 
   // Usage / cost
   getTokenUsage: () => get(`${BASE}/token-usage`),
+  getAnthropicBilling: (days = 30) => get(`${BASE}/anthropic/billing?days=${days}`),
 
   // Generic helpers — auto-prefix /api for worker routes. Callers like WordPress.jsx
   // use api.get('/wordpress/sites') → fetch('/api/wordpress/sites').
