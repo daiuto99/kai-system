@@ -76,7 +76,7 @@ AGENTS = [
     {
         "name": "Coach", "key": "coach.key", "chan_file": "coach_channel.txt",
         "chan_name": "coach", "about": "Coach — fitness, recovery & accountability. DM 1:1.",
-        "avatar": "kai_avatar.png", "backend": "council", "council_channel": "coach",
+        "avatar": "coach_avatar.png", "backend": "council", "council_channel": "coach",
     },
 ]
 
