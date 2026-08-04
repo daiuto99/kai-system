@@ -152,7 +152,7 @@ _GATES_STORE = PersistentGateStore(_VAULT_GATES)
 # Approval surface (b19bf598): 'telegram' (default, live) or 'buzz'. When 'buzz',
 # the host-side buzz_approve.py poller sends the prompt to Leo's Buzz channel and
 # resolves from his verified reply, so we skip the parallel Telegram send below.
-_APPROVAL_SURFACE = os.environ.get("GATE_APPROVAL_SURFACE", "telegram").strip().lower()
+_APPROVAL_SURFACE = os.environ.get("GATE_APPROVAL_SURFACE", "buzz").strip().lower()
 _BUZZ_HEARTBEAT_PATH = os.environ.get("BUZZ_APPROVAL_HEARTBEAT", "/vault/00_System/buzz_approve_heartbeat")
 _BUZZ_HEARTBEAT_MAX_AGE = int(os.environ.get("BUZZ_HEARTBEAT_MAX_AGE", "30"))
 
