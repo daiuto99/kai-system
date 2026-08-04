@@ -85,6 +85,12 @@ AGENTS = [
         "chan_name": "GearTalk", "about": "GearTalk — shared gear room.",
         "avatar": "roads_avatar.png", "backend": "council", "council_channel": "roads", "join": True,
     },
+    {
+        # Second voice in the same gear room: Sky (Studio 71) via the council.
+        "name": "GearTalkSky", "key": "sky.key", "chan_file": "geartalk_channel.txt",
+        "chan_name": "GearTalk", "about": "GearTalk — shared gear room.",
+        "avatar": "sky_avatar.png", "backend": "council", "council_channel": "sky", "join": True,
+    },
 ]
 
 
@@ -254,7 +260,9 @@ async def run_agent(cfg):
                 log(cfg["name"], m[0], m[1:])
             elif m[0] == "EVENT" and m[1] == "sub":
                 ev = m[2]
-                if ev["kind"] != 9 or ev["pubkey"] == me or ev["id"] in seen:
+                # Only ever answer Leo — never another agent. In a shared room this is
+                # what stops two agents (Roads + Sky) from replying to each other forever.
+                if ev["kind"] != 9 or ev["pubkey"] != LEO_PUBKEY or ev["id"] in seen:
                     continue
                 seen.add(ev["id"])
                 log(cfg["name"], f"<< {ev['pubkey'][:8]}: {ev.get('content','')[:80]}")

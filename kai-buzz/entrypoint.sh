@@ -12,6 +12,7 @@ python3 -u sky_dm.py                     &   # Sky = NIP-17 DM agent (proof); ot
 python3 -u agents_bridge.py Roads        &
 python3 -u agents_bridge.py Coach        &
 python3 -u agents_bridge.py GearTalk     &
+python3 -u agents_bridge.py GearTalkSky  &
 python3 -u buzz_approve.py               &
 
 # Wait for ANY child to exit, then fail so the container restarts the full set.
