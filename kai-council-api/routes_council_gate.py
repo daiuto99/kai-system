@@ -21,6 +21,7 @@ runs it in a thread pool, preventing LangGraph graph.invoke() from blocking asyn
 import json
 import logging
 import os
+import asyncio
 import re
 import tempfile
 import threading
@@ -164,6 +165,52 @@ def _buzz_alive() -> bool:
         return (datetime.now(timezone.utc).timestamp() - ts) <= _BUZZ_HEARTBEAT_MAX_AGE
     except Exception:
         return False
+
+# ── Telegram backup ESCALATION (b19bf598 hardening) ───────────────────────────
+# When Buzz is primary, a gate prompted on Buzz but not resolved within this window
+# is escalated ONCE to the Telegram lifeline (covers relay-dies-after-prompt and
+# Leo-did-not-see-Buzz). The heartbeat check handles Buzz-down-at-creation; this
+# handles delivered-but-unanswered.
+_GATE_ESCALATE_SECONDS = int(os.environ.get("GATE_TELEGRAM_ESCALATE_SECONDS", "900"))
+_GATE_ESCALATE_CHECK_SECONDS = int(os.environ.get("GATE_ESCALATE_CHECK_SECONDS", "60"))
+
+def _escalate_stale_gates() -> None:
+    """Escalate pending_leo gates unresolved past the window to Telegram (once)."""
+    if _APPROVAL_SURFACE != "buzz":
+        return
+    now = datetime.now(timezone.utc).timestamp()
+    try:
+        dirs = list(_GATES_STORE.root.iterdir())
+    except FileNotFoundError:
+        return
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        entry = _GATES_STORE.get(d.name)
+        if not entry or entry.get("status") != "pending_leo" or entry.get("tg_escalated"):
+            continue
+        try:
+            created = datetime.fromisoformat(entry["created_at"]).timestamp()
+        except Exception:
+            continue
+        if (now - created) < _GATE_ESCALATE_SECONDS:
+            continue
+        if _tg_send_gate(d.name, entry.get("gate_type", "gate"), entry.get("summary") or ""):
+            _update_gate(d.name, tg_escalated=True)
+            logger.warning("Gate %s unresolved on Buzz for >%ss — escalated to Telegram lifeline",
+                           d.name, _GATE_ESCALATE_SECONDS)
+
+async def _gate_escalation_loop():
+    while True:
+        await asyncio.sleep(_GATE_ESCALATE_CHECK_SECONDS)
+        try:
+            await asyncio.to_thread(_escalate_stale_gates)
+        except Exception as e:
+            logger.error("gate escalation loop error: %s", e)
+
+def start_gate_escalator() -> None:
+    """Launch the escalation loop as a background task (called from app lifespan)."""
+    asyncio.create_task(_gate_escalation_loop())
 
 
 def _update_gate(gate_id: str, **changes) -> dict:

@@ -59,6 +59,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     start_bug_poller()
+    routes_council_gate.start_gate_escalator()
     yield
 
 
