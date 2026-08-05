@@ -16,6 +16,7 @@ import Advisors from './pages/Advisors'
 import Wiki from './pages/Wiki'
 import WordPress from './pages/WordPress'
 import Usage from './pages/Usage'
+import System from './pages/System'
 
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="/wiki" element={<Wiki />} />
         <Route path="/wordpress" element={<WordPress />} />
         <Route path="/usage" element={<Usage />} />
+        <Route path="/system" element={<System />} />
       </Routes>
     </Layout>
   )

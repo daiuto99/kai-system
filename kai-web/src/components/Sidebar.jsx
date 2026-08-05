@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   Sun, Moon, Home, Activity, CheckSquare,
-  Inbox, Sparkles, Plus, MessageSquare, LayoutGrid
+  Inbox, Sparkles, Plus, MessageSquare, LayoutGrid, Terminal
 } from 'lucide-react'
 import { ADVISORS } from '../lib/advisors'
 
@@ -11,6 +11,7 @@ const NAV = [
   { to: '/tasks',       icon: CheckSquare,   label: 'Tasks'       },
   { to: '/parking-lot', icon: Inbox,         label: 'Lot Inventory' },
   { to: '/insights',    icon: Sparkles,      label: 'Insights'    },
+  { to: '/system',      icon: Terminal,      label: 'System'      },
 ]
 
 export default function Sidebar({ dark, onToggleTheme, onCapture }) {
