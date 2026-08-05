@@ -17,10 +17,13 @@ ROUTES = APP / "routes"
 # channel-agnostic approval change added the `surface` field + present_action above the
 # dormant slack_action_internal body-parse, shifting mode_lock.py's bare-json 727 -> 738
 # (same dead Slack call, moved only). No NEW bare-json introduced.
+# Re-synced 2026-08-05 (KAI-1002 item 2): the mode-lock->Buzz change added GET /mode_lock/pending
+# + _post_telegram_alert_held above the dormant slack_action_internal body-parse, shifting
+# mode_lock.py's bare-json 738 -> 778 (same dead Slack call, moved only). No NEW bare-json introduced.
 LEGACY_EXEMPTIONS = {
     "routes/calendar.py:164", "routes/focus.py:57", "routes/focus.py:110",
     "routes/focus.py:137", "routes/focus.py:187", "routes/inbox.py:112",
-    "routes/intake.py:94", "routes/intake.py:166", "routes/mode_lock.py:738",
+    "routes/intake.py:94", "routes/intake.py:166", "routes/mode_lock.py:778",
     "routes/orchestrator.py:66", "routes/oura.py:31", "routes/oura.py:43",
     "routes/sprint_a.py:112", "routes/telegram.py:202", "routes/wordpress.py:61",
 }
