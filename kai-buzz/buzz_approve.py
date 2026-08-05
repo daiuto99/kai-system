@@ -159,7 +159,7 @@ async def run():
         ev = await send(f"{prefix}🔐 APPROVAL — {g.get('gate_type', 'gate')}\n"
                         f"{g.get('summary', '')}\n\n"
                         f"Reply `approve` or `reject: <reason>` (or `approve {gid}`).")
-        prompt_map[ev["id"]] = gid
+        prompt_map[ev["id"]] = f"gate:{gid}"
         open_gates.add(gid)
         kind_of[gid] = "gate"
         return gid
@@ -169,7 +169,7 @@ async def run():
         ev = await send(f"{prefix}🔓 UNLOCK REQUEST — {e.get('tool', '?')} → {e.get('target') or '(n/a)'}\n"
                         f"{e.get('reason', '')}\n\n"
                         f"Reply `allow` (once), `session` (1h), or `deny` (or `allow {rid}`).")
-        prompt_map[ev["id"]] = rid
+        prompt_map[ev["id"]] = f"modelock:{rid}"
         open_gates.add(rid)
         kind_of[rid] = "modelock"
         return rid
@@ -331,15 +331,43 @@ async def run():
                         live_ml = [g for g in open_gates if kind_of.get(g) == "modelock"]
                 if _ONLY_GATE:
                     live_gate = [g for g in live_gate if g == _ONLY_GATE]
-                live_all = live_gate + live_ml
+                gate_set, ml_set = set(live_gate), set(live_ml)
+                live_all = list(gate_set) + list(ml_set)
 
-                tid = token if (token and token in live_all) else None
+                # Resolve the reply to a specific pending item AND its KIND. Route by the
+                # BOUND kind (the id's own namespace, or the prompted item's kind via the
+                # reply e-tag), never by list membership — so a gate id and a mode-lock
+                # request id can never cross-route even if they were to collide.
+                bkind = tid = None
+                if token:
+                    in_g, in_m = token in gate_set, token in ml_set
+                    if in_g and in_m:
+                        await send(f"`{token}` is ambiguous across a gate and an unlock — "
+                                   "resolve at the keyboard.")
+                        continue
+                    if in_g:
+                        bkind, tid = "gate", token
+                    elif in_m:
+                        bkind, tid = "modelock", token
                 if tid is None:
                     for t in ev.get("tags", []):
-                        if len(t) > 1 and t[0] == "e" and prompt_map.get(t[1]) in live_all:
-                            tid = prompt_map[t[1]]; break
+                        if len(t) > 1 and t[0] == "e":
+                            raw = prompt_map.get(t[1])
+                            if not raw:
+                                continue
+                            # Namespaced binding: kind travels WITH the id, immune to any
+                            # ID-keyed overwrite. "kind:id" — id may itself contain ':'? no
+                            # (gate ids are [\w-]; request ids are hex), so partition is safe.
+                            k, _, cand = raw.partition(":")
+                            if k == "gate" and cand in gate_set:
+                                bkind, tid = "gate", cand; break
+                            if k == "modelock" and cand in ml_set:
+                                bkind, tid = "modelock", cand; break
                 if tid is None and len(live_all) == 1:
-                    tid = live_all[0]
+                    if gate_set:
+                        bkind, tid = "gate", next(iter(gate_set))
+                    else:
+                        bkind, tid = "modelock", next(iter(ml_set))
                 if tid is None:
                     if not live_all:
                         await send("✅ Nothing pending to approve — you're all caught up.")
@@ -350,7 +378,7 @@ async def run():
                     continue
 
                 # Mode-lock unlock — Telegram-free resolution (Buzz is primary).
-                if tid in live_ml:
+                if bkind == "modelock":
                     action = _ML_ACTION.get(verb, "deny")
                     try:
                         res = await asyncio.to_thread(_modelock_resolve, tid, action)
