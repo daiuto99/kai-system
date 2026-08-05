@@ -221,16 +221,32 @@ async def run():
                 if not decision:
                     continue
                 token, approved, reason = decision
-                # Bind the gate: explicit id (if it names an open gate) > reply e-tag > single open.
-                gid = token if (token and token in open_gates) else None
+                # Bind against the LIVE pending list (council is the source of truth) — the
+                # in-memory sets are wiped on every container restart, which silently broke a
+                # bare `approve`. Priority: explicit id > reply e-tag > single pending.
+                try:
+                    live_pending = [x.get("gate_id") for x in
+                        (await asyncio.to_thread(_council_get, "/gate/pending")).get("pending", [])
+                        if x.get("gate_id")]
+                except Exception:
+                    live_pending = list(open_gates)  # fall back to memory if council unreachable
+                if _ONLY_GATE:
+                    live_pending = [g for g in live_pending if g == _ONLY_GATE]
+
+                gid = token if (token and token in live_pending) else None
                 if gid is None:
                     for t in ev.get("tags", []):
-                        if len(t) > 1 and t[0] == "e" and t[1] in prompt_map:
+                        if len(t) > 1 and t[0] == "e" and prompt_map.get(t[1]) in live_pending:
                             gid = prompt_map[t[1]]; break
-                if gid is None and len(open_gates) == 1:
-                    gid = next(iter(open_gates))
+                if gid is None and len(live_pending) == 1:
+                    gid = live_pending[0]
                 if gid is None:
-                    await send("Which gate? Reply to its prompt, or say `approve <id>`.")
+                    if not live_pending:
+                        await send("✅ Nothing pending to approve — you're all caught up.")
+                    else:
+                        await send("Which one? " + str(len(live_pending)) + " pending: "
+                                   + ", ".join("`" + g + "`" for g in live_pending)
+                                   + " — reply `approve <id>`.")
                     continue
                 if _ONLY_GATE and gid != _ONLY_GATE:
                     ab.log("approvals", f"IGNORED decision for {gid[:12]} (scoped test locked to {_ONLY_GATE[:12]})")
