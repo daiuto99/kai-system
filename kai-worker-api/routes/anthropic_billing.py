@@ -86,7 +86,7 @@ def _paged_get(client, url, params, headers):
             p["page"] = page
         r = client.get(url, params=p, headers=headers, timeout=30.0)
         r.raise_for_status()
-        body = r.json()
+        body = json.loads(r.text)  # KAI-882 L3 route guard: parse via json.loads, not the bare response helper
         for bucket in (body.get("data") or []):
             yield bucket
         if body.get("has_more") and body.get("next_page"):
