@@ -41,6 +41,9 @@ HEARTBEAT_PATH = os.environ.get("BUZZ_APPROVAL_HEARTBEAT", "/home/leo/vault/00_S
 # (anti-replay, on top of the relay 'since=now' filter, the 'seen' set, and resolve's
 # 409-on-already-resolved).
 _MAX_DECISION_AGE = int(os.environ.get("BUZZ_APPROVAL_MAX_AGE", "900"))
+# Re-nudge an unresolved gate on Buzz every this-many seconds (default 20 min).
+# Buzz keeps reminding; Telegram is only the lifeline when the poller is dead.
+_RENUDGE_SECONDS = int(os.environ.get("BUZZ_APPROVAL_RENUDGE_SECONDS", "1200"))
 # Scoped-test guard: if set, ONLY this gate id is prompted AND only it may be resolved.
 _ONLY_GATE = os.environ.get("BUZZ_APPROVAL_ONLY", "").strip()
 
@@ -153,20 +156,30 @@ async def run():
             except Exception as e:
                 ab.log("approvals", f"!! heartbeat write failed: {e}")
 
+        last_prompt: dict[str, float] = {}   # gate id -> last time we posted it
         async def poller():
             while True:
                 await asyncio.to_thread(_beat)   # prove liveness BEFORE work each cycle
                 try:
                     data = await asyncio.to_thread(_council_get, "/gate/pending")
+                    live = set()
                     for g in data.get("pending", []):
                         gid = g.get("gate_id")
-                        if not gid or gid in prompted:
+                        if not gid or (_ONLY_GATE and gid != _ONLY_GATE):
                             continue
-                        if _ONLY_GATE and gid != _ONLY_GATE:
-                            continue
-                        prompted.add(gid)
-                        await prompt_gate(g)
-                        ab.log("approvals", f">> prompt sent for {gid}")
+                        live.add(gid)
+                        last = last_prompt.get(gid)
+                        if last is None:
+                            await prompt_gate(g)
+                            last_prompt[gid] = time.time()
+                            ab.log("approvals", f">> prompt sent for {gid}")
+                        elif (time.time() - last) >= _RENUDGE_SECONDS:
+                            # Re-nudge on Buzz first — Telegram is only the Buzz-dead lifeline.
+                            await prompt_gate(g, prefix="🔁 (still waiting on you) ")
+                            last_prompt[gid] = time.time()
+                            ab.log("approvals", f">> re-nudged {gid}")
+                    for gid in [k for k in last_prompt if k not in live]:
+                        last_prompt.pop(gid, None)  # resolved — forget it
                 except Exception as e:
                     ab.log("approvals", f"!! poll error: {e}")
                 await asyncio.sleep(POLL_SECONDS)

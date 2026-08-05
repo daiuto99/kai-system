@@ -178,6 +178,11 @@ def _escalate_stale_gates() -> None:
     """Escalate pending_leo gates unresolved past the window to Telegram (once)."""
     if _APPROVAL_SURFACE != "buzz":
         return
+    # Telegram is the LAST-RESORT lifeline: escalate ONLY when the Buzz poller is
+    # actually dead (heartbeat stale). If Buzz is alive, Leo is reachable there and
+    # buzz_approve re-nudges on Buzz — never ping Telegram just because he is slow.
+    if _buzz_alive():
+        return
     now = datetime.now(timezone.utc).timestamp()
     try:
         dirs = list(_GATES_STORE.root.iterdir())
