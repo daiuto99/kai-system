@@ -365,16 +365,50 @@ def check_plane_ce() -> tuple[bool, str]:
 
 # ── Tier 2: auto-remediation ──────────────────────────────────────────────────
 
-def _try_restart_container(name: str) -> str:
-    """Attempt to restart a Docker container. Returns result string."""
+DOCKER_NETWORK = "kai-system_default"
+
+
+def _container_networks(name: str) -> list:
+    """Return the docker networks a container is attached to ([] if detached/unknown)."""
     try:
+        out = subprocess.run(
+            ["docker", "inspect", "--format",
+             "{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}", name],
+            capture_output=True, text=True, timeout=10,
+        )
+        return out.stdout.split() if out.returncode == 0 else []
+    except Exception:
+        return []
+
+
+def _try_restart_container(name: str) -> str:
+    """Restart a container, re-attaching it first if it is network-detached.
+
+    KAI-1046: a bare `docker restart` preserves a container's network config, so
+    it can NEVER recover a container that came up attached to zero networks (it
+    keeps passing its own localhost healthcheck while reaching nothing off-box).
+    Detect the empty-Networks case, re-attach to the shared network, then VERIFY
+    attachment — a ✅ must mean 'recovered', not merely 'the restart command ran'.
+    """
+    try:
+        detached = not _container_networks(name)
+        if detached:
+            conn = subprocess.run(
+                ["docker", "network", "connect", DOCKER_NETWORK, name],
+                capture_output=True, text=True, timeout=15,
+            )
+            if conn.returncode != 0 and "already exists" not in (conn.stderr or ""):
+                return f"re-attach FAILED for {name}: {conn.stderr[:100]}"
         result = subprocess.run(
             ["docker", "restart", name],
             capture_output=True, text=True, timeout=30
         )
-        if result.returncode == 0:
-            return f"restarted {name} ✅"
-        return f"restart failed: {result.stderr[:100]}"
+        if result.returncode != 0:
+            return f"restart failed: {result.stderr[:100]}"
+        if not _container_networks(name):
+            return f"{name} still detached after re-attach+restart (needs host recreate)"
+        prefix = "re-attached + restarted" if detached else "restarted"
+        return f"{prefix} {name} ✅"
     except Exception as e:
         return f"restart error: {e}"
 

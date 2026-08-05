@@ -74,7 +74,14 @@ def check_services() -> str:
         status = _command("docker", "inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", service)
         if status != wanted:
             raise RuntimeError(f"{service} is {status!r}, expected {wanted!r}")
-    return f"{len(expected)} required services up"
+        # KAI-1046: a 'healthy' container attached to zero docker networks still
+        # passes its own localhost healthcheck but can reach nothing off-box.
+        # Treat network isolation as RED — never let a detached container read green.
+        nets = _command("docker", "inspect", "--format",
+                        "{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}", service).strip()
+        if not nets:
+            raise RuntimeError(f"{service} is {status!r} but attached to ZERO docker networks (network-isolated — KAI-1046)")
+    return f"{len(expected)} required services up + network-attached"
 
 
 def check_session_brief() -> str:

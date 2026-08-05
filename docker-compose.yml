@@ -75,7 +75,10 @@ services:
       - source: wp_the71company_kai_app_password
         target: /run/wp_secrets/wp_the71company_kai_app_password.txt
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      # KAI-1046: also assert the container can resolve its own service alias via
+      # Docker's embedded DNS — this fails when attached to zero networks, so a
+      # network-detached container can never read healthy.
+      test: ["CMD-SHELL", "curl -fs http://localhost:8001/health && getent hosts kai-worker-api >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
