@@ -32,6 +32,9 @@ CHAN_ABOUT = "KAI approval gates — reply `approve` or `reject: reason`."
 # nginx at :3001 strips ONE /council/ prefix, so gate routes (/council/gate/...) need
 # the doubled prefix. The #kai bridge reaches /council/message the same way.
 COUNCIL_BASE  = os.environ.get("BUZZ_COUNCIL_BASE", "http://localhost:3001/council/council")
+# Worker-api base (mode-lock unlock approvals). nginx njs injects the worker
+# credential for /api/* on WEB basic auth — buzz_approve does NOT hold kai_worker_auth.
+WORKER_BASE   = os.environ.get("BUZZ_WORKER_BASE", "http://kai-web/api")
 POLL_SECONDS  = int(os.environ.get("BUZZ_APPROVAL_POLL_SECONDS", "5"))
 # Liveness heartbeat: written every poll cycle to a vault path the council-api reads
 # (host ~/vault == container /vault). The council only skips the Telegram backup when
@@ -49,8 +52,13 @@ _ONLY_GATE = os.environ.get("BUZZ_APPROVAL_ONLY", "").strip()
 
 # <verb> [gate-token] [: reason]. gate-token optional — bound from reply/single-open.
 _DECISION_RE = re.compile(
-    r"^\s*(approve|approved|yes|ok|reject|rejected|no|deny)\b\s*([\w-]{6,})?\s*(?::\s*(.*))?\s*$", re.I)
-_APPROVE_VERBS = {"approve", "approved", "yes", "ok"}
+    r"^\s*(approve|approved|allow|yes|ok|session|1h|reject|rejected|no|deny)\b\s*([\w-]{6,})?\s*(?::\s*(.*))?\s*$", re.I)
+# Gate approve/reject is binary; allow/session on a gate count as approve.
+_APPROVE_VERBS = {"approve", "approved", "allow", "yes", "ok", "session", "1h"}
+# Mode-lock unlock verbs map to the three actions request_approval understands.
+_ML_ACTION = {"allow": "once", "approve": "once", "approved": "once", "yes": "once", "ok": "once",
+              "session": "session", "1h": "session",
+              "deny": "deny", "reject": "deny", "rejected": "deny", "no": "deny"}
 # On-demand re-surface: Leo asks KAI to re-send everything still pending (for when he
 # missed the prompt — meeting, plane, etc.). Gates never expire, so this always works.
 _LIST_RE = re.compile(r"^\s*(pending|list|resend|approvals?|status|what'?s? pending|any approvals?)\s*\??\s*$", re.I)
@@ -70,6 +78,25 @@ def _council_get(path: str) -> dict:
 def _council_resolve(gate_id: str, approved: bool, notes: str) -> dict:
     body = json.dumps({"approved": approved, "notes": notes, "resolver": "leo"}).encode()
     req = urllib.request.Request(f"{COUNCIL_BASE}/gate/{gate_id}/resolve", data=body, method="POST",
+        headers={"Authorization": f"Basic {_basic_auth()}", "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read())
+
+
+def _worker_get(path: str) -> dict:
+    req = urllib.request.Request(f"{WORKER_BASE}{path}",
+        headers={"Authorization": f"Basic {_basic_auth()}"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read())
+
+
+def _modelock_resolve(request_id: str, action: str) -> dict:
+    """Resolve a mode-lock unlock the same channel-neutral way the Telegram poll loop
+    does — POST the decision to the docker-internal action endpoint. action is one of
+    once | session | deny (already mapped from Leo's verb)."""
+    body = json.dumps({"request_id": request_id, "action": action, "user": "leo"}).encode()
+    req = urllib.request.Request(f"{WORKER_BASE}/mode_lock/telegram_action_internal",
+        data=body, method="POST",
         headers={"Authorization": f"Basic {_basic_auth()}", "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read())
@@ -100,14 +127,14 @@ def verify_leo(ev: dict) -> bool:
 
 
 def parse_decision(content: str):
-    """-> (gate_token_or_None, approved: bool, reason: str) or None if not a decision.
-    gate_token may be omitted; the caller binds the gate from the reply e-tag or the
-    single open prompt."""
+    """-> (token_or_None, verb: str, reason: str) or None if not a decision. token may
+    be omitted; the caller binds the item (gate OR mode-lock unlock) from the reply
+    e-tag or the single open prompt. Gate approve/reject derives `verb in _APPROVE_VERBS`;
+    mode-lock maps `verb` through _ML_ACTION."""
     m = _DECISION_RE.match(content or "")
     if not m:
         return None
-    verb = m.group(1).lower()
-    return (m.group(2) or None), verb in _APPROVE_VERBS, (m.group(3) or "").strip()
+    return (m.group(2) or None), m.group(1).lower(), (m.group(3) or "").strip()
 
 
 async def run():
@@ -118,6 +145,7 @@ async def run():
     prompt_map: dict[str, str] = {}   # prompt event id -> gate id (reply binding)
     open_gates: set[str] = set()      # prompted + still-unresolved gate ids
     prompted: set[str] = set()        # gate ids we've ever prompted (no double-prompt)
+    kind_of: dict[str, str] = {}      # id -> 'gate' | 'modelock' (routes the reply)
     ab.log("approvals", "pubkey", me, "channel", cid, "council", COUNCIL_BASE)
 
     async def send(text) -> dict:
@@ -133,7 +161,18 @@ async def run():
                         f"Reply `approve` or `reject: <reason>` (or `approve {gid}`).")
         prompt_map[ev["id"]] = gid
         open_gates.add(gid)
+        kind_of[gid] = "gate"
         return gid
+
+    async def prompt_unlock(e, prefix=""):
+        rid = e.get("request_id")
+        ev = await send(f"{prefix}🔓 UNLOCK REQUEST — {e.get('tool', '?')} → {e.get('target') or '(n/a)'}\n"
+                        f"{e.get('reason', '')}\n\n"
+                        f"Reply `allow` (once), `session` (1h), or `deny` (or `allow {rid}`).")
+        prompt_map[ev["id"]] = rid
+        open_gates.add(rid)
+        kind_of[rid] = "modelock"
+        return rid
 
     async with websockets.connect(ab.CONNECT_URL, max_size=2 ** 20) as ws:
         await ab.authenticate(ws, pk)
@@ -178,10 +217,38 @@ async def run():
                             await prompt_gate(g, prefix="🔁 (still waiting on you) ")
                             last_prompt[gid] = time.time()
                             ab.log("approvals", f">> re-nudged {gid}")
-                    for gid in [k for k in last_prompt if k not in live]:
-                        last_prompt.pop(gid, None)  # resolved — forget it
+                    for gid in [k for k in last_prompt
+                                if kind_of.get(k, "gate") == "gate" and k not in live]:
+                        last_prompt.pop(gid, None)  # gate resolved — forget it
                 except Exception as e:
                     ab.log("approvals", f"!! poll error: {e}")
+
+                # Mode-lock unlock requests (worker-api) — Buzz is the PRIMARY unlock
+                # approval surface (KAI-1002 item 2). Suppressed during a scoped gate test.
+                if not _ONLY_GATE:
+                    try:
+                        ml = await asyncio.to_thread(_worker_get, "/mode_lock/pending")
+                        ml_live = set()
+                        for item in ml.get("pending", []):
+                            rid = item.get("request_id")
+                            if not rid:
+                                continue
+                            ml_live.add(rid)
+                            kind_of[rid] = "modelock"
+                            last = last_prompt.get(rid)
+                            if last is None:
+                                await prompt_unlock(item)
+                                last_prompt[rid] = time.time()
+                                ab.log("approvals", f">> unlock prompt sent for {rid}")
+                            elif (time.time() - last) >= _RENUDGE_SECONDS:
+                                await prompt_unlock(item, prefix="🔁 (still waiting on you) ")
+                                last_prompt[rid] = time.time()
+                                ab.log("approvals", f">> re-nudged unlock {rid}")
+                        for rid in [k for k in last_prompt
+                                    if kind_of.get(k) == "modelock" and k not in ml_live]:
+                            last_prompt.pop(rid, None); kind_of.pop(rid, None)
+                    except Exception as ex:
+                        ab.log("approvals", f"!! mode_lock poll error: {ex}")
                 await asyncio.sleep(POLL_SECONDS)
 
         async def listener():
@@ -220,47 +287,86 @@ async def run():
                     except Exception:
                         await send("⚠️ Couldn't reach the council to check pending approvals — try again shortly.")
                         continue
+                    ml_pend = []
+                    if not _ONLY_GATE:
+                        try:
+                            ml_pend = (await asyncio.to_thread(_worker_get, "/mode_lock/pending")).get("pending", [])
+                        except Exception:
+                            ml_pend = []
                     if _ONLY_GATE:
                         pend = [x for x in pend if x.get("gate_id") == _ONLY_GATE]
-                    if not pend:
+                    total = len(pend) + len(ml_pend)
+                    if not total:
                         await send("✅ Nothing pending — you're all caught up.")
                     else:
-                        await send(f"You have {len(pend)} pending approval(s):")
+                        await send(f"You have {total} pending approval(s):")
                         for g in pend:
                             await prompt_gate(g, prefix="🔁 (re-sent) ")
-                    ab.log("approvals", f"re-surfaced {len(pend)} pending on request")
+                        for item in ml_pend:
+                            await prompt_unlock(item, prefix="🔁 (re-sent) ")
+                    ab.log("approvals", f"re-surfaced {total} pending on request")
                     continue
                 decision = parse_decision(content)
                 if not decision:
                     continue
-                token, approved, reason = decision
-                # Bind against the LIVE pending list (council is the source of truth) — the
+                token, verb, reason = decision
+                approved = verb in _APPROVE_VERBS
+                # Bind against the LIVE pending list (the API is the source of truth) — the
                 # in-memory sets are wiped on every container restart, which silently broke a
-                # bare `approve`. Priority: explicit id > reply e-tag > single pending.
+                # bare `approve`. Priority: explicit id > reply e-tag > single pending. The
+                # live set now spans BOTH gates (council) and mode-lock unlocks (worker-api).
                 try:
-                    live_pending = [x.get("gate_id") for x in
+                    live_gate = [x.get("gate_id") for x in
                         (await asyncio.to_thread(_council_get, "/gate/pending")).get("pending", [])
                         if x.get("gate_id")]
                 except Exception:
-                    live_pending = list(open_gates)  # fall back to memory if council unreachable
+                    live_gate = [g for g in open_gates if kind_of.get(g, "gate") == "gate"]
+                live_ml = []
+                if not _ONLY_GATE:
+                    try:
+                        live_ml = [x.get("request_id") for x in
+                            (await asyncio.to_thread(_worker_get, "/mode_lock/pending")).get("pending", [])
+                            if x.get("request_id")]
+                    except Exception:
+                        live_ml = [g for g in open_gates if kind_of.get(g) == "modelock"]
                 if _ONLY_GATE:
-                    live_pending = [g for g in live_pending if g == _ONLY_GATE]
+                    live_gate = [g for g in live_gate if g == _ONLY_GATE]
+                live_all = live_gate + live_ml
 
-                gid = token if (token and token in live_pending) else None
-                if gid is None:
+                tid = token if (token and token in live_all) else None
+                if tid is None:
                     for t in ev.get("tags", []):
-                        if len(t) > 1 and t[0] == "e" and prompt_map.get(t[1]) in live_pending:
-                            gid = prompt_map[t[1]]; break
-                if gid is None and len(live_pending) == 1:
-                    gid = live_pending[0]
-                if gid is None:
-                    if not live_pending:
+                        if len(t) > 1 and t[0] == "e" and prompt_map.get(t[1]) in live_all:
+                            tid = prompt_map[t[1]]; break
+                if tid is None and len(live_all) == 1:
+                    tid = live_all[0]
+                if tid is None:
+                    if not live_all:
                         await send("✅ Nothing pending to approve — you're all caught up.")
                     else:
-                        await send("Which one? " + str(len(live_pending)) + " pending: "
-                                   + ", ".join("`" + g + "`" for g in live_pending)
-                                   + " — reply `approve <id>`.")
+                        await send("Which one? " + str(len(live_all)) + " pending: "
+                                   + ", ".join("`" + g + "`" for g in live_all)
+                                   + " — reply `approve <id>` / `allow <id>`.")
                     continue
+
+                # Mode-lock unlock — Telegram-free resolution (Buzz is primary).
+                if tid in live_ml:
+                    action = _ML_ACTION.get(verb, "deny")
+                    try:
+                        res = await asyncio.to_thread(_modelock_resolve, tid, action)
+                        open_gates.discard(tid)
+                        st = res.get("status", action)
+                        await send(f"🔓 unlock `{tid}` → {st}.")
+                        ab.log("approvals", f"resolved mode_lock {tid} action={action} -> {st}")
+                    except urllib.error.HTTPError as e:
+                        await send(f"⚠️ couldn't resolve unlock `{tid}` (HTTP {e.code}) — it may already be resolved.")
+                        ab.log("approvals", f"!! ml resolve {tid} HTTP {e.code}")
+                    except Exception as e:
+                        ab.log("approvals", f"!! ml resolve {tid} error: {e}")
+                    continue
+
+                # Gate approve/reject (council).
+                gid = tid
                 if _ONLY_GATE and gid != _ONLY_GATE:
                     ab.log("approvals", f"IGNORED decision for {gid[:12]} (scoped test locked to {_ONLY_GATE[:12]})")
                     continue
@@ -282,13 +388,18 @@ def _selftest():
     """Offline: prove the crypto identity gate + parser without any network."""
     from coincurve import PrivateKey
 
-    assert parse_decision("approve") == (None, True, "")
-    assert parse_decision("yes") == (None, True, "")
-    assert parse_decision("reject: not on brand") == (None, False, "not on brand")
-    assert parse_decision("approve abc123") == ("abc123", True, "")
-    assert parse_decision("reject abc123: nope") == ("abc123", False, "nope")
+    assert parse_decision("approve") == (None, "approve", "")
+    assert parse_decision("yes") == (None, "yes", "")
+    assert parse_decision("reject: not on brand") == (None, "reject", "not on brand")
+    assert parse_decision("approve abc123") == ("abc123", "approve", "")
+    assert parse_decision("reject abc123: nope") == ("abc123", "reject", "nope")
+    assert parse_decision("allow") == (None, "allow", "")
+    assert parse_decision("session") == (None, "session", "")
+    assert parse_decision("deny") == (None, "deny", "")
     assert parse_decision("hello there") is None
     assert parse_decision("") is None
+    assert _ML_ACTION["allow"] == "once" and _ML_ACTION["session"] == "session" and _ML_ACTION["deny"] == "deny"
+    assert ("allow" in _APPROVE_VERBS) and ("deny" not in _APPROVE_VERBS)
 
     assert _LIST_RE.match("pending") and _LIST_RE.match("resend") and _LIST_RE.match("what's pending?")
     assert _LIST_RE.match("list") and _LIST_RE.match("approvals")

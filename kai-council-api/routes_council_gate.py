@@ -200,9 +200,10 @@ def _escalate_stale_gates() -> None:
             continue
         if (now - created) < _GATE_ESCALATE_SECONDS:
             continue
-        if _tg_send_gate(d.name, entry.get("gate_type", "gate"), entry.get("summary") or ""):
+        if _tg_alert_buzz_down(d.name, entry.get("gate_type", "gate"), entry.get("summary") or ""):
             _update_gate(d.name, tg_escalated=True)
-            logger.warning("Gate %s unresolved on Buzz for >%ss — escalated to Telegram lifeline",
+            logger.warning("Buzz down + gate %s unresolved >%ss — sent Telegram BUZZ-DOWN alert "
+                           "(held, not tappable; resolve on Buzz-recovery or keyboard)",
                            d.name, _GATE_ESCALATE_SECONDS)
 
 async def _gate_escalation_loop():
@@ -345,6 +346,33 @@ def _tg_send_gate(gate_id: str, gate_type: str, summary: str) -> bool:
             sent_any = True
         else:
             logger.warning("Telegram gate send failed for %s", gate_id)
+    return sent_any
+
+
+def _tg_alert_buzz_down(gate_id: str, gate_type: str, summary: str) -> bool:
+    """Telegram = EMERGENCY-ONLY (ratified 2026-08-05, ticket 5adcca90). When Buzz is
+    DOWN and a gate has gone stale, we do NOT send the tappable approve/reject card —
+    Telegram never carries an approval. We send a plain BUZZ-DOWN ALERT (no buttons);
+    the gate stays pending_leo and resolves ONLY on Buzz-recovery or the keyboard
+    (in-session `YES`). Returns True if at least one allowed chat was alerted."""
+    from notify_gateway import send_telegram
+    chat_ids = _tg_gate_chat_ids()
+    if not chat_ids:
+        logger.warning("No telegram_allowed_chat_ids — buzz-down alert for %s not sent", gate_id)
+        return False
+    text = (
+        "🚨 *Buzz is DOWN — approval held*\n"
+        f"`{gate_id}` ({gate_type})\n\n"
+        f"{summary}\n\n"
+        "This approval is HELD. Recover Buzz (health-check) or resolve at the keyboard. "
+        "Telegram is the emergency line only — it cannot approve."
+    )
+    sent_any = False
+    for chat_id in chat_ids:
+        if send_telegram(chat_id, text, reason="gate", parse_mode="Markdown"):
+            sent_any = True
+        else:
+            logger.warning("Telegram buzz-down alert send failed for %s", gate_id)
     return sent_any
 
 
@@ -684,11 +712,16 @@ def _process_gate(req: GateRequest):
         # so we do NOT also send Telegram. Default (telegram): unchanged AR-5.2 path.
         if _APPROVAL_SURFACE == "buzz" and _buzz_alive():
             logger.info("Gate %s pending_leo — Buzz primary (poller alive); Telegram backup on standby", req.gate_id)
+        elif _APPROVAL_SURFACE == "buzz":
+            # Buzz is primary but its poller is DOWN. Telegram = EMERGENCY-ONLY (ratified
+            # 2026-08-05, ticket 5adcca90): send a no-button BUZZ-DOWN ALERT and HOLD the
+            # gate — Telegram never carries the approval. It resolves on Buzz-recovery
+            # (buzz_approve re-prompts) or at the keyboard (in-session `YES`).
+            logger.warning("Gate %s pending_leo — Buzz poller STALE; Telegram BUZZ-DOWN alert (held, not tappable)", req.gate_id)
+            _tg_alert_buzz_down(req.gate_id, gate_type, summary)
         else:
-            if _APPROVAL_SURFACE == "buzz":
-                logger.warning("Gate %s pending_leo — Buzz poller heartbeat STALE; Telegram backup firing", req.gate_id)
-            # Telegram approval prompt: the default surface, OR the lifeline backup
-            # when Buzz is primary but its poller is down. Inline approve/reject buttons.
+            # Default surface = telegram (Buzz not adopted as primary): the tappable
+            # approve/reject card IS the chosen approval channel here — keep it.
             tg_ok = _tg_send_gate(req.gate_id, gate_type, summary)
             if not tg_ok:
                 # Fallback ONLY if Telegram is unavailable, so a misconfig cannot

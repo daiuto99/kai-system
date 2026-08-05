@@ -69,6 +69,26 @@ SLACK_CHANNEL = os.environ.get("MODE_LOCK_SLACK_CHANNEL", "#devops")
 TELEGRAM_API = "https://api.telegram.org"
 
 
+# ── Buzz liveness (COMMS emergency-only, ratified 2026-08-05 · KAI-1002 item 2) ──
+# When the Buzz approval poller heartbeat is fresh, unlock prompts surface on Buzz
+# (kai-approvals, which polls /mode_lock/pending) and NO Telegram card is sent. When
+# Buzz is down, Telegram gets a no-button BUZZ-DOWN ALERT only — it never carries the
+# unlock. The in-session `YES` fast path always works regardless.
+BUZZ_HEARTBEAT_PATH = os.environ.get("BUZZ_APPROVAL_HEARTBEAT", "/vault/00_System/buzz_approve_heartbeat")
+BUZZ_HEARTBEAT_MAX_AGE = int(os.environ.get("BUZZ_HEARTBEAT_MAX_AGE", "30"))
+
+
+def _buzz_alive() -> bool:
+    """True iff the Buzz approval poller wrote a heartbeat within the freshness
+    window. Fail-safe: any read error / stale beat -> False, so a dead Buzz poller
+    lets the Telegram emergency ALERT fire (Telegram = lifeline when Buzz is down)."""
+    try:
+        ts = int(Path(BUZZ_HEARTBEAT_PATH).read_text().strip())
+        return (datetime.now(timezone.utc).timestamp() - ts) <= BUZZ_HEARTBEAT_MAX_AGE
+    except Exception:
+        return False
+
+
 # ── Telegram helpers (remote approval channel — AR-5.x/KAI-999) ──────────────
 
 def _telegram_token() -> str:
@@ -418,6 +438,27 @@ def _post_telegram_request(request_id: str, tool: str, target: str, reason: str,
     return {"ok": True, "chat_id": chat_id, "message_id": res.get("message_id")}
 
 
+def _post_telegram_alert_held(request_id: str, tool: str, target: str, reason: str) -> dict:
+    """Buzz-down emergency ALERT (no buttons). Telegram = emergency-only: when Buzz is
+    down we do NOT post the tappable unlock card — Telegram never carries the mode-lock
+    approval. The request stays pending; it resolves on Buzz-recovery or the in-session
+    `YES` fast path. KAI-1002 item 2 / ticket 5adcca90."""
+    chat_id = _telegram_chat_id()
+    if chat_id is None:
+        return {"ok": False, "error": "no_telegram_chat"}
+    from notify_gateway import send_message
+    text = (
+        "\U0001F6A8 Buzz is DOWN \u2014 mode-lock unlock held\n"
+        f"`{request_id}` \u00b7 {tool} \u2192 {target or '(n/a)'}\n"
+        f"{reason or ''}\n\n"
+        "This unlock is HELD. Recover Buzz or approve at the keyboard (type `YES` in-session). "
+        "Telegram is the emergency line only \u2014 it cannot unlock."
+    )
+    res = send_message(chat_id, text, reason="mode_lock", parse_mode="Markdown")
+    return {"ok": bool(res.get("delivered")),
+            "error": None if res.get("delivered") else "telegram_rejected"}
+
+
 def _update_telegram_message(chat_id, message_id, text: str) -> None:
     """Edit the original prompt in place to reflect the decision (drops the
     inline keyboard by omitting reply_markup)."""
@@ -537,21 +578,20 @@ def request_approval(req: ApprovalRequest) -> ApprovalResponse:
     # HOW to reach Leo: 'present' = he is at the keyboard, surfaced in-session, NO Telegram push
     # (Telegram is the away-only escalation); 'telegram' (default) = post the card for a remote tap.
     if req.surface != "present":
-        # Telegram post happens OUTSIDE the lock to keep the critical section short
-        # (AR-5.x/KAI-999 — Slack retired). The remote path is best-effort: if the
-        # post fails, the in-session `YES` fast path is still the way in.
-        resp = _post_telegram_request(request_id, req.tool, req.target, req.reason,
-                                      req.requester)
-        if resp.get("ok"):
-            with _store_session() as (data, save):
-                entry = data["requests"].get(request_id)
-                if entry:
-                    entry["telegram_chat_id"] = resp.get("chat_id")
-                    entry["telegram_message_id"] = resp.get("message_id")
-                    save()
+        # COMMS emergency-only (ratified 2026-08-05 · KAI-1002 item 2): Buzz is the
+        # PRIMARY unlock-approval surface. When the Buzz poller is alive, the prompt
+        # surfaces on the kai-approvals Buzz channel (it polls /mode_lock/pending) — we
+        # send NO Telegram card. Only when Buzz is DOWN do we reach Telegram, and then
+        # ONLY as a no-button BUZZ-DOWN ALERT — Telegram never carries the unlock. The
+        # in-session `YES` fast path always works regardless.
+        if _buzz_alive():
+            logger.info("mode_lock: Buzz alive — unlock %s routed to Buzz (kai-approvals), no Telegram",
+                        request_id)
         else:
-            logger.warning("mode_lock: telegram post failed for %s: %s",
-                           request_id, resp.get("error"))
+            resp = _post_telegram_alert_held(request_id, req.tool, req.target, req.reason)
+            if not resp.get("ok"):
+                logger.warning("mode_lock: buzz-down alert failed for %s: %s",
+                               request_id, resp.get("error"))
 
     return ApprovalResponse(
         request_id=request_id,
@@ -746,6 +786,30 @@ class TelegramAction(BaseModel):
     request_id: str = Field(..., description="mode_lock request id")
     action: str = Field(..., description="once | deny | session")
     user: str = Field("leo", description="Telegram username that tapped")
+
+
+@router.get("/mode_lock/pending")
+def list_pending():
+    """List mode-lock unlock requests still awaiting Leo's decision (status ==
+    'pending'). Consumed by the Buzz approval poller (kai-approvals) so unlock prompts
+    surface on Buzz — the primary approval surface (COMMS, KAI-1002 item 2)."""
+    out = []
+    with _store_session() as (data, save):
+        _expire_in_place(data)
+        save()
+        for rid, e in data.get("requests", {}).items():
+            if e.get("status") != "pending":
+                continue
+            out.append({
+                "request_id": rid,
+                "tool": e.get("tool"),
+                "target": e.get("target"),
+                "reason": e.get("reason"),
+                "requester": e.get("requester"),
+                "created_at": e.get("created_at"),
+                "expires_at": e.get("expires_at"),
+            })
+    return {"ok": True, "pending": out, "count": len(out)}
 
 
 @router.post("/mode_lock/telegram_action_internal")
