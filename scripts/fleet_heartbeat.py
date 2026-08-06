@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""KAI-1047 · Host fleet heartbeat — KAI knows its machines.
+
+Runs on the worker HOST via cron (it holds the tailnet + ssh keys the
+kai-scheduler container deliberately does not). Probes every enrolled node in
+the fleet — reachability, last-boot, host-service presence — and writes a
+single fleet-state file that the container watchdog and the green-baseline suite
+read each cycle. The container-only watch becomes a SUBSET of this model.
+
+Reuses the existing node inventory rather than a parallel host list:
+  • security/kai_node_allowlist.json  — logical name -> stable Tailscale node ID
+  • security/node_transport.json      — per-node {ssh_user, ssh_key, ...}
+  • the kai-tailscale container        — per-node Online / IP / LastSeen (SSOT
+                                         for machine-level reachability)
+
+This is a READ-ONLY probe (like green_baseline): it never restarts, mutates, or
+provisions anything. The value never touches a secret. Reachability is sourced
+from Tailscale's own Online flag (machine up/down), and a node that is online on
+the tailnet but not ssh-reachable is recorded as reachable-but-degraded — the
+exact 'on but SSH-unreachable after reboot' gap that motivated this ticket.
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+ALLOWLIST = ROOT / "security" / "kai_node_allowlist.json"
+TRANSPORT = ROOT / "security" / "node_transport.json"
+
+# Vault is the shared surface: /home/leo/vault on the host == /vault in the
+# kai-scheduler container. Write to whichever exists so the file authoring works
+# from either runtime.
+_VAULT_CANDIDATES = (Path("/home/leo/vault"), Path("/vault"))
+STATE_FILENAME = "_fleet_state.json"
+
+TAILSCALE_CONTAINER = "kai-tailscale"
+HEARTBEAT_INTERVAL_SEC = 180
+SCHEMA = "kai.fleet_state.v1"
+
+# The fleet is EVERY enrolled node in the allowlist (derived at runtime, not a
+# hardcoded list) — a newly enrolled node is monitored with no code change, and
+# the written `expected_hosts` roster lets the readers RED on an incomplete
+# fleet rather than silently accepting a truncated state.
+
+SSH_OPTS = [
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=6",
+    "-o", "IdentitiesOnly=yes",
+    "-o", "StrictHostKeyChecking=accept-new",
+]
+
+# One shell that reports boot epoch + a couple of host services on either a
+# Linux (worker) or macOS (mini) node — no per-node OS config needed.
+_REMOTE_PROBE = (
+    'if [ -r /proc/stat ]; then '
+    '  awk "/^btime/{print \\"boot_epoch=\\" \\$2}" /proc/stat; '
+    '  command -v docker >/dev/null 2>&1 && echo docker=1 || echo docker=0; '
+    'else '
+    '  echo "boot_epoch=$(sysctl -n kern.boottime 2>/dev/null | sed -nE \'s/.*sec = ([0-9]+).*/\\1/p\')"; '
+    '  (colima status >/dev/null 2>&1 && echo colima=1 || echo colima=0); '
+    '  (pgrep -x ollama >/dev/null 2>&1 && echo ollama=1 || echo ollama=0); '
+    'fi'
+)
+
+
+# ── pure helpers (unit-tested; no IO) ─────────────────────────────────────────
+
+def _iso(epoch: float | int | None) -> str | None:
+    if not epoch:
+        return None
+    return datetime.fromtimestamp(int(epoch), tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def parse_remote_probe(text: str) -> dict:
+    """Parse the k=v lines emitted by _REMOTE_PROBE into {boot_epoch, services}."""
+    boot_epoch = None
+    services: dict[str, bool] = {}
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k, v = k.strip(), v.strip()
+        if k == "boot_epoch":
+            try:
+                boot_epoch = int(v) if v else None
+            except ValueError:
+                boot_epoch = None
+        elif v in ("0", "1"):
+            services[k] = v == "1"
+    return {"boot_epoch": boot_epoch, "services": services}
+
+
+def build_host_entry(name: str, node_id: str, ts_peer: dict | None,
+                     probe: dict | None, now_epoch: int,
+                     ssh_expected: bool) -> dict:
+    """Assemble one host's fleet entry from its tailscale peer + ssh probe.
+
+    ts_peer: {online, ips, last_seen, hostname} or None if the node is absent
+             from `tailscale status` entirely (never-seen / not enrolled).
+    probe:   parsed _REMOTE_PROBE output, or None if the ssh probe did not run
+             or failed. ssh_ok is True only when a probe with a boot_epoch came
+             back.
+    ssh_expected: True when this node has transport wiring (ssh SHOULD work). An
+             online node whose ssh SHOULD work but doesn't is the real 'on but
+             ssh-unreachable' gap (the reader treats it as RED); a node without
+             wiring (ssh intentionally off) is not.
+    """
+    ts_peer = ts_peer or {}
+    online = bool(ts_peer.get("online"))
+    boot_epoch = (probe or {}).get("boot_epoch")
+    ssh_ok = bool(probe and boot_epoch)
+    entry = {
+        "node_id": node_id,
+        "tailnet_online": online,
+        # reachable = machine is up on the tailnet (Tailscale's own Online flag).
+        "reachable": online,
+        "ssh_ok": ssh_ok,
+        "ssh_expected": ssh_expected,
+        "ips": ts_peer.get("ips") or [],
+        "tailscale_last_seen": ts_peer.get("last_seen"),
+        "boot_epoch": boot_epoch,
+        "last_boot": _iso(boot_epoch),
+        "services": (probe or {}).get("services") or {},
+        "last_probe": _iso(now_epoch),
+    }
+    if not online:
+        entry["degraded"] = "offline (tailnet unreachable)"
+    elif not ssh_ok:
+        entry["degraded"] = ("online but ssh-unreachable (boot/services blind)"
+                             if ssh_expected else
+                             "online, ssh intentionally off (no transport wiring)")
+    return entry
+
+
+def summarize(state: dict) -> str:
+    """One-line human summary — 'are all my machines up?'."""
+    hosts = state.get("hosts", {})
+    up = [n for n, h in hosts.items() if h.get("reachable")]
+    down = [n for n, h in hosts.items() if not h.get("reachable")]
+    degraded = [n for n, h in hosts.items() if h.get("reachable") and not h.get("ssh_ok")]
+    parts = [f"{len(up)}/{len(hosts)} reachable"]
+    if down:
+        parts.append("DOWN: " + ", ".join(sorted(down)))
+    if degraded:
+        parts.append("degraded: " + ", ".join(sorted(degraded)))
+    return " · ".join(parts)
+
+
+# ── IO (not unit-tested; exercised live on the worker) ────────────────────────
+
+def _vault_dir() -> Path:
+    for c in _VAULT_CANDIDATES:
+        if c.is_dir():
+            return c
+    return _VAULT_CANDIDATES[0]
+
+
+def _load_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return {}
+
+
+_TRANSPORT_REQUIRED_KEYS = ("ssh_user", "ssh_key", "remote_secrets_dir")
+
+
+def _transport_valid(data: dict) -> bool:
+    """A transport inventory is valid only if it is non-empty AND every real
+    (non-underscore) entry is a well-formed record. A zeroed/truncated file that
+    still parses as {} or drops the required keys is NOT 'loaded' — else a wired
+    host silently becomes ssh-not-expected and reads GREEN while ssh-blind."""
+    if not isinstance(data, dict):
+        return False
+    entries = {k: v for k, v in data.items() if not k.startswith("_")}
+    if not entries:
+        return False
+    return all(isinstance(v, dict) and all(v.get(r) for r in _TRANSPORT_REQUIRED_KEYS)
+               for v in entries.values())
+
+
+def _load_json_checked(path: Path, validator=None) -> tuple[dict, bool]:
+    """Load a REQUIRED inventory file; return (data, ok). ok=False on any read/parse
+    failure OR failed validation, so the reader REDs on lost/corrupt config
+    visibility rather than silently treating every host as ssh-not-expected."""
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return {}, False
+    if not isinstance(data, dict):
+        return {}, False
+    if validator is not None and not validator(data):
+        return data, False
+    return data, True
+
+
+def _tailscale_status() -> dict:
+    """node_id -> {online, ips, last_seen, hostname} via the kai-tailscale container."""
+    out = subprocess.run(
+        ["docker", "exec", TAILSCALE_CONTAINER, "tailscale", "status", "--json"],
+        text=True, capture_output=True, timeout=20, check=False,
+    )
+    if out.returncode:
+        return {}
+    data = json.loads(out.stdout)
+    peers: dict[str, dict] = {}
+
+    def _rec(node: dict) -> dict:
+        return {
+            # Strict: only a real JSON boolean True counts as online (a malformed
+            # "false"/"0" string must never read reachable).
+            "online": node.get("Online") is True,
+            "ips": node.get("TailscaleIPs") or [],
+            "last_seen": node.get("LastSeen"),
+            "hostname": node.get("HostName"),
+        }
+
+    self_node = data.get("Self") or {}
+    if self_node.get("ID"):
+        # Report the REAL Self.Online — do not fake it. A tailnet-disconnected
+        # worker must not read reachable (KAI-1046 class). If the tailscale
+        # container is itself down, this whole call fails -> empty map -> the
+        # node is absent -> the reader REDs on an incomplete roster.
+        peers[self_node["ID"]] = _rec(self_node)
+    for _, p in (data.get("Peer") or {}).items():
+        if p.get("ID"):
+            peers[p["ID"]] = _rec(p)
+    return peers
+
+
+def _first_ip(ips: list[str]) -> str | None:
+    for ip in ips:
+        if ":" not in ip:  # prefer IPv4
+            return ip
+    return ips[0] if ips else None
+
+
+def _probe_host(name: str, node_id: str, self_id: str, ip: str | None,
+                transport: dict) -> dict | None:
+    """Return parsed probe for one host, or None if it could not be probed."""
+    # Self (the worker we run on): read locally, no ssh.
+    if node_id == self_id:
+        try:
+            stat = Path("/proc/stat").read_text()
+            btime = next((l.split()[1] for l in stat.splitlines()
+                          if l.startswith("btime")), None)
+        except Exception:
+            btime = None
+        docker_ok = subprocess.run(["docker", "info"], capture_output=True,
+                                   timeout=8, check=False).returncode == 0
+        return {"boot_epoch": int(btime) if btime else None,
+                "services": {"docker": docker_ok}}
+
+    wiring = transport.get(name) or {}
+    ssh_user, ssh_key = wiring.get("ssh_user"), wiring.get("ssh_key")
+    if not (ssh_user and ssh_key and ip):
+        return None  # no transport wiring / no IP — cannot ssh-probe
+    cmd = ["ssh", *SSH_OPTS, "-i", ssh_key, f"{ssh_user}@{ip}", _REMOTE_PROBE]
+    try:
+        out = subprocess.run(cmd, text=True, capture_output=True, timeout=12, check=False)
+    except Exception:
+        return None
+    if out.returncode:
+        return None
+    return parse_remote_probe(out.stdout)
+
+
+def collect_fleet_state() -> dict:
+    now = int(time.time())
+    # Roster is EVERY enrolled node (data-driven). expected_hosts lets readers
+    # RED on a truncated/incomplete fleet instead of accepting it.
+    allowlist = _load_json(ALLOWLIST).get("nodes", {})
+    transport, transport_ok = _load_json_checked(TRANSPORT, validator=_transport_valid)
+    peers = _tailscale_status()
+    self_id = next((nid for nid, rec in peers.items()
+                    if rec.get("hostname") == "kai-worker"), None) or \
+        allowlist.get("kai-worker")
+
+    roster = sorted(allowlist.keys())
+    hosts: dict[str, dict] = {}
+    for name in roster:
+        node_id = allowlist.get(name)
+        if not node_id:
+            continue
+        ts_peer = peers.get(node_id)
+        ip = _first_ip((ts_peer or {}).get("ips") or [])
+        # ssh is 'expected' for a node that has transport wiring OR is self
+        # (self boot is read locally). A wired node that is online yet ssh-dead
+        # is the real gap; an unwired node (e.g. mac-mini, Remote-Login off) is
+        # not treated as a fault.
+        ssh_expected = (name in transport) or (node_id == self_id)
+        probe = None
+        if ts_peer and ts_peer.get("online"):
+            probe = _probe_host(name, node_id, self_id, ip, transport)
+        hosts[name] = build_host_entry(name, node_id, ts_peer, probe, now, ssh_expected)
+
+    return {
+        "schema": SCHEMA,
+        "updated": _iso(now),
+        "updated_epoch": now,
+        "heartbeat_interval_sec": HEARTBEAT_INTERVAL_SEC,
+        # Affirmative config-visibility flag the readers require (New-A): a
+        # failed transport read => False => readers RED (ssh-expected unknown).
+        "transport_loaded": transport_ok,
+        "expected_hosts": roster,
+        "hosts": hosts,
+    }
+
+
+def main() -> int:
+    vault = _vault_dir()
+    state_path = vault / STATE_FILENAME
+    state = collect_fleet_state()
+
+    # Reboot detection is the watchdog's job (it compares the always-present
+    # boot_epoch to a persisted seen-map — durable across watchdog gaps). The
+    # heartbeat is a pure writer.
+    tmp = state_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    tmp.replace(state_path)  # atomic
+
+    print(f"fleet_heartbeat: {summarize(state)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

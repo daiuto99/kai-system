@@ -173,6 +173,32 @@ def check_source_drift() -> str:
     return "no whitespace/source-integrity drift"
 
 
+def check_fleet() -> str:
+    """KAI-1047 — session-start fleet gate.
+
+    Uses the SAME shared verdict as the watchdog (fleet_eval.fleet_verdict) so
+    the two surfaces cannot disagree. RED (raises) on ANY unhealthy fleet: a host
+    offline, an ssh-expected host ssh-unreachable, an incomplete roster, or a
+    stale/missing/future heartbeat (lost visibility — the KAI-1046 'monitoring
+    is blind' class). A machine being down never reads GREEN.
+    """
+    import json as _json
+    import time as _time
+
+    sys.path.insert(0, str(ROOT / "shared"))
+    from fleet_eval import fleet_verdict
+
+    state = {}
+    for candidate in (Path("/vault/_fleet_state.json"), Path("/home/leo/vault/_fleet_state.json")):
+        if candidate.exists():
+            state = _json.loads(candidate.read_text())
+            break
+    ok, detail = fleet_verdict(state, int(_time.time()))
+    if not ok:
+        raise RuntimeError(detail)
+    return detail
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -184,6 +210,7 @@ def checks() -> tuple[Check, ...]:
         Check("qwen_mid_route_and_fallback", check_qwen_route_contract),
         Check("secret_permissions", check_secret_permissions),
         Check("source_drift", check_source_drift),
+        Check("fleet_visibility", check_fleet),
     )
 
 

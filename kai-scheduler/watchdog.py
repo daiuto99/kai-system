@@ -536,7 +536,69 @@ def check_component_currency() -> tuple[bool, str]:
     return True, "all components current"
 
 
+# ── KAI-1047 · Fleet reader ───────────────────────────────────────────────────
+# The container watchdog is a READER of the host-written fleet-state file
+# (scripts/fleet_heartbeat.py writes it every ~3 min; this container cannot ssh
+# the fleet, so it never probes hosts itself). Container-only watch is now a
+# SUBSET of the host+container fleet model. The verdict + reboot logic live in
+# the SHARED pure module (fleet_eval, on /shared) so the watchdog and the
+# green-baseline gate cannot drift.
+from fleet_eval import fleet_verdict, compute_reboots
+
+FLEET_STATE_FILE = Path("/vault/_fleet_state.json")
+FLEET_REBOOTS_SEEN_FILE = Path("/vault/_fleet_reboots_seen.json")
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        import json as _json
+        return _json.loads(path.read_text())
+    except Exception:
+        return {}
+
+
+def check_fleet() -> tuple[bool, str]:
+    return fleet_verdict(_read_json(FLEET_STATE_FILE), int(time.time()))
+
+
+def surface_fleet_reboots() -> None:
+    """Post an informational DevOps note for any newly-observed host reboot.
+
+    Durable: compares each host's always-present boot_epoch against a persisted
+    seen-map (fleet_eval.compute_reboots) — so a reboot is caught whenever the
+    watchdog next runs, even across a watchdog outage, and a probe failure never
+    erases the baseline. Not a page on its own (a rebooted-and-back host is
+    healthy). At-least-once by design: the seen-map is written atomically AFTER
+    the send, so a crash mid-way re-announces (safe) rather than drops (silent).
+    """
+    state = _read_json(FLEET_STATE_FILE)
+    hosts = (state or {}).get("hosts") or {}
+    if not hosts:
+        return
+    seen = _read_json(FLEET_REBOOTS_SEEN_FILE)
+    fresh, updated = compute_reboots(hosts, seen)
+    if updated == seen:
+        return  # nothing new and no baseline to seed
+    if fresh:
+        try:
+            from tg_alert import tg_alert
+            for ev in fresh:
+                tg_alert(f"[DevOps] host rebooted: {ev['host']} booted {ev.get('new_boot')} "
+                         f"(boot_epoch {ev.get('prev_boot_epoch')} -> {ev.get('new_boot_epoch')})")
+        except Exception as e:
+            log.warning("fleet reboot surface failed: %s", e)
+            return  # do NOT advance the seen-map if the send failed — retry next cycle
+    try:
+        import json as _json
+        tmp = FLEET_REBOOTS_SEEN_FILE.with_suffix(".tmp")
+        tmp.write_text(_json.dumps(updated, indent=2))
+        tmp.replace(FLEET_REBOOTS_SEEN_FILE)  # atomic
+    except Exception as e:
+        log.warning("fleet reboot seen-map write failed: %s", e)
+
+
 CHECKS = [
+    ("fleet",            "Fleet (hosts)",    check_fleet),
     ("worker_api",       "Worker API",       check_worker_api),
     ("council_api",      "Council API",      check_council_api),
     ("ollama",           "Ollama",           check_ollama),
@@ -734,6 +796,7 @@ DEFERRED_CHECKS: dict[str, str] = {
 
 # Why KAI can't auto-fix each failure and what it affects
 CANT_FIX_REASON = {
+    "fleet":             ("system",    "A KAI machine is unreachable, or the host heartbeat cron died — fleet visibility lost"),
     "worker_api":        ("system",    "All KAI tools and API endpoints unavailable"),
     "council_api":       ("system",    "Chat with all advisors unavailable"),
     "ollama":            ("hardlimit", "Local model inference unavailable — Claude fallback active"),
@@ -751,6 +814,7 @@ CANT_FIX_REASON = {
 }
 
 ACTION_NEEDED = {
+    "fleet":             "Check: ssh kai 'cat /home/leo/vault/_fleet_state.json' — a host offline needs power/tailscale/ssh restored on that box; a stale file means the fleet_heartbeat cron stopped (crontab -l | grep fleet_heartbeat)",
     "worker_api":        "Check: ssh kai 'docker logs kai-worker-api'",
     "council_api":       "Check: ssh kai 'docker logs kai-council-api'",
     "ollama":            "Check: ssh kai 'docker logs kai-ollama' — may need restart or GPU issue",
@@ -1144,6 +1208,12 @@ def run_watchdog_checks():
         run_gap_checks()
     except Exception as e:
         log.error("gap checks failed: %s", e)
+
+    # KAI-1047 — surface any newly-observed host reboot (informational, deduped)
+    try:
+        surface_fleet_reboots()
+    except Exception as e:
+        log.error("fleet reboot surface failed: %s", e)
 
     # Container warning triage (KAI-465) — scrape log warnings, classify, file Plane bugs
     try:
