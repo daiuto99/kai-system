@@ -26,71 +26,101 @@ _REQUIRED_HOST_BOOLS = ("reachable", "ssh_ok", "ssh_expected")
 _KNOWN_SCHEMAS = ("kai.fleet_state.v1",)  # exact allowlist — a 'corrupt' suffix must NOT pass
 
 
-def fleet_verdict(state: dict, now_epoch: int,
-                  max_age_sec: int = FLEET_MAX_AGE_SEC) -> tuple[bool, str]:
-    """Return (ok, detail). ok is True ONLY for a fully-healthy, fresh, well-formed fleet."""
+def _structural_check(state: dict, now_epoch: int, max_age_sec: int):
+    """Shared VISIBILITY/INTEGRITY gate — the checks that mean 'monitoring is
+    blind or the state is untrusted'. These are RED for BOTH consumers (the
+    watchdog alarm and the green-baseline gate) because a blind monitor must
+    never read healthy (KAI-1046 class). Returns (None, detail) on failure, or
+    (expected, hosts) on success.
+    """
     if not state:
-        return False, "fleet-state missing — host heartbeat has never run (visibility lost)"
-
+        return None, "fleet-state missing — host heartbeat has never run (visibility lost)"
     schema = state.get("schema")
     if schema not in _KNOWN_SCHEMAS:
-        return False, f"fleet-state schema {schema!r} not recognized — untrusted state"
-
+        return None, f"fleet-state schema {schema!r} not recognized — untrusted state"
     updated = state.get("updated_epoch")
     if not isinstance(updated, (int, float)) or isinstance(updated, bool):
-        return False, "fleet-state malformed — missing/invalid updated_epoch"
+        return None, "fleet-state malformed — missing/invalid updated_epoch"
     age = now_epoch - updated  # no truncation: a sub-second future stamp must still trip the bound
     if age > max_age_sec:
-        return False, f"fleet heartbeat STALE ({age}s > {max_age_sec}s) — host cron dead? (visibility lost)"
+        return None, f"fleet heartbeat STALE ({age}s > {max_age_sec}s) — host cron dead? (visibility lost)"
     if age < -FUTURE_TOLERANCE_SEC:
-        return False, f"fleet heartbeat timestamp in the FUTURE ({age}s) — clock skew/corrupt (untrusted)"
-
-    # Config-visibility gate (New-A): the writer affirmatively confirms it read
-    # the transport inventory. Absent/false => ssh-expected is unknown, so an
-    # ssh-blind wired host could read healthy — refuse to trust the fleet.
+        return None, f"fleet heartbeat timestamp in the FUTURE ({age}s) — clock skew/corrupt (untrusted)"
     if state.get("transport_loaded") is not True:
-        return False, "transport inventory unreadable/unconfirmed — ssh-expected unknown (config visibility lost)"
-
+        return None, "transport inventory unreadable/unconfirmed — ssh-expected unknown (config visibility lost)"
     hosts = state.get("hosts")
     if not isinstance(hosts, dict):
-        return False, "fleet-state 'hosts' is not an object — malformed (visibility lost)"
+        return None, "fleet-state 'hosts' is not an object — malformed (visibility lost)"
     expected = state.get("expected_hosts")
     if not isinstance(expected, list) or not all(isinstance(x, str) for x in expected):
-        return False, "fleet-state 'expected_hosts' is not a list of host names — malformed"
+        return None, "fleet-state 'expected_hosts' is not a list of host names — malformed"
     if not expected:
-        return False, "fleet-state has no expected_hosts roster — malformed (visibility lost)"
+        return None, "fleet-state has no expected_hosts roster — malformed (visibility lost)"
     missing = sorted(h for h in expected if h not in hosts)
     if missing:
-        return False, "fleet roster INCOMPLETE — missing host(s): " + ", ".join(missing)
-
-    # Strict schema gate (New-B): every rostered host must carry real booleans.
-    # All health evaluation below iterates the ROSTER (not hosts.items()) so an
-    # extra, non-rostered, unvalidated key can never influence the verdict.
+        return None, "fleet roster INCOMPLETE — missing host(s): " + ", ".join(missing)
+    # Every rostered host must carry real booleans (iterate the ROSTER, so an
+    # extra non-rostered unvalidated key can never influence the verdict).
     for name in expected:
         h = hosts.get(name)
         if not isinstance(h, dict):
-            return False, f"malformed host entry for {name} (not an object) — untrusted state"
+            return None, f"malformed host entry for {name} (not an object) — untrusted state"
         for field in _REQUIRED_HOST_BOOLS:
             if not isinstance(h.get(field), bool):
-                return False, f"malformed host entry for {name}: '{field}' is not a bool — untrusted state"
+                return None, f"malformed host entry for {name}: '{field}' is not a bool — untrusted state"
+    return expected, hosts
+
+
+def fleet_verdict(state: dict, now_epoch: int,
+                  max_age_sec: int = FLEET_MAX_AGE_SEC) -> tuple[bool, str]:
+    """STRICT verdict for the WATCHDOG alarm — ANY host offline or ssh-blind is
+    RED (it must page, never silent). ok True only for a fully-healthy fleet."""
+    expected, hosts = _structural_check(state, now_epoch, max_age_sec)
+    if expected is None:
+        return False, hosts  # hosts holds the failure detail
 
     down = sorted(n for n in expected if not hosts[n]["reachable"])
     if down:
         parts = [f"{n} (last seen {hosts[n].get('tailscale_last_seen') or '?'})" for n in down]
         return False, "host(s) OFFLINE: " + ", ".join(parts)
-
-    # Online but ssh-EXPECTED and failing = boot/services blind on a node that
-    # should answer — the exact 'on but SSH-unreachable after reboot' gap. RED.
     ssh_broken = sorted(n for n in expected if hosts[n]["ssh_expected"] and not hosts[n]["ssh_ok"])
     if ssh_broken:
         return False, ("host(s) ONLINE but SSH-unreachable (boot/services blind): "
                        + ", ".join(ssh_broken))
-
-    # Online, ssh NOT expected (e.g. intentional Remote-Login-off) — note only.
     no_ssh = sorted(n for n in expected if not hosts[n]["ssh_expected"] and not hosts[n]["ssh_ok"])
-    detail = f"{len(expected)} hosts reachable, heartbeat {age}s fresh"
+    detail = f"{len(expected)} hosts reachable"
     if no_ssh:
         detail += f"; ssh-off (expected/no-transport): {', '.join(no_ssh)}"
+    return True, detail
+
+
+def fleet_gate_verdict(state: dict, now_epoch: int, self_host,
+                       max_age_sec: int = FLEET_MAX_AGE_SEC) -> tuple[bool, str]:
+    """LENIENT verdict for the green-baseline session/push GATE. Hard-fails on
+    LOST VISIBILITY (same structural gate) or the SPINE (self_host) being down —
+    but a NON-spine node offline/ssh-blind is a printed WARNING, not a gate
+    failure. Rationale: a flapping aux inference node must not block pushing
+    unrelated code for days; the WATCHDOG (fleet_verdict) still pages on it, so
+    it is never silent. self_host is the spine node name (e.g. 'kai-worker')."""
+    expected, hosts = _structural_check(state, now_epoch, max_age_sec)
+    if expected is None:
+        return False, hosts
+
+    # The spine (self) must be up + not ssh-blind — that IS a gate failure.
+    if self_host in expected:
+        if not hosts[self_host]["reachable"]:
+            return False, f"SPINE host {self_host} OFFLINE — visibility/spine down"
+        if hosts[self_host]["ssh_expected"] and not hosts[self_host]["ssh_ok"]:
+            return False, f"SPINE host {self_host} ssh-unreachable (boot/services blind)"
+
+    peers_down = sorted(n for n in expected if n != self_host and not hosts[n]["reachable"])
+    peers_blind = sorted(n for n in expected if n != self_host
+                         and hosts[n]["ssh_expected"] and not hosts[n]["ssh_ok"])
+    detail = f"{len(expected)} hosts; spine {self_host} OK"
+    if peers_down:
+        detail += f"; WARN offline (watchdog paging): {', '.join(peers_down)}"
+    if peers_blind:
+        detail += f"; WARN ssh-blind: {', '.join(peers_blind)}"
     return True, detail
 
 

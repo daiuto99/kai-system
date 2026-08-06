@@ -197,6 +197,44 @@ def test_no_updated_epoch_is_red():
     assert ok is False and "updated_epoch" in d
 
 
+# ── fleet_gate_verdict (green-baseline GATE severity) ─────────────────────────
+
+def _H(reachable=True, ssh_ok=True, ssh_expected=True):
+    return {"reachable": reachable, "ssh_ok": ssh_ok, "ssh_expected": ssh_expected}
+
+
+def test_gate_all_healthy_is_ok():
+    st = _state({"kai-worker": _H(), "71-kai-mini": _H()})
+    ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker")
+    assert ok is True and "spine kai-worker OK" in d
+
+
+def test_gate_spine_down_is_red():
+    st = _state({"kai-worker": _H(reachable=False), "71-kai-mini": _H()})
+    ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker")
+    assert ok is False and "SPINE" in d and "kai-worker" in d
+
+
+def test_gate_spine_ssh_blind_is_red():
+    st = _state({"kai-worker": _H(ssh_ok=False), "71-kai-mini": _H()})
+    ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker")
+    assert ok is False and "SPINE" in d
+
+
+def test_gate_peer_down_is_warn_not_red():
+    # A flapping aux node must NOT fail the push gate — warn, stay ok.
+    st = _state({"kai-worker": _H(), "71-kai-mini": _H(reachable=False)})
+    ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker")
+    assert ok is True and "WARN offline" in d and "71-kai-mini" in d
+
+
+def test_gate_visibility_loss_is_red_even_with_spine_up():
+    # Stale heartbeat = blind monitoring => gate fails regardless of spine.
+    st = _state({"kai-worker": _H()}, updated=NOW)
+    ok, d = fe.fleet_gate_verdict(st, NOW + 10_000, "kai-worker")
+    assert ok is False and "STALE" in d
+
+
 # ── compute_reboots (Codex #6/#7/#8: durable, gap-safe, idempotent) ───────────
 
 def test_first_observation_seeds_baseline_silently():

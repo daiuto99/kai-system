@@ -283,6 +283,7 @@ def collect_fleet_state() -> dict:
         allowlist.get("kai-worker")
 
     roster = sorted(allowlist.keys())
+    self_host = next((n for n, nid in allowlist.items() if nid == self_id), None)
     hosts: dict[str, dict] = {}
     for name in roster:
         node_id = allowlist.get(name)
@@ -294,9 +295,19 @@ def collect_fleet_state() -> dict:
         # (self boot is read locally). A wired node that is online yet ssh-dead
         # is the real gap; an unwired node (e.g. mac-mini, Remote-Login off) is
         # not treated as a fault.
-        ssh_expected = (name in transport) or (node_id == self_id)
+        is_self = (node_id == self_id)
+        ssh_expected = (name in transport) or is_self
         probe = None
-        if ts_peer and ts_peer.get("online"):
+        if is_self:
+            # Self is the host executing this probe: read boot locally and treat the
+            # machine as UP when that succeeds. Tailscale's Self.Online is unreliable
+            # (often false / zero LastSeen for self), so it must NOT drive self
+            # reachability. A genuine self tailnet-death makes `tailscale status`
+            # fail -> self absent from peers -> caught as roster-incomplete RED.
+            probe = _probe_host(name, node_id, self_id, ip, transport)
+            ts_peer = dict(ts_peer or {})
+            ts_peer["online"] = bool(probe and probe.get("boot_epoch"))
+        elif ts_peer and ts_peer.get("online"):
             probe = _probe_host(name, node_id, self_id, ip, transport)
         hosts[name] = build_host_entry(name, node_id, ts_peer, probe, now, ssh_expected)
 
@@ -309,6 +320,7 @@ def collect_fleet_state() -> dict:
         # failed transport read => False => readers RED (ssh-expected unknown).
         "transport_loaded": transport_ok,
         "expected_hosts": roster,
+        "self_host": self_host,
         "hosts": hosts,
     }
 

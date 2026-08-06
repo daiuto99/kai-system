@@ -186,14 +186,17 @@ def check_fleet() -> str:
     import time as _time
 
     sys.path.insert(0, str(ROOT / "shared"))
-    from fleet_eval import fleet_verdict
+    from fleet_eval import fleet_gate_verdict
 
     state = {}
     for candidate in (Path("/vault/_fleet_state.json"), Path("/home/leo/vault/_fleet_state.json")):
         if candidate.exists():
             state = _json.loads(candidate.read_text())
             break
-    ok, detail = fleet_verdict(state, int(_time.time()))
+    # GATE severity: hard-fail on lost visibility or the SPINE being down; a
+    # non-spine node offline is a printed WARNING (the watchdog pages on it), so
+    # a flapping aux node never blocks a push. self_host comes from the state.
+    ok, detail = fleet_gate_verdict(state, int(_time.time()), (state or {}).get("self_host"))
     if not ok:
         raise RuntimeError(detail)
     return detail
