@@ -152,3 +152,35 @@ def compute_reboots(hosts: dict, seen: dict) -> tuple[list, dict]:
             })
             updated[name] = be
     return fresh, updated
+
+
+# -- KAI cutover maintenance window (node-scoped page mute) --------------------
+def maint_suppresses_page(state: dict, now_epoch: int, muted,
+                          max_age_sec: int = FLEET_MAX_AGE_SEC) -> tuple[bool, list]:
+    """Decide whether the STRICT fleet page may be muted by an operator
+    maintenance window. Returns (suppress, problem_hosts).
+
+    suppress is True ONLY when the fleet is RED purely because one or more
+    *muted* hosts are offline/ssh-blind. It is False -- i.e. the page still
+    fires -- for EVERY case that could hide a real loss of safety:
+      * lost visibility / stale heartbeat / untrusted state (structural RED),
+      * any non-muted host down or ssh-blind (especially the spine),
+      * a healthy fleet (nothing to suppress).
+    `muted` is the collection of host names under an active window. Pure
+    function (mirrors fleet_verdict's own down/ssh-blind logic) so the watchdog
+    and its tests share one definition. See watchdog._fleet_muted_now.
+    """
+    expected, hosts = _structural_check(state, now_epoch, max_age_sec)
+    if expected is None:
+        return False, []  # blind monitor MUST page -- never masked by a window
+    problem = sorted(
+        n for n in expected
+        if (not hosts[n]["reachable"])
+        or (hosts[n]["ssh_expected"] and not hosts[n]["ssh_ok"])
+    )
+    if not problem:
+        return False, []  # healthy -- fleet_verdict is ok anyway, nothing to mute
+    muted_set = set(muted or ())
+    if all(n in muted_set for n in problem):
+        return True, problem
+    return False, problem

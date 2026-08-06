@@ -543,10 +543,37 @@ def check_component_currency() -> tuple[bool, str]:
 # SUBSET of the host+container fleet model. The verdict + reboot logic live in
 # the SHARED pure module (fleet_eval, on /shared) so the watchdog and the
 # green-baseline gate cannot drift.
-from fleet_eval import fleet_verdict, compute_reboots
+from fleet_eval import fleet_verdict, compute_reboots, maint_suppresses_page
 
 FLEET_STATE_FILE = Path("/vault/_fleet_state.json")
 FLEET_REBOOTS_SEEN_FILE = Path("/vault/_fleet_reboots_seen.json")
+FLEET_MAINT_FILE = Path("/vault/_fleet_maint.json")
+_FLEET_MAINT_SCHEMA = "kai.fleet_maint.v1"
+
+
+def _fleet_muted_now():
+    """Read the operator maintenance window -> (muted_hosts:set, meta:dict).
+
+    Empty set unless a well-formed window is present AND unexpired, so expiry is
+    self-healing (auto-restore): past expires_at the mute simply stops applying,
+    no cleanup needed. Malformed/partial reads as 'no window' (fail-safe: page).
+    """
+    m = _read_json(FLEET_MAINT_FILE)
+    try:
+        if not m or m.get("schema") != _FLEET_MAINT_SCHEMA:
+            return set(), {}
+        exp = m.get("expires_at")
+        if not isinstance(exp, (int, float)) or isinstance(exp, bool):
+            return set(), {}
+        if datetime.now(timezone.utc).timestamp() >= exp:
+            return set(), {}
+        muted = m.get("muted")
+        if not isinstance(muted, list) or not all(isinstance(x, str) for x in muted):
+            return set(), {}
+        return set(muted), m
+    except Exception as e:
+        log.warning("fleet maint window read failed (paging normally): %s", e)
+        return set(), {}
 
 
 def _read_json(path: Path) -> dict:
@@ -577,6 +604,12 @@ def surface_fleet_reboots() -> None:
         return
     seen = _read_json(FLEET_REBOOTS_SEEN_FILE)
     fresh, updated = compute_reboots(hosts, seen)
+    _muted, _ = _fleet_muted_now()
+    if _muted:
+        # Muted nodes are rebooted on purpose during a cutover: do not announce
+        # their reboots, but still advance the seen-map (below) so they never
+        # replay once the window ends.
+        fresh = [ev for ev in fresh if ev.get("host") not in _muted]
     if updated == seen:
         return  # nothing new and no baseline to seed
     if fresh:
@@ -1126,6 +1159,24 @@ def run_watchdog_checks():
             ok, detail = fn()
         except Exception as e:
             ok, detail = False, f"check error: {e}"
+
+        # KAI cutover: node-scoped maintenance-window mute (auto-restoring).
+        # Suppress the fleet page ONLY when every red host sits inside an active
+        # muted window; a spine/other-node outage or lost visibility still pages
+        # (maint_suppresses_page enforces this). Reboot-spam is muted the same
+        # way in surface_fleet_reboots.
+        if not ok and key == "fleet":
+            _muted, _meta = _fleet_muted_now()
+            if _muted:
+                _supp, _problem = maint_suppresses_page(
+                    _read_json(FLEET_STATE_FILE), int(time.time()), _muted)
+                if _supp:
+                    log.info("watchdog: fleet page SUPPRESSED by maintenance "
+                             "window -- red %s within muted %s (expires %s)",
+                             _problem, sorted(_muted), _meta.get("expires_at"))
+                    _record_success(key)   # keep consecutive-fail counter clean
+                    _clear_alert(key)       # real outage re-alerts cleanly after
+                    continue
 
         if ok:
             # Recovery: reset consecutive-fail counter.
