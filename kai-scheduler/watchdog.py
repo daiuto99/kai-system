@@ -1109,6 +1109,10 @@ def prune_archived_logs():
 def run_watchdog_checks():
     """Run all functional health checks. Post failures to #kai-system."""
     run_maintenance()
+    # Vestigial (Slack retired, AR-5.x): _slack_alert ignores this and routes to
+    # Telegram/notify-gateway. Kept only so the legacy _slack_alert(token, ...) /
+    # _post_oauth_escalation(token, ...) signatures stay intact; paging no longer
+    # depends on it (see the `if failures:` gate below).
     token = _load_secret("slack_bot_token")
     failures = []
     remediations = []
@@ -1236,7 +1240,12 @@ def run_watchdog_checks():
     for f in fixed:
         log.info("watchdog auto-fixed: %s", f)
 
-    if failures and token:
+    # 5c4e94f4: paging goes through _slack_alert -> tg_alert -> notify gateway, which
+    # does NOT use the (retired) slack_bot_token. Gating the send on `token` was a
+    # silent-death landmine: the day the dead Slack secret is removed, `token` goes
+    # falsy and EVERY watchdog page (incl. fleet host-down) would vanish while the
+    # summary logged "all checks passed". Failures must page regardless of that secret.
+    if failures:
         import re as _re
         for failure_line in failures:
             m = _re.search(r"\*(.+?)\*: `(.+?)`", failure_line)

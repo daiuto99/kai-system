@@ -37,6 +37,15 @@ class WatchdogDedupTests(unittest.TestCase):
 
     def setUp(self):
         self.wd, self.state_path = _fresh_module()
+        # 5c4e94f4: these tests prove the escalation MECHANISM, not prod deferral
+        # config. google_calendar (the OAUTH exemplar) is in DEFERRED_CHECKS in
+        # prod, which skips it before the counter/escalation path — the actual
+        # root cause of the 3 stale failures (NOT the Slack->Telegram reroute the
+        # ticket title guessed). Clear it so the exemplar is genuinely exercised;
+        # test_deferred_check_is_skipped covers the deferral behavior separately.
+        _p = mock.patch.object(self.wd, "DEFERRED_CHECKS", {})
+        _p.start()
+        self.addCleanup(_p.stop)
 
     def tearDown(self):
         try:
@@ -273,6 +282,66 @@ class WatchdogDedupTests(unittest.TestCase):
                 for _ in range(3):
                     self.wd.run_watchdog_checks()
             self.assertEqual(posted.call_count, 1)
+
+
+    # ── 5c4e94f4 additions ───────────────────────────────────────────────────
+
+    def test_deferred_check_is_skipped(self):
+        """A check in DEFERRED_CHECKS is skipped entirely — no counter, no
+        escalation. This is why the mechanism tests clear DEFERRED_CHECKS:
+        google_calendar is deferred in prod (n8n OAuth dead until S7-9)."""
+        with mock.patch.object(self.wd, "DEFERRED_CHECKS", {"google_calendar": "deferred"}), \
+             mock.patch.object(self.wd, "_post_oauth_escalation") as posted, \
+             mock.patch.object(self.wd, "_slack_alert"), \
+             mock.patch.object(self.wd, "_load_secret", return_value="fake-token"), \
+             mock.patch.object(self.wd, "run_maintenance"), \
+             mock.patch.object(self.wd, "run_gap_checks"), \
+             mock.patch.object(self.wd, "check_container_warnings"), \
+             mock.patch.object(self.wd, "archive_container_warnings"), \
+             mock.patch.object(self.wd, "prune_archived_logs"):
+            patched = []
+            for key, label, fn in self.wd.CHECKS:
+                if key == "google_calendar":
+                    patched.append((key, label, lambda: (False, "HTTP 401")))
+                else:
+                    patched.append((key, label, lambda: (True, "ok")))
+            with mock.patch.object(self.wd, "CHECKS", patched):
+                for _ in range(5):
+                    self.wd.run_watchdog_checks()
+            posted.assert_not_called()
+            self.assertIsNone(self.wd._fail_counter.get("google_calendar"))
+
+    def test_failures_page_without_slack_token(self):
+        """5c4e94f4 landmine regression: a real failure must still page Leo when
+        the RETIRED slack_bot_token is ABSENT. Paging routes through
+        _slack_alert -> tg_alert -> notify gateway, which does not use that
+        secret; gating the send on it (the old `if failures and token`) was a
+        silent-death path the day the dead secret is removed."""
+        def _no_slack_token(name):
+            return "" if name == "slack_bot_token" else "fake-token"
+        with mock.patch.object(self.wd, "_post_oauth_escalation"), \
+             mock.patch.object(self.wd, "_slack_alert") as slack, \
+             mock.patch.object(self.wd, "_load_secret", side_effect=_no_slack_token), \
+             mock.patch.object(self.wd, "run_maintenance"), \
+             mock.patch.object(self.wd, "run_gap_checks"), \
+             mock.patch.object(self.wd, "check_container_warnings"), \
+             mock.patch.object(self.wd, "archive_container_warnings"), \
+             mock.patch.object(self.wd, "prune_archived_logs"):
+            patched = []
+            for key, label, fn in self.wd.CHECKS:
+                if key == "oura":
+                    patched.append((key, label, lambda: (False, "HTTP 401")))
+                else:
+                    patched.append((key, label, lambda: (True, "ok")))
+            with mock.patch.object(self.wd, "CHECKS", patched):
+                for _ in range(3):
+                    self.wd.run_watchdog_checks()
+            oura_msgs = [
+                c for c in slack.call_args_list
+                if "Oura" in (c.args[1] if len(c.args) > 1 else c.kwargs.get("message", ""))
+            ]
+            self.assertGreater(len(oura_msgs), 0,
+                               "Failure must page even with slack_bot_token absent")
 
 
 if __name__ == "__main__":
