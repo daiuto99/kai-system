@@ -196,7 +196,21 @@ def check_fleet() -> str:
     # GATE severity: hard-fail on lost visibility or the SPINE being down; a
     # non-spine node offline is a printed WARNING (the watchdog pages on it), so
     # a flapping aux node never blocks a push. self_host comes from the state.
-    ok, detail = fleet_gate_verdict(state, int(_time.time()), (state or {}).get("self_host"))
+    # Read the operator maintenance window so a MUTED node reads "muted", not
+    # "watchdog paging" — the watchdog suppresses its page while a window is
+    # active, so the session baseline must say the same thing (KAI cutover).
+    muted = set()
+    for _mp in (Path("/vault/_fleet_maint.json"), Path("/home/leo/vault/_fleet_maint.json")):
+        if _mp.exists():
+            try:
+                _m = _json.loads(_mp.read_text())
+                if _m.get("schema") == "kai.fleet_maint.v1" and _time.time() < _m.get("expires_at", 0):
+                    muted = set(_m.get("muted") or ())
+            except Exception:
+                muted = set()  # malformed => no window (fail-safe: page label)
+            break
+    ok, detail = fleet_gate_verdict(state, int(_time.time()),
+                                    (state or {}).get("self_host"), muted=muted)
     if not ok:
         raise RuntimeError(detail)
     return detail

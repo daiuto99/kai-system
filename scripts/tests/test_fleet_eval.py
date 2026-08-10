@@ -228,6 +228,15 @@ def test_gate_peer_down_is_warn_not_red():
     assert ok is True and "WARN offline" in d and "71-kai-mini" in d
 
 
+def test_gate_peer_down_muted_reads_muted_not_paging():
+    # During a cutover window the muted node must NOT read "watchdog paging"
+    # (the watchdog suppresses its page); it reads "muted" instead.
+    st = _state({"kai-worker": _H(), "71-kai-mini": _H(reachable=False)})
+    ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker", muted={"71-kai-mini"})
+    assert ok is True
+    assert "muted: maintenance window" in d and "watchdog paging" not in d
+
+
 def test_gate_visibility_loss_is_red_even_with_spine_up():
     # Stale heartbeat = blind monitoring => gate fails regardless of spine.
     st = _state({"kai-worker": _H()}, updated=NOW)

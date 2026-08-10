@@ -95,7 +95,8 @@ def fleet_verdict(state: dict, now_epoch: int,
 
 
 def fleet_gate_verdict(state: dict, now_epoch: int, self_host,
-                       max_age_sec: int = FLEET_MAX_AGE_SEC) -> tuple[bool, str]:
+                       max_age_sec: int = FLEET_MAX_AGE_SEC,
+                       muted=None) -> tuple[bool, str]:
     """LENIENT verdict for the green-baseline session/push GATE. Hard-fails on
     LOST VISIBILITY (same structural gate) or the SPINE (self_host) being down —
     but a NON-spine node offline/ssh-blind is a printed WARNING, not a gate
@@ -116,11 +117,24 @@ def fleet_gate_verdict(state: dict, now_epoch: int, self_host,
     peers_down = sorted(n for n in expected if n != self_host and not hosts[n]["reachable"])
     peers_blind = sorted(n for n in expected if n != self_host
                          and hosts[n]["ssh_expected"] and not hosts[n]["ssh_ok"])
+    # A node inside an active maintenance window is NOT paging (the watchdog
+    # suppresses its page); label it "muted" so this gate and the watchdog agree.
+    muted_set = set(muted or ())
     detail = f"{len(expected)} hosts; spine {self_host} OK"
     if peers_down:
-        detail += f"; WARN offline (watchdog paging): {', '.join(peers_down)}"
+        paging = [n for n in peers_down if n not in muted_set]
+        muted_down = [n for n in peers_down if n in muted_set]
+        if paging:
+            detail += f"; WARN offline (watchdog paging): {', '.join(paging)}"
+        if muted_down:
+            detail += f"; offline (muted: maintenance window): {', '.join(muted_down)}"
     if peers_blind:
-        detail += f"; WARN ssh-blind: {', '.join(peers_blind)}"
+        blind = [n for n in peers_blind if n not in muted_set]
+        muted_blind = [n for n in peers_blind if n in muted_set]
+        if blind:
+            detail += f"; WARN ssh-blind: {', '.join(blind)}"
+        if muted_blind:
+            detail += f"; ssh-blind (muted: maintenance window): {', '.join(muted_blind)}"
     return True, detail
 
 
