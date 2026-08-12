@@ -408,6 +408,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     secrets:
+      - wpscan_api_token
       - cloudways_ssh_key
       - kai_worker_auth
       - orchestrator_capability_auth
@@ -507,6 +508,8 @@ secrets:
     file: ./secrets/oura_token.txt
   cloudways_ssh_key:
     file: ./secrets/cloudways_ssh_key
+  wpscan_api_token:
+    file: ./secrets/wpscan_api_token.txt
   slack_bot_token_sky:
     file: ./secrets/slack_bot_token_sky.txt
   slack_app_token_sky:
