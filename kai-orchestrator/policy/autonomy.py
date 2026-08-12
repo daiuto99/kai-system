@@ -65,6 +65,7 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "wordpress.probe_credentials": {"classification": "read_only", "rule": "allow"},
     "wordpress.get_front_page": {"classification": "read_only", "rule": "allow"},
     "wordpress.verify_live": {"classification": "read_only", "rule": "allow"},
+    "wordpress.security_scan": {"classification": "read_only", "rule": "allow"},
     "hostops.status":       {"classification": "read_only", "rule": "allow"},
     "hostops.verify":       {"classification": "read_only", "rule": "allow"},
 

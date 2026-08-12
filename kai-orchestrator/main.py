@@ -114,7 +114,7 @@ def _run_and_notify(job_id: str, wf):
         log.exception("Job %s crashed in resume()", job_id)
     _notify_job_complete(job_id)
 
-def _create_plane_bug(title: str, description: str) -> str:
+def _create_plane_bug(title: str, description: str, priority: str = "medium") -> str:
     """Create a BUG issue in Plane and return the issue id."""
     token = _plane_token()
     if not token:
@@ -126,7 +126,7 @@ def _create_plane_bug(title: str, description: str) -> str:
             f"{_PLANE_BASE}/workspaces/{_PLANE_WS}/projects/{_PLANE_BUG_PID}/issues/",
             headers={"X-API-Key": token, "Content-Type": "application/json"},
             json={"name": title, "description_html": f"<p>{description}</p>",
-                  "state": _PLANE_BACKLOG, "priority": "medium"},
+                  "state": _PLANE_BACKLOG, "priority": priority},
             timeout=10,
         )
         data = r.json()

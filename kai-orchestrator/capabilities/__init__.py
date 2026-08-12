@@ -58,3 +58,4 @@ from . import session as _session    # noqa: F401, E402
 from . import model_peer as _model_peer  # noqa: F401, E402
 from . import self_modify as _self_modify  # noqa: F401, E402
 from . import registry as _registry_cap  # noqa: F401, E402
+from . import wp_security as _wp_security  # noqa: F401, E402

@@ -643,6 +643,48 @@ def _heartbeat_job():
         log.warning("heartbeat: ping failed (%s) — external monitor will alert", e)
 
 
+def _file_wp_security_bug(finding: dict) -> str:
+    """File a [BUG] for a WP security finding into the KAI project. Dedup is
+    upstream (the capability's `new` flag); this only fires for new findings."""
+    from datetime import datetime as _datetime, timezone as _tz
+    from invariants import _PLANE_API, _PLANE_WS, _KAI_PROJECT, _get_plane_backlog_state
+    token = load_secret("plane_api_token").splitlines()[0].strip()
+    if not token:
+        log.error("wp_security: plane_api_token unavailable — cannot file bug for %s", finding.get("type"))
+        return ""
+    priority = "urgent" if finding.get("severity") == "critical" else "high"
+    now_str = _datetime.now(_tz.utc).strftime("%Y-%m-%d %H:%M UTC")
+    body = {
+        "name": f"[BUG] WP security: {finding['type']} on {finding['site']}",
+        "description_html": (
+            f"<p><strong>Site:</strong> {finding['site']}</p>"
+            f"<p><strong>Type:</strong> {finding['type']} ({finding['severity']})</p>"
+            f"<p><strong>Detail:</strong> {finding['detail'][:600]}</p>"
+            f"<p><strong>Detected:</strong> {now_str}</p>"
+            f"<p>Auto-filed by KAI self-hosted WP security scan (KAI-1068). "
+            f"Read-only detection; verify the site before remediation.</p>"
+        ),
+        "priority": priority,
+    }
+    state_id = _get_plane_backlog_state()
+    if state_id:
+        body["state"] = state_id
+    try:
+        rr = httpx.post(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/issues/",
+            headers={"X-API-Key": token, "Content-Type": "application/json"},
+            json=body, timeout=15,
+        )
+        rr.raise_for_status()
+        created = rr.json()
+        seq = created.get("sequence_id")
+        log.info("wp_security: filed Plane KAI-%s for %s on %s", seq, finding["type"], finding["site"])
+        return str(seq or created.get("id") or "")
+    except Exception as e:
+        log.error("wp_security: Plane bug filing failed for %s: %s", finding.get("type"), e)
+        return ""
+
+
 def main():
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
@@ -696,6 +738,53 @@ def main():
         except Exception as e:
             reg_record("sprint_a_expire", "fail", error=str(e))
             log.error("sprint_a expire job error: %s", e)
+
+    def _wp_security_scan_job():
+        """KAI-1068 — daily read-only WP security scan across the Cloudways fleet.
+        Silent on a clean fleet; on a NEW anomaly sends one consolidated personal
+        alert (the orchestrator capability files the deduped Plane bug)."""
+        try:
+            _ident, _sep, _secret = load_secret("orchestrator_capability_auth").partition(":")
+            headers = {"X-KAI-Capability-Key": _secret} if _sep and _secret else {}
+            r = httpx.post(
+                "http://kai-orchestrator:8003/capability/wordpress.security_scan",
+                json={"inputs": {}}, headers=headers, timeout=300,
+            )
+            body = r.json()
+            if r.status_code != 200 or not body.get("ok"):
+                reg_record("wp_security_scan", "fail", error=f"HTTP {r.status_code}: {str(body)[:160]}")
+                log.error("wp_security_scan capability failed: %s %s", r.status_code, str(body)[:200])
+                return
+            data = body.get("data") or {}
+            findings = data.get("findings") or []
+            reg_record("wp_security_scan", "ok")
+            if not findings:
+                return  # clean fleet — silent (JARVIS silent-notify)
+            # File a Plane bug for each newly-appeared finding (capability owns dedup).
+            for _f in findings:
+                if _f.get("new"):
+                    _file_wp_security_bug(_f)
+            # Alert on the full current finding set every run; notify_gateway dedups on
+            # dedup_key and marks a key delivered only on SUCCESS, so a transient alert
+            # failure self-heals next run (KAI-1068 defect-3 hardening).
+            lines = [f"\u2022 {f['site']}: {f['type']} ({f['severity']}) \u2014 {f['detail']}" for f in findings]
+            keys = ",".join(sorted(f"{f['site']}:{f['type']}" for f in findings))
+            try:
+                from notify_gateway import notify, Event
+                notify(Event(
+                    source="wp_security_scan",
+                    kind="alert",
+                    title=f"WP security: {len(findings)} finding(s) on the fleet",
+                    body="\n".join(lines),
+                    audience="personal",
+                    actionable=True,
+                    dedup_key="wpsec:" + keys,
+                ))
+            except Exception as e:
+                log.error("wp_security_scan alert failed: %s", e)
+        except Exception as e:
+            reg_record("wp_security_scan", "fail", error=str(e))
+            log.error("wp_security_scan job error: %s", e)
 
     # Reschedule daily CronTrigger jobs when Leo's timezone changes
     _scheduled_tz = [tz]
@@ -775,6 +864,7 @@ def main():
     sched.add_job(_n8n_oauth_health_job,                 IntervalTrigger(hours=1),    id="n8n_health", coalesce=True, max_instances=1)
     sched.add_job(_heartbeat_job,                        IntervalTrigger(minutes=5),  id="heartbeat",  coalesce=True, max_instances=1)
     sched.add_job(_contract_test_job,                    CronTrigger(hour=4, minute=0, timezone=tz), id="contract_tests", coalesce=True, max_instances=1)
+    sched.add_job(_wp_security_scan_job,                 CronTrigger(hour=3, minute=30, timezone=tz), id="wp_security_scan", coalesce=True, max_instances=1)
     # weekly_learning_cron removed — no content yet
 
     sched.start()
