@@ -710,6 +710,9 @@ def wordpress_health():
             "business": v.get("business", ""),
             "provisioned": v.get("provisioned", False),
             "brand_profile": bp,
+            # WP-20.6d — explicit governance rollup: no BUILD_PROFILE => UNGOVERNED
+            # (brand unverifiable), surfaced as a headline verdict, not a muted cell.
+            "brand_status": "governed" if bp.get("present") else "UNGOVERNED",
             "brand_sync": {
                 "present": bool(bs),
                 "logo_set": bool(bs.get("site_icon_set")),

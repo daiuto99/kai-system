@@ -550,7 +550,7 @@ function HealthBoard({ data, onRefresh }) {
                 <td style={td}>
                   {p.brand_profile?.present
                     ? <StatusChip tone="good" label={`✓ ${p.brand_profile.palette_count} colors · ${(p.brand_profile.fonts || []).length} fonts`} title={(p.brand_profile.fonts || []).join(', ')} />
-                    : <StatusChip tone="none" label="— no profile" title="No per-property BUILD_PROFILE seeded yet" />}
+                    : <StatusChip tone="bad" label="⚠ UNGOVERNED" title="No per-property BUILD_PROFILE — brand cannot be enforced on writes. Creative gate owed (tracker caa4b3ae)." />}
                 </td>
                 <td style={td}>
                   {p.brand_sync?.present

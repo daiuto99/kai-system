@@ -26,7 +26,17 @@ def _run_brand_drift(site: str, property: str, content: str) -> dict:
         report = brand_drift.detect(slug, content)
     except Exception as e:  # detector must never take down the write path
         _log.warning("brand-drift detector errored for %s: %s", slug, e)
-        return {"slug": slug, "checked": False, "drift": False, "error": str(e), "findings": []}
+        return {"slug": slug, "checked": False, "drift": False, "governed": False,
+                "error": str(e), "findings": []}
+    # WP-20.6d — a property with no BUILD_PROFILE is UNGOVERNED: brand cannot be
+    # verified, so the write must never look like a clean pass. Not a hard block
+    # (drafts iterate; live overwrite is guarded by WP-20.4), but it is flagged in
+    # the result and logged. Seeding the profile is owned by the Creative gate
+    # tracker (caa4b3ae); we do NOT file a per-write bug here (board spam).
+    report["governed"] = bool(report.get("checked"))
+    if not report.get("checked") and not report.get("error"):
+        _log.warning("[UNGOVERNED WRITE] %s (site=%s): no BUILD_PROFILE — brand "
+                     "unverifiable; Creative gate owed (tracker caa4b3ae)", slug, site)
     if report.get("drift"):
         highs = [f for f in report.get("findings", []) if f.get("severity") == "high"]
         detail = "; ".join(f["detail"] for f in highs) or report.get("summary", "")
