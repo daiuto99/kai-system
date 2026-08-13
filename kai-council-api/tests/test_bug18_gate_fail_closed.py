@@ -89,11 +89,16 @@ class GateFailClosedTests(unittest.TestCase):
                 self.assertIn(req.gate_id, alerts[0][1])
 
     def test_reviewer_wrappers_propagate_crashes(self):
-        import graphs.graph
+        # KAI-1085: gate reviews are single-shot via _gate_review_llm ->
+        # router._run_agentic_loop (no advisor graph). A crash anywhere in that
+        # path must still fail-closed as ReviewerUnavailable — never silently
+        # let a gate pass. Mock the new crash surface, not the retired graph.
+        import router
 
-        crashed_graph = mock.Mock()
-        crashed_graph.invoke.side_effect = RuntimeError("forced graph crash")
-        with mock.patch.object(graphs.graph, "get_graph", return_value=crashed_graph):
+        with mock.patch.object(
+            router, "_run_agentic_loop",
+            side_effect=RuntimeError("forced reviewer crash"),
+        ):
             with self.assertRaises(gates.ReviewerUnavailable):
                 gates._call_advisor("dev", "test", "bug18-wrapper")
             with self.assertRaises(gates.ReviewerUnavailable):
