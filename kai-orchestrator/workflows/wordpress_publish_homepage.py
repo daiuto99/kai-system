@@ -31,6 +31,9 @@ _VAULT_BRIEFS = Path("/vault/20_Projects")
 class PublishHomepageWorkflow(Workflow):
     name = "wordpress.publish_homepage"
     approval_policy = "council_gate"
+    # KAI-1083 — build tier the dev gate reviews against. "publish" workflows
+    # deploy live; "draft_only" siblings never publish. See _run_gate / _dev_gate_review.
+    write_mode = "publish"
     steps = [
         StepDef("load_site_config",    capability="wordpress.load_config"),
         StepDef("check_credentials",   capability="wordpress.probe_credentials"),
@@ -142,8 +145,30 @@ class PublishHomepageWorkflow(Workflow):
             "step":      step_name,
             "site":      ctx.get("site", ""),
             "workflow":  self.name,
+            "write_mode": getattr(self, "write_mode", "publish"),
             "context":   {k: ctx[k] for k in ("site", "fqdn") if k in ctx},
         }
+        # KAI-1083 — drafts-only builds carry a real deliverable envelope so the dev
+        # gate reviews the actual draft against drafts-only criteria, not a bare job
+        # context object against production-deploy criteria.
+        if step_name == "dev_gate" and getattr(self, "write_mode", "publish") == "draft_only":
+            brief["deliverable"] = {
+                "page_title":      ctx.get("page_title", ctx.get("page_id", "(untitled draft)")),
+                "content_model":   "single WordPress page saved as DRAFT",
+                "content_present": bool(ctx.get("page_content") or ctx.get("brief_text")),
+                "acceptance_criteria": [
+                    "a DRAFT page is created/updated (status=draft)",
+                    "nothing is published; no homepage / front-page change",
+                    "brand-drift check passes for the property",
+                ],
+            }
+            brief["safety"] = {
+                "publishes":           False,
+                "touches_live_infra":  False,
+                "enforced_by":         "WP write chokepoint (status=draft) + workflow has no publish/homepage steps",
+                "secrets_path":        "WordPress credentials loaded from the secrets layer via wordpress.load_config; never in job context",
+            }
+            brief["plane_issue"] = ctx.get("plane_issue", "")
         if step_name == "creative_brief":
             brief["vault_brief"] = ctx.get("brief_text", "")
         if step_name == "precheck_homepage_overwrite":

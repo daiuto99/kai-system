@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 class EditPageDraftWorkflow(PublishHomepageWorkflow):
     name = "wordpress.edit_page_draft"
     approval_policy = "council_gate"
+    write_mode = "draft_only"  # KAI-1083 — never publishes; dev gate uses drafts-only rubric
     steps = [
         StepDef("load_site_config",  capability="wordpress.load_config"),
         StepDef("check_credentials", capability="wordpress.probe_credentials"),

@@ -804,11 +804,37 @@ def _dev_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
     brief_text = json.dumps(brief, indent=2)
     job_name = brief.get("workflow", brief.get("title", brief.get("job_id", "Engineering work")))
 
+    # KAI-1083 — drafts-only builds are governed but never publish or touch live
+    # infrastructure. Review them against drafts-only criteria, not the production
+    # deploy checklist. The write_mode flag is the switch; absent it, the strict
+    # production rubric applies unchanged.
+    draft_only = brief.get("write_mode") == "draft_only"
+    if draft_only:
+        rubric = (
+            "\n\nRUBRIC SELECTION — THIS IS A DRAFTS-ONLY BUILD.\n"
+            "This workflow saves a WordPress page as a DRAFT. It never publishes, never sets a "
+            "front page, and never mutates live content — enforced by the WP write chokepoint "
+            "(status=draft) and by the workflow having no publish/homepage steps. The Cloudways "
+            "FQDN in the brief is the draft's host, NOT a live-deploy target.\n"
+            "Review against DRAFTS-ONLY criteria, and ONLY these:\n"
+            "  - Is there a real deliverable (a scoped page draft), not just a job context object?\n"
+            "  - Does the brief confirm it stays a draft (no publish / no homepage change)?\n"
+            "  - Are WordPress credentials sourced from the secrets layer, not the job context?\n"
+            "  - Is the brand-drift check part of the chain?\n"
+            "DO NOT require: container-rebuild confirmation, a test suite, production security "
+            "posture, or a live-deploy plan. Do NOT treat the FQDN as 'touching production "
+            "infrastructure'. Those are deploy-gate concerns and do not apply to a draft.\n"
+        )
+    else:
+        rubric = ""
+
     lse_full = _call_advisor("dev",
-        f"[LSE Sign-Off Required]\n\nBuild Profile Standards:\n{build_profile}\n\n"
+        f"[LSE Sign-Off Required]\n\nBuild Profile Standards:\n{build_profile}\n"
+        f"{rubric}\n"
         f"Engineering Brief:\n{brief_text}\n\n"
-        "Review this brief against the build profile. Does it meet Leo's engineering standards? "
-        "What is your assessment and sign-off? Be specific about what was checked.\n\n"
+        "Review this brief against the applicable rubric above. Does it meet Leo's engineering "
+        "standards for its build tier? What is your assessment and sign-off? Be specific about "
+        "what was checked.\n\n"
         "RESPONSE FORMAT — first line MUST be:\n"
         "VERDICT: <SIGNED-OFF | CONCERNS | REJECTED> — one-sentence headline\n"
         "Then the full review on subsequent lines.",
@@ -817,12 +843,20 @@ def _dev_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
     _persist_artifact(gate_id, "lse_review", lse_full)
     lse_line = _extract_verdict(lse_full, fallback="see lse_review.md")
 
-    kai_full = _kai_quality_check(
-        "dev", brief,
-        f"LSE has reviewed and signed off:\n{lse_full}\n\n"
+    kai_instruction = f"LSE has reviewed and signed off:\n{lse_full}\n\n"
+    if draft_only:
+        kai_instruction += (
+            "This is a DRAFTS-ONLY build — it never publishes or touches live infrastructure. "
+            "Judge it against drafts-only criteria (a real scoped draft deliverable, stays a draft, "
+            "creds via the secrets layer, brand-drift check present). Do NOT require deploy-tier "
+            "artifacts (container rebuild, tests, production security posture). "
+        )
+    kai_instruction += (
         "Does this engineering work meet Leo's standards? Is it scoped correctly? "
         "Is the approach sound? Would Leo approve this?"
     )
+
+    kai_full = _kai_quality_check("dev", brief, kai_instruction)
     _persist_artifact(gate_id, "kai_verdict", kai_full)
     kai_line = _extract_verdict(kai_full, fallback="see kai_verdict.md")
 
