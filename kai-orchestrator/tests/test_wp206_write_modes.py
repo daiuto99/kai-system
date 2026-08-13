@@ -13,7 +13,6 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from models import CapabilityResult
 from workflows.wordpress_build_page_draft import BuildPageDraftWorkflow
 from workflows.wordpress_edit_page_draft import EditPageDraftWorkflow
 
