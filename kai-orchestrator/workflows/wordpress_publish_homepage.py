@@ -123,15 +123,19 @@ class PublishHomepageWorkflow(Workflow):
         from capabilities import get_capability
         gate_fn = get_capability("council.gate")
 
+        # Emit council-api's canonical gate types (bug 286e8874) — these route to
+        # the real review chains (_dev_gate_review / _creative_gate_review /
+        # _devops_gate_review). The old "dev"/"creative_review" values hit the
+        # unknown->human-only fall-through, so those chains never ran.
         gate_type_map = {
-            "dev_gate":      "dev",
-            "creative_brief": "creative_review",
-            "devops_review": "dev",
-            # Unknown gate types are deliberately human-only in council-api.
+            "dev_gate":      "dev_gate",
+            "creative_brief": "creative_gate",
+            "devops_review": "devops_gate",
+            # homepage_overwrite stays a deliberately human-only type in council-api.
             # This must never be auto-approved: it authorizes replacing live content.
             "precheck_homepage_overwrite": "homepage_overwrite",
         }
-        gate_type = gate_type_map.get(step_name, "dev")
+        gate_type = gate_type_map.get(step_name, "dev_gate")
 
         brief = {
             "job_id":    self.job_id,
