@@ -879,8 +879,6 @@ def _kai_validate_brief(produced_brief: str) -> tuple[bool, str]:
     approved=True only when all sections are present and specific.
     """
     try:
-        from graphs.graph import get_graph
-        graph = get_graph()
         message = (
             "[KAI Brief Validation]\n\n"
             "You are reviewing a creative brief produced by the Creative Director.\n"
@@ -902,15 +900,7 @@ def _kai_validate_brief(produced_brief: str) -> tuple[bool, str]:
             "Reply with REJECTED: <specific list of what is missing or weak> if not.\n"
             "Be strict. Leo relies on this check so he only sees briefs that are ready."
         )
-        state = {
-            "channel": "kai", "message": message, "user_id": "gate-engine",
-            "thread_ts": "kai-brief-validation", "attachments": [], "privacy_mode": False,
-            "history": [], "target_advisor": "kai", "routing_reason": "brief validation",
-            "advisor_reply": "", "final_reply": "", "model_used": "",
-            "input_tokens": 0, "output_tokens": 0, "audit_log": [],
-        }
-        result = graph.invoke(state, config={"configurable": {"thread_id": "kai-brief-validation"}})
-        reply = result.get("final_reply", "")
+        reply = _gate_review_llm("kai", message, "gate:kai:brief-validation")  # KAI-1085 single-shot
         approved = reply.strip().upper().startswith("APPROVED")
         return approved, reply
     except Exception as e:
@@ -1065,45 +1055,50 @@ def _hostops_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
 
 # ── Advisor + KAI calls ───────────────────────────────────────────────────────
 
-def _call_advisor(advisor: str, message: str, thread_id: str) -> str:
-    """Call a council advisor via the graph and return the reply."""
+# KAI-1085 — a gate review is a ONE-SHOT assessment. Routing it through the full
+# advisor graph gives the model its agentic toolset, whose loop accumulates tokens
+# against router.TURN_TOKEN_BUDGET (24k) and returns OVER_BUDGET_REPLY under a
+# degraded advisor node. Mirror graphs/bug_nodes.py: call _run_agentic_loop with
+# tools=[] so it returns on the first completion (no tool loop, no budget blow-out),
+# on a strong cloud model independent of local-node health.
+_GATE_REVIEW_MODEL = "claude-sonnet-4-6"
+
+
+def _gate_review_llm(persona_advisor: str, message: str, trigger: str) -> str:
+    """Single-shot council review (KAI-1085). Raises ReviewerUnavailable on no verdict."""
+    from router import _run_agentic_loop
+    from persona import load_persona
+    from council_config import _track_usage
     try:
-        from graphs.graph import get_graph
-        graph = get_graph()
-        state = {
-            "channel":        advisor,
-            "message":        message,
-            "user_id":        "gate-engine",
-            "thread_ts":      thread_id,
-            "attachments":    [],
-            "privacy_mode":   False,
-            "history":        [],
-            "target_advisor": advisor,
-            "routing_reason": f"gate engine → {advisor}",
-            "advisor_reply":  "",
-            "final_reply":    "",
-            "model_used":     "",
-            "input_tokens":   0,
-            "output_tokens":  0,
-            "audit_log":      [],
-        }
-        result = graph.invoke(state, config={"configurable": {"thread_id": thread_id or advisor}})
-        reply = result.get("final_reply", "")
-        if not reply.strip():
-            raise ReviewerUnavailable(f"{advisor} reviewer returned no verdict")
+        system = load_persona(persona_advisor)
+        messages = [{"role": "user", "content": message}]
+        reply, in_tok, out_tok, cr_tok, cc_tok = _run_agentic_loop(
+            messages, [], _GATE_REVIEW_MODEL, system, persona_advisor
+        )
+        try:
+            _track_usage(persona_advisor, in_tok, out_tok, "anthropic", _GATE_REVIEW_MODEL,
+                         trigger_source=trigger, cache_read_tokens=cr_tok,
+                         cache_creation_tokens=cc_tok)
+        except Exception as exc:
+            logger.warning("gate review usage tracking failed: %s", exc)
+        if not reply.strip() or reply.startswith("over_budget:"):
+            raise ReviewerUnavailable(f"{persona_advisor} gate review returned no verdict")
         return reply
     except Exception as e:
-        logger.exception("Advisor call failed for %s: %s", advisor, e)
+        logger.exception("Gate review call failed for %s: %s", persona_advisor, e)
         if isinstance(e, ReviewerUnavailable):
             raise
-        raise ReviewerUnavailable(f"{advisor} reviewer failed") from e
+        raise ReviewerUnavailable(f"{persona_advisor} gate review failed") from e
+
+
+def _call_advisor(advisor: str, message: str, thread_id: str) -> str:
+    """Call a council advisor for a gate review — single-shot (KAI-1085)."""
+    return _gate_review_llm(advisor, message, f"gate:{advisor}:review")
 
 
 def _kai_quality_check(check_type: str, brief: dict, instruction: str) -> str:
     """KAI reviews the work against Leo's direction and system standards."""
     try:
-        from graphs.graph import get_graph
-        graph = get_graph()
         gate_policy = fm.get_gate_policy(f"{check_type}_gate") or {}
         standards = json.dumps(gate_policy, indent=2) if gate_policy else ""
 
@@ -1116,27 +1111,7 @@ def _kai_quality_check(check_type: str, brief: dict, instruction: str) -> str:
             "VERDICT: <READY | NOT READY | CONCERNS> — one-sentence headline\n"
             "Then the full assessment on subsequent lines."
         )
-        state = {
-            "channel":        "kai",
-            "message":        message,
-            "user_id":        "gate-engine",
-            "thread_ts":      f"kai-qc-{check_type}",
-            "attachments":    [],
-            "privacy_mode":   False,
-            "history":        [],
-            "target_advisor": "kai",
-            "routing_reason": "gate quality check",
-            "advisor_reply":  "",
-            "final_reply":    "",
-            "model_used":     "",
-            "input_tokens":   0,
-            "output_tokens":  0,
-            "audit_log":      [],
-        }
-        result = graph.invoke(state, config={"configurable": {"thread_id": f"kai-qc-{check_type}"}})
-        reply = result.get("final_reply", "")
-        if not reply.strip():
-            raise ReviewerUnavailable("KAI quality check returned no verdict")
+        reply = _gate_review_llm("kai", message, f"gate:kai-qc:{check_type}")  # KAI-1085 single-shot
         return reply
     except Exception as e:
         logger.exception("KAI quality check failed: %s", e)
