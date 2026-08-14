@@ -59,6 +59,12 @@ PYTHONPATH="$ROOT/kai-council-api" python3 -m pytest -v --tb=short -m whole_repo
     kai-council-api/tests/test_kai807_council_boundary.py || FAIL=1
 
 echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  findings contract (honesty: no uncaused alarm)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+python3 -m pytest -q scripts/tests/test_findings_contract.py || FAIL=1
+
+echo ""
 if [ "$FAIL" -ne 0 ]; then
     echo "[FAIL] CI gate: one or more services failed lint or tests. Do not commit."
     exit 1
