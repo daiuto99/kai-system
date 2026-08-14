@@ -22,6 +22,7 @@ NOT_YET_DIAGNOSED = "not-yet-diagnosed"
 BAD_STATUSES = {
     "stale", "alert", "fail", "failed", "degraded", "error",
     "critical", "warn", "warning", "red", "amber",
+    "offline", "down", "unreachable",
 }
 # Explicitly cause-free: good states + the honest no-reader state.
 # fresh/ok/pass/green = fine; not-checked = honestly no live reader.

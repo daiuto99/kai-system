@@ -31,6 +31,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWLIST = ROOT / "security" / "kai_node_allowlist.json"
 TRANSPORT = ROOT / "security" / "node_transport.json"
+sys.path.insert(0, str(ROOT / "shared"))  # /shared convention (matches worker-api PYTHONPATH)
+import findings  # Findings Contract — no host may be marked bad without a cause
 
 # Vault is the shared surface: /home/leo/vault on the host == /vault in the
 # kai-scheduler container. Write to whichever exists so the file authoring works
@@ -325,10 +327,37 @@ def collect_fleet_state() -> dict:
     }
 
 
+def _apply_status(hosts: dict) -> dict:
+    """Project each host into a Findings-Contract-shaped finding: a bad status
+    (offline / degraded) MUST carry a cause. The existing `degraded` string IS
+    the cause — this just names the status so the contract can enforce it, and a
+    future bad host that ever lacks a reason gets stamped not-yet-diagnosed
+    instead of shipping as a bare, causeless alarm."""
+    for h in hosts.values():
+        if not h.get("reachable"):
+            h["status"] = "offline"
+            if h.get("degraded") and not h.get("cause"):
+                h["cause"] = h["degraded"]
+        elif h.get("ssh_expected") and not h.get("ssh_ok"):
+            h["status"] = "degraded"
+            if h.get("degraded") and not h.get("cause"):
+                h["cause"] = h["degraded"]
+        else:
+            h["status"] = "ok"
+    return hosts
+
+
 def main() -> int:
     vault = _vault_dir()
     state_path = vault / STATE_FILENAME
     state = collect_fleet_state()
+
+    # Findings Contract: no host may be published offline/degraded without a
+    # cause. enforce_causes stamps not-yet-diagnosed on any bad host missing
+    # one; assert_contract fail-closes before writing a bare, causeless alarm.
+    _apply_status(state["hosts"])
+    state["undiagnosed_hosts"] = findings.enforce_causes(state["hosts"])
+    findings.assert_contract(state["hosts"])
 
     # Reboot detection is the watchdog's job (it compares the always-present
     # boot_epoch to a persisted seen-map — durable across watchdog gaps). The
