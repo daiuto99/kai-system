@@ -74,6 +74,8 @@ export default function System() {
         <button onClick={load} className="btn-ghost flex items-center gap-1.5 text-xs"><RefreshCw size={12} /></button>
       </div>
 
+      <CurrencyBoard />
+
       {error && <div className="kai-card px-5 py-4 text-sm text-red-400 my-4">Failed to load: {error}</div>}
 
       {loading ? (
@@ -138,6 +140,54 @@ function Stat({ label, value, tone }) {
     <div className="kai-card px-4 py-3">
       <div className="kai-text-subtle text-[11px] uppercase tracking-wide">{label}</div>
       <div className={`text-2xl font-semibold mt-1 tabular-nums ${tone}`}>{value}</div>
+    </div>
+  )
+}
+
+const CUR_PILL = {
+  fresh:          "text-emerald-400 bg-emerald-400/10",
+  stale:          "text-amber-400 bg-amber-400/10",
+  "not-checked":  "text-zinc-400 bg-zinc-400/10",
+}
+function curPill(s) { return CUR_PILL[s] || "text-zinc-400 bg-zinc-400/10" }
+
+const CUR_LABEL = { os_apt: "OS packages (apt)", container_images: "Container images", tls_certs: "TLS certificates" }
+const CUR_ORDER = ["os_apt", "container_images", "tls_certs"]
+
+// System Currency board (CUR-1). Self-contained + fail-silent so it can never
+// break the notification feed. Honest: not-checked renders grey, never green.
+function CurrencyBoard() {
+  const [cur, setCur] = useState(null)
+  useEffect(() => { api.getCurrencyState().then(setCur).catch(() => setCur(null)) }, [])
+  if (!cur || !cur.layers) return null
+  const roll = cur.rollup || {}
+  return (
+    <div className="kai-card px-5 py-4 my-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold">System Currency</h2>
+        <span className="text-[11px] kai-text-subtle tabular-nums">
+          {roll.fresh || 0} fresh · {roll.stale || 0} stale · {roll.not_checked || 0} not-checked
+        </span>
+      </div>
+      <div className="divide-y divide-white/5">
+        {CUR_ORDER.filter(k => cur.layers[k]).map(k => {
+          const L = cur.layers[k]
+          return (
+            <div key={k} className="flex items-start gap-3 py-2.5">
+              <span className={"inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap " + curPill(L.status)}>
+                {L.status}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] leading-snug">{CUR_LABEL[k] || k}</div>
+                <div className="text-[11px] kai-text-subtle mt-0.5">{L.detail}</div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-[10px] kai-text-subtle mt-3">
+        Source: currency_scan.py (host, read-only, CUR-1). Not-checked means no live reader yet — never a faked pass.
+      </p>
     </div>
   )
 }
