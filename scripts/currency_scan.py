@@ -20,10 +20,13 @@ import re
 import socket
 import ssl
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "shared"))  # /shared convention (matches worker-api PYTHONPATH)
+import findings  # Findings Contract — enforce cause-or-not-yet-diagnosed before publishing
 STATE_DIR = ROOT / "shared" / "currency"
 STATE_FILE = STATE_DIR / "freshness_state.json"
 TLS_CONFIG = STATE_DIR / "tls_endpoints.json"  # optional: ["host:port", ...]
@@ -233,6 +236,10 @@ def main():
         "container_images": read_container_images(),
         "tls_certs": read_tls_certs(),
     }
+    # Findings Contract: no bad-status finding may be published without a cause.
+    # Anything undiagnosed is stamped not-yet-diagnosed (honest), never dropped.
+    undiagnosed = findings.enforce_causes(layers)
+    findings.assert_contract(layers)  # fail-closed: refuse to write a bare alarm
     counts = {FRESH: 0, STALE: 0, NOT_CHECKED: 0}
     for layer in layers.values():
         counts[layer["status"]] = counts.get(layer["status"], 0) + 1
@@ -245,6 +252,7 @@ def main():
             "fresh": counts[FRESH],
             "stale": counts[STALE],
             "not_checked": counts[NOT_CHECKED],
+            "undiagnosed": undiagnosed,
             "total": len(layers),
         },
     }
