@@ -32,7 +32,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 import function_map as fm
-from council_config import WORKER_URL, _worker_auth
+from council_config import WORKER_URL, _worker_auth, ORCHESTRATOR_URL
 from autonomy_policy import classify
 
 logger = logging.getLogger(__name__)
@@ -499,6 +499,37 @@ async def receive_gate(req: GateRequest, background_tasks: BackgroundTasks):
     return {"gate_id": req.gate_id, "status": "accepted"}
 
 
+# ── Orphaned-gate reaper (a39d7842) ───────────────────────────────────────────
+# A gate PAUSES a job at pending_leo. If the job later reaches a terminal state
+# (or vanishes) while the gate is still pending_leo, the gate is ORPHANED — the
+# workflow is no longer waiting on Leo, but the poller keeps nagging him forever
+# (the 6c83ec91 gate nagged ~20h). Reap those so they stop. FAIL-SAFE: any
+# uncertainty (no job_id, orchestrator unreachable, non-terminal status) keeps the
+# gate — a live gate is NEVER reaped on a transient blip.
+_TERMINAL_JOB_STATES = {"succeeded", "failed", "failed_permanent", "cancelled", "orphaned"}
+
+
+def _gate_is_orphaned(entry: dict) -> bool:
+    job_id = (entry.get("brief") or {}).get("job_id")
+    if not job_id:
+        return False
+    try:
+        with httpx.Client(timeout=5) as c:
+            r = c.get(f"{ORCHESTRATOR_URL}/jobs/{job_id}")
+    except httpx.RequestError:
+        return False  # transient — never reap on a blip
+    if r.status_code != 200:
+        return False
+    try:
+        data = r.json()
+    except Exception:
+        return False
+    if data.get("error"):                       # {"error": "not found"} — job gone
+        return True
+    status = (data.get("job") or {}).get("status")
+    return status in _TERMINAL_JOB_STATES
+
+
 @router.get("/council/gate/pending")
 def list_pending_gates():
     """Gates awaiting Leo (status=pending_leo). Read-only; polled by the Buzz
@@ -510,6 +541,19 @@ def list_pending_gates():
                 continue
             entry = _GATES_STORE.get(d.name)
             if entry and entry.get("status") == "pending_leo":
+                if _gate_is_orphaned(entry):
+                    # job died/terminal but gate stuck pending_leo — reap so it stops
+                    # nagging Leo forever (a39d7842 / the 6c83ec91 20-hour incident).
+                    try:
+                        _GATES_STORE.update(d.name, status="orphaned", resolution={
+                            "orphaned": True,
+                            "reason": "underlying orchestrator job gone/terminal — auto-reaped",
+                            "by": "council.reaper",
+                        })
+                        logger.info("reaped orphaned gate %s (job gone/terminal)", d.name)
+                    except Exception as e:
+                        logger.warning("reap failed for %s: %s", d.name, e)
+                    continue
                 out.append({
                     "gate_id": d.name,
                     "gate_type": entry.get("gate_type"),
