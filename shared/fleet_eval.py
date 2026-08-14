@@ -132,7 +132,7 @@ def fleet_gate_verdict(state: dict, now_epoch: int, self_host,
         blind = [n for n in peers_blind if n not in muted_set]
         muted_blind = [n for n in peers_blind if n in muted_set]
         if blind:
-            detail += f"; WARN ssh-blind: {', '.join(blind)}"
+            detail += f"; WARN ssh-blind (host ssh-unreachable — boot/services state blind): {', '.join(blind)}"
         if muted_blind:
             detail += f"; ssh-blind (muted: maintenance window): {', '.join(muted_blind)}"
     return True, detail

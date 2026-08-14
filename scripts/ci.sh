@@ -62,7 +62,7 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  findings contract (honesty: no uncaused alarm)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-python3 -m pytest -q scripts/tests/test_findings_contract.py scripts/tests/test_fleet_findings.py || FAIL=1
+python3 -m pytest -q scripts/tests/test_findings_contract.py scripts/tests/test_fleet_findings.py scripts/tests/test_fleet_eval.py || FAIL=1
 python3 shared/test_notify_gateway.py || FAIL=1  # KAI-1100: notify gateway refuses a bare uncaused alarm
 
 echo ""

@@ -271,3 +271,24 @@ def test_none_boot_epoch_does_not_erase_baseline():
     assert fresh == [] and updated == {"m": 100}
     fresh2, updated2 = fe.compute_reboots({"m": {"boot_epoch": 300, "last_boot": "T"}}, seen=updated)
     assert len(fresh2) == 1 and updated2["m"] == 300
+
+
+def test_warn_signals_carry_a_parenthetical_cause():
+    """Findings Contract (KAI-1100 b): any WARN a fleet detail emits must carry
+    its cause in-line as a parenthetical — a warn-class signal is never bare.
+    This is the test-level teeth for the WARN-in-GREEN-detail gap: green_baseline
+    surfaces this detail string to Leo, so an uncaused WARN would be dishonest."""
+    # Craft a state that trips BOTH warn paths at once: one peer offline, one
+    # peer ssh-blind. Roster derives from hosts.keys(); all bools supplied by _H.
+    st = _state({
+        "kai-worker": _H(),
+        "71-kai-mini": _H(reachable=False),
+        "72-kai-aux": _H(ssh_ok=False),
+    })
+    ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker")
+    assert ok is True, d
+    warn_segments = [seg for seg in d.split(";") if "WARN" in seg]
+    assert warn_segments, f"crafted state emitted no WARN signal: {d!r}"
+    for seg in warn_segments:
+        label = seg.split(":", 1)[0]  # the label before the host list
+        assert "(" in label and ")" in label, f"bare WARN without cause: {seg!r}"
