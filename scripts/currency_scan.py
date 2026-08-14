@@ -92,21 +92,44 @@ def read_os_apt() -> dict:
         detail = f"{security} security / {regular} regular pending"
         if not auto_enforced:
             detail += " · unattended-upgrades NOT enforced"
-        return {
+
+        # Signal->cause discipline: a stale reading never ships without a verified
+        # cause (or an explicit "not yet diagnosed"). Diagnose WHY they're pending:
+        # unattended-upgrades only does conservative `apt upgrade` and refuses to
+        # install new packages — so security items that require new deps sit until
+        # a gated `apt full-upgrade`.
+        cause = None
+        if security and security > 0:
+            _, up_out, _ = _run(["apt-get", "-s", "upgrade"], timeout=40)
+            kept = 0
+            m2 = re.search(r"(\d+)\s+not upgraded", up_out)
+            if m2:
+                kept = int(m2.group(1))
+            _, dist_out, _ = _run(["apt-get", "-s", "dist-upgrade"], timeout=40)
+            m3 = re.search(r"(\d+)\s+newly installed", dist_out)
+            new_pkgs = int(m3.group(1)) if m3 else 0
+            touches_docker = "docker-ce" in dist_out or "containerd" in dist_out
+            if new_pkgs > 0 or kept > 0:
+                cause = (f"held back by unattended-upgrades policy (it won't install new packages); "
+                         f"clearing needs a gated `apt full-upgrade` — pulls in {new_pkgs} new package(s)"
+                         + (" incl docker-ce (restarts containers)" if touches_docker else ""))
+            else:
+                cause = "not yet diagnosed"
+
+        comp = {
+            "name": "apt packages",
+            "current": security == 0,
+            "security_pending": security,
+            "regular_pending": regular,
+            "auto_upgrades_enforced": auto_enforced,
+            "risk_tier": "auto",  # OS security patches auto-apply (unattended-upgrades)
             "status": status,
             "checked_at": checked,
-            "detail": detail,
-            "components": [{
-                "name": "apt packages",
-                "current": security == 0,
-                "security_pending": security,
-                "regular_pending": regular,
-                "auto_upgrades_enforced": auto_enforced,
-                "risk_tier": "auto",  # OS security patches auto-apply (unattended-upgrades)
-                "status": status,
-                "checked_at": checked,
-            }],
         }
+        if cause:
+            comp["cause"] = cause
+            detail += f" · cause: {cause}"
+        return {"status": status, "checked_at": checked, "detail": detail, "components": [comp]}
     except Exception as exc:  # honest: reader failed -> not-checked, never green
         return {"status": NOT_CHECKED, "checked_at": checked,
                 "detail": f"reader error: {type(exc).__name__}: {exc}", "components": []}
