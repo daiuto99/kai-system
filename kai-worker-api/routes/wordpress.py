@@ -8,7 +8,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, HTTPException, Body, Header
 from routes._destructive_audit import DestructiveRequest, audit_before
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from wp_write_guard import WorkflowOnlyWriteViolation, assert_canonical_caller
 
 logger = logging.getLogger(__name__)
@@ -859,6 +859,9 @@ _ORCH_URL = os.environ.get("ORCHESTRATOR_URL", "http://kai-orchestrator:8003")
 
 
 class BuildDraftRequest(BaseModel):
+    # KAI-1087 — every governed build must trace to a Plane ticket (plane-discipline).
+    # Required + non-empty: fail fast at the edge (422) rather than a confusing dev-gate NOT READY.
+    plane_issue: str = Field(..., min_length=1, description="Plane issue this build traces to")
     page_title: str
     page_content: Optional[str] = None
     brief_path: Optional[str] = None
@@ -874,7 +877,7 @@ def build_draft(site_id: str, req: BuildDraftRequest):
     Returns the job_id so the dashboard can poll gate/step status.
     """
     site = _get_site(site_id)  # validates the property exists + has creds; site_id is the slug
-    inputs = {"site": site_id, "page_title": req.page_title}
+    inputs = {"site": site_id, "page_title": req.page_title, "plane_issue": req.plane_issue}
     if req.page_content:
         inputs["page_content"] = req.page_content
     if req.brief_path:
@@ -933,6 +936,8 @@ def build_draft_status(job_id: str):
 # Same chokepoint as BUILD, but targets an existing DRAFT page via
 # wordpress.edit_page_draft (which refuses to touch a published/live page).
 class EditDraftRequest(BaseModel):
+    # KAI-1087 — governed edit must trace to a Plane ticket (plane-discipline). See BuildDraftRequest.
+    plane_issue: str = Field(..., min_length=1, description="Plane issue this edit traces to")
     page_id: int
     page_content: str
     page_title: Optional[str] = None
@@ -948,7 +953,7 @@ def edit_draft(site_id: str, req: EditDraftRequest):
     job_id so the dashboard can poll gate/step status via /wordpress/build-draft/{job_id}.
     """
     site = _get_site(site_id)  # validates the property exists + has creds; site_id is the slug
-    inputs = {"site": site_id, "page_id": req.page_id, "page_content": req.page_content}
+    inputs = {"site": site_id, "page_id": req.page_id, "page_content": req.page_content, "plane_issue": req.plane_issue}
     if req.page_title:
         inputs["page_title"] = req.page_title
     if req.brief_path:
