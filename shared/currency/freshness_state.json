@@ -1,0 +1,409 @@
+{
+  "generated_at": "2026-08-14T18:43:37.868989+00:00",
+  "host": "71kai",
+  "scanner": "currency_scan.py (CUR-1)",
+  "layers": {
+    "os_apt": {
+      "status": "stale",
+      "checked_at": "2026-08-14T18:43:31.508514+00:00",
+      "detail": "3 security / 24 regular pending \u00b7 cause: held back by unattended-upgrades policy (it won't install new packages); clearing needs a gated `apt full-upgrade` \u2014 pulls in 5 new package(s) incl docker-ce (restarts containers)",
+      "components": [
+        {
+          "name": "apt packages",
+          "current": false,
+          "security_pending": 3,
+          "regular_pending": 24,
+          "auto_upgrades_enforced": true,
+          "risk_tier": "auto",
+          "status": "stale",
+          "checked_at": "2026-08-14T18:43:31.508514+00:00",
+          "cause": "held back by unattended-upgrades policy (it won't install new packages); clearing needs a gated `apt full-upgrade` \u2014 pulls in 5 new package(s) incl docker-ce (restarts containers)"
+        }
+      ],
+      "cause": "held back by unattended-upgrades policy (it won't install new packages); clearing needs a gated `apt full-upgrade` \u2014 pulls in 5 new package(s) incl docker-ce (restarts containers)"
+    },
+    "container_images": {
+      "status": "not-checked",
+      "checked_at": "2026-08-14T18:43:36.577568+00:00",
+      "detail": "33 running container(s); oldest image 903.9d old; registry comparison not-checked",
+      "components": [
+        {
+          "name": "kai-web",
+          "image": "kai-system-kai-web",
+          "installed_age_days": 0.0,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-council-api",
+          "image": "kai-system-kai-council-api",
+          "installed_age_days": 0.1,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-worker-api",
+          "image": "kai-system-kai-worker-api",
+          "installed_age_days": 0.0,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "docker-socket-proxy",
+          "image": "kai-system-docker-socket-proxy",
+          "installed_age_days": 35.8,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-orchestrator",
+          "image": "kai-system-kai-orchestrator",
+          "installed_age_days": 1.0,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-scheduler",
+          "image": "kai-system-kai-scheduler",
+          "installed_age_days": 2.1,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-buzz",
+          "image": "kai-system-kai-buzz",
+          "installed_age_days": 9.2,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "buzz-relay",
+          "image": "buzz-relay:eval",
+          "installed_age_days": 13.8,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "buzz-hostproxy",
+          "image": "nginx:alpine",
+          "installed_age_days": 52.9,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "buzz-minio",
+          "image": "minio/minio",
+          "installed_age_days": 341.0,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "buzz-postgres",
+          "image": "postgres:17-alpine",
+          "installed_age_days": 38.0,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "buzz-redis",
+          "image": "redis:7-alpine",
+          "installed_age_days": 19.6,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-tailscale",
+          "image": "tailscale/tailscale:latest",
+          "installed_age_days": 129.0,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-litellm",
+          "image": "ghcr.io/berriai/litellm:main-latest",
+          "installed_age_days": 145.5,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-n8n",
+          "image": "kai-n8n:2.16.0-secretless-config",
+          "installed_age_days": 32.9,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-code-server",
+          "image": "codercom/code-server:latest",
+          "installed_age_days": 112.9,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-habitsync",
+          "image": "ghcr.io/jofoerster/habitsync:latest",
+          "installed_age_days": 146.5,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-qdrant",
+          "image": "qdrant/qdrant:latest",
+          "installed_age_days": 140.9,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-ollama",
+          "image": "ollama/ollama:latest",
+          "installed_age_days": 119.6,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "kai-mcp-api",
+          "image": "kai-system-kai-mcp-api",
+          "installed_age_days": 33.8,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "cloudflare-tunnel",
+          "image": "cloudflare/cloudflared:2026.3.0",
+          "installed_age_days": 158.2,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-proxy",
+          "image": "makeplane/plane-proxy:stable",
+          "installed_age_days": 150.0,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-live",
+          "image": "makeplane/plane-live:stable",
+          "installed_age_days": 130.3,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-admin",
+          "image": "makeplane/plane-admin:stable",
+          "installed_age_days": 130.2,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-space",
+          "image": "makeplane/plane-space:stable",
+          "installed_age_days": 130.3,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-web",
+          "image": "makeplane/plane-frontend:stable",
+          "installed_age_days": 130.3,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-beat-worker",
+          "image": "makeplane/plane-backend:stable",
+          "installed_age_days": 130.3,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-worker",
+          "image": "makeplane/plane-backend:stable",
+          "installed_age_days": 130.3,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-api",
+          "image": "makeplane/plane-backend:stable",
+          "installed_age_days": 130.3,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-db",
+          "image": "postgres:15.7-alpine",
+          "installed_age_days": 801.9,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-mq",
+          "image": "rabbitmq:3.13.6-management-alpine",
+          "installed_age_days": 903.9,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-minio",
+          "image": "minio/minio:latest",
+          "installed_age_days": 341.0,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        },
+        {
+          "name": "plane-redis",
+          "image": "valkey/valkey:7.2.11-alpine",
+          "installed_age_days": 190.7,
+          "latest": null,
+          "current": null,
+          "risk_tier": "gated",
+          "status": "not-checked",
+          "note": "installed age only; registry-latest comparison not yet implemented",
+          "checked_at": "2026-08-14T18:43:36.577568+00:00"
+        }
+      ]
+    },
+    "tls_certs": {
+      "status": "not-checked",
+      "checked_at": "2026-08-14T18:43:37.868910+00:00",
+      "detail": "no TLS endpoints configured (worker services are http on tailnet); populate tls_endpoints.json to enable",
+      "components": []
+    }
+  },
+  "rollup": {
+    "fresh": 0,
+    "stale": 1,
+    "not_checked": 2,
+    "undiagnosed": 0,
+    "total": 3
+  }
+}
