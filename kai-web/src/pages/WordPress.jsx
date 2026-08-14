@@ -318,6 +318,7 @@ function BuildBoard({ mode = 'build', properties }) {
   const [status, setStatus] = useState(null)
   const [launching, setLaunching] = useState(false)
   const [error, setError] = useState(null)
+  const [planeIssue, setPlaneIssue] = useState('')
 
   const terminal = status && ['succeeded', 'failed_permanent', 'cancelled'].includes(status.status)
 
@@ -336,6 +337,7 @@ function BuildBoard({ mode = 'build', properties }) {
   async function launch() {
     setError(null)
     if (!slug) { setError('Pick a property.'); return }
+    if (!planeIssue.trim()) { setError('Enter the Plane issue this traces to (plane-discipline).'); return }
     if (isEdit) {
       if (!pageId || !content.trim()) { setError('Enter the page id and the new draft content.'); return }
     } else if (!title.trim()) { setError('Enter a page title.'); return }
@@ -343,12 +345,12 @@ function BuildBoard({ mode = 'build', properties }) {
     try {
       let r
       if (isEdit) {
-        const body = { page_id: Number(pageId), page_content: content.trim() }
+        const body = { plane_issue: planeIssue.trim(), page_id: Number(pageId), page_content: content.trim() }
         if (title.trim()) body.page_title = title.trim()
         if (brief.trim()) body.brief_path = brief.trim()
         r = await api.post(`/wordpress/${slug}/edit-draft`, body)
       } else {
-        const body = { page_title: title.trim() }
+        const body = { plane_issue: planeIssue.trim(), page_title: title.trim() }
         if (content.trim()) body.page_content = content.trim()
         if (brief.trim()) body.brief_path = brief.trim()
         r = await api.post(`/wordpress/${slug}/build-draft`, body)
@@ -405,6 +407,10 @@ function BuildBoard({ mode = 'build', properties }) {
           <input value={title} onChange={e => setTitle(e.target.value)} placeholder="leave blank to keep the current title" style={field} />
         </div>
       )}
+      <div style={{ maxWidth: 720, marginBottom: 14 }}>
+        <label style={label}>Plane issue</label>
+        <input value={planeIssue} onChange={e => setPlaneIssue(e.target.value)} placeholder="KAI-20" style={field} />
+      </div>
       <div style={{ maxWidth: 720, marginBottom: 14 }}>
         <label style={label}>{isEdit ? 'New draft content (HTML)' : 'Page content (optional, HTML)'}</label>
         <textarea value={content} onChange={e => setContent(e.target.value)} rows={5}
