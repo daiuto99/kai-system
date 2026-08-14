@@ -95,10 +95,14 @@ def _load_secret(name: str) -> str:
     return p.read_text().strip() if p.exists() else os.environ.get(name.upper(), "")
 
 
-def _slack_alert(token: str, message: str):
-    """AR-5.1: rerouted to Telegram (sole surface). Legacy `token` arg ignored."""
+def _slack_alert(token: str, message: str, *, cause: str | None = None):
+    """AR-5.1: rerouted to Telegram (sole surface). Legacy `token` arg ignored.
+    KAI-1100: a watchdog page asserts something needs attention, so it routes
+    through the Findings Contract as status="alert". A page with no verified
+    cause ships as an explicit not-yet-diagnosed (a symptom, honestly undiagnosed)
+    rather than a bare alarm the operator would fill in from memory."""
     from tg_alert import tg_alert
-    tg_alert(f"[DevOps] {message}")
+    tg_alert(f"[DevOps] {message}", status="alert", cause=cause)
 
 
 def _should_alert(key: str) -> bool:

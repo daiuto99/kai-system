@@ -364,11 +364,13 @@ def notify(event: Event) -> NotifyResult:
 # ── Back-compat shim ────────────────────────────────────────────────────────────
 
 def tg_alert(message: str, *, source: str = "legacy", kind: str = "alert",
-             audience: str = "dashboard", dedup_key: Optional[str] = None) -> bool:
+             audience: str = "dashboard", dedup_key: Optional[str] = None,
+             status: Optional[str] = None, cause: Optional[str] = None) -> bool:
     """The old fire-and-forget alert helper, now routed through the gateway. Defaults
     to the dashboard audience — a bare technical/system alert is DevOps's to log, not
     Leo's to be pushed (Rule B). Callers that must reach Leo pass audience='approval'
     or 'personal', or use notify()/send_telegram directly."""
     res = notify(Event(source=source, kind=kind, title=message,
-                       audience=audience, dedup_key=dedup_key))
+                       audience=audience, dedup_key=dedup_key,
+                       status=status, cause=cause))
     return res.delivered

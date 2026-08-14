@@ -14,6 +14,7 @@ Covers the P1 acceptance behaviors:
   5. classify refine   — a low-risk Leo-owned action → dashboard (autonomous, not Leo)
   6. pytest auto-sink  — with env unset under pytest, sends auto-suppress (P0 behavior)
 """
+import json
 import os
 import tempfile
 
@@ -168,13 +169,42 @@ def test_good_status_no_cause_line():
     check("good status → no cause line in text", _SENT and "cause:" not in _SENT[-1]["text"])
 
 
+def _last_log_record():
+    with open(os.environ["KAI_NOTIFY_LOG"]) as f:
+        lines = [l for l in f if l.strip()]
+    return json.loads(lines[-1]) if lines else {}
+
+
+def test_tg_alert_status_stamped():
+    """A DevOps pager call (tg_alert with a problem status, no cause) is routed
+    through the contract: the logged finding carries status + not-yet-diagnosed,
+    proving watchdog pages can no longer emit a bare, uncaused alarm."""
+    _install_stub()
+    ng.tg_alert("[DevOps] plane-api crash loop (+6 restarts)", status="alert")
+    rec = _last_log_record()
+    check("tg_alert status → logged status=alert", rec.get("status") == "alert")
+    check("tg_alert uncaused → logged cause=not-yet-diagnosed",
+          rec.get("cause") == ng.NOT_YET_DIAGNOSED)
+
+
+def test_tg_alert_status_with_cause():
+    """A pager call WITH a verified cause preserves it — not overwritten."""
+    _install_stub()
+    ng.tg_alert("[DevOps] worker degraded", status="degraded",
+                cause="disk 96% on /var/lib/docker")
+    rec = _last_log_record()
+    check("tg_alert caused → cause preserved",
+          rec.get("cause") == "disk 96% on /var/lib/docker")
+
+
 def main():
     print("notify() gateway tests:")
     for fn in (test_reality_gate_synthetic, test_dashboard_routing,
                test_approval_routing, test_dedup,
                test_classify_autonomous_dashboard, test_pytest_auto_sink,
                test_uncaused_problem_stamped, test_caused_problem_passthrough,
-               test_good_status_no_cause_line):
+               test_good_status_no_cause_line,
+               test_tg_alert_status_stamped, test_tg_alert_status_with_cause):
         fn()
     failed = [n for n, ok in _RESULTS if not ok]
     print(f"\n{len(_RESULTS) - len(failed)}/{len(_RESULTS)} checks passed.")
