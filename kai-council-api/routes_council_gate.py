@@ -916,9 +916,12 @@ def _creative_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
     Leo approves once — then it gets built.
     """
     build_profile = _BUILD_PROFILES["creative"].read_text() if _BUILD_PROFILES["creative"].exists() else ""
-    direction = brief.get("direction", json.dumps(brief, indent=2))
+    # BUG 12372f93 — the WP drafts-only workflow supplies the loaded vault brief as
+    # vault_brief and the property slug as site; fall back to those so the creative gate
+    # reviews the real brief/property, not an empty direction + a JSON dump of the brief.
+    direction = brief.get("direction") or brief.get("vault_brief") or json.dumps(brief, indent=2)
     title = brief.get("title", brief.get("project", "Creative request"))
-    property_name = brief.get("property", brief.get("project", ""))
+    property_name = brief.get("property") or brief.get("site") or brief.get("project", "")
 
     # KAI-394: load curated references from vault for this property
     reference_library = _load_references(property_name)
@@ -1062,6 +1065,12 @@ def _hostops_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
 # tools=[] so it returns on the first completion (no tool loop, no budget blow-out),
 # on a strong cloud model independent of local-node health.
 _GATE_REVIEW_MODEL = "claude-sonnet-4-6"
+# BUG 12372f93 — single-shot gate reviews (tools=[]) make exactly one bounded model
+# call, so the 24k agentic-loop TURN_TOKEN_BUDGET (which caps tool-loop accumulation)
+# must not discard a COMPLETED review just because a large persona + build-profile
+# pushes the INPUT past 24k. Generous finite budget; cost stays bounded (one call,
+# max_tokens=2048) because there is no tool loop to run away.
+_GATE_REVIEW_TOKEN_BUDGET = 120_000
 
 
 def _gate_review_llm(persona_advisor: str, message: str, trigger: str) -> str:
@@ -1073,7 +1082,8 @@ def _gate_review_llm(persona_advisor: str, message: str, trigger: str) -> str:
         system = load_persona(persona_advisor)
         messages = [{"role": "user", "content": message}]
         reply, in_tok, out_tok, cr_tok, cc_tok = _run_agentic_loop(
-            messages, [], _GATE_REVIEW_MODEL, system, persona_advisor
+            messages, [], _GATE_REVIEW_MODEL, system, persona_advisor,
+            turn_token_budget=_GATE_REVIEW_TOKEN_BUDGET,
         )
         try:
             _track_usage(persona_advisor, in_tok, out_tok, "anthropic", _GATE_REVIEW_MODEL,

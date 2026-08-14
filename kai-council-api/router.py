@@ -225,7 +225,7 @@ def _record_agentic_iteration(turn_id: str, iteration: int, advisor: str, model:
 
 def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: str, advisor: str,
                        cache_breakpoint_chars: int = 0, active_project: str | None = None,
-                       active_task_id: str | None = None) -> tuple:
+                       active_task_id: str | None = None, turn_token_budget: int = TURN_TOKEN_BUDGET) -> tuple:
     """Run Anthropic agentic loop. Returns (reply, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens)."""
     client = get_anthropic_client()
     total_input_tokens = 0
@@ -282,9 +282,9 @@ def _run_agentic_loop(messages: list, tools: list, model: str, system_prompt: st
             logger.exception("agentic-loop telemetry failed: %s", exc)
             return OVER_BUDGET_REPLY, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens
 
-        if total_input_tokens + total_output_tokens > TURN_TOKEN_BUDGET:
-            logger.warning("agentic loop token budget exceeded: turn=%s tokens=%s", turn_id,
-                           total_input_tokens + total_output_tokens)
+        if total_input_tokens + total_output_tokens > turn_token_budget:
+            logger.warning("agentic loop token budget exceeded: turn=%s tokens=%s budget=%s", turn_id,
+                           total_input_tokens + total_output_tokens, turn_token_budget)
             return OVER_BUDGET_REPLY, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens
 
         if response.stop_reason == "tool_use":
