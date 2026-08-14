@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from routes import vault, focus, parking_lot, inbox, checkin, settings, projects, tasks, habits, calendar, knowledge, t2, telegram, contacts, slack, advisors, wiki, workflows, oura, system, location, git_activity, admin, plane, session, intake, wordpress, sprint_a, assets, orchestrator, mode_lock, anthropic_billing, system_activity
+from routes import vault, focus, parking_lot, inbox, checkin, settings, projects, tasks, habits, calendar, knowledge, t2, telegram, contacts, slack, advisors, wiki, workflows, oura, system, location, git_activity, admin, plane, session, intake, wordpress, sprint_a, assets, orchestrator, mode_lock, anthropic_billing, system_activity, currency
 from harmony import router as harmony_router
 
 _NO_AUTH = frozenset({
@@ -58,7 +58,7 @@ app = FastAPI(title="kai-worker-api", version="0.3.0")
 app.add_middleware(BasicAuthMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=["https://kai.sonicink.space"], allow_methods=["*"], allow_headers=["*"])
 
-for router_module in [vault, focus, parking_lot, inbox, checkin, settings, projects, tasks, habits, calendar, knowledge, t2, telegram, contacts, slack, advisors, wiki, workflows, oura, system, location, git_activity, admin, plane, session, intake, wordpress, sprint_a, assets, orchestrator, mode_lock, anthropic_billing, system_activity]:
+for router_module in [vault, focus, parking_lot, inbox, checkin, settings, projects, tasks, habits, calendar, knowledge, t2, telegram, contacts, slack, advisors, wiki, workflows, oura, system, location, git_activity, admin, plane, session, intake, wordpress, sprint_a, assets, orchestrator, mode_lock, anthropic_billing, system_activity, currency]:
     app.include_router(router_module.router)
 
 app.include_router(harmony_router)
