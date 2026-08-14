@@ -132,11 +132,49 @@ def test_pytest_auto_sink():
             del sys.modules["pytest"]
 
 
+def test_uncaused_problem_stamped():
+    """A problem-asserting event with NO cause cannot reach Leo as a bare alarm —
+    the gateway stamps not-yet-diagnosed and the sent text says so visibly."""
+    _install_stub()
+    ev = ng.Event(source="invariants", kind="invariant", audience="approval",
+                  status="fail", title="scheduler heartbeat missed")
+    res = ng.notify(ev)
+    check("uncaused problem → stamped not-yet-diagnosed", ev.cause == ng.NOT_YET_DIAGNOSED)
+    check("uncaused problem → still delivered (honest, not dropped)", res.delivered is True)
+    check("uncaused problem → text carries cause: not-yet-diagnosed",
+          _SENT and "cause: not-yet-diagnosed" in _SENT[-1]["text"])
+
+
+def test_caused_problem_passthrough():
+    """A problem WITH a verified cause passes through unchanged and reports it."""
+    _install_stub()
+    ev = ng.Event(source="fleet", kind="alert", audience="approval",
+                  status="degraded", cause="worker disk 96% — /var/lib/docker",
+                  title="worker degraded")
+    ng.notify(ev)
+    check("caused problem → cause preserved", ev.cause == "worker disk 96% — /var/lib/docker")
+    check("caused problem → text carries verified cause",
+          _SENT and "cause: verified — worker disk 96% — /var/lib/docker" in _SENT[-1]["text"])
+    check("caused problem → not stamped over", ev.cause != ng.NOT_YET_DIAGNOSED)
+
+
+def test_good_status_no_cause_line():
+    """A good/absent status asserts nothing wrong — no cause is required or appended."""
+    _install_stub()
+    ev = ng.Event(source="ops", kind="gate", audience="approval",
+                  status="ok", title="all green")
+    ng.notify(ev)
+    check("good status → no cause stamped", ev.cause is None)
+    check("good status → no cause line in text", _SENT and "cause:" not in _SENT[-1]["text"])
+
+
 def main():
     print("notify() gateway tests:")
     for fn in (test_reality_gate_synthetic, test_dashboard_routing,
                test_approval_routing, test_dedup,
-               test_classify_autonomous_dashboard, test_pytest_auto_sink):
+               test_classify_autonomous_dashboard, test_pytest_auto_sink,
+               test_uncaused_problem_stamped, test_caused_problem_passthrough,
+               test_good_status_no_cause_line):
         fn()
     failed = [n for n, ok in _RESULTS if not ok]
     print(f"\n{len(_RESULTS) - len(failed)}/{len(_RESULTS)} checks passed.")

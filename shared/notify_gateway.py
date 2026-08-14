@@ -38,6 +38,19 @@ import httpx
 log = logging.getLogger("notify_gateway")
 _API = "https://api.telegram.org"
 
+# Findings Contract (KAI-1100) — a problem-asserting signal may not leave this
+# gateway uncaused. findings.py is a sibling module in shared/; import it
+# defensively so the gateway still routes (fail-closed) if it is ever absent.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from findings import NOT_YET_DIAGNOSED, needs_cause
+except Exception:  # pragma: no cover - contract module optional at import time
+    NOT_YET_DIAGNOSED = "not-yet-diagnosed"
+    _BAD = {"stale", "alert", "fail", "failed", "degraded", "error", "critical",
+            "warn", "warning", "red", "amber", "offline", "down", "unreachable"}
+    def needs_cause(status) -> bool:  # noqa: E306
+        return str(status or "").lower() in _BAD
+
 _LOG_PATH = Path(os.environ.get("KAI_NOTIFY_LOG", "/vault/00_System/notify_log.jsonl"))
 _DEDUP_PATH = Path(os.environ.get("KAI_NOTIFY_DEDUP", "/vault/00_System/notify_dedup.json"))
 _DEDUP_WINDOW_S = int(os.environ.get("KAI_NOTIFY_DEDUP_WINDOW", "3600"))
@@ -69,6 +82,8 @@ class Event:
     dedup_key: Optional[str] = None
     action: Optional[dict] = None        # optional dict passed to classify()
     action_ref: Optional[str] = None     # e.g. a gate_id
+    status: Optional[str] = None         # finding status; if it asserts a problem, a cause is required
+    cause: Optional[str] = None          # verified cause, or NOT_YET_DIAGNOSED once stamped
 
 
 @dataclass
@@ -146,6 +161,8 @@ def _log_notify(event: Event, res: NotifyResult) -> None:
         "reason": res.reason,
         "dedup_key": event.dedup_key,
         "action_ref": event.action_ref,
+        "status": event.status,
+        "cause": event.cause,
         "title": (event.title or "")[:200],
     })
 
@@ -273,9 +290,29 @@ def _route(event: Event) -> tuple[str, str]:
     return "dashboard", f"audience:{event.audience}"
 
 
+def _enforce_cause(event: Event) -> bool:
+    """Findings Contract at the exit: an event whose status asserts a problem
+    (findings.needs_cause) may not leave the gateway as a bare alarm. If it
+    carries no cause, stamp the literal not-yet-diagnosed so the signal reaches
+    its surface as an explicit 'cause unknown' — never a guessable void the
+    operator would be tempted to fill from memory. Returns True when the finding
+    is (or became) undiagnosed: an honest, logged number, never hidden."""
+    if needs_cause(event.status) and not (event.cause and str(event.cause).strip()):
+        event.cause = NOT_YET_DIAGNOSED
+        return True
+    return False
+
+
 def _format(event: Event) -> str:
     parts = [p for p in (event.title, event.body) if p]
-    return "\n\n".join(parts) or event.kind
+    text = "\n\n".join(parts) or event.kind
+    if event.cause:
+        # Standard operator report shape: 'reading — cause: verified|not-yet-diagnosed'.
+        if str(event.cause) == NOT_YET_DIAGNOSED:
+            text += "\n\ncause: not-yet-diagnosed"
+        else:
+            text += f"\n\ncause: verified — {event.cause}"
+    return text
 
 
 # ── The gateway ─────────────────────────────────────────────────────────────────
@@ -290,6 +327,13 @@ def notify(event: Event) -> NotifyResult:
         res = NotifyResult("suppressed_synthetic", "sink", False, "provenance!=real or test-mode")
         _log_notify(event, res)
         return res
+
+    # 1b. Findings Contract — a problem-asserting signal cannot leave uncaused.
+    #     Stamp not-yet-diagnosed (visible + logged) rather than push a bare alarm.
+    undiagnosed = _enforce_cause(event)
+    if undiagnosed:
+        log.warning("uncaused %s (status=%s) stamped not-yet-diagnosed: %s",
+                    event.kind, event.status, (event.title or "")[:80])
 
     # 2. Decide destination.
     dest, reason = _route(event)
