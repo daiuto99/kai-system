@@ -466,6 +466,32 @@ services:
       - litellm_master_key
       - kai_web_password
 
+  # KAI-1029: durable openai-compat backend for Leo's NATIVE Buzz advisor agents
+  # (kai/sky/roads/beats/coach). Replaces the host nohup shim that a cleanup sweep
+  # retired 2026-08-03, silently killing every advisor DM. restart:always + a
+  # /v1/models healthcheck so this can never quietly disappear again.
+  kai-buzz-shim:
+    build: ./kai-buzz-shim
+    container_name: kai-buzz-shim
+    restart: always
+    ports:
+      - "4001:4001"
+    environment:
+      - BUZZ_COUNCIL_URL=http://kai-web/council/message
+      - LITELLM_URL=http://kai-litellm:4000/v1/chat/completions
+      - LITELLM_KEY_FILE=/run/secrets/litellm_master_key
+      - KAI_WEB_PW_FILE=/run/secrets/kai_web_password
+      - BUZZ_WEB_USER=kai
+    secrets:
+      - litellm_master_key
+      - kai_web_password
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4001/v1/models', timeout=5)"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 10s
+
 
 volumes:
   qdrant-data:
