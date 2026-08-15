@@ -49,11 +49,12 @@ SCHEMA = "kai.advisor_probe.v1"
 
 # Reply strings that mean the path is broken even on an HTTP 200. Matched by
 # exact-equality or as a leading prefix (NOT arbitrary substring) so a legitimate
-# reply that merely mentions the word "error" mid-sentence is not a false page.
-# "(no reply)" is the shim's exact council-no-reply sentinel; the prefixes catch a
-# council that returns an error string with a 200 (its 502 path is caught earlier).
+# reply mentioning "error" is not a false page. "(no reply)" is the shim's exact
+# council-no-reply sentinel; a leading raw traceback is never a legitimate advisor
+# reply. Backend errors are NOT listed here on purpose — the shim returns them as
+# HTTP 502, already caught by the status/round-trip guard above.
 BAD_REPLY_EXACT = "(no reply)"
-BAD_REPLY_PREFIXES = ("backend error", "traceback (most recent call last)")
+BAD_REPLY_PREFIXES = ("traceback (most recent call last)",)
 
 # Same vault-either-runtime convention as fleet_heartbeat.py.
 _VAULT_CANDIDATES = (Path("/home/leo/vault"), Path("/vault"))
