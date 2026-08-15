@@ -6,3 +6,6 @@
 [2026-08-15T18:30:01.198546Z] OK advisor=roads 3423ms — healthy round-trip
 [2026-08-15T18:45:01.541504Z] OK advisor=coach 2239ms — healthy round-trip
 [2026-08-15T19:00:01.746676Z] OK advisor=kai 2444ms — healthy round-trip
+notify_dedup write failed: PermissionError
+[2026-08-15T19:15:01.224415Z] FAIL advisor=sky 1ms — no round-trip: URLError: <urlopen error [Errno 111] Connection refused> | paged: decision=delivered dest=telegram delivered=True
+[2026-08-15T19:30:01.393989Z] OK advisor=roads 3430ms — healthy round-trip

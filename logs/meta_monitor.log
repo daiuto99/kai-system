@@ -3,3 +3,11 @@
 [2026-08-15T18:50:02.028378Z] OK checked=3 | advisor_dm_probe=ok(300s) | fleet_heartbeat=ok(121s) | buzz_approve_loop=ok(2s)
 [2026-08-15T18:55:01.461550Z] OK checked=3 | advisor_dm_probe=ok(600s) | fleet_heartbeat=ok(60s) | buzz_approve_loop=ok(1s)
 [2026-08-15T19:00:01.700206Z] OK checked=3 | advisor_dm_probe=ok(900s) | fleet_heartbeat=ok(181s) | buzz_approve_loop=ok(2s)
+[2026-08-15T19:05:01.435493Z] OK checked=3 | advisor_dm_probe=ok(300s) | fleet_heartbeat=ok(120s) | buzz_approve_loop=ok(5s)
+[2026-08-15T19:10:01.816476Z] OK checked=3 | advisor_dm_probe=ok(600s) | fleet_heartbeat=ok(61s) | buzz_approve_loop=ok(6s)
+[2026-08-15T19:15:01.196836Z] OK checked=3 | advisor_dm_probe=ok(899s) | fleet_heartbeat=ok(179s) | buzz_approve_loop=ok(1s)
+[2026-08-15T19:20:01.060880Z] OK checked=3 | advisor_dm_probe=ok(265s) | fleet_heartbeat=ok(120s) | buzz_approve_loop=ok(245s)
+[2026-08-15T19:25:01.543449Z] STALE(1) checked=3 | advisor_dm_probe=ok(565s) | fleet_heartbeat=ok(61s) | buzz_approve_loop=STALE(546s) || buzz_approve_loop: paged: decision=delivered dest=telegram delivered=True
+[2026-08-15T19:30:01.407977Z] OK checked=3 | advisor_dm_probe=ok(865s) | fleet_heartbeat=ok(180s) | buzz_approve_loop=ok(4s)
+[2026-08-15T19:35:01.069704Z] OK checked=3 | advisor_dm_probe=ok(300s) | fleet_heartbeat=ok(120s) | buzz_approve_loop=ok(4s)
+[2026-08-15T19:40:01.468659Z] OK checked=3 | advisor_dm_probe=ok(600s) | fleet_heartbeat=ok(60s) | buzz_approve_loop=ok(3s)
