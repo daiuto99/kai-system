@@ -114,8 +114,30 @@ def _test_mode() -> bool:
 # ── Secrets / helpers ───────────────────────────────────────────────────────────
 
 def _secret(name: str) -> str:
-    p = Path(f"/run/secrets/{name}")
-    return p.read_text().strip() if p.exists() else os.environ.get(name.upper(), "")
+    """Resolve a secret by name. Order: Docker secret mount → env var → host secrets
+    directory (KAI_SECRETS_DIR, default ~/kai-system/secrets) as a <name> or <name>.txt
+    file. The host-file fallback is what lets host-cron pagers (advisor_dm_probe,
+    fleet_heartbeat, meta_monitor) that run OUTSIDE the container — where /run/secrets is
+    not mounted and the env is bare — still reach Telegram. Without it a host-cron page
+    resolves an empty token and delivers to nobody (the KAI-1108 failure class; see the
+    urgent host-cron-delivery bug). File-based only: the value is never written to the
+    environment or logged (L18). Fail-closed: any filesystem error at any source
+    yields "" rather than raising into the notify() path — a page must never crash
+    on a secret-read hiccup — the entire resolution is wrapped."""
+    try:
+        p = Path(f"/run/secrets/{name}")
+        if p.exists():
+            return p.read_text().strip()
+        env = os.environ.get(name.upper())
+        if env:
+            return env.strip()
+        base = Path(os.environ.get("KAI_SECRETS_DIR", str(Path.home() / "kai-system" / "secrets")))
+        for cand in (base / name, base / f"{name}.txt"):
+            if cand.exists():
+                return cand.read_text().strip()
+    except Exception:
+        return ""
+    return ""
 
 
 def _chat_ids() -> list[str]:
