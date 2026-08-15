@@ -8,10 +8,12 @@ log = logging.getLogger(__name__)
 
 CANONICAL_CALLERS = frozenset({
     "kai-orchestrator/workflows/wordpress_publish_homepage.py",
+    "kai-orchestrator/workflows/wordpress_edit_page_draft.py",
     "kai-worker-api/routes/wordpress.py",
     "scripts/wp_add_site.sh",
     "scripts/wp_brand_consistency.py",
     "workflows/wordpress_publish_homepage.py",
+    "workflows/wordpress_edit_page_draft.py",
     "routes/wordpress.py",
 })
 
