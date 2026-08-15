@@ -47,9 +47,13 @@ REQUEST_TIMEOUT_SEC = 90          # council -> litellm can be slow; beyond this 
 LATENCY_WARN_MS = 60_000          # a reply slower than this is healthy-but-slow (recorded, not paged)
 SCHEMA = "kai.advisor_probe.v1"
 
-# Reply strings that mean the path is broken even on an HTTP 200 (the shim's own
-# sentinels + generic backend-failure markers). Matched case-insensitively.
-BAD_REPLY_SENTINELS = ("(no reply)", "backend error", "no response", "traceback (most recent call last)")
+# Reply strings that mean the path is broken even on an HTTP 200. Matched by
+# exact-equality or as a leading prefix (NOT arbitrary substring) so a legitimate
+# reply that merely mentions the word "error" mid-sentence is not a false page.
+# "(no reply)" is the shim's exact council-no-reply sentinel; the prefixes catch a
+# council that returns an error string with a 200 (its 502 path is caught earlier).
+BAD_REPLY_EXACT = "(no reply)"
+BAD_REPLY_PREFIXES = ("backend error", "traceback (most recent call last)")
 
 # Same vault-either-runtime convention as fleet_heartbeat.py.
 _VAULT_CANDIDATES = (Path("/home/leo/vault"), Path("/vault"))
@@ -113,12 +117,24 @@ def probe_once(advisor: str) -> dict:
     started = time.time()
     try:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SEC) as r:
-            payload = json.loads(r.read())
+            status = getattr(r, "status", None) or getattr(r, "code", 200)
+            raw = r.read()
         latency_ms = int((time.time() - started) * 1000)
     except Exception as e:
         latency_ms = int((time.time() - started) * 1000)
         return {"advisor": advisor, "ok": False, "latency_ms": latency_ms,
                 "reply": None, "reason": f"no round-trip: {type(e).__name__}: {e}"}
+
+    # urlopen only raises on >=400, so an unexpected 2xx-non-200 would slip through
+    # as "success" — assert exactly 200 (the only status the real path returns).
+    if status != 200:
+        return {"advisor": advisor, "ok": False, "latency_ms": latency_ms,
+                "reply": None, "reason": f"non-200 status: {status}"}
+    try:
+        payload = json.loads(raw)
+    except Exception as e:
+        return {"advisor": advisor, "ok": False, "latency_ms": latency_ms,
+                "reply": None, "reason": f"unparseable body: {type(e).__name__}: {e}"}
 
     try:
         reply = (payload["choices"][0]["message"]["content"] or "").strip()
@@ -132,10 +148,9 @@ def probe_once(advisor: str) -> dict:
     if not reply:
         return {"advisor": advisor, "ok": False, "latency_ms": latency_ms,
                 "reply": reply, "reason": "empty reply (dead/unanswered path)"}
-    for bad in BAD_REPLY_SENTINELS:
-        if bad in low:
-            return {"advisor": advisor, "ok": False, "latency_ms": latency_ms,
-                    "reply": reply, "reason": f"error sentinel in reply: {bad!r}"}
+    if low == BAD_REPLY_EXACT or low.startswith(BAD_REPLY_PREFIXES):
+        return {"advisor": advisor, "ok": False, "latency_ms": latency_ms,
+                "reply": reply, "reason": f"error sentinel in reply: {reply[:40]!r}"}
     return {"advisor": advisor, "ok": True, "latency_ms": latency_ms,
             "reply": reply, "reason": "healthy round-trip"}
 
