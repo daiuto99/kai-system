@@ -21,7 +21,7 @@ class GreenBaselineTests(unittest.TestCase):
             [
                 "services_up", "session_brief", "worker_auth_fail_closed",
                 "plane_reachable", "qdrant_up", "litellm_models",
-                "qwen_mid_route_and_fallback", "secret_permissions", "source_drift",
+                "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions", "source_drift",
                 "fleet_visibility",
             ],
         )

@@ -216,6 +216,18 @@ def check_fleet() -> str:
     return detail
 
 
+def check_buzz_shim() -> str:
+    # KAI-1029: the openai-compat backend Leo's native Buzz advisor agents call.
+    # A cleanup sweep once retired this endpoint and no probe noticed, so every
+    # advisor DM went silently unanswered for 11 days. Liveness-only (no completion,
+    # per this suite's read-only contract): if :4001 is gone, this goes RED.
+    models = parse_model_ids(_request("http://localhost:4001/v1/models"))
+    missing = {"kai", "sky", "roads", "coach"} - models
+    if missing:
+        raise RuntimeError("Buzz shim :4001 missing advisor models: " + ", ".join(sorted(missing)))
+    return "Buzz advisor shim (:4001) serves kai/sky/roads/coach"
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -225,6 +237,7 @@ def checks() -> tuple[Check, ...]:
         Check("qdrant_up", check_qdrant),
         Check("litellm_models", check_litellm_models),
         Check("qwen_mid_route_and_fallback", check_qwen_route_contract),
+        Check("buzz_shim_backend", check_buzz_shim),
         Check("secret_permissions", check_secret_permissions),
         Check("source_drift", check_source_drift),
         Check("fleet_visibility", check_fleet),
