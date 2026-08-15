@@ -45,7 +45,6 @@ SHIM_KEY = "buzz-eval"  # the shim ignores the key value (tailnet-gated); sent f
 ADVISORS = ["kai", "sky", "roads", "coach"]  # public advisor models the shim serves
 REQUEST_TIMEOUT_SEC = 90          # council -> litellm can be slow; beyond this = silence (a page)
 LATENCY_WARN_MS = 60_000          # a reply slower than this is healthy-but-slow (recorded, not paged)
-MIN_REPLY_CHARS = 8               # a real council answer is never a couple of chars
 SCHEMA = "kai.advisor_probe.v1"
 
 # Reply strings that mean the path is broken even on an HTTP 200 (the shim's own
@@ -128,9 +127,11 @@ def probe_once(advisor: str) -> dict:
                 "reply": None, "reason": f"malformed response: {json.dumps(payload)[:200]}"}
 
     low = reply.lower()
-    if len(reply) < MIN_REPLY_CHARS:
+    # The KAI-1108 signal is an EMPTY / dead reply, not a merely terse one — a live
+    # council answer of any length is healthy, so only empty (post-strip) fails here.
+    if not reply:
         return {"advisor": advisor, "ok": False, "latency_ms": latency_ms,
-                "reply": reply, "reason": f"reply too short ({len(reply)} chars)"}
+                "reply": reply, "reason": "empty reply (dead/unanswered path)"}
     for bad in BAD_REPLY_SENTINELS:
         if bad in low:
             return {"advisor": advisor, "ok": False, "latency_ms": latency_ms,
