@@ -6,7 +6,7 @@ True gauge of whether KAI is a solid system or a bag of rules.
 Run: python3 test_jarvis_system.py [--suite SUITE]
 Suites: all, architecture, health, jarvis, regression, live, policy, session
 
-Output: console PASS/FAIL/WARN/SKIP + vault JSON report + Slack summary post
+Output: console PASS/FAIL/WARN/SKIP + vault JSON report + notify() dashboard summary
 """
 
 import argparse
@@ -464,22 +464,13 @@ def suite_health():
         _record("B-5", "All 10 invariant results present", FAIL, "invariants.json not found")
         _record("B-6", "No critical invariant violations", SKIP, "invariants.json not found")
 
-    # B-7: Slack token valid
-    token = _secret("slack_bot_token.txt")
-    if not token:
-        _record("B-7", "Slack token valid", FAIL, "slack_bot_token.txt not found")
+    # B-7: Telegram comms-surface token present (Slack retired — AR-5 / KAI-1127).
+    # Sole surface is Telegram via the notify() gateway; no outbound Slack probe.
+    token = _secret("telegram_bot_token.txt")
+    if token:
+        _record("B-7", "Telegram token present", PASS, "telegram_bot_token found")
     else:
-        try:
-            r = requests.post("https://slack.com/api/auth.test",
-                              headers={"Authorization": f"Bearer {token}"}, timeout=10)
-            d = r.json()
-            if d.get("ok"):
-                _record("B-7", "Slack token valid", PASS,
-                        f"bot_id={d.get('bot_id','?')} team={d.get('team','?')}")
-            else:
-                _record("B-7", "Slack token valid", FAIL, f"auth.test failed: {d.get('error')}")
-        except Exception as e:
-            _record("B-7", "Slack token valid", WARN, f"Cannot reach Slack API: {e}")
+        _record("B-7", "Telegram token present", FAIL, "telegram_bot_token.txt not found")
 
     # B-8: Plane API reachable
     plane_token = _secret("plane_api_token.txt")
@@ -910,15 +901,22 @@ def suite_live():
         _record("L-6", "plane.create_issue + update_state round-trip", FAIL,
                 f"create_issue failed: {str(c_data)[:200]}")
 
-    # L-7: slack.post to #kai-system
+    # L-7: notify capability delivers to the sole surface (Telegram/dashboard).
+    # Slack retired (AR-5 / KAI-1127); the slack.post capability now routes to the
+    # notify() gateway — this exercises that delivery path, making no Slack call.
     ok, data = _cap("slack.post", {
         "channel": "kai-system",
         "text": f"[JARVIS TEST {datetime.now().strftime('%H:%M')}] Automated system test ping — safe to ignore.",
     }, timeout=15)
-    if ok and data.get("ok"):
-        _record("L-7", "slack.post to #kai-system", PASS, "Message delivered")
+    # Require a positive delivery signal — the capability returns surface/ok on success.
+    # A bare no-error response (e.g. a 404 {"detail": "Not Found"}) must NOT read as delivered.
+    delivered = ok and isinstance(data, dict) and not data.get("error") \
+        and (data.get("surface") or data.get("ok") or data.get("delivered"))
+    if delivered:
+        _record("L-7", "notify capability delivers (Telegram)", PASS,
+                f"Delivered via {data.get('surface', 'notify gateway')}")
     else:
-        _record("L-7", "slack.post to #kai-system", FAIL, f"slack.post failed: {str(data)[:200]}")
+        _record("L-7", "notify capability delivers (Telegram)", FAIL, f"delivery failed: {str(data)[:200]}")
 
 
 # ── Category P: Policy Enforcement ───────────────────────────────────────────
@@ -1124,12 +1122,10 @@ SUITES = {
 }
 
 
-def _post_slack_summary():
-    token = _secret("slack_bot_token.txt")
-    if not token:
-        print("  (no slack token — skipping summary)")
-        return
-
+def _post_summary():
+    # Slack retired (AR-5 / KAI-1127) — the run summary routes through the
+    # notify() gateway to the dashboard audience (a test summary is DevOps's to
+    # log, not Leo's to be pushed; Rule B). No outbound Slack API call.
     pass_n = sum(1 for r in _results if r["status"] == "PASS")
     fail_n = sum(1 for r in _results if r["status"] == "FAIL")
     warn_n = sum(1 for r in _results if r["status"] == "WARN")
@@ -1137,39 +1133,32 @@ def _post_slack_summary():
     total  = len(_results)
     elapsed = int(time.time() - _start_time)
 
-    emoji  = ":white_check_mark:" if fail_n == 0 else ":x:"
     result = "ALL PASS" if fail_n == 0 else f"{fail_n} FAILURE{'S' if fail_n != 1 else ''}"
     text   = (
-        f"{emoji} *JARVIS System Test Suite — {result}*\n"
-        f"*Score:* {pass_n} pass · {fail_n} fail · {warn_n} warn · {skip_n} skip / {total} total\n"
-        f"*Runtime:* {elapsed}s\n"
-        f"*Report:* `vault/00_System/jarvis_test_report_{datetime.now().strftime('%Y-%m-%d')}.json`"
+        f"JARVIS System Test Suite — {result}\n"
+        f"Score: {pass_n} pass · {fail_n} fail · {warn_n} warn · {skip_n} skip / {total} total\n"
+        f"Runtime: {elapsed}s\n"
+        f"Report: vault/00_System/jarvis_test_report_{datetime.now().strftime('%Y-%m-%d')}.json"
     )
 
     fails = [r for r in _results if r["status"] == "FAIL"]
     if fails:
-        lines = "\n".join(f"• `{r['id']}` {r['name']}: {r['detail'][:80]}" for r in fails[:10])
-        text += f"\n\n*Failures:*\n{lines}"
+        lines = "\n".join(f"• {r['id']} {r['name']}: {r['detail'][:80]}" for r in fails[:10])
+        text += f"\n\nFailures:\n{lines}"
 
     warns = [r for r in _results if r["status"] == "WARN"]
     if warns:
-        wlines = "\n".join(f"• `{r['id']}` {r['name']}" for r in warns[:5])
-        text += f"\n\n*Warnings ({len(warns)}):*\n{wlines}"
+        wlines = "\n".join(f"• {r['id']} {r['name']}" for r in warns[:5])
+        text += f"\n\nWarnings ({len(warns)}):\n{wlines}"
 
     try:
-        r = requests.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": "kai-system", "text": text,
-                  "username": "KAI Test Suite", "icon_emoji": ":test_tube:"},
-            timeout=10,
-        )
-        if r.json().get("ok"):
-            print(f"  Slack summary posted to #kai-system")
-        else:
-            print(f"  Slack post failed: {r.json().get('error')}")
+        from tg_alert import tg_alert
+        tg_alert(text, source="test_jarvis_system", kind="report",
+                 cause=("all checks passed" if fail_n == 0
+                        else f"{fail_n} check(s) failed — see report"))
+        print("  Summary posted to dashboard via notify() gateway")
     except Exception as e:
-        print(f"  Slack post error: {e}")
+        print(f"  Summary post error: {e}")
 
 
 def main():
@@ -1237,9 +1226,9 @@ def main():
     except Exception as e:
         print(f"  Report save failed: {e}")
 
-    # Slack summary
-    print("\n  Posting Slack summary...")
-    _post_slack_summary()
+    # Dashboard summary via notify() gateway (Slack retired — AR-5 / KAI-1127)
+    print("\n  Posting summary...")
+    _post_summary()
 
     sys.exit(0 if fail_n == 0 else 1)
 

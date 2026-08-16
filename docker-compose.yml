@@ -42,12 +42,10 @@ services:
         condition: service_healthy
     secrets:
       - anthropic_api_key
-      - slack_bot_token
       - todoist_api_key
       - habitsync_password
       - telegram_bot_token
       - telegram_allowed_chat_ids
-      - slack_signing_secret
       - oura_token
       - kai_worker_auth
       - github_webhook_secret
@@ -107,7 +105,6 @@ services:
     secrets:
       - anthropic_api_key
       - openai_api_key
-      - slack_bot_token
       - tavily_api_key
       - oura_token
       - plane_api_token
@@ -126,26 +123,10 @@ services:
       retries: 3
       start_period: 10s
 
-  # RETIRED 2026-07-29 (AR-5.2 / KAI-991): Slack ingress killed. Gate approvals
-  # moved to Telegram (inline approve/reject buttons handled by the kai-scheduler
-  # long-poll loop). Slack tokens + remaining OUTBOUND _slack_post helpers are
-  # retired in AR-5.3. Kept commented (not deleted) as a retire-in-place record.
-  # kai-slack-bot:
-  #   build: ./kai-slack-bot
-  #   container_name: kai-slack-bot
-  #   restart: unless-stopped
-  #   secrets:
-  #     - slack_bot_token
-  #     - slack_app_token
-  #     - slack_signing_secret
-  #     - slack_bot_token_sky
-  #     - slack_app_token_sky
-  #     - slack_bot_token_roads
-  #     - slack_app_token_roads
-  #     - kai_worker_auth
-  #   depends_on:
-  #     kai-council-api:
-  #       condition: service_healthy
+  # RETIRED: the kai-slack-bot service and all Slack surfaces are gone (AR-5.2/5.3
+  # → fully removed KAI-1127, 2026-08-16). Gate approvals + alerts route through
+  # Telegram via the notify() gateway (kai-scheduler long-poll loop). No Slack
+  # service, tokens, or secret defs remain in this compose.
 
   kai-web:
     build: ./kai-web
@@ -309,11 +290,9 @@ services:
       - "host.docker.internal:host-gateway"
     secrets:
       - anthropic_api_key
-      - slack_bot_token
       - todoist_api_key
       - telegram_bot_token
       - telegram_allowed_chat_ids
-      - slack_signing_secret
       - oura_token
       - plane_api_token
       - litellm_master_key
@@ -504,10 +483,6 @@ volumes:
 secrets:
   anthropic_api_key:
     file: ./secrets/anthropic_api_key.txt
-  slack_bot_token:
-    file: ./secrets/slack_bot_token.txt
-  slack_app_token:
-    file: ./secrets/slack_app_token.txt
   cloudflare_tunnel_token:
     file: ./secrets/cloudflare_tunnel_token.txt
   todoist_api_key:
@@ -520,8 +495,6 @@ secrets:
     file: ./secrets/telegram_bot_token.txt
   telegram_allowed_chat_ids:
     file: ./secrets/telegram_allowed_chat_ids.txt
-  slack_signing_secret:
-    file: ./secrets/slack_signing_secret.txt
   tavily_api_key:
     file: ./secrets/tavily_api_key.txt
   plane_api_token:
@@ -536,14 +509,6 @@ secrets:
     file: ./secrets/cloudways_ssh_key
   wpscan_api_token:
     file: ./secrets/wpscan_api_token.txt
-  slack_bot_token_sky:
-    file: ./secrets/slack_bot_token_sky.txt
-  slack_app_token_sky:
-    file: ./secrets/slack_app_token_sky.txt
-  slack_bot_token_roads:
-    file: ./secrets/slack_bot_token_roads.txt
-  slack_app_token_roads:
-    file: ./secrets/slack_app_token_roads.txt
   litellm_master_key:
     file: ./secrets/litellm_master_key.txt
   codeserver_password:

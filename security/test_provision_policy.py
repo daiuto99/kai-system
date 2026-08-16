@@ -23,8 +23,9 @@ class AllowPath(unittest.TestCase):
         self.assertEqual(d.tailnet_ip, "100.106.160.41")
         self.assertEqual(d.secret_name, "todoist_api_key")
 
-    def test_all_three_brief_secrets_provisionable(self):
-        for name in ["todoist_api_key", "anthropic_api_key", "slack_bot_token"]:
+    def test_brief_secrets_provisionable(self):
+        # slack_bot_token removed from the provisionable set — Slack retired (AR-5 / KAI-1127).
+        for name in ["todoist_api_key", "anthropic_api_key"]:
             self.assertTrue(pp.authorize_provision("71-kai-mini", name, ALLOW, good_status()).allowed, name)
 
 
@@ -86,9 +87,9 @@ class SubclassAndPropagation(unittest.TestCase):
                                                 ALLOW, good_status()).allowed)
 
     def test_caller_cannot_widen_allowlist(self):
-        # There is no allowlist parameter; only the three module secrets are ever provisionable.
+        # There is no allowlist parameter; only the module secrets are ever provisionable.
         self.assertEqual(pp.PROVISIONABLE_SECRETS,
-                         frozenset({"todoist_api_key", "anthropic_api_key", "slack_bot_token"}))
+                         frozenset({"todoist_api_key", "anthropic_api_key"}))
         self.assertFalse(pp.authorize_provision("71-kai-mini", "random_secret", ALLOW, good_status()).allowed)
 
     def test_allow_propagates_ip_and_node_id(self):

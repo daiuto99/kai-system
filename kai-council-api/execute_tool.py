@@ -5,7 +5,7 @@ import os
 from datetime import datetime as _dt2, date as _d2
 from pathlib import Path
 import httpx
-from council_config import WORKER_URL, VAULT_PATH, ADVISOR_AVATARS, _slack_token, _worker_auth
+from council_config import WORKER_URL, VAULT_PATH, ADVISOR_AVATARS, _worker_auth
 from knowledge_layer import _write_session_summary, _write_decision, _log_mission_deliverable
 from usage_tracker import track_api_call
 import function_map as fm
@@ -300,27 +300,11 @@ def _h_vault(client, tool_name, ti, advisor):
             return {"error": "workspace/list non-JSON (status " + str(r.status_code) + "): " + r.text[:200]}
 
 
-def _h_slack(client, tool_name, ti, advisor):
-    if tool_name == "send_slack_message":
-        token = _slack_token()
-        if not token:
-            return {"error": "Slack token not configured"}
-        from council_config import ADVISOR_LABELS
-        adv = ti.get("advisor", "kai")
-        channel = ti.get("channel", "kai")
-        if not channel.startswith("#"):
-            channel = f"#{channel}"
-        # AR-5.3: rerouted to Telegram (sole surface). Self-posting advisors keep
-        # their name inline; everyone else is relayed with a "<label> says:" prefix.
-        if adv in ADVISOR_AVATARS:
-            text = ti["message"]
-        else:
-            label = ADVISOR_LABELS.get(adv, adv.capitalize())
-            text = f"{label} says:\n{ti['message']}"
-        from tg_alert import tg_alert
-        if tg_alert(text):
-            return {"ok": True, "surface": "telegram"}
-        return {"error": "telegram send failed"}
+def _h_delivery(client, tool_name, ti, advisor):
+    # Slack retired (AR-5 / KAI-1127) — the Slack provisioning/posting tools
+    # (send_slack_message, create_slack_channel, invite_to_slack_channel) are gone.
+    # These remaining handlers deliver via the worker (Buzz/Telegram surfaces),
+    # not Slack.
     if tool_name == "deliver_asset":
         r = client.post(f"{WORKER_URL}/assets/deliver", json=ti, timeout=120)
         return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
@@ -329,29 +313,6 @@ def _h_slack(client, tool_name, ti, advisor):
         n = ti.get("n", 20)
         r = client.get(f"{WORKER_URL}/council/advisor/{adv}/recent_dms", params={"n": n}, timeout=15)
         return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
-    if tool_name == "create_slack_channel":
-        r = client.post(f"{WORKER_URL}/slack/channels", json=ti, timeout=15)
-        return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
-    if tool_name == "invite_to_slack_channel":
-        channel = ti.get("channel", "")
-        emails = list(ti.get("emails", []))
-        for cname in ti.get("contact_names", []):
-            cr = client.get(f"{WORKER_URL}/contacts/lookup", params={"q": cname}, timeout=5)
-            if cr.status_code == 200 and cr.json().get("found"):
-                email = cr.json()["contact"].get("email")
-                if email:
-                    emails.append(email)
-        t2r = client.post(
-            f"{WORKER_URL}/t2/queue",
-            json={
-                "action": f"Invite {', '.join(emails or ti.get('contact_names', []))} to #{channel}",
-                "detail": f"Emails: {emails}",
-                "advisor": "kai",
-                "slack_channel": "kai",
-            },
-            timeout=5,
-        )
-        return {"queued": True, "emails": emails, "t2": t2r.json() if t2r.status_code == 200 else {}}
 
 
 def _h_mission(client, tool_name, ti, advisor):
@@ -1257,7 +1218,7 @@ def _h_t2(client, tool_name, ti, advisor):
             timeout=10
         )
         result = resp.json()
-        return {"queued": True, "id": result.get("id"), "message": f"T2 approval requested in Slack. Action ID: {result.get('id')}. React to approve or reject."}
+        return {"queued": True, "id": result.get("id"), "message": f"T2 approval requested — Leo will be asked on Telegram. Action ID: {result.get('id')}. Approve or reject there."}
     except Exception as e:
         logger.exception("request_t2_approval: %s", e)
         return {"error": f"T2 queue failed: {e}"}
@@ -1439,13 +1400,9 @@ TOOL_REGISTRY = {
     "read_vault": _h_vault,
     "read_workspace": _h_vault,
     "list_workspace": _h_vault,
-    # Slack
-    "send_slack_message": _h_slack,
-    "create_slack_channel": _h_slack,
-    "invite_to_slack_channel": _h_slack,
-    # Asset delivery
-    "deliver_asset": _h_slack,
-    "get_advisor_recent_dms": _h_slack,
+    # Asset delivery / advisor DMs (Buzz/Telegram surfaces — Slack retired, KAI-1127)
+    "deliver_asset": _h_delivery,
+    "get_advisor_recent_dms": _h_delivery,
     # Mission / governance
     "start_mission": _h_mission,
     "complete_mission": _h_mission,

@@ -23,7 +23,6 @@ import tailnet_guard
 PROVISIONABLE_SECRETS = frozenset({
     "todoist_api_key",
     "anthropic_api_key",
-    "slack_bot_token",
 })
 
 # Defensive: a provisionable secret name is a bare identifier — no path parts, no separators.

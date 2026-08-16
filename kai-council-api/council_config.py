@@ -75,10 +75,7 @@ ADVISOR_LABELS = {
 # Backward-compat — execute_tool.py imports this
 ADVISOR_AVATARS = {k: v["icon_url"] for k, v in ADVISOR_IDENTITIES.items()}
 
-
-def _slack_token() -> str:
-    p = Path("/run/secrets/slack_bot_token")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
+# _slack_token() removed — Slack retired (AR-5 / KAI-1127). No Slack token is read.
 
 
 # ── Rate limiting (S5R-19: tiered budget) ────────────────────────────────────
