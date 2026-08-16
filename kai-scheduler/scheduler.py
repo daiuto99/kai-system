@@ -224,15 +224,18 @@ def slack_post(token: str, channel: str, text: str,
 
 # ── Telegram Long Polling ──────────────────────────────────────────────────────
 
-def deliver_council_reply(token, chat_id, advisor, message, username, attachments, send=tg_send):
+def deliver_council_reply(token, chat_id, advisor, message, username, attachments, send=None):
     """Build the council payload, call the council, and deliver the reply.
 
     Extracted verbatim from the long-poll loop's text/attachment path so the
     inbound synthetic probe (KAI-1111) exercises the SAME council-delivery core
     the real path uses — not a drifting reimplementation. `send` defaults to the
-    live `tg_send`; the probe passes a capturing callable so nothing lands in a
-    real Telegram thread. Returns the reply string.
+    live `tg_send`, resolved at CALL time (not bound as a default arg) so the
+    original delivery-time global lookup is preserved exactly; the probe passes a
+    no-op callable so nothing lands in a real Telegram thread. Returns the reply string.
     """
+    if send is None:
+        send = tg_send
     payload = {"channel": advisor, "message": message,
                "user_id": f"telegram:{username}", "history": [],
                "trigger_source": f"telegram:dm:{advisor}"}

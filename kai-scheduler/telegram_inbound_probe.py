@@ -145,9 +145,18 @@ def probe_once() -> dict:
             "reason": "healthy round-trip (council reply + outbound live)"}
 
 
-def _page_leo(result: dict, consecutive: int, dry_run: bool) -> str:
-    """Page Leo about a REAL inbound-path outage. provenance defaults to 'real' — do NOT
-    stamp it synthetic or the gateway suppresses it (the KAI-1108 trap)."""
+# notify() decisions under which Leo IS (or already has been this hour) alerted about the
+# outage. `delivered` = it went out now; `suppressed_dedup` = an identical page already
+# reached him this hour. Anything else (send_failed / dashboard_only / suppressed_synthetic)
+# means the alarm did NOT reach his phone — a silent page is itself the KAI-1108 failure and
+# must read as NOT-alerted so it never masquerades as a successful escalation.
+_ALERTED_DECISIONS = frozenset({"delivered", "suppressed_dedup"})
+
+
+def _page_leo(result: dict, consecutive: int, dry_run: bool) -> tuple[bool, str]:
+    """Page Leo about a REAL inbound-path outage. provenance='real' so the gateway does NOT
+    suppress it (the KAI-1108 trap). Returns (alerted, line) where `alerted` is True ONLY if
+    the page actually reached Leo (or was intentionally deduped after reaching him this hour)."""
     title = f"Telegram inbound path DOWN ({consecutive} consecutive fail)"
     body = (f"Synthetic probe through the real council-delivery core failed.\n"
             f"reason: {result['reason']}\n"
@@ -155,7 +164,7 @@ def _page_leo(result: dict, consecutive: int, dry_run: bool) -> str:
             f"This is the KAI-1108 failure class — the inbound path Leo uses from his phone "
             f"(Telegram = emergency-only) is likely dead.")
     if dry_run:
-        return f"[dry-run] would page: {title}"
+        return False, f"[dry-run] would page: {title}"
     try:
         # In-container the notify audit log lives on the mounted vault and is writable;
         # pin it explicitly for parity with advisor_dm_probe.
@@ -172,9 +181,12 @@ def _page_leo(result: dict, consecutive: int, dry_run: bool) -> str:
             provenance="real",     # the outage is real even though the probe message is synthetic
             dedup_key=f"tg_inbound_down:{bucket}",
         ))
-        return f"paged: decision={res.decision} dest={res.destination} delivered={res.delivered}"
+        alerted = res.decision in _ALERTED_DECISIONS
+        tag = "paged" if alerted else "PAGE NOT DELIVERED"
+        return alerted, (f"{tag}: decision={res.decision} dest={res.destination} "
+                         f"delivered={res.delivered}")
     except Exception as e:
-        return f"PAGE FAILED: {type(e).__name__}: {e}"
+        return False, f"PAGE FAILED: {type(e).__name__}: {e}"
 
 
 def main(argv: list[str]) -> int:
@@ -188,8 +200,9 @@ def main(argv: list[str]) -> int:
     green_streak = int(prior.get("green_streak", 0)) + 1 if result["ok"] else 0
 
     page_line = None
+    alerted = False
     if not result["ok"]:
-        page_line = _page_leo(result, consecutive, dry_run)
+        alerted, page_line = _page_leo(result, consecutive, dry_run)
 
     state = {
         "schema": SCHEMA,
@@ -203,7 +216,7 @@ def main(argv: list[str]) -> int:
         "green_streak": green_streak,
         "exit_proof_met": green_streak >= 3,
         "last_ok": _iso(now) if result["ok"] else prior.get("last_ok"),
-        "paged": bool(page_line and page_line.startswith("paged")),
+        "paged": alerted,
         "dry_run": dry_run,
     }
     try:
