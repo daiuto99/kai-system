@@ -5,7 +5,7 @@ import os
 from datetime import datetime as _dt2, date as _d2
 from pathlib import Path
 import httpx
-from council_config import WORKER_URL, VAULT_PATH, ADVISOR_AVATARS, _worker_auth
+from council_config import WORKER_URL, VAULT_PATH, _worker_auth
 from knowledge_layer import _write_session_summary, _write_decision, _log_mission_deliverable
 from usage_tracker import track_api_call
 import function_map as fm
@@ -443,7 +443,7 @@ def _h_ingest(client, tool_name, ti, advisor):
         )
         if result.returncode != 0:
             return {"error": result.stderr[:500]}
-        lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
+        lines = [ln for ln in result.stdout.strip().splitlines() if ln.strip()]
         return {"status": "ok", "summary": lines[-1] if lines else "done", "output": result.stdout.strip()}
     if tool_name == "list_knowledge":
         env = {**__import__("os").environ, "QDRANT_URL": "http://kai-qdrant:6333", "OLLAMA_URL": "http://kai-ollama:11434"}
@@ -727,7 +727,7 @@ def _h_wordpress(client, tool_name, ti, advisor):
             rc, out, err = _ssh(f"ls -la --time-style=long-iso {_sx.quote(abs_p)} 2>&1", timeout=15)
             if rc != 0:
                 return {"error": f"ssh ls failed: {out.decode()[:200]} {err.decode()[:200]}"}
-            lines = [l for l in out.decode().splitlines() if l and not l.startswith("total ")]
+            lines = [ln for ln in out.decode().splitlines() if ln and not ln.startswith("total ")]
             return {"site": site_key, "path": rel or ".", "abs_path": abs_p, "listing": lines}
         except Exception as e:
             logger.exception("wordpress_list_files: %s", e)
@@ -1033,7 +1033,8 @@ def _h_wordpress(client, tool_name, ti, advisor):
             if not img_bytes:
                 return {"error": "file is empty"}
             auth_b64 = _b64.b64encode(f"kai:{site['kai_app_password']}".encode()).decode()
-            import tempfile as _tf, os as _os
+            import tempfile as _tf
+            import os as _os
             ext = _pp.splitext(filename)[1] or ".png"
             with _tf.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
                 tmp.write(img_bytes)
