@@ -62,7 +62,7 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
                     mock.patch.object(gates, "_fire_callback",
                                       side_effect=lambda _u, r: callbacks.append(r)),
                     mock.patch.object(gates, "_persist_gate_record"),
-                    mock.patch.object(gates, "_slack_post", return_value="ts"),
+                    mock.patch.object(gates, "_fyi"),
                 ):
                     gates._process_gate(req)
 
@@ -101,7 +101,7 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
     def test_leo_owned_hostops_gate_auto_resolves_without_t2_prompt(self):
         req = self._request("hostops_deploy_plugin", {"hostops_operation": "deploy_plugin", "site": "site-a", "plugin": "kai-publish-gate", "audit_identity": "app:1:u"})
         self._seed(req)
-        with (mock.patch.object(gates, "_hostops_action", return_value={"op":"deploy_plugin", "owner":"leo"}), mock.patch.object(gates, "_slack_post"), mock.patch.object(gates, "_fire_callback") as callback):
+        with (mock.patch.object(gates, "_hostops_action", return_value={"op":"deploy_plugin", "owner":"leo"}), mock.patch.object(gates, "_fyi"), mock.patch.object(gates, "_fire_callback") as callback):
             gates._process_gate(req)
         self.assertEqual(self.store[req.gate_id]["status"], "resolved")
         callback.assert_called_once()
@@ -126,7 +126,7 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
         self._seed(req)
         with (
             mock.patch.object(gates, "_hostops_action", return_value={"op": "place_secret", "owner": "client", "external_party": True}),
-            mock.patch.object(gates, "_slack_post", return_value="ts"),
+            mock.patch.object(gates, "_fyi"),
             mock.patch.object(gates.httpx, "post") as post,
         ):
             post.return_value.raise_for_status.return_value = None

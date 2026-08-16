@@ -383,22 +383,20 @@ def _slack_token() -> str:
     return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
 
 
-def _slack_post(channel: str, text: str, blocks: list = None, attachments: list = None) -> str:
-    # AR-5.3: Slack retired (AR-5) — dormant no-op. Gate notifications go to
-    # Telegram via _tg_send_gate; the resolve/hostops FYI posts are retired.
-    return ""
+def _fyi(kind: str, title: str, body: str, source: str = "council_gate") -> None:
+    """Route a gate-lifecycle FYI through the notify() chokepoint (KAI-1116).
 
-
-def _extract_image_urls(text: str) -> list[str]:
-    """Parse IMAGE: <url> lines from a creative brief. Returns list of valid https URLs."""
-    urls = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.upper().startswith("IMAGE:"):
-            url = stripped[6:].strip()
-            if url.startswith("https://") and len(url) > 12:
-                urls.append(url)
-    return urls[:5]  # Slack image blocks cap at 5 to keep message readable
+    Replaces the retired _slack_post Slack no-op: gate-resolve, autonomous
+    host-op, approval-send-failure and reviewer-failed-closed notices are
+    operational/DevOps telemetry, not approvals — Rule B lands them on the
+    dashboard notify log, never Leo's phone. Fail-safe: never raises into the
+    gate path (mirrors the old no-op's non-raising contract).
+    """
+    try:
+        from notify_gateway import notify, Event
+        notify(Event(source=source, kind=kind, title=title, body=body, audience="dashboard"))
+    except Exception:
+        logger.exception("notify() FYI failed (kind=%s)", kind)
 
 
 def _extract_verdict(text: str, fallback: str = "see artifact") -> str:
@@ -417,68 +415,6 @@ def _extract_verdict(text: str, fallback: str = "see artifact") -> str:
             return line.split(":", 1)[1].strip() or fallback
     logger.warning("No VERDICT: line in advisor response (len=%d) — using fallback", len(text))
     return fallback
-
-
-def _latest_creative_brief(gate_id: str) -> str:
-    """Return text of the highest-numbered director iteration artifact, or ""."""
-    d = _gate_dir(gate_id)
-    if not d.exists():
-        return ""
-    iters = sorted(d.glob("director_iter_*.md"))
-    if not iters:
-        return ""
-    try:
-        return iters[-1].read_text()
-    except Exception:
-        return ""
-
-
-def _gate_slack_message(gate_id: str, gate_type: str, summary: str, kai_assessment: str, status: str) -> tuple[list, list]:
-    """Build the short Slack message for a gate awaiting Leo.
-
-    Slack is a pointer, not a payload: subject + chain status + artifact dir +
-    decision commands. Full content lives in vault/00_System/gates/{gate_id}/.
-    Nothing here truncates because nothing here is long by design.
-    """
-    gate_label = {
-        "plan_gate":      "Plan Approval",
-        "dev_gate":       "Dev Review",
-        "creative_gate":  "Creative Review",
-        "devops_gate":    "DevOps Review",
-        "hostops_place_secret":  "Host-Op: Place Secret",
-        "hostops_deploy_plugin": "Host-Op: Deploy Plugin",
-    }.get(gate_type, gate_type)
-    icon = {"plan_gate": "📋", "dev_gate": "⚙️", "creative_gate": "🎨", "devops_gate": "🔧",
-            "hostops_place_secret": "🔐", "hostops_deploy_plugin": "🚀"}.get(gate_type, "🔒")
-
-    artifact_path = f"vault/00_System/gates/{gate_id}/"
-
-    body = (
-        f"*Gate ID:* `{gate_id}` · *Status:* {status}\n"
-        f"{summary}\n"
-        f"*Artifacts:* `{artifact_path}`"
-    )
-
-    blocks = [
-        {"type": "header", "text": {"type": "plain_text", "text": f"{icon} Gate: {gate_label}"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": body}},
-        {"type": "section", "text": {"type": "mrkdwn",
-            "text": f"• `approve {gate_id}` — approve\n• `reject {gate_id}: [reason]` — reject"}},
-    ]
-
-    # Mood-board images as attachments (creative gates only). Pull from the
-    # persisted director iteration artifact, not the Slack summary.
-    attachments = []
-    if gate_type == "creative_gate":
-        latest = _latest_creative_brief(gate_id)
-        for i, url in enumerate(_extract_image_urls(latest), 1):
-            attachments.append({
-                "fallback": f"Mood board {i}",
-                "image_url": url,
-                "color": "#C9A84C",
-            })
-
-    return blocks, attachments
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
@@ -600,7 +536,7 @@ def resolve_gate(gate_id: str, req: GateResolve):
     _fire_callback(entry["callback_url"], resolution)
 
     action = "approved" if req.approved else "rejected"
-    _slack_post("#devops", f"Gate `{gate_id}` {action} by {req.resolver}. {req.notes}")
+    _fyi("gate", f"Gate {action}: {gate_id}", f"Gate `{gate_id}` {action} by {req.resolver}. {req.notes}")
     logger.info("Gate %s %s by %s", gate_id, action, req.resolver)
 
     # Learning capture — log Leo's decision and notes as an insight
@@ -736,7 +672,9 @@ def _process_gate(req: GateRequest):
                 _update_gate(req.gate_id, status="resolved", resolution=resolution)
                 _persist_gate_record(req.gate_id, gate_type, brief, resolution)
                 _fire_callback(req.callback_url, resolution)
-                _slack_post("#devops", f"FYI — System action taken: {brief.get('hostops_operation', 'hostops')} on {brief.get('site', 'unknown')} — approved autonomously. {decision.reason}.")
+                _fyi("hostops",
+                     f"Autonomous host action: {brief.get('hostops_operation', 'hostops')} on {brief.get('site', 'unknown')}",
+                     f"System action taken: {brief.get('hostops_operation', 'hostops')} on {brief.get('site', 'unknown')} — approved autonomously. {decision.reason}.")
                 return
         else:
             logger.warning("Unknown gate_type %r — notifying Leo", gate_type)
@@ -768,12 +706,11 @@ def _process_gate(req: GateRequest):
             # approve/reject card IS the chosen approval channel here — keep it.
             tg_ok = _tg_send_gate(req.gate_id, gate_type, summary)
             if not tg_ok:
-                # Fallback ONLY if Telegram is unavailable, so a misconfig cannot
-                # strand a gate. Slack ingress (kai-slack-bot) is retired in AR-5.2;
-                # once it is gone this fallback is notify-only, not actionable.
-                blocks, attachments = _gate_slack_message(req.gate_id, gate_type, summary, kai_assessment, "Awaiting Leo's approval")
-                fallback = f"Gate {req.gate_id} ({gate_type}) needs your approval. Reply `approve {req.gate_id}` or `reject {req.gate_id}: reason`"
-                _slack_post("#devops", fallback, blocks, attachments)
+                # Telegram send failed — record the deliverability failure on the
+                # dashboard notify log so it is visible. The T2 queue below is the
+                # durable, actionable fallback. Slack ingress is retired (AR-5.2).
+                _fyi("gate", f"Gate approval Telegram send failed: {req.gate_id}",
+                     f"Gate {req.gate_id} ({gate_type}): Telegram approval send failed; gate holds pending_leo (hostops gates also attempt the T2 queue below).")
         if gate_type in _HOSTOPS_GATE_TYPES:
             # The typed #devops route remains the durable fallback if this
             # notification surface is unavailable. The summary is reference-only.
@@ -799,7 +736,7 @@ def _process_gate(req: GateRequest):
             except Exception as exc:
                 logger.warning("Hostops gate %s T2 notification unavailable; #devops fallback remains: %s",
                                req.gate_id, exc)
-        logger.info("Gate %s posted to Slack — awaiting Leo", req.gate_id)
+        logger.info("Gate %s pending_leo — awaiting approval", req.gate_id)
 
     except Exception:
         logger.exception("Gate processing failed for %s", req.gate_id)
@@ -813,9 +750,10 @@ def _process_gate(req: GateRequest):
         _update_gate(req.gate_id, status="resolved", resolution=resolution)
         _persist_gate_record(req.gate_id, req.gate_type, req.brief, resolution)
         _fire_callback(req.callback_url, resolution)
-        _slack_post(
-            "#devops",
-            f":rotating_light: Gate `{req.gate_id}` reviewer failed closed. "
+        _fyi(
+            "alert",
+            f"Gate reviewer failed closed: {req.gate_id}",
+            f"Gate `{req.gate_id}` reviewer failed closed. "
             "Work was denied; retry is available after 60 seconds.",
         )
 

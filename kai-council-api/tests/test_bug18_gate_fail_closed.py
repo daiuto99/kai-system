@@ -73,8 +73,8 @@ class GateFailClosedTests(unittest.TestCase):
                     mock.patch.object(gates, "_persist_gate_record"),
                     mock.patch.object(
                         gates,
-                        "_slack_post",
-                        side_effect=lambda channel, text: alerts.append((channel, text)),
+                        "_fyi",
+                        side_effect=lambda kind, title, body, source="council_gate": alerts.append((kind, title, body)),
                     ),
                 ):
                     gates._process_gate(req)
@@ -85,8 +85,8 @@ class GateFailClosedTests(unittest.TestCase):
                 self.assertEqual(state["resolution"]["retry_after"], 60)
                 self.assertEqual(callbacks, [state["resolution"]])
                 self.assertEqual(len(alerts), 1)
-                self.assertEqual(alerts[0][0], "#devops")
-                self.assertIn(req.gate_id, alerts[0][1])
+                self.assertEqual(alerts[0][0], "alert")
+                self.assertIn(req.gate_id, alerts[0][2])
 
     def test_reviewer_wrappers_propagate_crashes(self):
         # KAI-1085: gate reviews are single-shot via _gate_review_llm ->
