@@ -186,6 +186,7 @@ def _log_notify(event: Event, res: NotifyResult) -> None:
         "status": event.status,
         "cause": event.cause,
         "title": (event.title or "")[:200],
+        "body": (event.body or "")[:2000],
     })
 
 
