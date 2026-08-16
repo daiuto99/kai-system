@@ -224,6 +224,47 @@ def slack_post(token: str, channel: str, text: str,
 
 # ── Telegram Long Polling ──────────────────────────────────────────────────────
 
+def deliver_council_reply(token, chat_id, advisor, message, username, attachments, send=tg_send):
+    """Build the council payload, call the council, and deliver the reply.
+
+    Extracted verbatim from the long-poll loop's text/attachment path so the
+    inbound synthetic probe (KAI-1111) exercises the SAME council-delivery core
+    the real path uses — not a drifting reimplementation. `send` defaults to the
+    live `tg_send`; the probe passes a capturing callable so nothing lands in a
+    real Telegram thread. Returns the reply string.
+    """
+    payload = {"channel": advisor, "message": message,
+               "user_id": f"telegram:{username}", "history": [],
+               "trigger_source": f"telegram:dm:{advisor}"}
+    if attachments:
+        payload["attachments"] = attachments
+    try:
+        resp = httpx.post(
+            f"{COUNCIL_API}/council/message",
+            json=payload,
+            timeout=COUNCIL_TIMEOUT_S,
+            auth=worker_auth(),
+        )
+        resp.raise_for_status()
+        reply = resp.json().get("reply", "No response.")
+    except httpx.TimeoutException:
+        log.error("Council API timeout (Telegram) after %ss", COUNCIL_TIMEOUT_S)
+        reply = (f"⚠️ KAI error — the council did not answer within {COUNCIL_TIMEOUT_S}s. "
+                 "It may still be working; ask again in a minute.")
+    except httpx.HTTPStatusError as e:
+        log.error("Council API HTTP %s (Telegram)", e.response.status_code)
+        reply = f"⚠️ KAI error — the council API returned HTTP {e.response.status_code}."
+    except httpx.TransportError as e:
+        log.error("Council API unreachable (Telegram): %s", type(e).__name__)
+        reply = (f"⚠️ KAI error — the council API is unreachable ({type(e).__name__}); "
+                 "the service may be restarting.")
+    except Exception as e:
+        log.error("Council API error (Telegram): %s", type(e).__name__)
+        reply = f"⚠️ KAI error — unexpected {type(e).__name__} while contacting the council."
+    send(token, chat_id, reply)
+    return reply
+
+
 def telegram_poll_loop():
     token = load_secret("telegram_bot_token")
     if not token:
@@ -341,35 +382,7 @@ def telegram_poll_loop():
                     except Exception as e:
                         log.error("Telegram photo download error: %s", type(e).__name__)
                         message = message or "[Photo — could not download]"
-                payload = {"channel": advisor, "message": message,
-                           "user_id": f"telegram:{username}", "history": [],
-                           "trigger_source": f"telegram:dm:{advisor}"}
-                if attachments:
-                    payload["attachments"] = attachments
-                try:
-                    resp = httpx.post(
-                        f"{COUNCIL_API}/council/message",
-                        json=payload,
-                        timeout=COUNCIL_TIMEOUT_S,
-                        auth=worker_auth(),
-                    )
-                    resp.raise_for_status()
-                    reply = resp.json().get("reply", "No response.")
-                except httpx.TimeoutException:
-                    log.error("Council API timeout (Telegram) after %ss", COUNCIL_TIMEOUT_S)
-                    reply = (f"⚠️ KAI error — the council did not answer within {COUNCIL_TIMEOUT_S}s. "
-                             "It may still be working; ask again in a minute.")
-                except httpx.HTTPStatusError as e:
-                    log.error("Council API HTTP %s (Telegram)", e.response.status_code)
-                    reply = f"⚠️ KAI error — the council API returned HTTP {e.response.status_code}."
-                except httpx.TransportError as e:
-                    log.error("Council API unreachable (Telegram): %s", type(e).__name__)
-                    reply = (f"⚠️ KAI error — the council API is unreachable ({type(e).__name__}); "
-                             "the service may be restarting.")
-                except Exception as e:
-                    log.error("Council API error (Telegram): %s", type(e).__name__)
-                    reply = f"⚠️ KAI error — unexpected {type(e).__name__} while contacting the council."
-                tg_send(token, chat_id, reply)
+                deliver_council_reply(token, chat_id, advisor, message, username, attachments)
 
         except httpx.TimeoutException:
             pass

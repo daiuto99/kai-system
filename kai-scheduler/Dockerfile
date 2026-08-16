@@ -12,6 +12,7 @@ COPY worker_auth.py .
 COPY redact.py .
 COPY test_token_redaction.py .
 COPY scheduler.py .
+COPY telegram_inbound_probe.py .
 COPY watchdog.py .
 COPY security_watchdog.py .
 COPY execution_registry.py .
