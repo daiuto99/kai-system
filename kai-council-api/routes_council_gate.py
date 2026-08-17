@@ -495,6 +495,11 @@ def list_pending_gates():
             # of pending_leo; this is the second lock on that door.
             if entry and entry.get("gate_type") == "synthetic_probe":
                 continue
+            # Defense in depth (KAI-1113): a WP-probe-flagged gate must likewise never be
+            # surfaced to the buzz poller. _process_gate auto-resolves probe gates before they
+            # reach pending_leo; this is the second lock on that door.
+            if entry and (entry.get("brief") or {}).get("probe") is True:
+                continue
             if entry and entry.get("status") == "pending_leo":
                 if _gate_is_orphaned(entry):
                     # job died/terminal but gate stuck pending_leo — reap so it stops
@@ -671,6 +676,27 @@ def _process_gate(req: GateRequest):
     try:
         gate_type = req.gate_type
         brief     = req.brief
+
+        # KAI-1113 · [MR1] WP governed-pipeline probe. A probe-launched build_page_draft run
+        # (worker-api build-draft, probe=True) stamps brief.probe=True. Its dev_gate/
+        # creative_gate must NOT run the LLM review chain (advisor liveness is covered by
+        # advisor_dm_probe; gate human-resolve by KAI-1112) and must NEVER reach pending_leo
+        # (no weekly Leo spam). Auto-resolve approved and fire the callback so the workflow
+        # resumes to the WP write chokepoint — exercising the governed WP path end-to-end.
+        # Hard-confined to drafts-only dev_gate/creative_gate: it can never auto-approve a
+        # publish/homepage/hostops or any non-draft gate.
+        if (brief.get("probe") is True
+                and gate_type in ("dev_gate", "creative_gate")
+                and brief.get("write_mode") == "draft_only"):
+            resolution = {"approved": True,
+                          "notes": "auto-approved: WP governed-pipeline synthetic probe (KAI-1113)",
+                          "advisor": "wp_probe"}
+            _update_gate(req.gate_id, status="resolved", resolution=resolution)
+            _persist_gate_record(req.gate_id, gate_type, brief, resolution)
+            _fire_callback(req.callback_url, resolution)
+            logger.info("Gate %s (%s) auto-resolved — WP governed-pipeline probe (KAI-1113); no review/notify",
+                        req.gate_id, gate_type)
+            return
 
         if gate_type == "plan_gate":
             summary, kai_assessment = _plan_gate_review(brief, req.gate_id)

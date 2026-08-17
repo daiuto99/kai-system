@@ -865,6 +865,11 @@ class BuildDraftRequest(BaseModel):
     page_title: str
     page_content: Optional[str] = None
     brief_path: Optional[str] = None
+    # KAI-1113 · [MR1] WP governed-pipeline probe. When True, the launched
+    # build_page_draft run stamps its dev_gate/creative_gate briefs probe=True so
+    # kai-council-api auto-approves them (drafts-only, never pending_leo, no LLM review).
+    # Only reachable behind the worker-api BasicAuth boundary; defaults False for the dashboard.
+    probe: bool = False
 
 
 @router.post("/wordpress/{site_id}/build-draft")
@@ -882,6 +887,8 @@ def build_draft(site_id: str, req: BuildDraftRequest):
         inputs["page_content"] = req.page_content
     if req.brief_path:
         inputs["brief_path"] = req.brief_path
+    if req.probe:
+        inputs["probe"] = True
     payload = {"type": "wordpress.build_page_draft", "inputs": inputs}
     try:
         with httpx.Client(timeout=30) as client:

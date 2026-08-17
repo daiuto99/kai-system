@@ -146,6 +146,10 @@ class PublishHomepageWorkflow(Workflow):
             "site":      ctx.get("site", ""),
             "workflow":  self.name,
             "write_mode": getattr(self, "write_mode", "publish"),
+            # KAI-1113 · [MR1] WP governed-pipeline probe marker. Only set True when the
+            # build was launched via the authed worker-api build-draft launcher with
+            # probe=True; council-api auto-approves probe-flagged drafts-only gates.
+            "probe":     bool(ctx.get("probe", False)),
             "context":   {k: ctx[k] for k in ("site", "fqdn") if k in ctx},
         }
         # KAI-1083 — drafts-only builds carry a real deliverable envelope so the dev
