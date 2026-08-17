@@ -683,7 +683,6 @@ def suite_regression():
     if has_snooze:
         disk_patterns = ["write_text(", "json.dump(", ".open(", "Path(", "pkl.dump", "pickle"]
         has_disk_write = any(p in watchdog_txt for p in disk_patterns)
-        has_mem_only   = "_last_alert" in watchdog_txt and not has_disk_write
         if has_disk_write:
             _record("R-2", "Snooze persists to disk (not memory-only)", PASS,
                     "File-based snooze write detected in watchdog.py")
@@ -946,10 +945,10 @@ def suite_policy():
                 body = resp.get("body", {})
                 if status_code == 400 and ("50" in str(body) or "reason" in str(body).lower()):
                     _record("P-1", "OVERRIDE rejects short reason", PASS,
-                            f"HTTP 400 with reason enforcement message")
+                            "HTTP 400 with reason enforcement message")
                 elif status_code == 400:
                     _record("P-1", "OVERRIDE rejects short reason", PASS,
-                            f"HTTP 400 returned (reason validation present)")
+                            "HTTP 400 returned (reason validation present)")
                 else:
                     _record("P-1", "OVERRIDE rejects short reason", FAIL,
                             f"Short reason not rejected: HTTP {status_code} — {str(body)[:150]}")
