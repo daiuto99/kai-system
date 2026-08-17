@@ -301,6 +301,14 @@ def _tg_gate_chat_ids() -> list[str]:
     return [ln.strip() for ln in p.read_text().splitlines() if ln.strip()]
 
 
+def _plain(s: str) -> str:
+    """Strip legacy-Markdown decoration (`*` and backticks) that gate summaries still carry
+    from when these messages were sent parse_mode='Markdown'. Now that they go as PLAIN text
+    (KAI-1134), that decoration would otherwise render as literal markup noise to Leo.
+    Underscores are left intact — they are common in real paths/ids and are not decoration."""
+    return (s or "").replace("*", "").replace("`", "")
+
+
 def _tg_send_gate(gate_id: str, gate_type: str, summary: str) -> bool:
     """Send the pending_leo gate prompt to Telegram with inline approve/reject
     buttons. Returns True if at least one allowed chat was notified.
@@ -328,11 +336,14 @@ def _tg_send_gate(gate_id: str, gate_type: str, summary: str) -> bool:
             "devops_gate": "🔧", "hostops_place_secret": "🔐",
             "hostops_deploy_plugin": "🚀"}.get(gate_type, "🔒")
 
+    # Plain text (no parse_mode): Telegram legacy-Markdown 400s on unescaped dynamic
+    # gate content (ids, types, free-text summary) and SILENTLY DROPS the message —
+    # an approval/alert surface must never be content-fragile (KAI-1134).
     text = (
-        f"{icon} *Gate: {gate_label}*\n"
-        f"`{gate_id}`\n\n"
-        f"{summary}\n\n"
-        f"Artifacts: `vault/00_System/gates/{gate_id}/`"
+        f"{icon} Gate: {gate_label}\n"
+        f"{gate_id}\n\n"
+        f"{_plain(summary)}\n\n"
+        f"Artifacts: vault/00_System/gates/{gate_id}/"
     )
     keyboard = {"inline_keyboard": [[
         {"text": "✅ Approve", "callback_data": f"gate:approve:{gate_id}"},
@@ -341,8 +352,7 @@ def _tg_send_gate(gate_id: str, gate_type: str, summary: str) -> bool:
 
     sent_any = False
     for chat_id in chat_ids:
-        if send_telegram(chat_id, text, reason="gate",
-                         reply_markup=keyboard, parse_mode="Markdown"):
+        if send_telegram(chat_id, text, reason="gate", reply_markup=keyboard):
             sent_any = True
         else:
             logger.warning("Telegram gate send failed for %s", gate_id)
@@ -360,16 +370,19 @@ def _tg_alert_buzz_down(gate_id: str, gate_type: str, summary: str) -> bool:
     if not chat_ids:
         logger.warning("No telegram_allowed_chat_ids — buzz-down alert for %s not sent", gate_id)
         return False
+    # Plain text (no parse_mode): this is the EMERGENCY lifeline — Telegram legacy-Markdown
+    # 400s on unescaped dynamic content (gate id/type/summary) and silently drops the
+    # alert, so the one message that must always land was the most fragile (KAI-1134).
     text = (
-        "🚨 *Buzz is DOWN — approval held*\n"
-        f"`{gate_id}` ({gate_type})\n\n"
-        f"{summary}\n\n"
+        "🚨 Buzz is DOWN — approval held\n"
+        f"{gate_id} ({gate_type})\n\n"
+        f"{_plain(summary)}\n\n"
         "This approval is HELD. Recover Buzz (health-check) or resolve at the keyboard. "
         "Telegram is the emergency line only — it cannot approve."
     )
     sent_any = False
     for chat_id in chat_ids:
-        if send_telegram(chat_id, text, reason="gate", parse_mode="Markdown"):
+        if send_telegram(chat_id, text, reason="gate"):
             sent_any = True
         else:
             logger.warning("Telegram buzz-down alert send failed for %s", gate_id)
@@ -476,6 +489,12 @@ def list_pending_gates():
             if not d.is_dir():
                 continue
             entry = _GATES_STORE.get(d.name)
+            # Defense in depth (KAI-1112): a synthetic_probe gate must NEVER be surfaced to
+            # the buzz poller and prompted to Leo, even if a stray one is ever persisted in
+            # pending_leo (e.g. a mixed-version rollout). _process_gate already keeps them out
+            # of pending_leo; this is the second lock on that door.
+            if entry and entry.get("gate_type") == "synthetic_probe":
+                continue
             if entry and entry.get("status") == "pending_leo":
                 if _gate_is_orphaned(entry):
                     # job died/terminal but gate stuck pending_leo — reap so it stops
@@ -533,7 +552,10 @@ def resolve_gate(gate_id: str, req: GateResolve):
     entry = _update_gate(gate_id, status="resolved", resolution=resolution)
 
     _persist_gate_record(gate_id, entry["gate_type"], entry["brief"], resolution)
-    _fire_callback(entry["callback_url"], resolution)
+    # A synthetic_probe gate (KAI-1112) has no orchestrator workflow to resume, so there
+    # is no callback to fire — skip it (avoids a weekly warning on an unreachable URL).
+    if entry.get("gate_type") != "synthetic_probe":
+        _fire_callback(entry["callback_url"], resolution)
 
     action = "approved" if req.approved else "rejected"
     _fyi("gate", f"Gate {action}: {gate_id}", f"Gate `{gate_id}` {action} by {req.resolver}. {req.notes}")
@@ -547,6 +569,10 @@ def resolve_gate(gate_id: str, req: GateResolve):
 
 def _capture_gate_learning(gate_id: str, gate_type: str, approved: bool, notes: str, resolver: str):
     """Capture Leo's gate decision. For creative gates, run taste distillation into BUILD_PROFILE."""
+    # KAI-1112: a synthetic approval-probe resolution is not a Leo decision — never let it
+    # pollute the human taste/learning log (gate_feedback.md) with a weekly APPROVED line.
+    if gate_type == "synthetic_probe":
+        return
     try:
         from pathlib import Path as _Path
         insights_file = _Path("/vault/60_Council/learning/gate_feedback.md")
@@ -676,6 +702,17 @@ def _process_gate(req: GateRequest):
                      f"Autonomous host action: {brief.get('hostops_operation', 'hostops')} on {brief.get('site', 'unknown')}",
                      f"System action taken: {brief.get('hostops_operation', 'hostops')} on {brief.get('site', 'unknown')} — approved autonomously. {decision.reason}.")
                 return
+        elif gate_type == "synthetic_probe":
+            # KAI-1112 · [MR1] Approvals round-trip probe. A synthetic low-stakes gate
+            # (scripts/approval_round_trip_probe.py) that exercises the resolve RETURN
+            # path — the path with zero resolved lines since 2026-08-12. It must NOT
+            # reach pending_leo: that would make the buzz_approve poller prompt Leo on
+            # his real kai-approvals channel every week. Leave it in 'processing' (the
+            # resolve endpoint accepts 'processing'), so list_pending_gates never surfaces
+            # it to the poller; the probe then resolves it directly, driving the exact
+            # resolve_gate handler Leo's tap fires. No review, no notification, no Leo spam.
+            logger.info("Gate %s is a synthetic_probe (KAI-1112) — no review/notify; awaiting probe resolve", req.gate_id)
+            return
         else:
             logger.warning("Unknown gate_type %r — notifying Leo", gate_type)
             _persist_artifact(req.gate_id, "brief", json.dumps(brief, indent=2))
