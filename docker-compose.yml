@@ -231,6 +231,7 @@ services:
   cloudflare-tunnel:
     image: cloudflare/cloudflared:2026.3.0
     container_name: cloudflare-tunnel
+    user: "1000:1000"
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     secrets:
