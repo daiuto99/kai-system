@@ -59,6 +59,10 @@ TAILNET_ALLOWED_PORTS = LAN_ALLOWED_PORTS | frozenset({
     5678,   # n8n authenticated OAuth recovery/editor control plane
     41641,  # Tailscale WireGuard transport
     55542,  # tailscaled TCP listener on the Tailscale address (live inode 45147)
+    4001,   # kai-buzz-shim advisor backend — Leo's native Buzz app over tailnet; LAN bind removed (bf39ec79)
+    3000,   # buzz-relay Nostr app port — tailnet wss (tailscale-serve :443) + nginx :3002; LAN bind removed (bf39ec79)
+    3002,   # buzz-hostproxy nginx NIP-29 host-rewrite -> relay; loopback+tailnet, LAN removed (bf39ec79)
+    443,    # tailscale-serve HTTPS (ts.net cert) — Leo's Buzz app ingress on the tailnet (bf39ec79)
 })
 
 # Kill switch — INVARIANT_RUNNER_ENABLED=false skips all checks entirely (kill-switch-first)

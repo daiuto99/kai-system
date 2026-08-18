@@ -427,16 +427,19 @@ services:
     restart: always
     environment:
       - BUZZ_AGENT_DIR=/agent
-      - CONNECT_URL=ws://host.docker.internal:3002
-      - BUZZ_MEDIA_URL=http://host.docker.internal:3000/media/upload
+      - CONNECT_URL=ws://100.78.94.80:3002
+      - BUZZ_MEDIA_URL=http://buzz-relay:3000/media/upload
       - RELAY_TAG=wss://kai-worker.tail7f43c5.ts.net
-      - RELAY_URL=ws://host.docker.internal:3000
+      - RELAY_URL=ws://buzz-relay:3000
       - BUZZ_COUNCIL_URL=http://kai-web/council/message
       - BUZZ_COUNCIL_BASE=http://kai-web/council/council
       - LITELLM_URL=http://kai-litellm:4000/v1/chat/completions
       - LITELLM_KEY_FILE=/run/secrets/litellm_master_key
       - KAI_WEB_PW_FILE=/run/secrets/kai_web_password
       - BUZZ_APPROVAL_HEARTBEAT=/vault/00_System/buzz_approve_heartbeat
+    networks:
+      - default
+      - buzz-net
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -455,7 +458,8 @@ services:
     container_name: kai-buzz-shim
     restart: always
     ports:
-      - "4001:4001"
+      - "127.0.0.1:4001:4001"
+      - "100.78.94.80:4001:4001"
     environment:
       - BUZZ_COUNCIL_URL=http://kai-web/council/message
       - LITELLM_URL=http://kai-litellm:4000/v1/chat/completions
@@ -548,3 +552,8 @@ secrets:
     file: ./secrets/wp_the71c_kai_app_password.txt
   wp_the71company_kai_app_password:
     file: ./secrets/wp_the71company_kai_app_password.txt
+
+networks:
+  buzz-net:
+    external: true
+    name: buzz-net
