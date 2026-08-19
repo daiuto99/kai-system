@@ -16,7 +16,7 @@ def test_hostops_tap_resolves_gate_and_never_uses_generic_execution(monkeypatch)
     saved = []
     monkeypatch.setattr(t2, "_t2_load", lambda: [entry])
     monkeypatch.setattr(t2, "_t2_save", lambda queue: saved.append(queue[0].copy()))
-    monkeypatch.setattr(t2, "_post_slack_thread", lambda *_: None)
+    monkeypatch.setattr(t2, "_post_t2_result", lambda *_: None)
     response = mock.Mock()
     response.raise_for_status.return_value = None
     response.json.return_value = {"resolved": True}
@@ -39,7 +39,7 @@ def test_hostops_rejection_resolves_gate_with_rejection_reason(monkeypatch):
     entry = _entry()
     monkeypatch.setattr(t2, "_t2_load", lambda: [entry])
     monkeypatch.setattr(t2, "_t2_save", lambda _: None)
-    monkeypatch.setattr(t2, "_post_slack_thread", lambda *_: None)
+    monkeypatch.setattr(t2, "_post_t2_result", lambda *_: None)
     response = mock.Mock()
     response.raise_for_status.return_value = None
     response.json.return_value = {"resolved": True}

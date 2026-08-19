@@ -105,7 +105,7 @@ UNKNOWNS:
 def lse_review(state: BugState) -> BugState:
     system = load_persona("kai")
 
-    prompt = f"""You are reviewing a bug diagnosis from the Support Engineer. 
+    prompt = f"""You are reviewing a bug diagnosis from the Support Engineer.
 Your job: verify the root cause analysis is sound and the proposed fix is appropriate.
 
 BUG: {state['issue_name']}

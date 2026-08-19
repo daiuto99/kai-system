@@ -67,7 +67,7 @@ class GatePollerTests(unittest.TestCase):
                 "_poll_gate_cycle",
                 side_effect=RuntimeError("forced poll failure"),
             ),
-            mock.patch.object(main, "_post_slack") as alert,
+            mock.patch.object(main, "_notify") as alert,
         ):
             main._gate_poller_loop(max_cycles=4, sleep_fn=sleeps.append)
 
@@ -83,7 +83,7 @@ class GatePollerTests(unittest.TestCase):
                 "_poll_gate_cycle",
                 side_effect=[RuntimeError("one"), RuntimeError("two"), None, None],
             ),
-            mock.patch.object(main, "_post_slack") as alert,
+            mock.patch.object(main, "_notify") as alert,
         ):
             main._gate_poller_loop(max_cycles=4, sleep_fn=sleeps.append)
 
@@ -100,7 +100,7 @@ class GatePollerTests(unittest.TestCase):
 
         with (
             mock.patch("httpx.get") as http_get,
-            mock.patch.object(main, "_post_slack") as alert,
+            mock.patch.object(main, "_notify") as alert,
         ):
             main._gate_poller_loop(max_cycles=3, sleep_fn=lambda _delay: None)
 
@@ -128,7 +128,7 @@ class GatePollerTests(unittest.TestCase):
 
         with (
             mock.patch("httpx.get", return_value=response) as http_get,
-            mock.patch.object(main, "_post_slack") as alert,
+            mock.patch.object(main, "_notify") as alert,
         ):
             main._gate_poller_loop(max_cycles=3, sleep_fn=lambda _delay: None)
 

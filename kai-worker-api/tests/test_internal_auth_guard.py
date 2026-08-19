@@ -45,6 +45,11 @@ _DIR_DENYLIST = {
     ".git", ".claude", ".pytest_cache", ".ruff_cache", "__pycache__",
     "secrets", "logs", "n8n-data", "n8n-workflows", "docs", "docker-socket-proxy",
     "litellm", "kai-wordpress-plugin",
+    # kai-slack-bot: RETIRED (AR-5.2), not in docker-compose, not deployed. Its
+    # frozen source holds a dead httpx.post to /slack/events (that endpoint was
+    # removed with the worker slack router in KAI-1129); excluded here to match
+    # ci_no_slack_api.sh, which already skips kai-slack-bot. Not a live service.
+    "kai-slack-bot",
 }
 
 # Literal substrings that identify the worker's own network address. Matched

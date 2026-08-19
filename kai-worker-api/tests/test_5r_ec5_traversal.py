@@ -127,7 +127,7 @@ def run():
     print(f"Group B (external API ID):   {b_pass}/{b_total} return 4xx")
 
     if failures:
-        print(f"\n[FAIL] Group A routes not returning expected code:")
+        print("\n[FAIL] Group A routes not returning expected code:")
         for method, path, group, status, expected in failures:
             print(f"  {method} {path} → got {status}, expected {expected} ({group})")
         sys.exit(1)

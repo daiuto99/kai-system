@@ -964,10 +964,10 @@ def suite_policy():
     if main_py.exists():
         main_txt = main_py.read_text()
         has_override_fn  = "def override_step" in main_txt or "override_step" in main_txt
-        has_slack_in_fn  = "_post_slack" in main_txt
+        has_slack_in_fn  = "_notify" in main_txt
         if has_override_fn and has_slack_in_fn:
             _record("P-2", "OVERRIDE posts Slack ack", PASS,
-                    "_post_slack called within override endpoint in main.py")
+                    "_notify called within override endpoint in main.py")
         else:
             _record("P-2", "OVERRIDE posts Slack ack", FAIL,
                     "No Slack call inside override_step() in main.py")

@@ -4,7 +4,6 @@ import os
 import threading
 import uuid
 from datetime import datetime as _dt
-from pathlib import Path
 from urllib.parse import urlparse
 import httpx
 from fastapi import APIRouter, HTTPException
