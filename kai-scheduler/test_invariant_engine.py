@@ -311,7 +311,7 @@ class SeededViolationTests(unittest.TestCase):
         key = "backup_integrity"
         self.inv._prev_state[key] = True  # seed prior pass
 
-        with mock.patch.object(self.inv, "_slack_post") as slack, \
+        with mock.patch.object(self.inv, "_telegram_alert") as alert, \
              mock.patch.object(self.inv, "_file_invariant_issue") as plane_file, \
              mock.patch.object(self.inv, "_load_secret", return_value="fake-token"):
             checks = self._make_checks(key, "seeded test failure — backup.log not found")
@@ -321,10 +321,10 @@ class SeededViolationTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertFalse(results[key]["pass"])
         self.assertEqual(results[key]["detail"], "seeded test failure — backup.log not found")
-        # Transition detected → Slack fired
-        slack.assert_called_once()
-        slack_msg = slack.call_args[0][1]
-        self.assertIn("Backup Integrity", slack_msg)
+        # Transition detected → Telegram alert fired
+        alert.assert_called_once()
+        alert_msg = alert.call_args[0][0]
+        self.assertIn("Backup Integrity", alert_msg)
         # Plane filing attempted
         plane_file.assert_called_once_with(key, "Backup Integrity", "seeded test failure — backup.log not found")
 
@@ -336,7 +336,7 @@ class SeededViolationTests(unittest.TestCase):
             self.inv._violation_issue_ids[k] = 4242
 
         checks = self._make_checks(key, "already failing at process start")
-        with mock.patch.object(self.inv, "_slack_post"), \
+        with mock.patch.object(self.inv, "_telegram_alert"), \
              mock.patch.object(self.inv, "_file_invariant_issue", side_effect=_map_issue) as plane_file, \
              mock.patch.object(self.inv, "_load_secret", return_value="fake-token"), \
              mock.patch.object(self.inv, "INVARIANTS", checks):
@@ -359,7 +359,7 @@ class SeededViolationTests(unittest.TestCase):
             filed_count[0] += 1
             self.inv._violation_issue_ids[k] = 9999  # simulate filed
 
-        with mock.patch.object(self.inv, "_slack_post"), \
+        with mock.patch.object(self.inv, "_telegram_alert"), \
              mock.patch.object(self.inv, "_file_invariant_issue", side_effect=_count_file), \
              mock.patch.object(self.inv, "_load_secret", return_value="fake-token"):
             checks = self._make_checks(key, "seeded failure run 1")
@@ -384,7 +384,7 @@ class SeededViolationTests(unittest.TestCase):
             filed_count[0] += 1
             self.inv._violation_issue_ids[k] = 8888
 
-        with mock.patch.object(self.inv, "_slack_post"), \
+        with mock.patch.object(self.inv, "_telegram_alert"), \
              mock.patch.object(self.inv, "_file_invariant_issue", side_effect=_count_file), \
              mock.patch.object(self.inv, "_load_secret", return_value="fake-token"):
             # Run 1: recovery (fail→pass) — clears dedup
@@ -408,7 +408,7 @@ class SeededViolationTests(unittest.TestCase):
         self.inv._prev_state[key] = True
         self.inv._violation_issue_ids[key] = 1234
 
-        with mock.patch.object(self.inv, "_slack_post"), \
+        with mock.patch.object(self.inv, "_telegram_alert"), \
              mock.patch.object(self.inv, "_file_invariant_issue"), \
              mock.patch.object(self.inv, "_load_secret", return_value="fake-token"):
             checks = self._make_checks(key, "test")
@@ -434,7 +434,7 @@ class SeededViolationTests(unittest.TestCase):
             checks = self._make_checks(key, "continuing failure")
             with mock.patch.object(self.inv, "_mapped_issue_is_open", return_value=True), \
                  mock.patch.object(self.inv, "_file_invariant_issue", side_effect=lambda *a: calls.append(a)), \
-                 mock.patch.object(self.inv, "_slack_post"), \
+                 mock.patch.object(self.inv, "_telegram_alert"), \
                  mock.patch.object(self.inv, "_load_secret", return_value="fake-token"), \
                  mock.patch.object(self.inv, "INVARIANTS", checks):
                 self.inv.run_invariants()
@@ -450,7 +450,7 @@ class SeededViolationTests(unittest.TestCase):
         self.inv._violation_issue_refs[key] = {"sequence_id": 4242, "issue_id": "issue-4242"}
         checks = self._make_checks("__none__", "")
         with mock.patch.object(self.inv, "_close_invariant_issue", return_value=True) as close, \
-             mock.patch.object(self.inv, "_slack_post"), \
+             mock.patch.object(self.inv, "_telegram_alert"), \
              mock.patch.object(self.inv, "_load_secret", return_value="fake-token"), \
              mock.patch.object(self.inv, "INVARIANTS", checks):
             self.inv.run_invariants()

@@ -209,16 +209,15 @@ def _handle_modelock_callback(token: str, cbq: dict, allowed: "frozenset[int]") 
     _answer_callback(token, cbq.get("id"), text=toast)
 
 
-# ── Slack helpers (kept for health alerts only) ────────────────────────────────
+# ── Telegram alert helper (operational health alerts only) ─────────────────────
 
-def slack_post(token: str, channel: str, text: str,
-               username: str = "KAI", icon_url: str = ""):
-    # AR-5.3: rerouted to Telegram (sole surface). token/channel/icon ignored.
+def telegram_post(text: str) -> dict:
+    """Post an operational alert to Telegram — the sole alert surface (AR-5.3)."""
     try:
         from tg_alert import tg_alert
         return {"ok": bool(tg_alert(text))}
     except Exception as e:
-        log.error("slack_post->telegram failed: %s", e)
+        log.error("telegram_post failed: %s", e)
         return {"ok": False}
 
 
@@ -412,13 +411,11 @@ def check_worker_health():
         alerts = data.get("alerts", [])
         if not alerts:
             return
-        slack_token = load_secret("slack_bot_token")
         msg = ("*Worker Health Alert* — thresholds breached:\n"
                + "\n".join(f"  • {a}" for a in alerts)
                + f"\n\nDisk: {data['disk_pct']}% | Mem: {data['mem_pct']}% | "
                  f"Temp: {data.get('temp_c', 'N/A')}°C | Uptime: {data['uptime']}")
-        if slack_token:
-            slack_post(slack_token, "devops", msg)
+        telegram_post(msg)
         log.info(f"Health alert sent: {alerts}")
     except Exception as e:
         log.warning(f"Health check error: {e}")
@@ -518,7 +515,7 @@ def send_checkin(checkin_type: str):
         )
         result = r.json() if r.status_code == 200 else {}
         if result.get("ok"):
-            log.info("checkin sent to Slack: %s ts=%s", checkin_type, result.get("ts"))
+            log.info("checkin sent: %s ts=%s", checkin_type, result.get("ts"))
         else:
             log.error("checkin send failed: %s", result)
     except Exception as e:
@@ -584,16 +581,12 @@ def _n8n_oauth_health_job():
 
     # Alert on TWO consecutive failures
     if (not overall_ok) and (prev.get("ok") is False):
-        token = load_secret("slack_bot_token")
-        if token:
-            fail_lines = [f"• {k}: {v}" for k, v in checks.items() if v is not True]
-            msg = ("*n8n health check failed twice in a row* — investigate before workflows start dropping silently.\n"
-                   + "\n".join(fail_lines)
-                   + f"\n\nRecovery: see `scripts/n8n_oauth_recover.md`")
-            slack_post(token, "#devops", msg,
-                       username="DevOps",
-                       icon_url="https://kai.sonicink.space/avatar-devops.png")
-        log.warning("n8n health: alerted #devops (2x failure) — %s", checks)
+        fail_lines = [f"• {k}: {v}" for k, v in checks.items() if v is not True]
+        msg = ("*n8n health check failed twice in a row* — investigate before workflows start dropping silently.\n"
+               + "\n".join(fail_lines)
+               + f"\n\nRecovery: see `scripts/n8n_oauth_recover.md`")
+        telegram_post(msg)
+        log.warning("n8n health: alerted (2x failure) — %s", checks)
     elif not overall_ok:
         log.info("n8n health: first failure — debouncing, will alert next tick if still broken")
     else:
@@ -621,8 +614,8 @@ def _heartbeat_job():
     """KAI dead-man's-switch: push heartbeat to healthchecks.io every 5 min.
 
     External monitor — if this stops firing for ~10 min (grace period set on
-    the healthchecks.io check), they alert Leo via Slack webhook / Telegram /
-    email. None of those alert paths route through the KAI worker, so they
+    the healthchecks.io check), they alert Leo via Telegram / email. None of
+    those alert paths route through the KAI worker, so they
     survive the worker being completely down.
 
     Body is a compact state summary the dashboard shows alongside the ping.
@@ -818,7 +811,7 @@ def main():
 
 
     def _weekly_learning_cron():
-        """Monday 07:00 ET -- write weekly learning recap to vault + post Slack."""
+        """Monday 07:00 ET -- write weekly learning recap to vault."""
         import json as _json
         now_local = datetime.now(_leo_timezone())
         iso_week = now_local.strftime("%Y-W%W")

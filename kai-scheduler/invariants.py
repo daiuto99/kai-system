@@ -1,7 +1,7 @@
 """
 KAI Invariant Engine — S5-2 core + batch 1 + batch 2 (23 invariants).
 Runs every 30 min via scheduler. Writes /vault/00_System/invariants.json.
-Posts Slack + files Plane issue on pass→fail transition. Deduped: one Plane
+Posts Telegram alert + files Plane issue on pass→fail transition. Deduped: one Plane
 issue per failure period (cleared on recovery). Kill switch: set
 INVARIANT_RUNNER_ENABLED=false to skip all checks entirely (exit immediately).
 D5 conservative auto-remediation: stale-job abandon, transport-probe map
@@ -141,8 +141,8 @@ def _capability_auth_headers() -> dict[str, str]:
     return {"X-KAI-Capability-Key": secret} if secret else {}
 
 
-def _slack_post(token: str, text: str):
-    # AR-5.3: rerouted to Telegram (sole surface). Legacy token arg ignored.
+def _telegram_alert(text: str):
+    """Post an invariant alert to Telegram — the sole alert surface (AR-5.3)."""
     try:
         from tg_alert import tg_alert
         tg_alert(text)
@@ -441,11 +441,6 @@ def inv_council_api_latency() -> tuple[bool, str]:
         return False, f"slow: {ms}ms > {THRESHOLD_MS}ms threshold"
     except Exception as e:
         return False, f"latency check error: {e}"
-
-
-def inv_slack_token() -> tuple[bool, str]:
-    """AR-5.3: Slack retired (AR-5) — token no longer required; invariant retired."""
-    return True, "retired (AR-5) — Slack not in use"
 
 
 def inv_execution_registry_freshness() -> tuple[bool, str]:
@@ -1363,7 +1358,6 @@ INVARIANTS = [
     ("container_health",              "Container Health",          inv_container_health),
     ("vault_writability",             "Vault Writability",         inv_vault_writability),
     ("council_api_latency",           "Council API Latency",       inv_council_api_latency),
-    ("slack_token",                   "Slack Token",               inv_slack_token),
     ("execution_registry_freshness",  "Execution Registry Fresh",  inv_execution_registry_freshness),
     ("cert_expiry",                   "SSL Cert Expiry",           inv_cert_expiry),
     ("backup_integrity",              "Backup Integrity",          inv_backup_integrity),
@@ -1428,7 +1422,6 @@ def run_invariants(send_daily_digest: bool = False):
     all_pass = True
     transitions: list[str] = []
     recoveries: list[str] = []
-    token = _load_secret("slack_bot_token")
 
     for key, label, fn in INVARIANTS:
         try:
@@ -1495,23 +1488,23 @@ def run_invariants(send_daily_digest: bool = False):
     except Exception as e:
         log.error("invariants: failed to write %s: %s", RESULT_PATH, e)
 
-    # JARVIS §6 Slack alerts
-    if transitions and token:
+    # JARVIS §6 Telegram alerts
+    if transitions:
         body = "; ".join(t.lstrip("•").strip() for t in transitions)
         msg = (
             f"CRITICAL — KAI invariant failure at {now_utc.strftime('%H:%M UTC')}. "
             f"You need to take action — check the dashboard. {body}"
         )
-        _slack_post(token, msg)
+        _telegram_alert(msg)
         log.warning("invariants: posted transition alert (%d failures)", len(transitions))
 
-    if recoveries and token:
+    if recoveries:
         body = "; ".join(r.lstrip("•").strip() for r in recoveries)
         msg = (
             f"System Issue Corrected: {body} — corrected by DevOps at "
             f"{now_utc.strftime('%H:%M UTC')}. System Status 100%."
         )
-        _slack_post(token, msg)
+        _telegram_alert(msg)
         log.info("invariants: posted recovery alert (%d recovered)", len(recoveries))
 
     status = (
