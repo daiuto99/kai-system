@@ -94,6 +94,15 @@ def _registry() -> list[dict]:
             "max_age_sec": 600 * 2 + 300,   # 25 min — ~2 missed cycles + slack
         },
         {
+            "name": "kai_dm_agent",
+            "ticket": "KAI-1142",
+            "path": v / "00_System" / "buzz_agent_KAI_heartbeat",
+            "kind": "epoch_raw",
+            "field": None,
+            "cadence_sec": 50,         # written every recv-loop iteration (idle re-arm ~50s)
+            "max_age_sec": 50 * 3 + 150,   # ~5 min — a few missed cycles + slack
+        },
+        {
             "name": "buzz_approve_loop",
             "ticket": "KAI-1108",
             "path": v / "00_System" / "buzz_approve_heartbeat",

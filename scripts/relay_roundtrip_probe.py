@@ -155,7 +155,13 @@ def main(argv: list[str]) -> int:
 
     result = probe_once()
     prior = _load_prior()
-    consecutive = 0 if result["ok"] else int(prior.get("consecutive_failures", 0)) + 1
+    # Defensive: a malformed prior heartbeat must NEVER raise here and suppress the page — a
+    # failing probe has to page fail-closed regardless of the state file's contents.
+    try:
+        prev_fail = int(prior.get("consecutive_failures", 0))
+    except (TypeError, ValueError):
+        prev_fail = 0
+    consecutive = 0 if result["ok"] else prev_fail + 1
 
     page_line = None
     if not result["ok"]:

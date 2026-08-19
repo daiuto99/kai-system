@@ -63,6 +63,11 @@ IDLE_RESUB_SEC = 50        # after this much inbound silence, re-arm the REQ (re
                            # silently-dropped subscription without forcing a reconnect)
 BACKFILL_SLACK_SEC = 180   # on reconnect, look back this far so a gap message is not lost
 RECONNECT_BACKOFF_SEC = 3  # pause before reconnecting (prevents a hot loop on a hard error)
+MAX_CLOSED_STRIKES = 3     # consecutive relay CLOSEDs before forcing a full reconnect (fresh AUTH)
+# Where the always-on agents stamp a liveness heartbeat (container vault bind mount). meta_monitor
+# watches KAI's file so KAI's OWN loop being alive is monitored directly — the round-trip probe
+# exercises a sibling identity, so this closes the "green probe, dead KAI subscription" gap.
+AGENT_HEARTBEAT_DIR = os.environ.get("BUZZ_AGENT_HEARTBEAT_DIR", "/vault/00_System")
 
 LEO_PUBKEY = "0aba761fc4d63a1c69118af62e6d62c85179bee15afadac5a974252fed7a4b44"
 
@@ -92,6 +97,7 @@ AGENTS = [
         "name": "KAI", "key": "kai_dm.key", "chan_file": "kai_dm_channel.txt",
         "chan_name": "kai", "about": "KAI — your assistant. Real orchestrator, full context.",
         "avatar": "kai_avatar.png", "backend": "council", "council_channel": "kai",
+        "heartbeat": True,  # meta_monitor watches this agent's own loop liveness (KAI-1142)
     },
     {
         "name": "Sky", "key": "sky.key", "chan_file": "sky_channel.txt",
@@ -140,6 +146,23 @@ AGENTS = [
 
 def log(name, *a):
     print(f"[{time.strftime('%H:%M:%S')}][{name}]", *a, flush=True)
+
+
+def _heartbeat(cfg):
+    """Best-effort liveness stamp for agents that opt in (`heartbeat: True`). Written once per
+    recv-loop iteration — on every message and every idle cycle — so meta_monitor can assert the
+    agent's own event loop is alive independent of the round-trip probe. Never raises."""
+    if not cfg.get("heartbeat"):
+        return
+    try:
+        os.makedirs(AGENT_HEARTBEAT_DIR, exist_ok=True)
+        path = os.path.join(AGENT_HEARTBEAT_DIR, f"buzz_agent_{cfg['name']}_heartbeat")
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(str(int(time.time())))
+        os.replace(tmp, path)
+    except Exception:
+        pass
 
 
 def load_or_create_key(path):
@@ -312,7 +335,9 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
     log(cfg["name"], "online — listening" if state["first"] else f"reconnected — backfill since={since}")
     state["first"] = False
     seen = state["seen"]
+    closed_strikes = 0
     while True:
+        _heartbeat(cfg)  # stamp liveness every iteration (message or idle) — meta_monitor watches it
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=IDLE_RESUB_SEC)
         except asyncio.TimeoutError:
@@ -329,27 +354,37 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
             log(cfg["name"], "CLOSED", m[1:])
             # A fresh channel can reject the first subscription because the create/owner-member
             # row has not committed yet. Re-assert ownership+membership, then re-arm the sub so
-            # provisioning self-heals within seconds instead of waiting a full idle cycle.
+            # provisioning self-heals within seconds. But if the relay keeps rejecting us (stale
+            # auth/membership), stop re-arming in place after a few strikes and force a full
+            # reconnect (fresh AUTH + ensure) rather than looping here forever.
+            closed_strikes += 1
+            if closed_strikes >= MAX_CLOSED_STRIKES:
+                raise ConnectionError(f"repeated CLOSED x{closed_strikes} — forcing reconnect")
             await asyncio.sleep(2)
             await ensure()
             await resub()
         elif m[0] in ("OK", "NOTICE"):
+            closed_strikes = 0
             log(cfg["name"], m[0], m[1:])
         elif m[0] == "EVENT" and m[1] == "sub":
+            closed_strikes = 0
             ev = m[2]
             # Only ever answer the served human — never another agent. In a shared room this
             # is what stops two agents (Roads + Sky) from replying to each other forever.
             if ev.get("kind") != 9 or ev.get("pubkey") != answer_pub or ev["id"] in seen:
                 continue
-            seen.add(ev["id"])
             try:
-                state["last_seen"] = max(state["last_seen"], int(ev.get("created_at", state["last_seen"])))
+                created = int(ev.get("created_at", state["last_seen"]))
             except (TypeError, ValueError):
-                pass
-            # Shared rooms: only answer when this agent is addressed by name.
+                created = state["last_seen"]
+            # Shared rooms: only answer when this agent is addressed by name. A message we will
+            # NEVER answer is marked seen immediately (intentional non-answer) and advances the
+            # watermark so it isn't replayed.
             if cfg.get("addressed_only"):
                 low = ev.get("content", "").lower()
                 if not any(a in low for a in cfg.get("aliases", [])):
+                    seen.add(ev["id"])
+                    state["last_seen"] = max(state["last_seen"], created)
                     continue
             log(cfg["name"], f"<< {ev['pubkey'][:8]}: {ev.get('content','')[:80]}")
             try:
@@ -364,8 +399,15 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
                 log(cfg["name"], f"!! unexpected error: {e}")
                 reply = ("Something went wrong on my end handling that — resend it and I'll "
                          "try again; nothing in our thread was lost.")
+            # Publish the reply BEFORE marking the message answered. If the send raises (link
+            # died mid-reply), we deliberately do NOT add to `seen` or advance the watermark, so
+            # the reconnect backfill re-delivers it and we answer — never a silently lost reply
+            # (the exact KAI-1142 failure). Dedup is safe: the recv loop is sequential, so no
+            # replay is processed while this message is mid-flight.
             await ws.send(json.dumps(["EVENT", sign_event(pk, 9,
                 [["h", cid], ["e", ev["id"]], ["p", ev["pubkey"]]], reply)]))
+            seen.add(ev["id"])
+            state["last_seen"] = max(state["last_seen"], created)
             log(cfg["name"], f">> {reply[:100]}")
 
 
