@@ -85,6 +85,15 @@ def _registry() -> list[dict]:
             "max_age_sec": 180 * 3 + 120,   # 11 min — ~3 missed cycles + slack
         },
         {
+            "name": "relay_roundtrip_probe",
+            "ticket": "KAI-1142",
+            "path": v / "_relay_roundtrip_state.json",
+            "kind": "iso_field",
+            "field": "last_probe",
+            "cadence_sec": 600,        # */10 host cron (docker exec into kai-buzz)
+            "max_age_sec": 600 * 2 + 300,   # 25 min — ~2 missed cycles + slack
+        },
+        {
             "name": "buzz_approve_loop",
             "ticket": "KAI-1108",
             "path": v / "00_System" / "buzz_approve_heartbeat",

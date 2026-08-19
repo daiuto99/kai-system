@@ -15,6 +15,22 @@ KAI-1020 hardening (2026-08-03):
     with backoff, and only an exhausted retry emits an honest, in-voice "resend" line.
   * Each Buzz channel now carries its own server-owned council thread (thread_ts = the Nostr
     channel id), so #kai and #reclamation no longer share (and clobber) one conversation.
+
+KAI-1142 self-healing (2026-08-18):
+  * ROOT CAUSE of a real Leo DM going unanswered while every monitor stayed green: a single
+    fire-and-forget `websockets.connect` with no reconnect. When the relay silently stopped
+    delivering to the agent's subscription (socket still "up", container `restarts=0`), the
+    agent blocked forever in `async for` receiving nothing — no council call, no reply, no
+    exit, no restart. run_agent is now a SELF-HEALING loop: explicit ws ping keepalive
+    (detects a truly dead socket), a periodic REQ re-arm (recovers a silently-dropped
+    subscription without churn), reconnect-with-backoff on any link loss, and BACKFILL on
+    reconnect (`since = last_seen - slack`, not `since = now`) so a message that arrived
+    during a gap is not lost. A cross-reconnect `seen` set stops backfilled messages from
+    being answered twice.
+  * The answered-sender and channel-member pubkeys are now per-agent (member_key_file /
+    answer_key_file), and a cheap `echo` backend was added, so the KAI-1142 relay round-trip
+    probe can drive the REAL agent transport through a dedicated, isolated probe channel
+    (KAIProbe) without ever touching Leo's real DMs or calling the council.
 """
 import asyncio, json, hashlib, time, os, sys, base64, urllib.request, urllib.error
 import websockets
@@ -40,6 +56,14 @@ WEB_PW = open(os.path.expanduser(os.environ.get("KAI_WEB_PW_FILE", "~/kai-system
 RETRY_STATUSES = {401, 403, 429, 500, 502, 503, 504}
 RETRY_BACKOFF = (2, 4, 8)  # seconds; len == max retries after the first attempt
 
+# KAI-1142: self-healing relay link tunables.
+WS_PING_INTERVAL = 20      # ws-level keepalive ping cadence (detects a dead TCP/WS socket)
+WS_PING_TIMEOUT = 20       # missed-pong -> ConnectionClosed -> reconnect
+IDLE_RESUB_SEC = 50        # after this much inbound silence, re-arm the REQ (recover a
+                           # silently-dropped subscription without forcing a reconnect)
+BACKFILL_SLACK_SEC = 180   # on reconnect, look back this far so a gap message is not lost
+RECONNECT_BACKOFF_SEC = 3  # pause before reconnecting (prevents a hot loop on a hard error)
+
 LEO_PUBKEY = "0aba761fc4d63a1c69118af62e6d62c85179bee15afadac5a974252fed7a4b44"
 
 EMBER_SYSTEM = (
@@ -59,7 +83,13 @@ class BackendError(Exception):
 
 AGENTS = [
     {
-        "name": "KAI", "key": "kai.key", "chan_file": "kai_channel.txt",
+        # KAI-1142: repointed to a NEW server identity (kai_dm.key) on a FRESH channel
+        # (kai_dm_channel.txt). The prior identity/channel (kai.key on the archived "kai"
+        # channel, c7caaeee, archived 2026-08-04) was dead, and Leo's app had drifted to a
+        # desktop-app-bound "Kai" (fbbccadd) that only answers while his laptop is open — the
+        # real cause of the unanswered DM. This is the ALWAYS-ON, council-backed "Kai" DM Leo
+        # re-adds as a contact. kai.key stays reserved for the separate approvals poller.
+        "name": "KAI", "key": "kai_dm.key", "chan_file": "kai_dm_channel.txt",
         "chan_name": "kai", "about": "KAI — your assistant. Real orchestrator, full context.",
         "avatar": "kai_avatar.png", "backend": "council", "council_channel": "kai",
     },
@@ -92,6 +122,18 @@ AGENTS = [
         "chan_name": "GearTalk", "about": "GearTalk — shared gear room.",
         "avatar": "sky_avatar.png", "backend": "council", "council_channel": "sky",
         "join": True, "addressed_only": True, "aliases": ["sky"],
+    },
+    {
+        # KAI-1142: internal round-trip liveness probe. NOT a real advisor — a dedicated,
+        # isolated private channel whose only member/answered-sender is a synthetic probe
+        # client (kaiprobe_client.key), replying via the cheap `echo` backend (no council
+        # call). Exercises the EXACT relay->agent->relay transport whose silent death left a
+        # real Leo DM unanswered, without touching Leo's DMs or spending council tokens.
+        "name": "KAIProbe", "key": "kaiprobe.key", "chan_file": "kaiprobe_channel.txt",
+        "chan_name": "kaiprobe", "about": "Internal round-trip liveness probe (not a real advisor).",
+        "avatar": None, "backend": "echo", "council_channel": "kai",
+        "member_key_file": "kaiprobe_client.key", "answer_key_file": "kaiprobe_client.key",
+        "probe": True,
     },
 ]
 
@@ -199,6 +241,12 @@ def call_council(council_channel, text, thread_ts=""):
 
 
 def backend_reply(cfg, text, thread_ts=""):
+    if cfg["backend"] == "echo":
+        # KAI-1142: round-trip liveness echo. Deliberately NO council call — this backend
+        # exists only to prove the relay->agent->relay transport is alive. Echo the client's
+        # message back verbatim so the probe can confirm its own nonce round-tripped (and so
+        # a stale/duplicate reply is rejected).
+        return f"__relay_probe_ack__ {text.strip()}"
     if cfg["backend"] == "council":
         msg = text
         cf = cfg.get("context_file")
@@ -229,65 +277,128 @@ async def authenticate(ws, pk):
             return
 
 
+async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
+    """One connected session: (re)establish the channel/subscription and pump events until
+    the link drops. Raises on any link loss so the caller reconnects. `state` carries the
+    cross-reconnect dedup set + last-seen watermark so backfill never re-answers a message."""
+    join = cfg.get("join")
+
+    async def ensure():
+        """Idempotently (re)assert channel ownership, profile, and the served member. Safe to
+        repeat: on a brand-new channel the first attempt can race the create commit and be
+        rejected ('restricted: not a channel member'), so this is also re-run on a CLOSED sub."""
+        if join:
+            return
+        await ws.send(json.dumps(["EVENT", sign_event(pk, 9007,
+            [["h", cid], ["name", cfg["chan_name"]], ["visibility", "private"], ["about", cfg["about"]]], "")]))
+        await asyncio.sleep(1.5)  # let the channel commit before member/profile writes
+        prof = {"name": cfg["name"], "display_name": cfg["name"], "about": cfg["about"]}
+        if avatar:
+            prof["picture"] = avatar
+        await ws.send(json.dumps(["EVENT", sign_event(pk, 0, [], json.dumps(prof))]))
+        # add the served human (Leo, or the synthetic probe client) as a member
+        await ws.send(json.dumps(["EVENT", sign_event(pk, 9000, [["h", cid], ["p", member_pub], ["role", "member"]], "")]))
+
+    async def resub():
+        # Cold start: only take live messages (since=now). Otherwise look back so a message
+        # that arrived while we were disconnected/unsubscribed is not lost (the silent drop).
+        since = int(time.time()) if state["first"] else max(0, state["last_seen"] - BACKFILL_SLACK_SEC)
+        await ws.send(json.dumps(["REQ", "sub", {"kinds": [9], "#h": [cid], "since": since}]))
+        return since
+
+    await authenticate(ws, pk)
+    await ensure()
+    since = await resub()
+    log(cfg["name"], "online — listening" if state["first"] else f"reconnected — backfill since={since}")
+    state["first"] = False
+    seen = state["seen"]
+    while True:
+        try:
+            raw = await asyncio.wait_for(ws.recv(), timeout=IDLE_RESUB_SEC)
+        except asyncio.TimeoutError:
+            # Inbound silence. A live socket is proven by ws ping/pong; a SILENTLY-DROPPED
+            # subscription (socket up, no delivery) is the KAI-1142 signature, so re-arm the
+            # REQ. Cheap + idempotent (replayed events are deduped by `seen`); no reconnect
+            # churn on a healthy-but-idle channel.
+            await resub()
+            continue
+        m = json.loads(raw)
+        if m[0] == "AUTH":
+            await ws.send(json.dumps(["AUTH", sign_event(pk, 22242, [["relay", RELAY], ["challenge", m[1]]], "")]))
+        elif m[0] == "CLOSED":
+            log(cfg["name"], "CLOSED", m[1:])
+            # A fresh channel can reject the first subscription because the create/owner-member
+            # row has not committed yet. Re-assert ownership+membership, then re-arm the sub so
+            # provisioning self-heals within seconds instead of waiting a full idle cycle.
+            await asyncio.sleep(2)
+            await ensure()
+            await resub()
+        elif m[0] in ("OK", "NOTICE"):
+            log(cfg["name"], m[0], m[1:])
+        elif m[0] == "EVENT" and m[1] == "sub":
+            ev = m[2]
+            # Only ever answer the served human — never another agent. In a shared room this
+            # is what stops two agents (Roads + Sky) from replying to each other forever.
+            if ev.get("kind") != 9 or ev.get("pubkey") != answer_pub or ev["id"] in seen:
+                continue
+            seen.add(ev["id"])
+            try:
+                state["last_seen"] = max(state["last_seen"], int(ev.get("created_at", state["last_seen"])))
+            except (TypeError, ValueError):
+                pass
+            # Shared rooms: only answer when this agent is addressed by name.
+            if cfg.get("addressed_only"):
+                low = ev.get("content", "").lower()
+                if not any(a in low for a in cfg.get("aliases", [])):
+                    continue
+            log(cfg["name"], f"<< {ev['pubkey'][:8]}: {ev.get('content','')[:80]}")
+            try:
+                reply = await asyncio.to_thread(backend_reply, cfg, ev.get("content", ""), cid)
+            except BackendError as e:
+                # KAI-1020: retries exhausted. Never speak the raw error, never drop the
+                # turn silently — say so honestly and ask Leo to resend so the thread stays whole.
+                log(cfg["name"], f"!! backend failed: {e}")
+                reply = ("I hit a transient backend hiccup and couldn't process that one — "
+                         "our thread is intact, so just resend it and I'll pick right up.")
+            except Exception as e:
+                log(cfg["name"], f"!! unexpected error: {e}")
+                reply = ("Something went wrong on my end handling that — resend it and I'll "
+                         "try again; nothing in our thread was lost.")
+            await ws.send(json.dumps(["EVENT", sign_event(pk, 9,
+                [["h", cid], ["e", ev["id"]], ["p", ev["pubkey"]]], reply)]))
+            log(cfg["name"], f">> {reply[:100]}")
+
+
 async def run_agent(cfg):
     pk = load_or_create_key(cfg["key"])
     cid = get_channel(cfg["chan_file"])
     me = xonly(pk)
     join = cfg.get("join")  # join a channel we don't own (a shared room): subscribe + reply only
-    avatar = None if join else await asyncio.to_thread(upload_avatar, pk, cfg["avatar"])
-    log(cfg["name"], "pubkey", me, "channel", cid, "connect", CONNECT_URL, "tag", RELAY)
-    async with websockets.connect(CONNECT_URL, max_size=2 ** 20) as ws:
-        await authenticate(ws, pk)
-        if not join:
-            # ensure private channel first (client-chosen UUID via h-tag; idempotent)
-            await ws.send(json.dumps(["EVENT", sign_event(pk, 9007,
-                [["h", cid], ["name", cfg["chan_name"]], ["visibility", "private"], ["about", cfg["about"]]], "")]))
-            await asyncio.sleep(1.0)  # let the channel commit before member/profile writes
-            # profile (kind:0): name + avatar
-            prof = {"name": cfg["name"], "display_name": cfg["name"], "about": cfg["about"]}
-            if avatar:
-                prof["picture"] = avatar
-            await ws.send(json.dumps(["EVENT", sign_event(pk, 0, [], json.dumps(prof))]))
-            # add Leo as a member
-            await ws.send(json.dumps(["EVENT", sign_event(pk, 9000, [["h", cid], ["p", LEO_PUBKEY], ["role", "member"]], "")]))
-        # subscribe to live human messages
-        await ws.send(json.dumps(["REQ", "sub", {"kinds": [9], "#h": [cid], "since": int(time.time())}]))
-        log(cfg["name"], "online — listening")
-        seen = set()
-        async for raw in ws:
-            m = json.loads(raw)
-            if m[0] == "AUTH":
-                await ws.send(json.dumps(["AUTH", sign_event(pk, 22242, [["relay", RELAY], ["challenge", m[1]]], "")]))
-            elif m[0] in ("OK", "CLOSED", "NOTICE"):
-                log(cfg["name"], m[0], m[1:])
-            elif m[0] == "EVENT" and m[1] == "sub":
-                ev = m[2]
-                # Only ever answer Leo — never another agent. In a shared room this is
-                # what stops two agents (Roads + Sky) from replying to each other forever.
-                if ev["kind"] != 9 or ev["pubkey"] != LEO_PUBKEY or ev["id"] in seen:
-                    continue
-                seen.add(ev["id"])
-                # Shared rooms: only answer when this agent is addressed by name.
-                if cfg.get("addressed_only"):
-                    low = ev.get("content", "").lower()
-                    if not any(a in low for a in cfg.get("aliases", [])):
-                        continue
-                log(cfg["name"], f"<< {ev['pubkey'][:8]}: {ev.get('content','')[:80]}")
-                try:
-                    reply = await asyncio.to_thread(backend_reply, cfg, ev.get("content", ""), cid)
-                except BackendError as e:
-                    # KAI-1020: retries exhausted. Never speak the raw error, never drop the
-                    # turn silently — say so honestly and ask Leo to resend so the thread stays whole.
-                    log(cfg["name"], f"!! backend failed: {e}")
-                    reply = ("I hit a transient backend hiccup and couldn't process that one — "
-                             "our thread is intact, so just resend it and I'll pick right up.")
-                except Exception as e:
-                    log(cfg["name"], f"!! unexpected error: {e}")
-                    reply = ("Something went wrong on my end handling that — resend it and I'll "
-                             "try again; nothing in our thread was lost.")
-                await ws.send(json.dumps(["EVENT", sign_event(pk, 9,
-                    [["h", cid], ["e", ev["id"]], ["p", ev["pubkey"]]], reply)]))
-                log(cfg["name"], f">> {reply[:100]}")
+    # Which human this agent serves: Leo by default; the probe serves its synthetic client.
+    member_pub = xonly(load_or_create_key(cfg["member_key_file"])) if cfg.get("member_key_file") else LEO_PUBKEY
+    answer_pub = xonly(load_or_create_key(cfg["answer_key_file"])) if cfg.get("answer_key_file") else LEO_PUBKEY
+    avatar = None
+    if not join and cfg.get("avatar"):
+        avatar = await asyncio.to_thread(upload_avatar, pk, cfg["avatar"])
+    log(cfg["name"], "pubkey", me, "channel", cid, "connect", CONNECT_URL, "tag", RELAY,
+        "answers", answer_pub[:8])
+    # Cross-reconnect state: dedup set + last-seen watermark survive reconnects so backfill
+    # never re-answers a message already handled, and never loses one that arrived in a gap.
+    state = {"seen": set(), "last_seen": int(time.time()), "first": True}
+    while True:  # KAI-1142: self-healing reconnect loop — a dropped/half-open/silently-idle
+                 # relay link now reconnects + backfills instead of dying quietly or blocking
+                 # forever on a dead socket (the root cause of the unanswered Leo DM).
+        try:
+            async with websockets.connect(CONNECT_URL, max_size=2 ** 20,
+                                          ping_interval=WS_PING_INTERVAL,
+                                          ping_timeout=WS_PING_TIMEOUT,
+                                          close_timeout=10) as ws:
+                await _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log(cfg["name"], f"~~ link lost ({type(e).__name__}: {e}) — reconnecting in {RECONNECT_BACKOFF_SEC}s")
+            await asyncio.sleep(RECONNECT_BACKOFF_SEC)
 
 
 async def main():

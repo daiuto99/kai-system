@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir uv
 COPY requirements.txt .
 RUN uv pip install --system --no-cache -r requirements.txt
 
-COPY agents_bridge.py buzz_approve.py buzz_provision.py ember_bridge.py sky_dm.py ./
+COPY agents_bridge.py buzz_approve.py buzz_provision.py ember_bridge.py sky_dm.py relay_roundtrip_client.py ./
 COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
 

@@ -315,3 +315,10 @@ notify_dedup write failed: PermissionError
 [2026-08-18T23:30:01.153112Z] OK advisor=roads 2431ms — healthy round-trip
 [2026-08-18T23:45:01.611930Z] OK advisor=coach 2667ms — healthy round-trip
 [2026-08-19T00:00:01.889993Z] OK advisor=kai 6941ms — healthy round-trip
+[2026-08-19T00:15:01.386052Z] OK advisor=sky 3402ms — healthy round-trip
+[2026-08-19T00:30:01.270101Z] OK advisor=roads 4304ms — healthy round-trip
+[2026-08-19T00:45:01.587112Z] OK advisor=coach 3642ms — healthy round-trip
+[2026-08-19T01:00:01.791439Z] OK advisor=kai 3269ms — healthy round-trip
+[2026-08-19T01:15:01.582115Z] OK advisor=sky 12933ms — healthy round-trip
+[2026-08-19T01:30:01.312952Z] OK advisor=roads 3346ms — healthy round-trip
+[2026-08-19T01:45:01.794685Z] OK advisor=coach 13715ms — healthy round-trip

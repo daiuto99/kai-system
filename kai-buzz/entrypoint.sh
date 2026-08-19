@@ -13,6 +13,7 @@ python3 -u agents_bridge.py Roads        &
 python3 -u agents_bridge.py Coach        &
 python3 -u agents_bridge.py GearTalk     &
 python3 -u agents_bridge.py GearTalkSky  &
+python3 -u agents_bridge.py KAIProbe     &   # KAI-1142 round-trip probe responder (echo backend, isolated channel)
 python3 -u buzz_approve.py               &
 
 # Wait for ANY child to exit, then fail so the container restarts the full set.
