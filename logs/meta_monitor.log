@@ -953,3 +953,4 @@
 [2026-08-19T02:00:01.737575Z] OK checked=4 | advisor_dm_probe=ok(900s) | fleet_heartbeat=ok(181s) | relay_roundtrip_probe=ok(121s) | buzz_approve_loop=ok(5s)
 [2026-08-19T02:05:01.758115Z] STALE(1) checked=5 | advisor_dm_probe=ok(300s) | fleet_heartbeat=ok(121s) | relay_roundtrip_probe=ok(300s) | kai_dm_agent=STALE(Nones) | buzz_approve_loop=ok(3s) || kai_dm_agent: paged: decision=delivered dest=telegram delivered=True
 [2026-08-19T02:10:01.788259Z] OK checked=5 | advisor_dm_probe=ok(600s) | fleet_heartbeat=ok(61s) | relay_roundtrip_probe=ok(600s) | kai_dm_agent=ok(19s) | buzz_approve_loop=ok(6s)
+[2026-08-19T02:15:01.661963Z] OK checked=5 | advisor_dm_probe=ok(900s) | fleet_heartbeat=ok(181s) | relay_roundtrip_probe=ok(300s) | kai_dm_agent=ok(48s) | buzz_approve_loop=ok(6s)

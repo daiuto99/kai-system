@@ -64,8 +64,9 @@ IDLE_RESUB_SEC = 50        # after this much inbound silence, re-arm the REQ (re
 BACKFILL_SLACK_SEC = 180   # on reconnect, look back this far so a gap message is not lost
 RECONNECT_BACKOFF_SEC = 3  # pause before reconnecting (prevents a hot loop on a hard error)
 MAX_CLOSED_STRIKES = 3     # consecutive relay CLOSEDs before forcing a full reconnect (fresh AUTH)
-PENDING_ACK_TIMEOUT_SEC = 30  # wait this long for the relay's OK on a reply before assuming it
-                              # landed — bounds re-answering if a relay never acks (belt & braces)
+PENDING_ACK_TIMEOUT_SEC = 30  # wait this long for the relay's OK on a reply before re-sending it
+MAX_REPLY_RESENDS = 2         # re-send an un-acked reply up to this many times (bias to at-least-once,
+                              # never silent loss) before finally assuming delivered
 # Where the always-on agents stamp a liveness heartbeat (container vault bind mount). meta_monitor
 # watches KAI's file so KAI's OWN loop being alive is monitored directly — the round-trip probe
 # exercises a sibling identity, so this closes the "green probe, dead KAI subscription" gap.
@@ -338,10 +339,11 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
     state["first"] = False
     seen = state["seen"]
     closed_strikes = 0
-    # reply_event_id -> (inbound_id, inbound_created, sent_ts). An inbound message is marked
-    # answered ONLY when the relay ACKs our reply (OK <reply_id> true) — a local ws.send success
-    # only means the frame left this process, not that the relay persisted it. Un-acked replies
-    # are swept to answered after a bounded timeout so a silent/ack-less relay can't loop us.
+    # reply_event_id -> {iid, created, ts, ev, attempts}. An inbound message is marked answered
+    # ONLY when the relay ACKs our reply (OK <reply_id> true) — a local ws.send success only means
+    # the frame left this process, not that the relay persisted it. An un-acked reply is RE-SENT
+    # (relay dedups by id; a re-send of an accepted event still draws a fresh OK) up to a bound,
+    # biasing to at-least-once — never a silent reply loss.
     pending = {}
 
     def _mark_answered(inbound_id, created):
@@ -350,14 +352,22 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
 
     while True:
         _heartbeat(cfg)  # stamp liveness every iteration (message or idle) — meta_monitor watches it
-        # Bound the un-acked window: if the relay never OK'd a reply, assume it landed rather than
-        # re-answer forever. Timeout < IDLE_RESUB_SEC so a sweep always precedes an idle replay.
+        # Sweep un-acked replies: re-send (bias to delivery), then give up after a bound so a
+        # protocol-violating ack-less relay can't loop forever. Timeout < IDLE_RESUB_SEC so this
+        # always runs before an idle replay of the same inbound.
         if pending:
             now = int(time.time())
-            for rid in [r for r, (_, _, ts) in pending.items() if now - ts > PENDING_ACK_TIMEOUT_SEC]:
-                iid, created, _ = pending.pop(rid)
-                log(cfg["name"], f"~~ no relay OK for reply {rid[:8]} in {PENDING_ACK_TIMEOUT_SEC}s — assuming delivered")
-                _mark_answered(iid, created)
+            for rid in [r for r, p in pending.items() if now - p["ts"] > PENDING_ACK_TIMEOUT_SEC]:
+                p = pending[rid]
+                if p["attempts"] < MAX_REPLY_RESENDS:
+                    p["attempts"] += 1
+                    p["ts"] = now
+                    log(cfg["name"], f"~~ no relay OK for reply {rid[:8]} — re-send {p['attempts']}/{MAX_REPLY_RESENDS}")
+                    await ws.send(json.dumps(["EVENT", p["ev"]]))
+                else:
+                    pending.pop(rid)
+                    log(cfg["name"], f"~~ reply {rid[:8]} unacked after {MAX_REPLY_RESENDS} re-sends — assuming delivered")
+                    _mark_answered(p["iid"], p["created"])
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=IDLE_RESUB_SEC)
         except asyncio.TimeoutError:
@@ -384,15 +394,16 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
             await ensure()
             await resub()
         elif m[0] == "OK":
-            closed_strikes = 0
             # ["OK", <event_id>, <accepted bool>, <msg>]. Correlate against a pending reply:
             # only on relay-accepted do we mark the inbound answered. A rejected reply leaves the
-            # inbound unseen so the reconnect/idle path re-answers it.
+            # inbound unseen so the reconnect/idle path re-answers it. NOTE: deliberately does NOT
+            # reset closed_strikes — an OK acks a channel/reply write, not that our SUBSCRIPTION
+            # delivers; only a received inbound EVENT proves delivery and clears the strike count.
             rid = m[1] if len(m) > 1 else None
             if rid in pending:
-                iid, created, _ = pending.pop(rid)
+                p = pending.pop(rid)
                 if len(m) > 2 and m[2]:
-                    _mark_answered(iid, created)
+                    _mark_answered(p["iid"], p["created"])
                 else:
                     log(cfg["name"], "reply REJECTED by relay — will retry", m[1:])
             else:
@@ -438,7 +449,8 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
             # silently lost reply (the exact KAI-1142 failure). The recv loop is sequential, so no
             # replay is processed while a message is mid-flight.
             reply_ev = sign_event(pk, 9, [["h", cid], ["e", ev["id"]], ["p", ev["pubkey"]]], reply)
-            pending[reply_ev["id"]] = (ev["id"], created, int(time.time()))
+            pending[reply_ev["id"]] = {"iid": ev["id"], "created": created,
+                                       "ts": int(time.time()), "ev": reply_ev, "attempts": 0}
             try:
                 await ws.send(json.dumps(["EVENT", reply_ev]))
             except Exception:
