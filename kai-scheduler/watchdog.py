@@ -634,6 +634,121 @@ def surface_fleet_reboots() -> None:
         log.warning("fleet reboot seen-map write failed: %s", e)
 
 
+# ── Fleet-wide container alarm (KAI-14155ea7 / M-R1) ──────────────────────────
+# green_baseline and the CHECKS list watch a hand-maintained set of NAMED services.
+# This sweep covers EVERY container from `docker ps -a` (~35): any in `restarting`
+# state, or `exited` non-zero, sustained past a grace window, pages via the notify()
+# gateway (dashboard — a crash-loop is DevOps's to handle, not Leo's phone, Rule B).
+# It runs on its own 5-min scheduler job (NOT the 30-min watchdog + 3-tick threshold)
+# so a down container is detected within the 10-min SLA. exited-0 one-shots (e.g.
+# plane-migrator) are healthy completions and never page.
+FLEET_CONTAINER_STATE_FILE = Path("/vault/00_System/fleet_container_alarm_state.json")
+FLEET_CONTAINER_GRACE_SEC = int(os.environ.get("FLEET_CONTAINER_GRACE_SEC", "600"))  # 10 min
+
+
+def _fleet_bad_containers() -> dict:
+    """Return {name: reason} for containers restarting or exited-nonzero right now."""
+    import re
+    bad: dict = {}
+    try:
+        res = subprocess.run(
+            ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"],
+            capture_output=True, text=True, timeout=20,
+        )
+    except Exception as e:
+        log.error("fleet container scan: docker ps -a failed: %s", e)
+        return bad
+    if res.returncode != 0:
+        log.error("fleet container scan: docker ps -a rc=%s", res.returncode)
+        return bad
+    for line in res.stdout.strip().splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        name, state = parts[0], parts[1]
+        status = parts[2] if len(parts) > 2 else ""
+        if state == "restarting":
+            bad[name] = "restarting"
+        elif state == "exited":
+            m = re.search(r"Exited \((\d+)\)", status)
+            code = int(m.group(1)) if m else 1
+            if code != 0:  # exited(0) = healthy one-shot completion, never a failure
+                bad[name] = f"exited({code})"
+    return bad
+
+
+def _load_fleet_container_state() -> dict:
+    try:
+        import json as _json
+        return _json.loads(FLEET_CONTAINER_STATE_FILE.read_text()).get("bad", {})
+    except Exception:
+        return {}
+
+
+def _save_fleet_container_state(bad_state: dict) -> None:
+    try:
+        import json as _json
+        FLEET_CONTAINER_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = FLEET_CONTAINER_STATE_FILE.with_suffix(".tmp")
+        tmp.write_text(_json.dumps({"bad": bad_state}, indent=2))
+        tmp.replace(FLEET_CONTAINER_STATE_FILE)  # atomic
+    except Exception as e:
+        log.warning("fleet container state write failed: %s", e)
+
+
+def run_fleet_container_check() -> None:
+    """Detect → grace-gate → page once → clear-on-recovery across all containers.
+
+    A container must be continuously bad for FLEET_CONTAINER_GRACE_SEC before it
+    pages (first-seen timestamp persisted), so a container bouncing during a normal
+    redeploy does not alarm. Each bad container pages once; recovery clears it so a
+    later recurrence re-pages. Fail-soft — never raises into the scheduler job.
+    """
+    now = int(time.time())
+    current = _fleet_bad_containers()
+    prev = _load_fleet_container_state()
+
+    new_state: dict = {}
+    newly_pageable = []
+    for name, reason in current.items():
+        p = prev.get(name) or {}
+        since = int(p.get("since", now))
+        alerted = bool(p.get("alerted", False))
+        if not alerted and (now - since) >= FLEET_CONTAINER_GRACE_SEC:
+            newly_pageable.append((name, reason, now - since))
+            alerted = True
+        new_state[name] = {"since": since, "reason": reason, "alerted": alerted}
+
+    recovered = [n for n in prev if n not in current and prev[n].get("alerted")]
+
+    if newly_pageable:
+        try:
+            from notify_gateway import notify, Event
+            lines = ", ".join(f"{n} [{r}, {age // 60}m]" for n, r, age in newly_pageable)
+            names = ",".join(sorted(n for n, _, _ in newly_pageable))
+            notify(Event(
+                source="fleet_container_alarm",
+                kind="alert",
+                title=f"Container alarm — {len(newly_pageable)} container(s) down",
+                body=(f"[DevOps] Sustained >{FLEET_CONTAINER_GRACE_SEC // 60}m: {lines}. "
+                      f"A crash-loop or non-zero exit at the container layer — inspect "
+                      f"`docker logs` / `docker inspect` on the worker."),
+                audience="dashboard",
+                provenance="real",
+                status="down",
+                cause="container in restarting or exited-nonzero state past the grace window",
+                dedup_key=f"fleet_container_alarm:{names}",
+            ))
+            log.warning("fleet container alarm paged: %s", lines)
+        except Exception as e:
+            log.error("fleet container alarm: notify failed: %s", e)
+
+    if recovered:
+        log.info("fleet container recovery (alarm cleared): %s", ", ".join(recovered))
+
+    _save_fleet_container_state(new_state)
+
+
 CHECKS = [
     ("fleet",            "Fleet (hosts)",    check_fleet),
     ("worker_api",       "Worker API",       check_worker_api),

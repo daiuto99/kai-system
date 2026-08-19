@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 import concurrent.futures
 from worker_auth import worker_auth
-from watchdog import run_watchdog_checks
+from watchdog import run_watchdog_checks, run_fleet_container_check
 from security_watchdog import run_security_checks
 from invariants import run_invariants
 from execution_registry import record as reg_record
@@ -736,6 +736,9 @@ def main():
         except Exception as e:
             log.error("Invariant engine error: %s", e)
 
+    def _fleet_container_job():
+        _safe("fleet_containers", run_fleet_container_check)
+
     def _watchdog_job():
         _safe("watchdog", run_watchdog_checks)
         try:
@@ -872,6 +875,7 @@ def main():
 
     # Periodic jobs
     sched.add_job(_watchdog_job,                         IntervalTrigger(minutes=30), id="watchdog",   coalesce=True, max_instances=1)
+    sched.add_job(_fleet_container_job,                  IntervalTrigger(minutes=5),  id="fleet_containers", coalesce=True, max_instances=1)
     sched.add_job(run_security_checks,                   IntervalTrigger(hours=1),    id="security",   coalesce=True, max_instances=1)
     sched.add_job(_invariant_job,                        IntervalTrigger(minutes=30), id="invariants", coalesce=True, max_instances=1)
     sched.add_job(_inbox_job,                            IntervalTrigger(seconds=60), id="inbox_scan", coalesce=True, max_instances=1)
