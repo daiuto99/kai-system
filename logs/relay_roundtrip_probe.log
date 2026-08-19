@@ -82,3 +82,6 @@
 [2026-08-19T15:30:02.022805Z] OK relay-roundtrip 105ms — healthy round-trip (agent echoed our nonce through the relay)
 [2026-08-19T15:40:01.217940Z] OK relay-roundtrip 87ms — healthy round-trip (agent echoed our nonce through the relay)
 [2026-08-19T15:50:01.549406Z] OK relay-roundtrip 96ms — healthy round-trip (agent echoed our nonce through the relay)
+[2026-08-19T16:00:01.106418Z] OK relay-roundtrip 98ms — healthy round-trip (agent echoed our nonce through the relay)
+[2026-08-19T16:10:01.696957Z] OK relay-roundtrip 99ms — healthy round-trip (agent echoed our nonce through the relay)
+[2026-08-19T16:20:01.350890Z] OK relay-roundtrip 94ms — healthy round-trip (agent echoed our nonce through the relay)
