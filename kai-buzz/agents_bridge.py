@@ -345,9 +345,14 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
     # (relay dedups by id; a re-send of an accepted event still draws a fresh OK) up to a bound,
     # biasing to at-least-once — never a silent reply loss.
     pending = {}
+    answering = set()  # inbound ids with a reply in flight (un-acked) THIS session — guards an
+                       # idle-resub replay from re-answering a turn we're still confirming. Session
+                       # -local: on reconnect it resets, so an un-acked turn is re-answered once
+                       # (the accepted cross-reconnect at-least-once residual).
 
     def _mark_answered(inbound_id, created):
         seen.add(inbound_id)
+        answering.discard(inbound_id)
         state["last_seen"] = max(state["last_seen"], created)
 
     while True:
@@ -405,6 +410,7 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
                 if len(m) > 2 and m[2]:
                     _mark_answered(p["iid"], p["created"])
                 else:
+                    answering.discard(p["iid"])  # allow a replay to re-answer the rejected turn
                     log(cfg["name"], "reply REJECTED by relay — will retry", m[1:])
             else:
                 log(cfg["name"], "OK", m[1:])
@@ -415,7 +421,8 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
             ev = m[2]
             # Only ever answer the served human — never another agent. In a shared room this
             # is what stops two agents (Roads + Sky) from replying to each other forever.
-            if ev.get("kind") != 9 or ev.get("pubkey") != answer_pub or ev["id"] in seen:
+            if (ev.get("kind") != 9 or ev.get("pubkey") != answer_pub
+                    or ev["id"] in seen or ev["id"] in answering):
                 continue
             try:
                 created = int(ev.get("created_at", state["last_seen"]))
@@ -451,10 +458,12 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
             reply_ev = sign_event(pk, 9, [["h", cid], ["e", ev["id"]], ["p", ev["pubkey"]]], reply)
             pending[reply_ev["id"]] = {"iid": ev["id"], "created": created,
                                        "ts": int(time.time()), "ev": reply_ev, "attempts": 0}
+            answering.add(ev["id"])  # guard against a same-session replay until the relay acks
             try:
                 await ws.send(json.dumps(["EVENT", reply_ev]))
             except Exception:
                 pending.pop(reply_ev["id"], None)  # send failed -> not answered; let backfill retry
+                answering.discard(ev["id"])
                 raise
             log(cfg["name"], f">> {reply[:100]}")
 
