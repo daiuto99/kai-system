@@ -64,6 +64,8 @@ IDLE_RESUB_SEC = 50        # after this much inbound silence, re-arm the REQ (re
 BACKFILL_SLACK_SEC = 180   # on reconnect, look back this far so a gap message is not lost
 RECONNECT_BACKOFF_SEC = 3  # pause before reconnecting (prevents a hot loop on a hard error)
 MAX_CLOSED_STRIKES = 3     # consecutive relay CLOSEDs before forcing a full reconnect (fresh AUTH)
+PENDING_ACK_TIMEOUT_SEC = 30  # wait this long for the relay's OK on a reply before assuming it
+                              # landed — bounds re-answering if a relay never acks (belt & braces)
 # Where the always-on agents stamp a liveness heartbeat (container vault bind mount). meta_monitor
 # watches KAI's file so KAI's OWN loop being alive is monitored directly — the round-trip probe
 # exercises a sibling identity, so this closes the "green probe, dead KAI subscription" gap.
@@ -336,8 +338,26 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
     state["first"] = False
     seen = state["seen"]
     closed_strikes = 0
+    # reply_event_id -> (inbound_id, inbound_created, sent_ts). An inbound message is marked
+    # answered ONLY when the relay ACKs our reply (OK <reply_id> true) — a local ws.send success
+    # only means the frame left this process, not that the relay persisted it. Un-acked replies
+    # are swept to answered after a bounded timeout so a silent/ack-less relay can't loop us.
+    pending = {}
+
+    def _mark_answered(inbound_id, created):
+        seen.add(inbound_id)
+        state["last_seen"] = max(state["last_seen"], created)
+
     while True:
         _heartbeat(cfg)  # stamp liveness every iteration (message or idle) — meta_monitor watches it
+        # Bound the un-acked window: if the relay never OK'd a reply, assume it landed rather than
+        # re-answer forever. Timeout < IDLE_RESUB_SEC so a sweep always precedes an idle replay.
+        if pending:
+            now = int(time.time())
+            for rid in [r for r, (_, _, ts) in pending.items() if now - ts > PENDING_ACK_TIMEOUT_SEC]:
+                iid, created, _ = pending.pop(rid)
+                log(cfg["name"], f"~~ no relay OK for reply {rid[:8]} in {PENDING_ACK_TIMEOUT_SEC}s — assuming delivered")
+                _mark_answered(iid, created)
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=IDLE_RESUB_SEC)
         except asyncio.TimeoutError:
@@ -363,9 +383,22 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
             await asyncio.sleep(2)
             await ensure()
             await resub()
-        elif m[0] in ("OK", "NOTICE"):
+        elif m[0] == "OK":
             closed_strikes = 0
-            log(cfg["name"], m[0], m[1:])
+            # ["OK", <event_id>, <accepted bool>, <msg>]. Correlate against a pending reply:
+            # only on relay-accepted do we mark the inbound answered. A rejected reply leaves the
+            # inbound unseen so the reconnect/idle path re-answers it.
+            rid = m[1] if len(m) > 1 else None
+            if rid in pending:
+                iid, created, _ = pending.pop(rid)
+                if len(m) > 2 and m[2]:
+                    _mark_answered(iid, created)
+                else:
+                    log(cfg["name"], "reply REJECTED by relay — will retry", m[1:])
+            else:
+                log(cfg["name"], "OK", m[1:])
+        elif m[0] == "NOTICE":
+            log(cfg["name"], "NOTICE", m[1:])
         elif m[0] == "EVENT" and m[1] == "sub":
             closed_strikes = 0
             ev = m[2]
@@ -383,8 +416,7 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
             if cfg.get("addressed_only"):
                 low = ev.get("content", "").lower()
                 if not any(a in low for a in cfg.get("aliases", [])):
-                    seen.add(ev["id"])
-                    state["last_seen"] = max(state["last_seen"], created)
+                    _mark_answered(ev["id"], created)
                     continue
             log(cfg["name"], f"<< {ev['pubkey'][:8]}: {ev.get('content','')[:80]}")
             try:
@@ -399,15 +431,19 @@ async def _serve(cfg, ws, pk, cid, member_pub, answer_pub, avatar, state):
                 log(cfg["name"], f"!! unexpected error: {e}")
                 reply = ("Something went wrong on my end handling that — resend it and I'll "
                          "try again; nothing in our thread was lost.")
-            # Publish the reply BEFORE marking the message answered. If the send raises (link
-            # died mid-reply), we deliberately do NOT add to `seen` or advance the watermark, so
-            # the reconnect backfill re-delivers it and we answer — never a silently lost reply
-            # (the exact KAI-1142 failure). Dedup is safe: the recv loop is sequential, so no
-            # replay is processed while this message is mid-flight.
-            await ws.send(json.dumps(["EVENT", sign_event(pk, 9,
-                [["h", cid], ["e", ev["id"]], ["p", ev["pubkey"]]], reply)]))
-            seen.add(ev["id"])
-            state["last_seen"] = max(state["last_seen"], created)
+            # Publish the reply, then mark the inbound answered ONLY when the relay ACKs it (the
+            # OK handler above). We register the pending correlation BEFORE the send so an OK that
+            # races back is never missed. If the send raises (link died mid-reply), the inbound is
+            # neither pending nor seen, so reconnect backfill re-delivers and we answer — never a
+            # silently lost reply (the exact KAI-1142 failure). The recv loop is sequential, so no
+            # replay is processed while a message is mid-flight.
+            reply_ev = sign_event(pk, 9, [["h", cid], ["e", ev["id"]], ["p", ev["pubkey"]]], reply)
+            pending[reply_ev["id"]] = (ev["id"], created, int(time.time()))
+            try:
+                await ws.send(json.dumps(["EVENT", reply_ev]))
+            except Exception:
+                pending.pop(reply_ev["id"], None)  # send failed -> not answered; let backfill retry
+                raise
             log(cfg["name"], f">> {reply[:100]}")
 
 
