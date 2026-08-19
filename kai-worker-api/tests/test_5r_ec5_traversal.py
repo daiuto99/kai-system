@@ -61,7 +61,6 @@ ROUTES = [
     ("DELETE", f"/workflows/{DOT_DOT}",                             "B-ext-api"),
     ("GET",    f"/council/advisor/{DOT_DOT}/recent_dms",            "B-ext-api"),
     ("POST",   f"/admin/redeploy/{DOT_DOT}",                        "B-ext-api"),
-    ("POST",   f"/slack/channels/{DOT_DOT}/invite",                 "B-ext-api"),
     ("GET",    f"/org/{DOT_DOT}",                                   "B-ext-api"),
     ("GET",    f"/mode_lock/approval_status/{DOT_DOT}",             "B-ext-api"),
 ]

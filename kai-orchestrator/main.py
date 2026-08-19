@@ -27,8 +27,8 @@ _PLANE_WS      = "sonicink"
 _PLANE_BUG_PID = "9d36a2f8-f00e-4a68-9055-69c647ee1361"   # Bugs project
 _PLANE_BACKLOG = "ba26fb93-8826-4763-8f84-908ed11af231"   # Backlog state
 
-# Slack system channel for OVERRIDE acks (DevOps persona)
-_SLACK_SYSTEM_CHANNEL = "devops"
+# System notification channel label for OVERRIDE acks (DevOps persona)
+_SYSTEM_CHANNEL = "devops"
 
 app = FastAPI(title="kai-orchestrator")
 
@@ -68,27 +68,23 @@ def _authenticated_capability_identity(request: Request) -> str | None:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _slack_token() -> str:
-    p = Path("/run/wp_secrets/slack_bot_token.txt")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
-
 def _plane_token() -> str:
     p = Path("/run/wp_secrets/plane_api_token.txt")
     return p.read_text().strip() if p.exists() else os.environ.get("PLANE_API_TOKEN", "")
 
-def _post_slack(text: str, channel: str = _SLACK_SYSTEM_CHANNEL) -> bool:
-    """AR-5.3: rerouted to Telegram (sole surface). Name/signature kept so call
-    sites stay unchanged; `channel` is ignored."""
+def _notify(text: str, channel: str = _SYSTEM_CHANNEL) -> bool:
+    """Route an operational notification to Telegram (AR-5 sole surface).
+    `channel` is accepted for signature compatibility but ignored."""
     try:
         from tg_alert import tg_alert
         return tg_alert(text)
     except Exception as e:
-        log.exception("_post_slack failed: %s", e)
+        log.exception("_notify failed: %s", e)
         return False
 
 
 def _notify_job_complete(job_id: str):
-    """Post Slack notification for terminal job states only."""
+    """Post notification for terminal job states only."""
     conn = get_conn()
     job = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
     conn.close()
@@ -103,7 +99,7 @@ def _notify_job_complete(job_id: str):
     text = f"{emoji} *Job complete* — `{title}`\nStatus: `{status}` · ID: `{job_id[:8]}`"
     if job["error_summary"]:
         text += f"\nError: {job['error_summary'][:300]}"
-    _post_slack(text)
+    _notify(text)
 
 
 def _run_and_notify(job_id: str, wf):
@@ -245,7 +241,7 @@ def _gate_poller_loop(*, max_cycles=None, sleep_fn=time.sleep):
                 exc,
             )
             if consecutive_failures == _GATE_POLL_ALERT_AFTER:
-                _post_slack(
+                _notify(
                     ":rotating_light: Council gate fallback polling failed "
                     f"{consecutive_failures} consecutive times. Retrying with backoff."
                 )
@@ -363,7 +359,7 @@ def get_gate_state(gate_id: str):
 
 @app.post("/jobs/{job_id}/steps/{step_id}/override")
 def override_step(job_id: str, step_id: str, body: dict):
-    """High-friction step override. Requires reason ≥ 50 chars. Posts Slack ack.
+    """High-friction step override. Requires reason ≥ 50 chars. Posts a notify ack.
     If the same step_name has been overridden ≥5 times in 7 days, auto-files a Plane BUG.
     """
     reason   = body.get("reason", "")
@@ -404,13 +400,13 @@ def override_step(job_id: str, step_id: str, body: dict):
         result={"override": True},
     )
 
-    # Post Slack ack
-    slack_text = (
+    # Post notify ack
+    notify_text = (
         f":warning: *OVERRIDE* by {operator}\n"
         f"*Job:* `{job_id[:8]}` | *Step:* `{step_name}`\n"
         f"*Reason:* {reason}"
     )
-    slack_ok = _post_slack(slack_text)
+    notify_ok = _notify(notify_text)
 
     # Pattern check — ≥5 overrides of same step in 7 days → Plane BUG
     override_count_before = engine.count_overrides_7d(step_name)
@@ -423,7 +419,7 @@ def override_step(job_id: str, step_id: str, body: dict):
 
     # Record override in DB
     engine.record_override(job_id, step_id, step_name, reason, operator,
-                           slack_ack=slack_ok, bug_filed=bug_id)
+                           slack_ack=notify_ok, bug_filed=bug_id)
 
     # Resume workflow
     conn = get_conn()
@@ -436,7 +432,7 @@ def override_step(job_id: str, step_id: str, body: dict):
         "ok": True,
         "job_id": job_id,
         "step_name": step_name,
-        "slack_ack": slack_ok,
+        "slack_ack": notify_ok,
         "bug_filed": bug_id or None,
     }
 
@@ -964,7 +960,7 @@ def trigger_aggregation():
 
 @app.post("/learning/run-proposals")
 def trigger_proposals():
-    """S6-3: generate proposals from latest pattern file and post to Slack."""
+    """S6-3: generate proposals from latest pattern file and post a notification."""
     try:
         result = generate_proposals()
         return result
@@ -988,7 +984,7 @@ def list_proposals():
 # ── Capability endpoint + quality gates ──────────────────────────────────────
 
 _RATE_LIMITS: dict = {
-    "slack.post": {"window": 60, "max": 5},   # 5 per minute
+    "notify.post": {"window": 60, "max": 5},   # 5 per minute
 }
 
 _CAPABILITY_CLASSES = {"read_only", "mutating", "destructive"}
@@ -1113,7 +1109,7 @@ def run_capability_endpoint(name: str, body: dict, request: Request):
     if (_policy_action == "requires_approval" or name in _DESTRUCTIVE) and not body.get("confirmed", False):
         raise HTTPException(status_code=403, detail=_policy_reason or "authenticated confirmation required")
 
-    # Destructive op audit — append-only JSONL + Slack mirror
+    # Destructive op audit — append-only JSONL + Telegram mirror
     if name in _DESTRUCTIVE:
         import json as _json
         _audit = {
@@ -1130,7 +1126,7 @@ def run_capability_endpoint(name: str, body: dict, request: Request):
                 _af.write(_json.dumps(_audit) + "\n")
         except Exception as _ae:
             log.warning("Audit log write failed: %s", _ae)
-        _post_slack(
+        _notify(
             f":axe: *DESTRUCTIVE OP CONFIRMED*\n"
             f"*Capability:* `{name}`\n"
             f"*Operator:* {_audit['operator']}\n"

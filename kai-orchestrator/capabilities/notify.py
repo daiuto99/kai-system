@@ -1,16 +1,14 @@
-"""slack.post capability — RETIRED to Telegram (AR-5 sole surface, 2026-07-29).
-
-kai-slack-bot is gone and Slack is no longer a surface. The capability NAME is
-kept so existing workflow steps that call `slack.post` keep resolving; the body
-now routes to Telegram via the shared tg_alert chokepoint. The `channel` /
-`username` / `icon_emoji` args are accepted for signature compatibility but
-ignored (Telegram has one allowed chat). No Slack web-API references remain.
+"""notify.post capability — routes operational notifications to Telegram
+(AR-5 sole surface). Renamed from the retired slack.post (KAI-1129); Slack is
+gone (AR-5.2/5.3) and the body routes to Telegram via the shared tg_alert
+chokepoint. The `channel` / `username` / `icon_emoji` args are accepted for
+signature compatibility but ignored (Telegram has one allowed chat).
 """
 from models import CapabilityResult
 from . import capability
 
 
-@capability("slack.post")
+@capability("notify.post")
 def post(
     channel: str,
     text: str,
@@ -18,7 +16,7 @@ def post(
     icon_emoji: str = ":robot_face:",
     **_,
 ) -> CapabilityResult:
-    """Post a message. Retired from Slack to Telegram (AR-5); `channel` ignored."""
+    """Post a message to Telegram (AR-5 sole surface); `channel` ignored."""
     try:
         from tg_alert import tg_alert
         ok = tg_alert(text)

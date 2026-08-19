@@ -71,24 +71,24 @@ def a4():
 
 # ─── Category B — Slack ───────────────────────────────────────────────────────
 def b1():
-    """slack.post to #devops with test message returns ok=True"""
-    s, d = cap("slack.post", {"channel": "devops", "text": "[EC7 regression test — ignore]"})
+    """notify.post to #devops with test message returns ok=True"""
+    s, d = cap("notify.post", {"channel": "devops", "text": "[EC7 regression test — ignore]"})
     return s == 200 and d.get("ok") is True
 
 def b2():
-    """slack.post with empty text returns ok=False (validation)"""
-    s, d = cap("slack.post", {"channel": "devops", "text": ""})
+    """notify.post with empty text returns ok=False (validation)"""
+    s, d = cap("notify.post", {"channel": "devops", "text": ""})
     # Either fails cleanly or Slack rejects empty message
     return s == 200 and (d.get("ok") is False or "error" in d)
 
 def b3():
-    """slack.post to nonexistent channel fails gracefully (ok=False, not crash)"""
-    s, d = cap("slack.post", {"channel": "nonexistent_channel_xyz_12345", "text": "test"})
+    """notify.post to nonexistent channel fails gracefully (ok=False, not crash)"""
+    s, d = cap("notify.post", {"channel": "nonexistent_channel_xyz_12345", "text": "test"})
     return s == 200 and d.get("ok") is False
 
 def b4():
-    """slack.post response includes expected envelope fields"""
-    s, d = cap("slack.post", {"channel": "devops", "text": "[EC7 b4 test]"})
+    """notify.post response includes expected envelope fields"""
+    s, d = cap("notify.post", {"channel": "devops", "text": "[EC7 b4 test]"})
     return (s == 200 and "ok" in d and "status" in d and "capability" in d)
 
 # ─── Category C — Calendar / Plane ───────────────────────────────────────────
@@ -165,10 +165,10 @@ TESTS = [
     ("A2", "vault.read nonexistent → ok=False",        a2),
     ("A3", "vault.list known dir → file list",         a3),
     ("A4", "session.close_status → manifest",          a4),
-    ("B1", "slack.post #devops → ok=True",             b1),
-    ("B2", "slack.post empty text → fails cleanly",    b2),
-    ("B3", "slack.post bad channel → ok=False",        b3),
-    ("B4", "slack.post envelope fields present",       b4),
+    ("B1", "notify.post #devops → ok=True",             b1),
+    ("B2", "notify.post empty text → fails cleanly",    b2),
+    ("B3", "notify.post bad channel → ok=False",        b3),
+    ("B4", "notify.post envelope fields present",       b4),
     ("C1", "calendar.get_events → ok (either bool)",   c1),
     ("C2", "plane.create_issue no args → ok=False",    c2),
     ("C3", "plane.update_state bad id → ok=False",     c3),

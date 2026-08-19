@@ -31,17 +31,7 @@ def _t2_save(queue: list):
     T2_QUEUE_FILE.write_text(json.dumps(queue, indent=2))
 
 
-def _slack_token() -> str:
-    p = Path("/run/secrets/slack_bot_token")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
-
-
-def _resolve_leo_dm_channel() -> str | None:
-    # AR-5.3: Slack retired (AR-5) — no DM channel; T2 prompts route via Telegram.
-    return None
-
-
-def _post_slack_thread(entry: dict, approved: bool):
+def _post_t2_result(entry: dict, approved: bool):
     # AR-5.3: Slack retired (AR-5) — dormant no-op (T2 result surfacing is Telegram).
     return
 
@@ -50,7 +40,7 @@ class T2ActionRequest(BaseModel):
     action: str
     detail: str = ""
     advisor: str = "kai"
-    slack_channel: str = ""  # ignored — all T2 prompts go to KAI↔Leo DM
+    channel: str = ""  # ignored — all T2 prompts go to KAI↔Leo DM
     gate_id: str = ""
     callback_url: str = ""
     kind: str = ""
@@ -137,7 +127,7 @@ def respond_t2_action(req: T2RespondRequest):
                 entry["responded_at"] = _dt.now().isoformat()
                 _t2_save(queue)
                 logger.info("Hostops T2 gate %s resolved by %s", gate_id, req.user_id)
-                _post_slack_thread(entry, req.approved)
+                _post_t2_result(entry, req.approved)
                 return {"ok": True, "kind": "hostops_gate", "executed": True,
                         "entry": entry, "orchestrator": orchestrator_response}
 
@@ -146,7 +136,7 @@ def respond_t2_action(req: T2RespondRequest):
             entry["responded_at"] = _dt.now().isoformat()
             _t2_save(queue)
             logger.info("T2 respond %s -> %s: %s", req.action_id, entry["status"], entry["action"])
-            _post_slack_thread(entry, req.approved)
+            _post_t2_result(entry, req.approved)
             return {"ok": True, "kind": entry.get("kind", "t2"), "executed": False, "entry": entry}
     raise HTTPException(404, f"T2 action {req.action_id} not found")
 

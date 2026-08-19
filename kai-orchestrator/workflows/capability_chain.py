@@ -9,7 +9,7 @@ Example:
     "title": "Morning sync",
     "chain": [
       {"capability": "vault.read",  "inputs": {"path": "00_System/status.md"}},
-      {"capability": "slack.post",  "inputs": {"channel": "kai-system", "text": "..."}}
+      {"capability": "notify.post",  "inputs": {"channel": "kai-system", "text": "..."}}
     ]
   }
 """

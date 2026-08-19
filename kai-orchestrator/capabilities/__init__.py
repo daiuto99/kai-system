@@ -49,7 +49,7 @@ from . import wordpress as _wp    # noqa: F401, E402
 from . import hostops as _hostops  # noqa: F401, E402
 from . import council as _council  # noqa: F401, E402
 
-from . import slack as _slack    # noqa: F401, E402
+from . import notify as _notify    # noqa: F401, E402
 from . import plane as _plane    # noqa: F401, E402
 from . import vault as _vault        # noqa: F401, E402
 from . import workspace as _workspace  # noqa: F401, E402

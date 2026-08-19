@@ -901,9 +901,9 @@ def suite_live():
                 f"create_issue failed: {str(c_data)[:200]}")
 
     # L-7: notify capability delivers to the sole surface (Telegram/dashboard).
-    # Slack retired (AR-5 / KAI-1127); the slack.post capability now routes to the
+    # Slack retired (AR-5 / KAI-1127); the notify.post capability routes to the
     # notify() gateway — this exercises that delivery path, making no Slack call.
-    ok, data = _cap("slack.post", {
+    ok, data = _cap("notify.post", {
         "channel": "kai-system",
         "text": f"[JARVIS TEST {datetime.now().strftime('%H:%M')}] Automated system test ping — safe to ignore.",
     }, timeout=15)

@@ -1211,11 +1211,11 @@ def _h_parking_lot(client, tool_name, ti, advisor):
 def _h_t2(client, tool_name, ti, advisor):
     action = ti.get("action", "")
     detail = ti.get("detail", "")
-    slack_channel = ti.get("slack_channel", "kai")
+    channel = ti.get("channel", "kai")
     try:
         resp = client.post(
             f"{WORKER_URL}/t2/queue",
-            json={"action": action, "detail": detail, "advisor": advisor, "slack_channel": slack_channel},
+            json={"action": action, "detail": detail, "advisor": advisor, "channel": channel},
             timeout=10
         )
         result = resp.json()

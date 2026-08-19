@@ -1,7 +1,7 @@
 """session.close, session.close_status — orchestrator-native KAI session close.
 
 close() runs the close workflow entirely within the orchestrator using mounted
-/workspace (ro) and /vault (rw) volumes plus the capability chain (slack.post).
+/workspace (ro) and /vault (rw) volumes plus the capability chain (notify.post).
 No shell-outs, no worker-api HTTP calls.
 """
 import json
@@ -82,7 +82,7 @@ def _flush_manifest(steps: list, title: str, mode: str, context_pct: str) -> Non
     _MANIFEST.write_text(json.dumps(manifest, indent=2))
 
 
-def _build_slack_report(steps: list, title: str, items: list, whats_next: str,
+def _build_notify_report(steps: list, title: str, items: list, whats_next: str,
                          mode: str, context_pct: str) -> str:
     icon = {"ok": ":white_check_mark:", "fail": ":x:", "skip": ":white_circle:", "pending": ":hourglass:"}
     mode_tag = f"Auto-Close @ {context_pct}%" if mode == "auto" else "Manual Close"
@@ -93,7 +93,7 @@ def _build_slack_report(steps: list, title: str, items: list, whats_next: str,
         lines.append("")
     lines.append("*Close verification:*")
     for s in steps:
-        if s["name"] == "slack_report":
+        if s["name"] == "notify_report":
             continue
         mark = icon.get(s["status"], ":question:")
         lines.append(f"{mark} *{s['label']}* — {s['detail'][:80]}")
@@ -108,10 +108,10 @@ def _build_slack_report(steps: list, title: str, items: list, whats_next: str,
 @capability("session.close")
 def close(mode: str = "manual", context_pct: str = "", **_) -> CapabilityResult:
     """Run the KAI session close workflow natively (no shell-outs, no worker-api).
-    Reads /workspace (ro), writes /vault (rw), calls slack.post directly.
+    Reads /workspace (ro), writes /vault (rw), calls notify.post directly.
     mode: 'manual' (LSE already wrote all docs) or 'auto' (95% context trigger).
     """
-    from .slack import post as _slack_post  # import here to avoid circular at module load
+    from .notify import post as _notify_post  # import here to avoid circular at module load
 
     date_str = _date_str()
     steps: list[dict] = []
@@ -183,15 +183,15 @@ def close(mode: str = "manual", context_pct: str = "", **_) -> CapabilityResult:
     # interim manifest write
     _flush_manifest(steps, title, mode, context_pct)
 
-    # 6 — Slack report
-    report = _build_slack_report(steps, title, items, whats_next, mode, context_pct)
+    # 6 — notify report
+    report = _build_notify_report(steps, title, items, whats_next, mode, context_pct)
     try:
-        slack_r = _slack_post(channel=_CHANNEL, text=report, username="KAI", icon_emoji=":robot_face:")
-        _add_step(steps, "slack_report", "Slack close report",
-                  "ok" if slack_r.ok else "fail",
-                  "Posted to #devops" if slack_r.ok else f"Slack error: {slack_r.error}")
+        notify_r = _notify_post(channel=_CHANNEL, text=report, username="KAI", icon_emoji=":robot_face:")
+        _add_step(steps, "notify_report", "Notify close report",
+                  "ok" if notify_r.ok else "fail",
+                  "Posted to Telegram" if notify_r.ok else f"Notify error: {notify_r.error}")
     except Exception as e:
-        _add_step(steps, "slack_report", "Slack close report", "fail", str(e)[:120])
+        _add_step(steps, "notify_report", "Notify close report", "fail", str(e)[:120])
 
     # final manifest
     _flush_manifest(steps, title, mode, context_pct)

@@ -70,7 +70,7 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "hostops.verify":       {"classification": "read_only", "rule": "allow"},
 
     # ── Comms — allowed autonomous, subject to rate limit gate ───────────────
-    "slack.post":            {"classification": "mutating", "rule": "allow"},
+    "notify.post":           {"classification": "mutating", "rule": "allow"},
 
     # ── Plane — autonomous updates allowed; creation allowed ──────────────────
     "plane.update_state":    {"classification": "mutating", "rule": "allow"},
