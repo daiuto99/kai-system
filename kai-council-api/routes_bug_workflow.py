@@ -77,7 +77,6 @@ def _run_bug_workflow(issue_id: str, issue_name: str, description: str,
             "bug_routing":       "dev",
             "risk_level":        "high",
             "status":            "diagnosing",
-            "slack_thread_ts":   "",
             "audit_log":         [],
         }
         config = {"configurable": {"thread_id": f"bug-{issue_id}"}}

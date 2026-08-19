@@ -128,10 +128,10 @@ def get_team_assignee(team: str) -> str | None:
     return om.get("governance", {}).get("team_assignees", {}).get(team)
 
 
-def get_team_slack_channel(team: str) -> str:
-    """Slack channel for triage notifications for a team role. Defaults to #devops."""
+def get_team_notify_channel(team: str) -> str:
+    """Notification channel label for triage notifications for a team role. Defaults to #devops."""
     om, _ = _load()
-    channels = om.get("governance", {}).get("team_slack_channels", {})
+    channels = om.get("governance", {}).get("team_notify_channels", {})
     return channels.get(team) or "#devops"
 
 

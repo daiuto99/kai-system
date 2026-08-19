@@ -1,4 +1,4 @@
-"""HTTP surface for function_map — shared registry consulted by Slack bot,
+"""HTTP surface for function_map — shared registry consulted by the
 scheduler, web, and any orchestration code that needs to pick an advisor /
 specialist / bug receiver / gate policy without improvising.
 """
@@ -52,9 +52,9 @@ def team_assignee(team: str):
     }
 
 
-@router.get("/team_slack/{team}")
-def team_slack(team: str):
-    return {"team": team, "channel": fm.get_team_slack_channel(team)}
+@router.get("/team_channel/{team}")
+def team_channel(team: str):
+    return {"team": team, "channel": fm.get_team_notify_channel(team)}
 
 
 @router.get("/specialists")

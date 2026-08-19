@@ -389,12 +389,7 @@ def _tg_alert_buzz_down(gate_id: str, gate_type: str, summary: str) -> bool:
     return sent_any
 
 
-# ── Slack helpers ─────────────────────────────────────────────────────────────
-
-def _slack_token() -> str:
-    p = Path("/run/secrets/slack_bot_token")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
-
+# ── Notification helpers ──────────────────────────────────────────────────────
 
 def _fyi(kind: str, title: str, body: str, source: str = "council_gate") -> None:
     """Route a gate-lifecycle FYI through the notify() chokepoint (KAI-1116).
@@ -417,7 +412,7 @@ def _extract_verdict(text: str, fallback: str = "see artifact") -> str:
 
     Advisors are prompted to put their headline verdict on a line starting with
     `VERDICT:`. Returns just the line content (no prefix). If absent, returns
-    the fallback string — the gate review still produces a valid Slack message,
+    the fallback string — the gate review still produces a valid notification,
     and a warning is logged so prompt drift is visible.
     """
     if not text:

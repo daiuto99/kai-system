@@ -117,11 +117,11 @@ def _route_bug(category: str) -> tuple[str, str, str]:
         log.warning("triage: function_map team_assignee unreachable (%s) — devops fallback", e)
 
     try:
-        r = httpx.get(f"{COUNCIL_API}/function_map/team_slack/{team_role}", timeout=5, auth=worker_auth())
+        r = httpx.get(f"{COUNCIL_API}/function_map/team_channel/{team_role}", timeout=5, auth=worker_auth())
         if r.status_code == 200:
             channel = r.json().get("channel") or channel
     except Exception as e:
-        log.warning("triage: function_map team_slack unreachable (%s) — defaulting #devops", e)
+        log.warning("triage: function_map team_channel unreachable (%s) — defaulting #devops", e)
 
     return team_role, assignee, channel
 

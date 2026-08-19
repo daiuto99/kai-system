@@ -8,22 +8,7 @@ from graphs.bug_state import BugState
 
 logger = logging.getLogger(__name__)
 
-SLACK_CHANNEL = "devops"
 MODEL = "claude-sonnet-4-6"
-
-
-# ── Slack helper ─────────────────────────────────────────────────────────────
-
-def _slack_post(text: str, thread_ts: str = None) -> str:
-    """AR-5.3: rerouted to Telegram (sole surface). Name/signature kept so call
-    sites stay unchanged; thread_ts is ignored (Telegram has no threads) and no
-    ts is returned."""
-    try:
-        from tg_alert import tg_alert
-        tg_alert(text)
-    except Exception as e:
-        logger.error(f"tg_alert failed: {e}")
-    return ""
 
 
 def _ts() -> str:
@@ -91,10 +76,9 @@ UNKNOWNS:
                  cache_read_tokens=cache_read_tokens,
                  cache_creation_tokens=cache_creation_tokens)
 
-    # Slack output suppressed — the council runs silently for audit/Plane refinement.
-    # The single user-facing Slack message comes from kai-scheduler/triage.py
+    # Council output suppressed — the council runs silently for audit/Plane refinement.
+    # The single user-facing message comes from kai-scheduler/triage.py (Telegram)
     # at failure time (KAI-404). leo_notify is also silent (see below).
-    ts = state.get("slack_thread_ts", "")
 
     # Parse routing and risk from support engineer output
     import re as _re
@@ -111,7 +95,6 @@ UNKNOWNS:
         "bug_routing": bug_routing,
         "risk_level": risk_level,
         "iteration": iteration + 1,
-        "slack_thread_ts": ts or state.get("slack_thread_ts", ""),
         "audit_log": _audit(state, "support_diagnosis", "diagnosed",
                             iteration=iteration + 1, routing=bug_routing, risk=risk_level),
     }
@@ -155,7 +138,7 @@ If you REJECT, be specific about what needs to change.
 
     approved = "DECISION: APPROVE" in reply.upper() or reply.upper().startswith("APPROVE")
 
-    # Slack output suppressed (KAI-404).
+    # Council output suppressed (KAI-404).
 
     return {
         **state,
@@ -207,7 +190,7 @@ CONCERNS:
 
     approved = "DECISION: APPROVE" in reply.upper() or reply.upper().startswith("APPROVE")
 
-    # Slack output suppressed (KAI-404).
+    # Council output suppressed (KAI-404).
 
     return {
         **state,
@@ -262,7 +245,7 @@ If RETURN: what specifically needs to be improved before escalating.
     approved = "DECISION: ESCALATE" in reply.upper()
     return_notes = reply if not approved else ""
 
-    # Slack output suppressed (KAI-404).
+    # Council output suppressed (KAI-404).
 
     return {
         **state,
@@ -279,8 +262,8 @@ If RETURN: what specifically needs to be improved before escalating.
 def leo_notify(state: BugState) -> BugState:
     """Council finished refining the diagnosis — record completion in audit log.
 
-    Slack output suppressed (KAI-404). Leo's single Slack message for this bug
-    was posted by kai-scheduler/triage.py at failure time. The refined diagnosis
+    Council output suppressed (KAI-404). Leo's single notification for this bug
+    was posted by kai-scheduler/triage.py (Telegram) at failure time. The refined diagnosis
     from the council lives on the Plane ticket; if Leo wants more detail beyond
     the one-liner, he opens the ticket.
     """

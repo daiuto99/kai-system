@@ -33,5 +33,4 @@ class BugState(TypedDict):
 
     # Status
     status:          str   # diagnosing / peer_review / kai_validation / awaiting_leo / done
-    slack_thread_ts: str   # root Slack message ts for threading
     audit_log:       list
