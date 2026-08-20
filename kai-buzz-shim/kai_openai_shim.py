@@ -122,6 +122,12 @@ class H(BaseHTTPRequestHandler):
         except Exception:
             return self._send(400, {"error": "bad json"})
         model = (body.get("model") or "kai").lower()
+        # KAI-1154: MODELS is the SOLE authority for both the /v1/models listing
+        # AND dispatch. Reject anything not listed (ember/doc) so the
+        # "off Buzz until AR-5.4" gate is enforced, not merely advertised.
+        if model not in MODELS:
+            return self._send(404, {"error": {"message": f"model {model!r} not available",
+                "type": "invalid_request_error", "code": "model_not_found"}})
         messages = body.get("messages", [])
         stream = bool(body.get("stream"))
         # buzz-agent loops: after it runs our publish tool it re-asks with the tool
