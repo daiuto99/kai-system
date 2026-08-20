@@ -6,8 +6,10 @@ Emits any duplicate/orphan (present-on-disk but not live) as a finding, so the M
 "one implementation per path" consolidation is measured against script output, not prose.
 
 Liveness signals (a candidate is LIVE if ANY strong signal fires):
-  • proc:   a matching process is running (ps aux)
-  • baked:  the file the container ACTUALLY executes (its WorkingDir), for a running compose service
+  • proc:      a matching process is running (ps aux)
+  • baked:     the file the container ACTUALLY executes (its WorkingDir), for a running compose service
+  • container: a named compose service is up (for containerized backends with no host-visible proc,
+               e.g. an in-container FastAPI route — kai-council-api, kai-orchestrator, buzz-relay)
 Presence-only (file exists on disk but no live signal) => ORPHAN candidate.
 
 Verdict per path:
@@ -17,12 +19,12 @@ Verdict per path:
   MISSING   zero live impl (regression — a path with no live implementation)
 
 Exit non-zero if any path is DUP or MISSING (ORPHAN is a warning, not a hard fail).
-v1: a curated registry of the paths the 2026-08-15 Fable review + this session surfaced.
-The registry is the artifact that grows as coverage widens; detection primitives are generic.
+A curated registry of user-facing paths; it grows as coverage widens (detection primitives
+stay generic). v1 covered 5; v1.1 (KAI-1153) adds the three the v1 commit deferred —
+ember_backend, wp_pipeline, buzz_eval_dependency — each with its own liveness probe.
 """
 from __future__ import annotations
 import json
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -63,6 +65,7 @@ class Candidate:
     # any of these firing = a signal
     proc_pattern: str = ""          # substring to find in `ps aux`
     baked: tuple[str, str] | None = None   # (container, filename) executed from its WorkingDir
+    container: str = ""             # a running compose service name = live (no host-visible proc)
     disk_path: str = ""             # host path whose existence marks presence
     is_module: bool = False         # imported library, not a process: liveness = present in a deployed tree
 
@@ -75,6 +78,8 @@ class Candidate:
         if self.proc_pattern and self.proc_pattern in _PS_CACHE:
             return True
         if self.baked and _container_workdir_has(*self.baked):
+            return True
+        if self.container and self.container in _RUNNING_CONTAINERS:
             return True
         return False
 
@@ -129,6 +134,37 @@ REGISTRY: list[Path] = [
     Path("notify_delivery", "Single Leo-facing notification chokepoint", [
         Candidate("notify_gateway (chokepoint)",
                   disk_path="/home/leo/kai-system/shared/notify_gateway.py", is_module=True),
+    ]),
+    # ── v1.1 coverage-gap paths (KAI-1153, this session) — the three the v1 commit deferred ──
+    Path("ember_backend", "How an Ember query is answered — DUP: two live backends", [
+        # Live #1: council-api serves Ember on the dashboard (PRIVACY_ADVISORS, router `advisor==ember`).
+        # `baked` (file in the running container's WorkingDir), not bare container-up, so the signal
+        # proves the executed tree actually carries the ember-serving router.
+        Candidate("kai-council-api Ember advisor (dashboard, LIVE)",
+                  baked=("kai-council-api", "router.py")),
+        # Live #2 — the DUP: the RUNNING kai-buzz-shim answers Ember too. Its :4001 POST handler runs
+        # `call_ember(...) if model.startswith("ember")` with NO check that the model is in MODELS —
+        # MODELS only gates the /v1/models GET listing, not dispatch. So the shim is a reachable Ember
+        # backend right now, and "Ember off Buzz until AR-5.4" is advertisement, not enforcement.
+        Candidate("kai-buzz-shim call_ember — reachable via unguarded :4001 dispatch",
+                  proc_pattern="kai_openai_shim"),
+        # Orphan: the KAI-984 standalone Ember-on-Buzz daemon — baked into kai-buzz but no process runs
+        # it (live agents_bridge roster is KAI/Roads/Coach/GearTalk/…, no Ember). Spike code => cleanup.
+        Candidate("ember_bridge.py standalone Buzz daemon (spike, not running)",
+                  disk_path="/home/leo/kai-system/kai-buzz/ember_bridge.py"),
+    ]),
+    Path("wp_pipeline", "Build a WordPress page draft (governed pipeline)", [
+        # Live: the sole registered BuildPageDraftWorkflow in the running kai-orchestrator (WD=/app).
+        Candidate("BuildPageDraftWorkflow (kai-orchestrator, LIVE)",
+                  baked=("kai-orchestrator", "workflows/wordpress_build_page_draft.py")),
+    ]),
+    Path("buzz_eval_dependency", "Coupling of the live Buzz stack to the unversioned ~/buzz-eval spike", [
+        # Live dependency: buzz-relay runs image buzz-relay:eval, built from the ~/buzz-eval spike tree.
+        Candidate("buzz-relay:eval (running, built from ~/buzz-eval spike)", container="buzz-relay"),
+        # Orphan: stale agent-code copies in the ~/buzz-eval/agent mount — kai-buzz executes the baked
+        # /app copy (WD=/app; /agent/agents_bridge.py absent), so these host copies are not executed.
+        Candidate("~/buzz-eval/agent stale agent-code copy (not executed; kai-buzz runs baked /app)",
+                  disk_path="/home/leo/buzz-eval/agent/buzz_approve.py"),
     ]),
 ]
 
