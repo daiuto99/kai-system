@@ -409,6 +409,103 @@ def check_disk_pressure() -> str:
     return detail
 
 
+def check_container_roster() -> str:
+    """S1-B2 (audit #08) — only 4 of 34 containers were gated, so a silently-exited
+    service or a restart-loop (kai-tailscale rc=5) read as "Up" to every check.
+    Enumerate all compose-managed containers (buzz/kai-system/plane): RED if any
+    service that should be up is not running (a one-shot that exited 0, e.g.
+    plane-migrator, is NOT a failure); WARN on elevated RestartCount (>=3)."""
+    import subprocess as _sp
+
+    PROJECTS = {"buzz", "kai-system", "plane"}
+    try:
+        out = _sp.run(
+            ["docker", "ps", "-a", "--format",
+             "{{.Names}}\t{{.Label \"com.docker.compose.project\"}}"],
+            capture_output=True, text=True, timeout=15).stdout
+    except Exception:
+        return "WARN container roster unavailable (docker unreachable) [S1-B2]"
+
+    names = [ln.split("\t")[0] for ln in out.splitlines()
+             if len(ln.split("\t")) >= 2 and ln.split("\t")[1] in PROJECTS]
+    if not names:
+        return "WARN no compose-managed containers found [S1-B2]"
+
+    try:
+        fmt = "{{.Name}}|{{.State.Status}}|{{.State.ExitCode}}|{{.HostConfig.RestartPolicy.Name}}|{{.RestartCount}}"
+        insp = _sp.run(["docker", "inspect", "-f", fmt, *names],
+                       capture_output=True, text=True, timeout=20).stdout
+    except Exception:
+        return "WARN container inspect failed [S1-B2]"
+
+    down, hot, checked = [], [], 0
+    for line in insp.splitlines():
+        parts = line.strip().lstrip("/").split("|")
+        if len(parts) != 5:
+            continue
+        name, status, exit_code, policy, rc = parts
+        checked += 1
+        if status != "running":
+            expects_up = policy in ("always", "unless-stopped")
+            if expects_up or exit_code != "0":
+                down.append(f"{name}={status}({exit_code})")
+        elif rc.isdigit() and int(rc) >= 3:
+            hot.append(f"{name} rc={rc}")
+
+    if down:
+        raise RuntimeError(f"{len(down)} managed container(s) down: " + ", ".join(down[:6]))
+    if hot:
+        return "WARN elevated restart counts: " + "; ".join(hot) + " [S1-B2]"
+    return f"{checked} compose-managed containers healthy (one-shots excluded), restarts nominal"
+
+
+def check_backup_freshness() -> str:
+    """S1-B3/B2 (audit #01,#16) — backups and their WARNING log were unwatched.
+    Newest Plane dump age + a scan of backup.log's tail for failures + stale temp
+    artifacts. WARN (not RED): a stale backup is not an immediate runtime failure,
+    but it must be impossible to miss (the offsite/restore work is B3 proper)."""
+    import re as _re
+    import time as _time
+    from pathlib import Path as _Path
+
+    base = None
+    for cand in (_Path.home() / "backups", _Path("/home/leo/backups")):
+        if cand.exists():
+            base = cand
+            break
+    if base is None:
+        return "WARN backups dir absent [S1-B3]"
+
+    warns = []
+    age_h = None
+    plane = base / "plane"
+    dumps = [f for f in plane.glob("*") if f.is_file()] if plane.exists() else []
+    newest = max((f.stat().st_mtime for f in dumps), default=None)
+    if newest is None:
+        warns.append("no plane dump found")
+    else:
+        age_h = (_time.time() - newest) / 3600
+        if age_h > 26:
+            warns.append(f"newest plane dump {age_h:.0f}h old")
+
+    log = base / "backup.log"
+    if log.exists():
+        try:
+            tail = "".join(log.read_text(errors="ignore").splitlines(keepends=True)[-40:])
+            if _re.search(r"WARNING|FAILED|ERROR|Traceback", tail):
+                warns.append("backup.log tail shows WARNING/FAILED")
+        except Exception:
+            pass
+
+    stale = list(base.glob("skip_manifest_*.txt"))
+    if stale:
+        warns.append(f"{len(stale)} stale skip_manifest artifact(s)")
+
+    if warns:
+        return "WARN backups: " + "; ".join(warns) + " [S1-B3]"
+    return f"backups fresh (plane dump {age_h:.0f}h old), log clean"
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -425,6 +522,8 @@ def checks() -> tuple[Check, ...]:
         Check("codex_verifier_auth", check_codex_verifier_auth),
         Check("host_hygiene", check_host_hygiene),
         Check("disk_pressure", check_disk_pressure),
+        Check("container_roster", check_container_roster),
+        Check("backup_freshness", check_backup_freshness),
     )
 
 

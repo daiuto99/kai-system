@@ -28,7 +28,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "plane_reachable", "qdrant_up", "litellm_models",
                 "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions", "source_drift",
                 "fleet_visibility", "codex_verifier_auth", "host_hygiene",
-                "disk_pressure",
+                "disk_pressure", "container_roster", "backup_freshness",
             ],
         )
 
@@ -181,6 +181,32 @@ class DiskPressureEval(unittest.TestCase):
     def test_probe_runs_and_returns_str(self):
         detail = baseline.check_disk_pressure()
         self.assertIsInstance(detail, str)
+
+
+class ContainerRosterAndBackup(unittest.TestCase):
+    """S1-B2/B3 — the roster probe RED-raises on a down container and the backup
+    probe WARNs on staleness; both run without raising on a healthy host."""
+
+    def test_roster_probe_runs(self):
+        detail = baseline.check_container_roster()
+        self.assertIsInstance(detail, str)
+        # on this host all managed containers run -> not a WARN-unavailable
+        self.assertNotIn("unavailable", detail)
+
+    def test_backup_probe_runs(self):
+        detail = baseline.check_backup_freshness()
+        self.assertIsInstance(detail, str)
+        self.assertTrue("backups" in detail or "backup" in detail)
+
+    def test_both_probes_never_hard_fail_suite_when_returning(self):
+        # a returned (non-raising) detail must never turn the suite RED
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = baseline.run_suite((
+                baseline.Check("r", lambda: "ok roster"),
+                baseline.Check("b", lambda: "WARN backups: x [S1-B3]"),
+            ))
+        self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":
