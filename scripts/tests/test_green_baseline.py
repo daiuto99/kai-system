@@ -28,6 +28,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "plane_reachable", "qdrant_up", "litellm_models",
                 "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions", "source_drift",
                 "fleet_visibility", "codex_verifier_auth", "host_hygiene",
+                "disk_pressure",
             ],
         )
 
@@ -142,6 +143,44 @@ class HostHygieneVerdict(unittest.TestCase):
         with redirect_stdout(out):
             rc = baseline.run_suite((baseline.Check("hh", lambda: detail),))
         self.assertEqual(rc, 0)
+
+
+class DiskPressureEval(unittest.TestCase):
+    """S1-B2 — disk_pressure_eval: RED on exhaustion, WARN on pressure, GREEN clean."""
+
+    def test_clean_is_green(self):
+        sev, d = baseline.disk_pressure_eval(40.0, 30.0, 55.0, 5.0)
+        self.assertEqual(sev, "green")
+        self.assertIn("disk 40%", d)
+
+    def test_disk_80_warns(self):
+        sev, d = baseline.disk_pressure_eval(84.0, 30.0, 55.0, 0.0)
+        self.assertEqual(sev, "warn")
+        self.assertIn("root disk 84%", d)
+
+    def test_disk_92_reds(self):
+        sev, d = baseline.disk_pressure_eval(93.0, 30.0, 55.0, 0.0)
+        self.assertEqual(sev, "red")
+        self.assertIn("root disk 93%", d)
+
+    def test_inode_exhaustion_reds(self):
+        sev, d = baseline.disk_pressure_eval(40.0, 95.0, 55.0, 0.0)
+        self.assertEqual(sev, "red")
+        self.assertIn("inodes 95%", d)
+
+    def test_low_memory_reds(self):
+        sev, d = baseline.disk_pressure_eval(40.0, 30.0, 2.0, 0.0)
+        self.assertEqual(sev, "red")
+        self.assertIn("mem avail 2%", d)
+
+    def test_swap_pressure_warns(self):
+        sev, d = baseline.disk_pressure_eval(40.0, 30.0, 55.0, 60.0)
+        self.assertEqual(sev, "warn")
+        self.assertIn("swap 60%", d)
+
+    def test_probe_runs_and_returns_str(self):
+        detail = baseline.check_disk_pressure()
+        self.assertIsInstance(detail, str)
 
 
 if __name__ == "__main__":

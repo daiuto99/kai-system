@@ -345,6 +345,70 @@ def check_host_hygiene() -> str:
     return host_hygiene_verdict(security, total, reboot_required, zombies, cache_age_days)
 
 
+def disk_pressure_eval(disk_pct, inode_pct, mem_avail_pct, swap_pct):
+    """Pure verdict for check_disk_pressure (unit-tested). Returns (severity, detail)
+    with severity in {"red","warn","green"}. RED-capable because disk/inode/memory
+    exhaustion is a runtime threat (takes down Plane DB, Qdrant, Docker + co-located
+    backups at once) — unlike the WARN-only hygiene/verifier probes."""
+    reds, warns = [], []
+    if disk_pct is not None:
+        if disk_pct >= 92: reds.append(f"root disk {disk_pct:.0f}%")
+        elif disk_pct >= 80: warns.append(f"root disk {disk_pct:.0f}%")
+    if inode_pct is not None:
+        if inode_pct >= 92: reds.append(f"inodes {inode_pct:.0f}%")
+        elif inode_pct >= 80: warns.append(f"inodes {inode_pct:.0f}%")
+    if mem_avail_pct is not None:
+        if mem_avail_pct <= 3: reds.append(f"mem avail {mem_avail_pct:.0f}%")
+        elif mem_avail_pct <= 10: warns.append(f"mem avail {mem_avail_pct:.0f}%")
+    if swap_pct is not None and swap_pct >= 50:
+        warns.append(f"swap {swap_pct:.0f}%")
+    if reds:
+        return ("red", "; ".join(reds + warns))
+    if warns:
+        return ("warn", "WARN disk/mem pressure: " + "; ".join(warns) + " [S1-B2]")
+    parts = []
+    if disk_pct is not None: parts.append(f"disk {disk_pct:.0f}%")
+    if inode_pct is not None: parts.append(f"inodes {inode_pct:.0f}%")
+    if mem_avail_pct is not None: parts.append(f"mem avail {mem_avail_pct:.0f}%")
+    return ("green", " / ".join(parts) + " — ok")
+
+
+def check_disk_pressure() -> str:
+    """S1-B2 (audit #06) — root FS sat at 84% with no probe; ENOSPC would down Plane,
+    Qdrant, Docker and the co-located backups. Probes root disk %, inode %, memory-
+    available %, and swap %. RED (raises) on exhaustion thresholds; WARN otherwise."""
+    import os
+    import shutil
+
+    disk_pct = inode_pct = mem_avail_pct = swap_pct = None
+    try:
+        du = shutil.disk_usage("/")
+        disk_pct = du.used / du.total * 100 if du.total else None
+    except Exception:
+        pass
+    try:
+        st = os.statvfs("/")
+        inode_pct = (st.f_files - st.f_ffree) / st.f_files * 100 if st.f_files else None
+    except Exception:
+        pass
+    try:
+        info = {}
+        for line in open("/proc/meminfo"):
+            k, _, v = line.partition(":")
+            info[k] = int(v.strip().split()[0])
+        if info.get("MemTotal"):
+            mem_avail_pct = info.get("MemAvailable", 0) / info["MemTotal"] * 100
+        if info.get("SwapTotal"):
+            swap_pct = (info["SwapTotal"] - info.get("SwapFree", 0)) / info["SwapTotal"] * 100
+    except Exception:
+        pass
+
+    severity, detail = disk_pressure_eval(disk_pct, inode_pct, mem_avail_pct, swap_pct)
+    if severity == "red":
+        raise RuntimeError(detail + " [S1-B2]")
+    return detail
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -360,6 +424,7 @@ def checks() -> tuple[Check, ...]:
         Check("fleet_visibility", check_fleet),
         Check("codex_verifier_auth", check_codex_verifier_auth),
         Check("host_hygiene", check_host_hygiene),
+        Check("disk_pressure", check_disk_pressure),
     )
 
 
