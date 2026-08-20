@@ -228,6 +228,61 @@ def check_buzz_shim() -> str:
     return "Buzz advisor shim (:4001) serves kai/sky/roads/coach"
 
 
+def check_codex_verifier_auth() -> str:
+    """KAI-1159 — Codex is the cross-provider verifier (Claude builds / Codex
+    verifies). Its "Sign in with ChatGPT" OAuth token is single-use-refresh and
+    expired silently on 2026-05-16, so the verifier sat dead for ~3 months and
+    nothing noticed until a session reached for it mid-build (KAI-1154 close).
+
+    Reads ~/.codex/auth.json — STRUCTURE ONLY, never the token material (the JWT
+    exp claim is a timestamp, not a secret) — and surfaces an expired / near-expiry
+    OAuth token. This is a WARN, NOT a RED: Codex is a verifier, not a runtime
+    dependency, so a dead token must never turn the baseline red or block a push.
+    It only has to be impossible to miss at session start. Re-auth is human-only
+    (browser OAuth), so the WARN points at `codex login` on the worker + KAI-1159.
+    OAuth access tokens here live 10 days, so a past exp genuinely means the CLI
+    failed to refresh (our exact failure) — not mere between-refresh staleness.
+    """
+    import time as _time
+
+    auth = None
+    for candidate in (Path.home() / ".codex" / "auth.json",
+                      Path("/home/leo/.codex/auth.json")):
+        if candidate.exists():
+            try:
+                auth = json.loads(candidate.read_text())
+            except Exception:
+                return "WARN codex auth.json unreadable/malformed — verifier state unknown [KAI-1159]"
+            break
+    if auth is None:
+        return "WARN codex auth.json absent — verifier unconfigured; `codex login` on worker [KAI-1159]"
+
+    if (auth.get("OPENAI_API_KEY") or "").strip():
+        return "codex verifier on API-key auth (non-expiring)"
+
+    tokens = auth.get("tokens") or {}
+    tok = tokens.get("access_token") or auth.get("access_token") or ""
+    if tok.count(".") < 2:
+        return "WARN codex OAuth token unparseable — run `codex login` on worker [KAI-1159]"
+    try:
+        payload = tok.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        exp = json.loads(base64.urlsafe_b64decode(payload)).get("exp")
+    except Exception:
+        return "WARN codex OAuth token unparseable — run `codex login` on worker [KAI-1159]"
+    if not isinstance(exp, (int, float)):
+        return "WARN codex OAuth token has no exp claim — run `codex login` on worker [KAI-1159]"
+
+    remaining_h = (exp - _time.time()) / 3600.0
+    if remaining_h <= 0:
+        return (f"WARN codex OAuth EXPIRED {abs(remaining_h) / 24:.0f}d ago — cross-provider "
+                f"verifier DOWN; `codex login` on worker [KAI-1159]")
+    if remaining_h <= 48:
+        return (f"WARN codex OAuth expires in {remaining_h:.0f}h — re-auth soon via "
+                f"`codex login` on worker [KAI-1159]")
+    return f"codex verifier OAuth valid ({remaining_h / 24:.0f}d remaining)"
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -241,6 +296,7 @@ def checks() -> tuple[Check, ...]:
         Check("secret_permissions", check_secret_permissions),
         Check("source_drift", check_source_drift),
         Check("fleet_visibility", check_fleet),
+        Check("codex_verifier_auth", check_codex_verifier_auth),
     )
 
 
