@@ -29,7 +29,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions", "source_drift",
                 "fleet_visibility", "codex_verifier_auth", "host_hygiene",
                 "disk_pressure", "container_roster", "backup_freshness",
-                "tailscale_key_expiry", "public_tls",
+                "tailscale_key_expiry", "public_tls", "backup_verify",
             ],
         )
 
@@ -228,6 +228,16 @@ class ExpiryProbes(unittest.TestCase):
         detail = baseline.check_public_tls()
         self.assertIsInstance(detail, str)
         self.assertIn("TLS", detail)
+
+
+class BackupVerifyProbe(unittest.TestCase):
+    """S1-B3 — backup_verify reads ~/backups/.verify_result: RED on FAIL, WARN on
+    missing/stale, GREEN on a recent PASS. Runs against the live stamp."""
+
+    def test_probe_runs(self):
+        detail = baseline.check_backup_verify()
+        self.assertIsInstance(detail, str)
+        self.assertIn("backup verify", detail)
 
 
 if __name__ == "__main__":

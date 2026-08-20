@@ -590,6 +590,38 @@ def check_public_tls() -> str:
     return "public TLS certs valid (" + ", ".join(oks) + ")"
 
 
+def check_backup_verify() -> str:
+    """S1-B3 (audit #01) — backups were never restore-tested. verify_backups.sh
+    (weekly cron) integrity-checks every store (gzip/tar + sqlite PRAGMA) and
+    stamps ~/backups/.verify_result. RED if the last verify FAILED (backups may
+    not restore); WARN if never run or stale (>8d)."""
+    import time as _time
+    from pathlib import Path as _Path
+
+    base = None
+    for cand in (_Path.home() / "backups", _Path("/home/leo/backups")):
+        if cand.exists():
+            base = cand
+            break
+    if base is None:
+        return "WARN backups dir absent [S1-B3]"
+
+    stamp = base / ".verify_result"
+    if not stamp.exists():
+        return "WARN backup verify never run (no .verify_result) [S1-B3]"
+    try:
+        result = stamp.read_text().strip().split()[0]
+    except Exception:
+        return "WARN backup verify result unreadable [S1-B3]"
+
+    age_d = (_time.time() - stamp.stat().st_mtime) / 86400
+    if result == "FAIL":
+        raise RuntimeError(f"backup verify FAILED {age_d:.0f}d ago — backups may not restore [S1-B3]")
+    if age_d > 8:
+        return f"WARN backup verify stale ({age_d:.0f}d — weekly expected) [S1-B3]"
+    return f"backup verify PASS ({age_d:.0f}d ago)"
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -610,6 +642,7 @@ def checks() -> tuple[Check, ...]:
         Check("backup_freshness", check_backup_freshness),
         Check("tailscale_key_expiry", check_tailscale_key_expiry),
         Check("public_tls", check_public_tls),
+        Check("backup_verify", check_backup_verify),
     )
 
 
