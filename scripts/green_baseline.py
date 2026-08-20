@@ -283,6 +283,68 @@ def check_codex_verifier_auth() -> str:
     return f"codex verifier OAuth valid ({remaining_h / 24:.0f}d remaining)"
 
 
+def host_hygiene_verdict(security, total, reboot_required, zombies, cache_age_days) -> str:
+    """Pure verdict logic for check_host_hygiene (unit-tested directly). WARN text
+    on any hygiene concern, else a clean GREEN detail. Never raises."""
+    warns = []
+    if security is None:
+        warns.append("update counts unavailable")
+    elif security > 0:
+        warns.append(f"{security} security update(s) pending (of {total})")
+    if reboot_required:
+        warns.append("reboot-required")
+    if zombies:
+        warns.append(f"{zombies} zombie/defunct proc(s)")
+    if cache_age_days is not None and cache_age_days > 3:
+        warns.append(f"apt cache {cache_age_days:.0f}d stale (counts may understate)")
+    if warns:
+        return "WARN host hygiene: " + "; ".join(warns) + " [KAI-1161]"
+    return "host hygiene clean (0 security pending, no reboot, no zombies)"
+
+
+def check_host_hygiene() -> str:
+    """KAI-1161 — nothing watched OS hygiene: a session found 9 pending security
+    updates + a defunct zombie via the LOGIN BANNER, not any probe (same blind-spot
+    class as the KAI-1159 codex-auth gap). Surfaces, as a WARN and NEVER a RED (host
+    hygiene is not a runtime dependency and must not block a session or a push):
+      - pending updates total;security via Ubuntu's canonical apt-check (cached apt
+        state; no sudo, no network — never runs `apt update`)
+      - /var/run/reboot-required
+      - defunct/zombie process count
+      - apt-cache staleness (>3d => the counts may understate reality)
+    """
+    import subprocess as _sp
+    import time as _time
+
+    total = security = None
+    try:
+        r = _sp.run(["/usr/lib/update-notifier/apt-check"], capture_output=True, text=True, timeout=20)
+        raw = (r.stderr or r.stdout).strip()
+        if ";" in raw:
+            total, security = (int(x) for x in raw.split(";")[:2])
+    except Exception:
+        pass
+
+    reboot_required = Path("/var/run/reboot-required").exists()
+
+    zombies = 0
+    try:
+        stat = _sp.run(["ps", "-eo", "stat="], capture_output=True, text=True, timeout=8).stdout
+        zombies = sum(1 for line in stat.splitlines() if line.strip().startswith("Z"))
+    except Exception:
+        zombies = 0
+
+    cache_age_days = None
+    try:
+        stamp = Path("/var/lib/apt/periodic/update-success-stamp")
+        if stamp.exists():
+            cache_age_days = (_time.time() - stamp.stat().st_mtime) / 86400.0
+    except Exception:
+        cache_age_days = None
+
+    return host_hygiene_verdict(security, total, reboot_required, zombies, cache_age_days)
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -297,6 +359,7 @@ def checks() -> tuple[Check, ...]:
         Check("source_drift", check_source_drift),
         Check("fleet_visibility", check_fleet),
         Check("codex_verifier_auth", check_codex_verifier_auth),
+        Check("host_hygiene", check_host_hygiene),
     )
 
 

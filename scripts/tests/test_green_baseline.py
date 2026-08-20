@@ -27,7 +27,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "services_up", "session_brief", "worker_auth_fail_closed",
                 "plane_reachable", "qdrant_up", "litellm_models",
                 "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions", "source_drift",
-                "fleet_visibility", "codex_verifier_auth",
+                "fleet_visibility", "codex_verifier_auth", "host_hygiene",
             ],
         )
 
@@ -96,6 +96,52 @@ class CodexVerifierAuthProbe(unittest.TestCase):
         detail = self._detail_for({"OPENAI_API_KEY": "sk-test", "tokens": {}})
         self.assertNotIn("WARN", detail)
         self.assertIn("API-key", detail)
+
+
+class HostHygieneVerdict(unittest.TestCase):
+    """KAI-1161 — host_hygiene_verdict WARNs on any hygiene concern, GREENs clean,
+    and (via run_suite) never turns the baseline RED."""
+
+    def test_clean_reads_green(self):
+        d = baseline.host_hygiene_verdict(0, 40, False, 0, 1.0)
+        self.assertNotIn("WARN", d)
+        self.assertIn("clean", d)
+
+    def test_pending_security_warns_with_counts(self):
+        d = baseline.host_hygiene_verdict(9, 39, False, 0, 0.5)
+        self.assertIn("WARN", d)
+        self.assertIn("9 security", d)
+        self.assertIn("of 39", d)
+        self.assertIn("KAI-1161", d)
+
+    def test_reboot_required_warns(self):
+        d = baseline.host_hygiene_verdict(0, 0, True, 0, 0.0)
+        self.assertIn("WARN", d)
+        self.assertIn("reboot-required", d)
+
+    def test_zombies_warn(self):
+        d = baseline.host_hygiene_verdict(0, 0, False, 3, 0.0)
+        self.assertIn("WARN", d)
+        self.assertIn("3 zombie", d)
+
+    def test_stale_cache_warns(self):
+        d = baseline.host_hygiene_verdict(0, 0, False, 0, 9.0)
+        self.assertIn("WARN", d)
+        self.assertIn("stale", d)
+
+    def test_unavailable_counts_warn(self):
+        d = baseline.host_hygiene_verdict(None, None, False, 0, 0.0)
+        self.assertIn("WARN", d)
+        self.assertIn("unavailable", d)
+
+    def test_probe_runs_and_never_reds(self):
+        detail = baseline.check_host_hygiene()
+        self.assertIsInstance(detail, str)
+        self.assertIn("host hygiene", detail)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = baseline.run_suite((baseline.Check("hh", lambda: detail),))
+        self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":
