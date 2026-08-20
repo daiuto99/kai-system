@@ -71,4 +71,44 @@ else
 fi
 find "$GIT_BK" -name "*.bundle" -mtime +7 -delete
 
+# --- Qdrant (advisor memory, 31 collections; was UNBACKED — audit #01, S1-B3).
+# Full snapshot via the API, downloaded out of the container. Each ~3.5G so keep
+# only 2. The tier3bench_* benchmark collections bloat this (follow-up cleanup). ---
+mkdir -p "$BACKUP_DIR/qdrant"
+QSNAP=$(curl -s -X POST http://localhost:6333/snapshots 2>>"$LOG" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("result",{}).get("name",""))' 2>>"$LOG" || true)
+if [ -n "$QSNAP" ]; then
+    QFILE="$BACKUP_DIR/qdrant/qdrant_${TIMESTAMP}.snapshot"
+    if curl -sf "http://localhost:6333/snapshots/$QSNAP" -o "$QFILE" 2>>"$LOG"; then
+        echo "[$TIMESTAMP] Qdrant snapshot: $QFILE ($(du -sh "$QFILE" | cut -f1))" >> "$LOG"
+    else
+        echo "[$TIMESTAMP] WARNING: Qdrant snapshot download FAILED" >> "$LOG"
+    fi
+    curl -s -X DELETE "http://localhost:6333/snapshots/$QSNAP" >/dev/null 2>&1 || true
+else
+    echo "[$TIMESTAMP] WARNING: Qdrant snapshot create FAILED" >> "$LOG"
+fi
+ls -1t "$BACKUP_DIR/qdrant/"qdrant_*.snapshot 2>/dev/null | tail -n +3 | xargs -r rm -f || true
+
+# --- n8n (workflows + credentials sqlite bind mount; was UNBACKED — audit #01).
+# tar db+wal+shm; SQLite replays the WAL on restore. Keep 7. ---
+mkdir -p "$BACKUP_DIR/n8n"
+N8N_FILE="$BACKUP_DIR/n8n/n8n_${TIMESTAMP}.tar.gz"
+if tar czf "$N8N_FILE" --ignore-failed-read -C "$HOME/kai-system/n8n-data" \
+        database.sqlite database.sqlite-wal database.sqlite-shm 2>>"$LOG"; then
+    echo "[$TIMESTAMP] n8n sqlite: $N8N_FILE ($(du -sh "$N8N_FILE" | cut -f1))" >> "$LOG"
+else
+    echo "[$TIMESTAMP] WARNING: n8n backup FAILED" >> "$LOG"
+fi
+find "$BACKUP_DIR/n8n/" -name "n8n_*.tar.gz" -mtime +7 -delete || true
+
+# --- buzz-postgres (buzz DB; was UNBACKED — audit #01). pg_dump. Keep 7. ---
+mkdir -p "$BACKUP_DIR/buzz"
+BUZZ_FILE="$BACKUP_DIR/buzz/buzz_${TIMESTAMP}.sql.gz"
+if docker exec buzz-postgres pg_dump -U buzz buzz 2>>"$LOG" | gzip > "$BUZZ_FILE"; then
+    echo "[$TIMESTAMP] buzz-postgres: $BUZZ_FILE ($(du -sh "$BUZZ_FILE" | cut -f1))" >> "$LOG"
+else
+    echo "[$TIMESTAMP] WARNING: buzz-postgres backup FAILED" >> "$LOG"
+fi
+find "$BACKUP_DIR/buzz/" -name "buzz_*.sql.gz" -mtime +7 -delete || true
+
 echo "[$TIMESTAMP] Backup complete" >> "$LOG"

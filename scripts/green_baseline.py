@@ -477,16 +477,20 @@ def check_backup_freshness() -> str:
         return "WARN backups dir absent [S1-B3]"
 
     warns = []
-    age_h = None
-    plane = base / "plane"
-    dumps = [f for f in plane.glob("*") if f.is_file()] if plane.exists() else []
-    newest = max((f.stat().st_mtime for f in dumps), default=None)
-    if newest is None:
-        warns.append("no plane dump found")
-    else:
-        age_h = (_time.time() - newest) / 3600
-        if age_h > 26:
-            warns.append(f"newest plane dump {age_h:.0f}h old")
+    # Every store backup.sh writes must be fresh; a silently-failing
+    # qdrant/n8n/buzz backup was exactly the audit #01 blind spot.
+    STORES = {"plane": "*.sql.gz", "qdrant": "*.snapshot",
+              "n8n": "*.tar.gz", "buzz": "*.sql.gz"}
+    for store, pattern in STORES.items():
+        sdir = base / store
+        files = list(sdir.glob(pattern)) if sdir.exists() else []
+        newest = max((f.stat().st_mtime for f in files), default=None)
+        if newest is None:
+            warns.append(f"{store}: no backup")
+        else:
+            age_h = (_time.time() - newest) / 3600
+            if age_h > 26:
+                warns.append(f"{store} {age_h:.0f}h old")
 
     log = base / "backup.log"
     if log.exists():
@@ -503,7 +507,7 @@ def check_backup_freshness() -> str:
 
     if warns:
         return "WARN backups: " + "; ".join(warns) + " [S1-B3]"
-    return f"backups fresh (plane dump {age_h:.0f}h old), log clean"
+    return "backups fresh across plane/qdrant/n8n/buzz, log clean"
 
 
 def expiry_severity(days, warn_days, red_days):
