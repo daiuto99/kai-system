@@ -506,6 +506,86 @@ def check_backup_freshness() -> str:
     return f"backups fresh (plane dump {age_h:.0f}h old), log clean"
 
 
+def expiry_severity(days, warn_days, red_days):
+    """Pure verdict for an expiry-days value (unit-tested). None -> warn (unknown)."""
+    if days is None:
+        return "warn"
+    if days <= red_days:
+        return "red"
+    if days <= warn_days:
+        return "warn"
+    return "green"
+
+
+def check_tailscale_key_expiry() -> str:
+    """S1-B2 (audit #04/#06) — the Tailscale node key expiry was unprobed; when it
+    lapses, `ssh kai` AND the tailnet-bound worker-api :8001 both die at once, and
+    re-auth is manual. RED (raises) <=7d because it is runtime-critical access; WARN
+    <=14d. Read via the kai-tailscale container (host has no tailscale CLI)."""
+    import json as _json
+    import subprocess as _sp
+    import time as _time
+    from datetime import datetime as _dt
+
+    try:
+        out = _sp.run(["docker", "exec", "kai-tailscale", "tailscale", "status", "--json"],
+                      capture_output=True, text=True, timeout=15).stdout
+        key_expiry = (_json.loads(out).get("Self") or {}).get("KeyExpiry")
+    except Exception:
+        return "WARN tailscale key expiry unavailable [S1-B2]"
+    if not key_expiry:
+        return "tailscale node key: no expiry set (non-expiring)"
+    try:
+        exp = _dt.fromisoformat(key_expiry.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return "WARN tailscale key expiry unparseable [S1-B2]"
+
+    days = (exp - _time.time()) / 86400
+    sev = expiry_severity(days, 14, 7)
+    if sev == "red":
+        raise RuntimeError(f"tailscale node key expires in {days:.0f}d — lapse kills ssh + worker-api :8001 [S1-B2]")
+    if sev == "warn":
+        return f"WARN tailscale node key expires in {days:.0f}d — re-auth soon [S1-B2]"
+    return f"tailscale node key valid ({days:.0f}d)"
+
+
+def check_public_tls() -> str:
+    """S1-B2 (audit #20) — TLS/cert monitoring covered one hostname; the n8n webhook
+    cert could break while the old probe stayed green. Check every public endpoint's
+    cert expiry via a plain ssl socket. RED (raises) <=3d (renewal has failed); WARN
+    <=14d or unreachable."""
+    import socket as _socket
+    import ssl as _ssl
+    import time as _time
+    from datetime import datetime as _dt, timezone as _tz
+
+    ENDPOINTS = ["kai.sonicink.space", "n8n.sonicink.space"]
+    ctx = _ssl.create_default_context()
+    reds, warns, oks = [], [], []
+    for host in ENDPOINTS:
+        try:
+            with ctx.wrap_socket(_socket.create_connection((host, 443), timeout=8),
+                                 server_hostname=host) as sock:
+                not_after = sock.getpeercert()["notAfter"]
+            exp = _dt.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=_tz.utc).timestamp()
+            days = (exp - _time.time()) / 86400
+            sev = expiry_severity(days, 14, 3)
+            if sev == "red":
+                reds.append(f"{host} {days:.0f}d")
+            elif sev == "warn":
+                warns.append(f"{host} {days:.0f}d")
+            else:
+                oks.append(f"{host} {days:.0f}d")
+        except Exception:
+            warns.append(f"{host} unreachable")
+
+    if reds:
+        raise RuntimeError("public TLS cert near-expiry: " + "; ".join(reds + warns) + " [S1-B2]")
+    if warns:
+        return "WARN public TLS: " + "; ".join(warns) + " [S1-B2]"
+    return "public TLS certs valid (" + ", ".join(oks) + ")"
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -524,6 +604,8 @@ def checks() -> tuple[Check, ...]:
         Check("disk_pressure", check_disk_pressure),
         Check("container_roster", check_container_roster),
         Check("backup_freshness", check_backup_freshness),
+        Check("tailscale_key_expiry", check_tailscale_key_expiry),
+        Check("public_tls", check_public_tls),
     )
 
 

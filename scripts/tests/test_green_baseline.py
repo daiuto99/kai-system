@@ -29,6 +29,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions", "source_drift",
                 "fleet_visibility", "codex_verifier_auth", "host_hygiene",
                 "disk_pressure", "container_roster", "backup_freshness",
+                "tailscale_key_expiry", "public_tls",
             ],
         )
 
@@ -207,6 +208,26 @@ class ContainerRosterAndBackup(unittest.TestCase):
                 baseline.Check("b", lambda: "WARN backups: x [S1-B3]"),
             ))
         self.assertEqual(rc, 0)
+
+
+class ExpiryProbes(unittest.TestCase):
+    """S1-B2 — expiry_severity thresholds + the tailscale/TLS probes run clean."""
+
+    def test_severity_thresholds(self):
+        self.assertEqual(baseline.expiry_severity(60, 14, 7), "green")
+        self.assertEqual(baseline.expiry_severity(10, 14, 7), "warn")
+        self.assertEqual(baseline.expiry_severity(3, 14, 7), "red")
+        self.assertEqual(baseline.expiry_severity(None, 14, 7), "warn")
+
+    def test_tailscale_probe_runs(self):
+        detail = baseline.check_tailscale_key_expiry()
+        self.assertIsInstance(detail, str)
+        self.assertIn("tailscale", detail)
+
+    def test_public_tls_probe_runs(self):
+        detail = baseline.check_public_tls()
+        self.assertIsInstance(detail, str)
+        self.assertIn("TLS", detail)
 
 
 if __name__ == "__main__":
