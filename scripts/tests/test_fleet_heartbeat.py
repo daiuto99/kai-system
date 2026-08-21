@@ -54,6 +54,18 @@ def test_entry_offline_is_unreachable():
     assert "offline" in e["degraded"]
 
 
+def test_entry_tailnet_flap_but_ssh_reachable():
+    # KAI-1176: Tailscale Online flag flapped to false but the ssh probe still
+    # answered (napping mini). ssh_ok overrides the stale flag -> reachable, no page.
+    e = fh.build_host_entry(
+        "71-kai-mini", "ntz", {"online": False, "ips": ["100.106.160.41"], "last_seen": "x"},
+        {"boot_epoch": 1785948437, "services": {"ollama": True}}, now_epoch=1785950000,
+        ssh_expected=True)
+    assert e["reachable"] is True and e["ssh_ok"] is True
+    assert e["tailnet_online"] is False
+    assert "degraded" not in e
+
+
 def test_entry_online_ssh_expected_but_down_is_flagged_blind():
     # The exact ticket gap: a WIRED node 'on but SSH-unreachable after reboot'.
     e = fh.build_host_entry(

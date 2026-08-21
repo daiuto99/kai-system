@@ -120,8 +120,10 @@ def build_host_entry(name: str, node_id: str, ts_peer: dict | None,
     entry = {
         "node_id": node_id,
         "tailnet_online": online,
-        # reachable = machine is up on the tailnet (Tailscale's own Online flag).
-        "reachable": online,
+        # reachable = up on the tailnet OR ssh-answering. ssh_ok overrides a
+        # flapped Tailscale Online flag so a napping-but-ssh-reachable node
+        # (e.g. the mini) no longer false-pages as offline. [KAI-1176]
+        "reachable": online or ssh_ok,
         "ssh_ok": ssh_ok,
         "ssh_expected": ssh_expected,
         "ips": ts_peer.get("ips") or [],
@@ -131,9 +133,9 @@ def build_host_entry(name: str, node_id: str, ts_peer: dict | None,
         "services": (probe or {}).get("services") or {},
         "last_probe": _iso(now_epoch),
     }
-    if not online:
-        entry["degraded"] = "offline (tailnet unreachable)"
-    elif not ssh_ok:
+    if not (online or ssh_ok):
+        entry["degraded"] = "offline (tailnet unreachable, ssh down)"
+    elif online and not ssh_ok:
         entry["degraded"] = ("online but ssh-unreachable (boot/services blind)"
                              if ssh_expected else
                              "online, ssh intentionally off (no transport wiring)")
@@ -309,6 +311,14 @@ def collect_fleet_state() -> dict:
             probe = _probe_host(name, node_id, self_id, ip, transport)
             ts_peer = dict(ts_peer or {})
             ts_peer["online"] = bool(probe and probe.get("boot_epoch"))
+        elif ssh_expected and ip:
+            # Probe a wired host even when Tailscale reports it offline: the
+            # Online flag flaps for napping nodes (e.g. the mini) while ssh to
+            # the tailnet IP still answers. ssh-success => reachable, so a
+            # Tailscale flap no longer false-pages a host that is actually up;
+            # a genuinely-off host ssh-fails and still reads offline. Mirrors
+            # the self-host rule above. [KAI-1176]
+            probe = _probe_host(name, node_id, self_id, ip, transport)
         elif ts_peer and ts_peer.get("online"):
             probe = _probe_host(name, node_id, self_id, ip, transport)
         hosts[name] = build_host_entry(name, node_id, ts_peer, probe, now, ssh_expected)
