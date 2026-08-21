@@ -225,7 +225,65 @@ def check_buzz_shim() -> str:
     missing = {"kai", "sky", "roads", "coach"} - models
     if missing:
         raise RuntimeError("Buzz shim :4001 missing advisor models: " + ", ".join(sorted(missing)))
+    # KAI-1182: the instant :4001 poke passing is NOT proof the advisor path is healthy.
+    # On 2026-08-21 the shim wedged (2.5h connection-refused) yet this check read GREEN
+    # at the next session start because it samples the instant. Fold in the last ~30 min
+    # of observed round-trip behavior from the advisor_dm_probe heartbeat so a RECENT
+    # outage cannot read clean: a failed/stale probe window downgrades GREEN -> WARN
+    # (never RED — a dead :4001 already RED'd above; this only catches recent-but-recovered).
+    window = _advisor_probe_window()
+    if window:
+        # WARN leads the string (host_hygiene/codex convention) so the row reads
+        # "GREEN [buzz_shim_backend] WARN ..." — a pass, but a visible recent-outage flag.
+        return window + " — :4001 live now (kai/sky/roads/coach)"
     return "Buzz advisor shim (:4001) serves kai/sky/roads/coach"
+
+
+def _advisor_probe_window() -> str:
+    """Read the advisor_dm_probe heartbeat; return a WARN string if the recent
+    round-trip window is unhealthy/stale, '' if the window is healthy. Never raises —
+    a missing/unparseable heartbeat yields '' (the instant poke above already passed;
+    we do not fabricate an outage from a transient read miss)."""
+    import json as _json
+    import time as _time
+    from datetime import datetime as _dt, timezone as _tz
+    STALE_SEC = 40 * 60  # probe runs every 15 min; >40 min = ~2+ missed cycles = probe stalled
+    state = None
+    for candidate in (Path("/vault/_advisor_probe_state.json"),
+                      Path("/home/leo/vault/_advisor_probe_state.json")):
+        try:
+            state = _json.loads(candidate.read_text())
+            break
+        except Exception:
+            continue
+    if not isinstance(state, dict):
+        return ""  # no heartbeat readable -> defer to the instant poke (no false alarm)
+    # INVARIANT (KAI-1182): the window read must NEVER raise/RED the baseline — the
+    # instant poke above already proved :4001 live. A single broad guard so ANY
+    # malformed field (e.g. consecutive_failures: null -> int(None), bad timestamp)
+    # degrades to '' (defer to the instant poke) rather than turning the row RED.
+    def _int(v) -> int:
+        try:
+            return int(v)
+        except Exception:
+            return 0
+    try:
+        if not state.get("ok", True):
+            return (f"WARN last advisor round-trip FAILED ({state.get('advisor', '?')}: "
+                    f"{str(state.get('reason', '?'))[:60]}; "
+                    f"{_int(state.get('consecutive_failures', 0))} consecutive) [KAI-1182]")
+        if _int(state.get("consecutive_failures", 0)) > 0:
+            return (f"WARN advisor round-trip recovering "
+                    f"({_int(state.get('consecutive_failures', 0))} recent fail) [KAI-1182]")
+        last_ok = state.get("last_ok")
+        if last_ok:
+            age = _time.time() - _dt.fromisoformat(str(last_ok).replace("Z", "+00:00")).timestamp()
+            if age > STALE_SEC:
+                return (f"WARN no healthy advisor round-trip in {int(age // 60)}m "
+                        f"(probe stalled?) [KAI-1182]")
+        return ""  # window healthy
+    except Exception:
+        return ""  # never RED / never raise from the window read (KAI-1182 invariant)
 
 
 def check_codex_verifier_auth() -> str:

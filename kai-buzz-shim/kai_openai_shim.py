@@ -41,7 +41,12 @@ def call_council(text, channel="kai"):
     basic = base64.b64encode(f"{WEB_USER}:{WEB_PW}".encode()).decode()
     req = urllib.request.Request(COUNCIL_URL, data=body, method="POST",
         headers={"Authorization": f"Basic {basic}", "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=180) as r:
+    # KAI-1182: was 180s. A council STALL let request threads live up to 3 min each and
+    # pile up, a contributing factor in the 2026-08-21 shim wedge (2.5h connection-refused
+    # outage). 90s caps thread lifetime without severing legitimate slow-but-valid replies
+    # (the advisor_dm_probe's own round-trip bound is 90s). Autoheal (buzz_shim_watchdog)
+    # is the primary durability fix; this is defense-in-depth against the pileup trigger.
+    with urllib.request.urlopen(req, timeout=90) as r:
         return json.loads(r.read()).get("reply", "(no reply)")
 
 
