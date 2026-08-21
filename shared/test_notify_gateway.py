@@ -40,7 +40,7 @@ class _FakeResp:
 def _install_stub():
     _SENT.clear()
 
-    def _fake_raw_post(chat_id, text, reply_markup, parse_mode):
+    def _fake_raw_post(chat_id, text, reply_markup, parse_mode, disable_notification=None):
         _SENT.append({"chat_id": chat_id, "text": text})
         return _FakeResp()
 
