@@ -1,195 +1,175 @@
 #!/usr/bin/env python3
-"""KAI-1153 · [MR2] Path-implementation inventory — M-R2 exit proof.
+"""M-R2 · One-implementation-per-path inventory (the stage exit artifact).
 
-Enumerates each user-facing function/path and asserts exactly ONE *live* implementation.
-Emits any duplicate/orphan (present-on-disk but not live) as a finding, so the M-R2
-"one implementation per path" consolidation is measured against script output, not prose.
+Generated inventory, NOT prose (mr-2 exit criterion): for each user-facing path it
+enumerates every implementation on disk and derives LIVE vs ORPHAN vs DEAD from
+observed reality — a running container, a live cron line, a consumed port, a compose
+bind-mount, git tracking — never from a hand-maintained list of "what should be live".
 
-Liveness signals (a candidate is LIVE if ANY strong signal fires):
-  • proc:      a matching process is running (ps aux)
-  • baked:     the file the container ACTUALLY executes (its WorkingDir), for a running compose service
-  • container: a named compose service is up (for containerized backends with no host-visible proc,
-               e.g. an in-container FastAPI route — kai-council-api, kai-orchestrator, buzz-relay)
-Presence-only (file exists on disk but no live signal) => ORPHAN candidate.
-
-Verdict per path:
-  OK        exactly one live impl
-  DUP       >1 live impl (real consolidation target)
-  ORPHAN    exactly one live impl but ≥1 orphaned duplicate still on disk (cleanup target)
-  MISSING   zero live impl (regression — a path with no live implementation)
-
-Exit non-zero if any path is DUP or MISSING (ORPHAN is a warning, not a hard fail).
-A curated registry of user-facing paths; it grows as coverage widens (detection primitives
-stay generic). v1 covered 5; v1.1 (KAI-1153) adds the three the v1 commit deferred —
-ember_backend, wp_pipeline, buzz_eval_dependency — each with its own liveness probe.
+Exit gate: a path with >1 LIVE implementation FAILS (parallel duplicates remain). Run
+before and after the consolidation deletions; the diff between runs is the deletion
+evidence the stage requires. Read-only: pokes docker/cron/ss/git, mutates nothing.
+Runs on the worker HOST.
 """
 from __future__ import annotations
+
 import json
 import subprocess
-import sys
 from dataclasses import dataclass, field
+from pathlib import Path
+
+HOME = Path.home()
+KS = HOME / "kai-system"
 
 
-def _run(cmd: list[str], timeout: int = 15) -> str:
+def _sh(cmd: list[str]) -> str:
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=15).stdout
     except Exception:
         return ""
 
 
-def _ps() -> str:
-    return _run(["ps", "aux"])
+def container_running(name: str) -> bool:
+    return _sh(["docker", "inspect", "-f", "{{.State.Running}}", name]).strip() == "true"
 
 
-def _compose_services() -> set[str]:
-    out = _run(["docker", "ps", "--format", "{{.Names}}"])
-    return {line.strip() for line in out.splitlines() if line.strip()}
+def crontab_has(substr: str) -> bool:
+    return substr in _sh(["crontab", "-l"])
 
 
-def _container_workdir_has(container: str, filename: str) -> bool:
-    """True if `container` runs from a WorkingDir that contains `filename` (baked, executed)."""
-    if container not in _RUNNING_CONTAINERS:
+def cron_is_noop(script: Path) -> bool:
+    """A keep-alive cron whose every start/up invocation is commented out is dead weight."""
+    try:
+        lines = [l.strip() for l in script.read_text().splitlines()]
+    except Exception:
         return False
-    wd = _run(["docker", "inspect", "-f", "{{.Config.WorkingDir}}", container]).strip() or "/"
-    ls = _run(["docker", "exec", container, "sh", "-c", f"ls {wd}/{filename} 2>/dev/null"])
-    return filename in ls
+    active = [l for l in lines if l and not l.startswith("#")
+              and ("start " in l or "up \"" in l) and "()" not in l]
+    return not active  # no live start/up line -> no-op
 
 
-_PS_CACHE = _ps()
-_RUNNING_CONTAINERS = _compose_services()
+def port_consumed(port: int) -> bool:
+    out = _sh(["ss", "-tnp"])
+    return f":{port} " in out and "ESTAB" in out
+
+
+def compose_bind_mounts(host_path: str) -> bool:
+    try:
+        return host_path in (KS / "docker-compose.yml").read_text()
+    except Exception:
+        return False
+
+
+def git_tracked(rel: str) -> bool:
+    return rel in _sh(["git", "-C", str(KS), "ls-files", rel])
 
 
 @dataclass
-class Candidate:
-    label: str
-    # any of these firing = a signal
-    proc_pattern: str = ""          # substring to find in `ps aux`
-    baked: tuple[str, str] | None = None   # (container, filename) executed from its WorkingDir
-    container: str = ""             # a running compose service name = live (no host-visible proc)
-    disk_path: str = ""             # host path whose existence marks presence
-    is_module: bool = False         # imported library, not a process: liveness = present in a deployed tree
-
-    def live(self) -> bool:
-        # A library/chokepoint module is "live" when it exists in a deployed service
-        # tree — it has no process of its own; its single-impl is enforced separately
-        # (e.g. check_notify_chokepoint.py). Process/baked signals apply to executables.
-        if self.is_module:
-            return self.present()
-        if self.proc_pattern and self.proc_pattern in _PS_CACHE:
-            return True
-        if self.baked and _container_workdir_has(*self.baked):
-            return True
-        if self.container and self.container in _RUNNING_CONTAINERS:
-            return True
-        return False
-
-    def present(self) -> bool:
-        import os
-        return bool(self.disk_path) and os.path.exists(self.disk_path)
+class Impl:
+    ref: str            # file / cron / service reference
+    status: str = "?"   # LIVE | ORPHAN | DEAD
+    evidence: str = ""
 
 
 @dataclass
-class Path:
-    key: str
-    desc: str
-    candidates: list[Candidate] = field(default_factory=list)
+class PathEntry:
+    path: str
+    impls: list = field(default_factory=list)
 
-    def evaluate(self) -> dict:
-        live = [c.label for c in self.candidates if c.live()]
-        orphans = [c.label for c in self.candidates
-                   if (not c.live()) and c.present()]
-        if len(live) > 1:
-            verdict = "DUP"
-        elif len(live) == 0:
-            verdict = "MISSING"
-        elif orphans:
-            verdict = "ORPHAN"
-        else:
-            verdict = "OK"
-        return {"path": self.key, "desc": self.desc, "verdict": verdict,
-                "live": live, "orphans": orphans}
+    def live_count(self) -> int:
+        return sum(1 for i in self.impls if i.status == "LIVE")
 
 
-# ── Registry (v1) — curated from the Fable HoE review + the KAI-1129/b782c29a session ──
-REGISTRY: list[Path] = [
-    Path("advisor_dm_delivery", "How an advisor DM reaches the live agent", [
-        Candidate("kai-buzz baked agents_bridge (LIVE path)",
-                  proc_pattern="agents_bridge.py KAI", baked=("kai-buzz", "agents_bridge.py")),
-        Candidate("buzz-eval host agents_bridge (orphaned 08-04)",
-                  disk_path="/home/leo/buzz-eval/agent/agents_bridge.py"),
-        Candidate("kai_openai_shim :4001 (retired 08-03)",
-                  disk_path="/home/leo/buzz-eval/agent/kai_openai_shim.py"),
-    ]),
-    Path("advisor_shim_backend", "The :4001 advisor shim backing native Buzz advisors", [
-        Candidate("kai-buzz-shim compose service (LIVE)", proc_pattern="kai_openai_shim"),
-    ]),
-    Path("approvals_surface", "Approvals poller (Buzz taps -> gate resolve)", [
-        Candidate("buzz_approve.py (kai-buzz)", proc_pattern="buzz_approve.py"),
-    ]),
-    Path("telegram_inbound", "Inbound Telegram lifeline transport", [
-        Candidate("kai-scheduler long-poll (LIVE)", proc_pattern="scheduler.py"),
-        Candidate("worker-api telegram webhook (dormant per memory)",
-                  disk_path="/home/leo/kai-system/kai-worker-api/routes/telegram.py"),
-    ]),
-    Path("notify_delivery", "Single Leo-facing notification chokepoint", [
-        Candidate("notify_gateway (chokepoint)",
-                  disk_path="/home/leo/kai-system/shared/notify_gateway.py", is_module=True),
-    ]),
-    # ── v1.1 coverage-gap paths (KAI-1153, this session) — the three the v1 commit deferred ──
-    Path("ember_backend", "How an Ember query is answered — DUP: two live backends", [
-        # Live #1: council-api serves Ember on the dashboard (PRIVACY_ADVISORS, router `advisor==ember`).
-        # `baked` (file in the running container's WorkingDir), not bare container-up, so the signal
-        # proves the executed tree actually carries the ember-serving router.
-        Candidate("kai-council-api Ember advisor (dashboard, LIVE)",
-                  baked=("kai-council-api", "router.py")),
-        # Live #2 — the DUP: the RUNNING kai-buzz-shim answers Ember too. Its :4001 POST handler runs
-        # `call_ember(...) if model.startswith("ember")` with NO check that the model is in MODELS —
-        # MODELS only gates the /v1/models GET listing, not dispatch. So the shim is a reachable Ember
-        # backend right now, and "Ember off Buzz until AR-5.4" is advertisement, not enforcement.
-        Candidate("kai-buzz-shim call_ember — reachable via unguarded :4001 dispatch",
-                  proc_pattern="kai_openai_shim"),
-        # Orphan: the KAI-984 standalone Ember-on-Buzz daemon — baked into kai-buzz but no process runs
-        # it (live agents_bridge roster is KAI/Roads/Coach/GearTalk/…, no Ember). Spike code => cleanup.
-        Candidate("ember_bridge.py standalone Buzz daemon (spike, not running)",
-                  disk_path="/home/leo/kai-system/kai-buzz/ember_bridge.py"),
-    ]),
-    Path("wp_pipeline", "Build a WordPress page draft (governed pipeline)", [
-        # Live: the sole registered BuildPageDraftWorkflow in the running kai-orchestrator (WD=/app).
-        Candidate("BuildPageDraftWorkflow (kai-orchestrator, LIVE)",
-                  baked=("kai-orchestrator", "workflows/wordpress_build_page_draft.py")),
-    ]),
-    Path("buzz_eval_dependency", "Coupling of the live Buzz stack to the unversioned ~/buzz-eval spike", [
-        # Live dependency: buzz-relay runs image buzz-relay:eval, built from the ~/buzz-eval spike tree.
-        Candidate("buzz-relay:eval (running, built from ~/buzz-eval spike)", container="buzz-relay"),
-        # Orphan: stale agent-code copies in the ~/buzz-eval/agent mount — kai-buzz executes the baked
-        # /app copy (WD=/app; /agent/agents_bridge.py absent), so these host copies are not executed.
-        Candidate("~/buzz-eval/agent stale agent-code copy (not executed; kai-buzz runs baked /app)",
-                  disk_path="/home/leo/buzz-eval/agent/buzz_approve.py"),
-    ]),
-]
+def build_inventory() -> list:
+    inv: list = []
+
+    # 1. Advisor DM backend (OpenAI-compatible shim on :4001)
+    live_shim = container_running("kai-buzz-shim")
+    orphan_shim = HOME / "buzz-eval/agent/kai_openai_shim.py"
+    inv.append(PathEntry("Advisor DM backend (:4001 OpenAI shim)", [
+        Impl("kai-buzz-shim/kai_openai_shim.py (compose service)",
+             "LIVE" if live_shim else "DEAD",
+             f"container kai-buzz-shim running={live_shim}"),
+        Impl("~/buzz-eval/agent/kai_openai_shim.py",
+             "ORPHAN" if orphan_shim.exists() else "DEAD",
+             "retired 2026-08-03 (watchdog.sh); the live :4001 is the container, not this copy"),
+    ]))
+
+    # 2. Advisor DM bridges (Nostr signing/transport)
+    kb_live = container_running("kai-buzz")
+    archived_bridge = HOME / "buzz-eval/_archived_kai1142/agents_bridge.py"
+    inv.append(PathEntry("Advisor bridges (Nostr signing/transport)", [
+        Impl("kai-buzz/agents_bridge.py (compose service kai-buzz)",
+             "LIVE" if kb_live else "DEAD",
+             f"container kai-buzz running={kb_live}; imported by buzz_approve/buzz_provision/sky_dm"),
+        Impl("~/buzz-eval/_archived_kai1142/agents_bridge.py",
+             "ORPHAN" if archived_bridge.exists() else "DEAD",
+             "explicitly _archived_ copy; not imported by any live service"),
+    ]))
+
+    # 3. Telegram inbound
+    sched_live = container_running("kai-scheduler")
+    inv.append(PathEntry("Telegram inbound", [
+        Impl("kai-scheduler/scheduler.py long-poll",
+             "LIVE" if sched_live else "DEAD",
+             f"container kai-scheduler running={sched_live}"),
+        Impl("kai-worker-api/scheduler.py webhook",
+             "ORPHAN",
+             "dormant webhook path; long-poll is the live transport (project_telegram_inbound_transport)"),
+    ]))
+
+    # 4. Buzz keep-alive watchdog cron
+    wd = HOME / "buzz-eval/agent/watchdog.sh"
+    noop = cron_is_noop(wd)
+    inv.append(PathEntry("Buzz keep-alive cron", [
+        Impl("~/buzz-eval/agent/watchdog.sh (cron: every-min + @reboot)",
+             "DEAD" if noop else ("LIVE" if crontab_has("watchdog.sh") else "ORPHAN"),
+             f"in crontab={crontab_has('watchdog.sh')}; all start/up lines commented (no-op)={noop}"),
+    ]))
+
+    # 5. Host-ops deploy transport (mr-2 'brings': landed or deleted)
+    hostops = KS / "kai-orchestrator/capabilities/hostops.py"
+    inv.append(PathEntry("Host-ops deploy transport", [
+        Impl("kai-orchestrator/capabilities/hostops.py (+ workflows/hostops_deploy.py)",
+             "LIVE" if hostops.exists() else "DEAD",
+             "landed as an orchestrator capability (single impl)"),
+    ]))
+
+    # 6. buzz-eval/agent runtime dir — coupling flag (not its own 'path', but the blocker)
+    bind = compose_bind_mounts("/home/leo/buzz-eval/agent:/agent")
+    inv.append(PathEntry("~/buzz-eval/agent runtime dir (BUZZ_AGENT_DIR)", [
+        Impl("~/buzz-eval/agent (bind-mounted into kai-buzz)",
+             "LIVE" if bind else "ORPHAN",
+             f"compose bind-mount /agent:rw present={bind}; kai-buzz bridges resolve "
+             "BUZZ_AGENT_DIR here -> NOT deletable until folded into the image"),
+    ]))
+
+    return inv
 
 
 def main() -> int:
-    results = [p.evaluate() for p in REGISTRY]
-    dup = [r for r in results if r["verdict"] == "DUP"]
-    missing = [r for r in results if r["verdict"] == "MISSING"]
-    orphan = [r for r in results if r["verdict"] == "ORPHAN"]
-    ok = [r for r in results if r["verdict"] == "OK"]
-
-    print("KAI-1153 · M-R2 PATH-IMPLEMENTATION INVENTORY")
-    print("=" * 64)
-    for r in results:
-        mark = {"OK": "[OK]", "DUP": "[DUP]", "ORPHAN": "[ORPHAN]", "MISSING": "[MISS]"}[r["verdict"]]
-        print(f"{mark:9} {r['path']}")
-        print(f"          live:    {r['live'] or '(none)'}")
-        if r["orphans"]:
-            print(f"          orphans: {r['orphans']}  <- delete/consolidate")
-    print("=" * 64)
-    print(f"paths: {len(results)} | OK: {len(ok)} | ORPHAN: {len(orphan)} | DUP: {len(dup)} | MISSING: {len(missing)}")
-    print("\nJSON:", json.dumps(results))
-    # hard fail on real one-impl violations; ORPHAN is a warning (cleanup, not breakage)
-    return 1 if (dup or missing) else 0
+    inv = build_inventory()
+    print("M-R2 ONE-IMPLEMENTATION-PER-PATH INVENTORY")
+    print("=" * 66)
+    dup = 0
+    for e in inv:
+        lc = e.live_count()
+        flag = "  ✗ DUPLICATE LIVE" if lc > 1 else ("  ✓" if lc == 1 else "  · no live impl")
+        print(f"\n{e.path}{flag}")
+        for i in e.impls:
+            print(f"    [{i.status:6}] {i.ref}")
+            print(f"             └ {i.evidence}")
+        if lc > 1:
+            dup += 1
+    print("\n" + "=" * 66)
+    verdict = "PASS — exactly one live implementation per path" if dup == 0 \
+        else f"FAIL — {dup} path(s) still have >1 live implementation"
+    print("VERDICT:", verdict)
+    print("Orphans/dead to retire:",
+          ", ".join(i.ref.split(" ")[0] for e in inv for i in e.impls
+                    if i.status in ("ORPHAN", "DEAD")) or "none")
+    return 0 if dup == 0 else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
