@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -215,9 +216,39 @@ def _dedup_mark(dedup_key: Optional[str]) -> None:
     data[dedup_key] = now
     try:
         _DEDUP_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _DEDUP_PATH.write_text(json.dumps(data))
+        _atomic_write_text(_DEDUP_PATH, json.dumps(data))
     except Exception as e:
         log.error("notify_dedup write failed: %s", type(e).__name__)
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write `text` to `path` atomically and uid-agnostically.
+
+    The dedup/log surfaces under /vault are shared by the host cron probes
+    (uid 1000) and the containers (also uid 1000) — but a stray root-owned
+    process occasionally recreates the file as root:root:644, after which an
+    in-place `write_text` from a uid-1000 writer hits PermissionError (74×
+    observed, KAI cron logs). Writing a fresh temp we own and os.replace-ing it
+    in needs only DIRECTORY write (every legitimate writer owns/roots the dir),
+    so it succeeds regardless of the target file's current owner, and the swap
+    is atomic. Mode 0o664 keeps the group (uid-1000 fleet) writable next time.
+    """
+    d = path.parent
+    fd, tmp = tempfile.mkstemp(dir=str(d), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+        try:
+            os.chmod(tmp, 0o664)
+        except OSError:
+            pass  # best-effort; replace still succeeds
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 # ── Transport: the ONLY raw Telegram sendMessage in the codebase ────────────────

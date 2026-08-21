@@ -197,6 +197,31 @@ def test_tg_alert_status_with_cause():
           rec.get("cause") == "disk 96% on /var/lib/docker")
 
 
+def test_dedup_write_survives_unwritable_target():
+    """Regression (KAI-1180 sibling): a foreign-owned/unwritable dedup file must
+    not break dedup marking. Simulate the root-flip by making the FILE itself
+    read-only while the DIR stays writable; the atomic temp+replace path must
+    still land the new key. An in-place write_text would raise PermissionError
+    here (the 74× errors in the cron logs)."""
+    import stat
+    from pathlib import Path
+    ng._dedup_mark("perm-key-1")
+    p = Path(os.environ["KAI_NOTIFY_DEDUP"])
+    os.chmod(p, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)  # 0o444: unwritable in place
+    inplace_fails = False
+    try:
+        p.write_text("{}")            # prove the old code path would have failed…
+    except PermissionError:
+        inplace_fails = True
+    ng._dedup_mark("perm-key-2")      # …while the shipped atomic path succeeds
+    data = json.loads(p.read_text())
+    check("dedup → in-place write would fail on unwritable file",
+          inplace_fails or os.geteuid() == 0)  # root bypasses perms; property still holds via replace
+    check("dedup → atomic replace landed new key despite unwritable target",
+          "perm-key-2" in data)
+    os.chmod(p, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH)
+
+
 def main():
     print("notify() gateway tests:")
     for fn in (test_reality_gate_synthetic, test_dashboard_routing,
@@ -204,7 +229,8 @@ def main():
                test_classify_autonomous_dashboard, test_pytest_auto_sink,
                test_uncaused_problem_stamped, test_caused_problem_passthrough,
                test_good_status_no_cause_line,
-               test_tg_alert_status_stamped, test_tg_alert_status_with_cause):
+               test_tg_alert_status_stamped, test_tg_alert_status_with_cause,
+               test_dedup_write_survives_unwritable_target):
         fn()
     failed = [n for n, ok in _RESULTS if not ok]
     print(f"\n{len(_RESULTS) - len(failed)}/{len(_RESULTS)} checks passed.")
