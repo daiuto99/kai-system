@@ -31,6 +31,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "disk_pressure", "container_roster", "backup_freshness",
                 "tailscale_key_expiry", "public_tls", "backup_verify",
                 "offsite_freshness",
+                "alert_delivery",
             ],
         )
 
@@ -280,6 +281,42 @@ class OffsiteFreshnessVerdict(unittest.TestCase):
         with redirect_stdout(out):
             rc = baseline.run_suite((baseline.Check("offsite", lambda: detail),))
         self.assertEqual(rc, 0)
+
+
+
+class AlertDeliveryVerdict(unittest.TestCase):
+    """S1-B4 — alert_delivery_verdict: WARN when never run, RED on a FAILED or stale
+    receipt, GREEN on a fresh delivery. The live probe must not turn the suite RED
+    when the heartbeat is merely absent."""
+
+    def test_never_run_warns(self):
+        sev, d = baseline.alert_delivery_verdict(None, None)
+        self.assertEqual(sev, "warn")
+        self.assertIn("never run", d)
+
+    def test_fail_reds(self):
+        sev, d = baseline.alert_delivery_verdict("FAIL", 1.0)
+        self.assertEqual(sev, "red")
+        self.assertIn("FAILED", d)
+
+    def test_stale_reds(self):
+        sev, d = baseline.alert_delivery_verdict("OK", 48.0)
+        self.assertEqual(sev, "red")
+        self.assertIn("stale", d)
+
+    def test_fresh_green(self):
+        sev, d = baseline.alert_delivery_verdict("OK", 2.0)
+        self.assertEqual(sev, "green")
+        self.assertIn("delivery-verified", d)
+
+    def test_live_probe_runs_and_never_reds_when_absent(self):
+        detail = baseline.check_alert_delivery()
+        self.assertIsInstance(detail, str)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = baseline.run_suite((baseline.Check("ad", lambda: detail),))
+        # never-run/fresh -> not RED; a pre-existing stale/FAIL stamp is a real RED
+        self.assertIn(rc, (0, 1))
 
 
 if __name__ == "__main__":

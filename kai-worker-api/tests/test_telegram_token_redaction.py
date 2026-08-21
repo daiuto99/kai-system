@@ -149,7 +149,7 @@ def test_clarification_body_redacted():
         ng._test_mode, ng._secret, ng._raw_post, ng._LOG_PATH)
     ng._test_mode = lambda: False
     ng._secret = lambda name: FAKE_TOKEN if name == "telegram_bot_token" else "123"
-    ng._raw_post = lambda chat_id, text, reply_markup, parse_mode: DummyResp(
+    ng._raw_post = lambda chat_id, text, reply_markup, parse_mode, disable_notification=False: DummyResp(
         200, {"ok": False,
               "description": f"reflected https://api.telegram.org/bot{ENCODED}/sendMessage"}
     )

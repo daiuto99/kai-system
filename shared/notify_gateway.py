@@ -229,7 +229,7 @@ def _dedup_mark(dedup_key: Optional[str]) -> None:
 # the tap round-trip.)
 
 def _raw_post(chat_id, text: str, reply_markup: Optional[dict],
-              parse_mode: Optional[str]):
+              parse_mode: Optional[str], disable_notification: bool = False):
     """The one and only raw sendMessage. Returns the httpx.Response or None on a
     transport error / missing token. L18: never logs the token/URL or error body."""
     token = _secret("telegram_bot_token")
@@ -240,6 +240,8 @@ def _raw_post(chat_id, text: str, reply_markup: Optional[dict],
         payload["reply_markup"] = reply_markup
     if parse_mode:
         payload["parse_mode"] = parse_mode
+    if disable_notification:
+        payload["disable_notification"] = True
     try:
         return httpx.post(f"{_API}/bot{token}/sendMessage", json=payload, timeout=15)
     except Exception as e:
@@ -249,7 +251,8 @@ def _raw_post(chat_id, text: str, reply_markup: Optional[dict],
 
 def send_message(chat_id, text: str, *, reason: str,
                  reply_markup: Optional[dict] = None,
-                 parse_mode: Optional[str] = None) -> dict:
+                 parse_mode: Optional[str] = None,
+                 disable_notification: bool = False) -> dict:
     """Send one Telegram message and return result detail:
     {'delivered': bool, 'message_id': int|None}. For callers that must edit the card
     later (e.g. approval prompts). Reality-gated + logged (Rule A)."""
@@ -263,14 +266,17 @@ def send_message(chat_id, text: str, *, reason: str,
         _log({"event": "send", "reason": reason, "decision": "dropped_no_token", "delivered": False})
         log.error("send: telegram_bot_token missing — %s dropped", reason)
         return {"delivered": False, "message_id": None}
-    r = _raw_post(chat_id, text, reply_markup, parse_mode)
+    r = _raw_post(chat_id, text, reply_markup, parse_mode, disable_notification)
     delivered = bool(r is not None and r.status_code == 200)
     message_id = None
     if delivered:
         try:
             body = r.json()
-            delivered = bool(body.get("ok"))
             message_id = (body.get("result") or {}).get("message_id")
+            # S1-B4 (audit #03): a page counts as delivered ONLY on
+            # API-200 + ok + a real message_id readback — the receipt that
+            # the message actually landed, not merely that the API accepted it.
+            delivered = bool(body.get("ok")) and message_id is not None
         except Exception:
             delivered = False
     _log({"event": "send", "reason": reason, "chat_id": _safe_chat(chat_id),
@@ -281,12 +287,37 @@ def send_message(chat_id, text: str, *, reason: str,
 
 def send_telegram(chat_id, text: str, *, reason: str,
                   reply_markup: Optional[dict] = None,
-                  parse_mode: Optional[str] = None) -> bool:
+                  parse_mode: Optional[str] = None,
+                  disable_notification: bool = False) -> bool:
     """Send one Telegram message; returns True on delivery. The common transport for
     conversational replies and gate cards; notify() uses it internally for Leo-bound
     events. Thin bool wrapper over send_message()."""
     return send_message(chat_id, text, reason=reason,
-                        reply_markup=reply_markup, parse_mode=parse_mode)["delivered"]
+                        reply_markup=reply_markup, parse_mode=parse_mode,
+                        disable_notification=disable_notification)["delivered"]
+
+
+def delete_message(chat_id, message_id, *, reason: str = "heartbeat-cleanup") -> bool:
+    """S1-B4 — delete a message the gateway just sent (the delivery heartbeat sends a
+    silent probe, reads its message_id as the receipt, then deletes it so Leo's DM
+    keeps no daily footprint — Rule B). Best-effort, logged, fail-soft. Not a 'send',
+    so outside the sendMessage chokepoint. L18: never logs the token/URL."""
+    if _test_mode() or message_id is None:
+        return False
+    token = _secret("telegram_bot_token")
+    if not token:
+        return False
+    try:
+        r = httpx.post(f"{_API}/bot{token}/deleteMessage",
+                       json={"chat_id": _int_or_str(chat_id), "message_id": message_id},
+                       timeout=15)
+        ok = bool(r is not None and r.status_code == 200 and (r.json() or {}).get("ok"))
+    except Exception as e:
+        log.error("telegram delete failed: %s", type(e).__name__)
+        ok = False
+    _log({"event": "delete", "reason": reason, "chat_id": _safe_chat(chat_id),
+          "message_id": message_id, "delivered": ok})
+    return ok
 
 
 def _safe_chat(chat_id) -> str:

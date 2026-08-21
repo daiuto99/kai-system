@@ -685,6 +685,51 @@ def check_offsite_freshness() -> str:
     return detail
 
 
+def alert_delivery_verdict(result, age_h):
+    """Pure verdict for the alert-channel delivery heartbeat — S1-B4 (audit #03).
+    result: first token of ~/backups/.alert_heartbeat ('OK'|'FAIL') or None. age_h:
+    hours since the stamp, or None. RED when the channel last FAILED its delivery
+    receipt or the proof is stale (>36h) — an alert channel we cannot prove delivers
+    is the silent-outage risk B4 exists to kill; WARN when the heartbeat never ran."""
+    if result is None or age_h is None:
+        return "warn", "alert-delivery heartbeat never run [S1-B4]"
+    if result == "FAIL":
+        return "red", "alert channel FAILED delivery receipt — pages may not reach Leo [S1-B4]"
+    if age_h > 36:
+        return "red", f"alert-delivery heartbeat stale ({age_h:.0f}h — channel unproven) [S1-B4]"
+    return "green", f"alert channel delivery-verified ({age_h:.0f}h ago)"
+
+
+def check_alert_delivery() -> str:
+    """S1-B4 (audit #03) — the daily alert_delivery_heartbeat proves Telegram can
+    actually DELIVER (message_id receipt), then stamps ~/backups/.alert_heartbeat.
+    See alert_delivery_verdict."""
+    import time as _time
+    from pathlib import Path as _Path
+
+    stamp = None
+    for base in (_Path.home() / "backups", _Path("/home/leo/backups")):
+        cand = base / ".alert_heartbeat"
+        if cand.exists():
+            stamp = cand
+            break
+
+    result, age_h = None, None
+    if stamp is not None:
+        try:
+            result = stamp.read_text().strip().split()[0]
+        except Exception:
+            result = None
+        age_h = (_time.time() - stamp.stat().st_mtime) / 3600
+
+    sev, detail = alert_delivery_verdict(result, age_h)
+    if sev == "red":
+        raise RuntimeError(detail)
+    if sev == "warn":
+        return "WARN " + detail
+    return detail
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -707,6 +752,7 @@ def checks() -> tuple[Check, ...]:
         Check("public_tls", check_public_tls),
         Check("backup_verify", check_backup_verify),
         Check("offsite_freshness", check_offsite_freshness),
+        Check("alert_delivery", check_alert_delivery),
     )
 
 
