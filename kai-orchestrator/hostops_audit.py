@@ -83,6 +83,13 @@ def _consumed_gate(conn, job_id: str, operation: str, site: str):
     return None, None
 
 
+# Capability error types returned BEFORE any host mutation is attempted: a denied
+# gate, disallowed input/plugin. Like a skipped step these executed NOTHING on the
+# host, so they are not auditable mutations; recording them persists a null gate_id
+# and false-alarms reconciliation as an unauthorized mutation. (B1/KAI-984)
+_NOT_EXECUTED_ERRORS = {"gate_required", "input_not_allowed", "plugin_not_allowed"}
+
+
 def record_mutation(job_id: str, step_id: str, capability: str, site: str, result) -> None:
     """Write one durable audit record for an executed mutation (success OR post-gate failure).
 
@@ -99,6 +106,13 @@ def record_mutation(job_id: str, step_id: str, capability: str, site: str, resul
     # one as an execution creates a false gate_id=None reconciliation alert.
     data = getattr(result, "data", None) or {}
     if isinstance(data, dict) and data.get("skipped"):
+        return
+
+    # A pre-execution rejection (gate denied / bad input / disallowed plugin) mutated
+    # nothing on the host — not an executed mutation (see _NOT_EXECUTED_ERRORS).
+    error = getattr(result, "error", None)
+    if not getattr(result, "ok", False) and isinstance(error, dict) \
+            and error.get("type") in _NOT_EXECUTED_ERRORS:
         return
 
     outcome = "succeeded" if getattr(result, "ok", False) else "failed"
@@ -120,6 +134,14 @@ def record_mutation(job_id: str, step_id: str, capability: str, site: str, resul
             gate_id = gate_id or recovered_id
             if actor is None and brief:
                 actor = brief.get("audit_identity")
+        # A sparse post-transport FAILURE carries no evidence, so authorization is
+        # unrecoverable from the result. Every record reaching here IS an executed
+        # mutation (skips + pre-execution rejections already returned), so infer it
+        # from the gate: a gate => 'gate'; none => the op ran under policy allow =>
+        # 'autonomous'. Without this an autonomous op that FAILS persists
+        # authorization=None + gate_id=None and reconciliation false-alarms. (B1/KAI-984)
+        if authorization is None:
+            authorization = "gate" if gate_id else "autonomous"
         conn.execute(
             "INSERT INTO hostops_audit (id,ts,job_id,step_id,actor,operation,site,gate_id,authorization,outcome) "
             "VALUES (?,?,?,?,?,?,?,?,?,?)",

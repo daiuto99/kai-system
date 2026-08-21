@@ -156,9 +156,10 @@ def test_record_mutation_failure_recovers_from_consumed_gate(tmp_path, monkeypat
     hostops_audit.record_mutation("job2", "stepX", "hostops.deploy_plugin", "site-b", result)
 
     conn = _factory(tmp_path / "orch.db")()
-    row = conn.execute("SELECT actor, gate_id, outcome FROM hostops_audit").fetchone()
+    row = conn.execute("SELECT actor, gate_id, authorization, outcome FROM hostops_audit").fetchone()
     assert row["gate_id"] == "g2"                     # recovered from the consumed gate
     assert row["actor"] == "deploy-key:site-b"        # recovered from the gate brief
+    assert row["authorization"] == "gate"             # inferred from the recovered gate (B1)
     assert row["outcome"] == "failed"
 
 
@@ -192,3 +193,35 @@ def test_autonomous_execution_is_reconciled_without_a_gate(tmp_path, monkeypatch
     conn.commit()
     conn.close()
     assert hostops_audit.reconcile()["ok"] is True
+
+
+def test_pre_execution_denial_is_not_audited(tmp_path, monkeypatch):
+    # A gate_required denial mutated nothing on the host — like a skip it must NOT be
+    # recorded, else reconciliation false-alarms it as an unauthorized mutation. (B1)
+    conn = _setup(tmp_path, monkeypatch)
+    conn.commit()
+    conn.close()
+    result = types.SimpleNamespace(ok=False, verification=None, data=None,
+                                   error={"type": "gate_required"})
+    hostops_audit.record_mutation("job1", "step1", "hostops.place_secret", "site-a", result)
+    conn = _factory(tmp_path / "orch.db")()
+    assert conn.execute("SELECT COUNT(*) c FROM hostops_audit").fetchone()["c"] == 0
+
+
+def test_autonomous_failure_infers_authorization_and_reconciles(tmp_path, monkeypatch):
+    # A policy-autonomous op that FAILS at transport has no consumed gate to recover
+    # from; authorization must infer "autonomous" so reconciliation does not
+    # false-alarm "no gate_id" on a legitimate autonomous failure. (B1)
+    conn = _setup(tmp_path, monkeypatch)
+    conn.commit()
+    conn.close()
+    result = types.SimpleNamespace(ok=False, verification=None, data=None,
+                                   error={"type": "hostops_unavailable", "message": "boom"})
+    hostops_audit.record_mutation("job9", "step9", "hostops.place_secret", "site-z", result)
+
+    conn = _factory(tmp_path / "orch.db")()
+    row = conn.execute("SELECT gate_id, authorization, outcome FROM hostops_audit").fetchone()
+    assert row["gate_id"] is None
+    assert row["authorization"] == "autonomous"
+    assert row["outcome"] == "failed"
+    assert hostops_audit.reconcile()["ok"] is True   # no false "no gate_id" alert

@@ -183,3 +183,21 @@ inc4 remains: the live Slack-approval adapter + SSH tailnet transport (inc3 inje
 scheduler-invariant wiring, Leo's enrollment ceremony (tamper-protect allowlist + `enrollment_status=confirmed`),
 and the first live provision to 71-kai-mini (which unblocks AR-2). Standing rule recorded: memory
 `feedback_codex_residual_acceptance`.
+
+---
+
+## B1 (2026-08-21) — gate_id=null attribution fix (Claude builds -> Codex verifies)
+
+Two paths persisted a null attribution and false-alarmed the reconciler as an unauthorized mutation:
+(1) pre-execution denials (gate_required / input_not_allowed / plugin_not_allowed) were audited despite
+mutating nothing on the host; (2) a policy-autonomous op that fails at transport had no consumed gate to
+recover from, so authorization stayed None -> reconcile flagged "no gate_id". Fix in record_mutation:
+skip pre-execution rejections (like the existing `skipped` filter); infer authorization when None
+("gate" if gate_id else "autonomous" — every recorded row is an EXECUTED mutation). +2 regression tests;
+13/13 hostops-audit tests green.
+
+Codex verify (read-only, cross-provider): **VERDICT PASS** — "No exploit path found under the stated
+trust model." Confirmed: early-return only drops results that return before transport mutation;
+authorization="autonomous" is only reachable when the capability already decided policy allow; gated
+records still require a consumed+typed+bound gate in reconcile. Sole residual is out-of-model (a trusted
+capability altered to mutate before _gate()) — accepted per feedback_codex_residual_acceptance.
