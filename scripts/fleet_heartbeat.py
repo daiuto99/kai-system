@@ -22,6 +22,7 @@ exact 'on but SSH-unreachable after reboot' gap that motivated this ticket.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import time
@@ -63,7 +64,10 @@ _REMOTE_PROBE = (
     '  awk "/^btime/{print \\"boot_epoch=\\" \\$2}" /proc/stat; '
     '  command -v docker >/dev/null 2>&1 && echo docker=1 || echo docker=0; '
     'else '
-    '  echo "boot_epoch=$(sysctl -n kern.boottime 2>/dev/null | sed -nE \'s/.*sec = ([0-9]+).*/\\1/p\')"; '
+    # Emit the RAW kern.boottime line and parse it in python (parse_remote_probe).
+    # A remote greedy `sed 's/.*sec = ([0-9]+)/…'` matched `usec` and captured the
+    # microseconds field instead of the epoch → last_boot read 1970 (KAI-1180).
+    '  echo "boottime_raw=$(sysctl -n kern.boottime 2>/dev/null)"; '
     '  (colima status >/dev/null 2>&1 && echo colima=1 || echo colima=0); '
     '  (pgrep -x ollama >/dev/null 2>&1 && echo ollama=1 || echo ollama=0); '
     'fi'
@@ -93,6 +97,14 @@ def parse_remote_probe(text: str) -> dict:
                 boot_epoch = int(v) if v else None
             except ValueError:
                 boot_epoch = None
+        elif k == "boottime_raw":
+            # macOS `sysctl -n kern.boottime` → "{ sec = 1787275622, usec = 938717 } …".
+            # `\bsec` refuses to match inside `usec`, so we always grab the real
+            # epoch and never the microseconds field (KAI-1180). Linux never emits
+            # this key, so it can't clobber a good /proc/stat boot_epoch.
+            if boot_epoch is None:
+                m = re.search(r"\bsec = (\d+)", v)
+                boot_epoch = int(m.group(1)) if m else None
         elif v in ("0", "1"):
             services[k] = v == "1"
     return {"boot_epoch": boot_epoch, "services": services}

@@ -22,6 +22,22 @@ def test_parse_macos_probe():
     assert got["services"] == {"colima": True, "ollama": False}
 
 
+def test_parse_macos_boottime_raw():
+    # The exact live string from 71-kai-mini `sysctl -n kern.boottime` (KAI-1180).
+    # The old remote greedy sed matched `usec` and returned 938717 -> last_boot 1970.
+    raw = "boottime_raw={ sec = 1787275622, usec = 938717 } Thu Aug 20 21:27:02 2026\ncolima=1\nollama=0\n"
+    got = fh.parse_remote_probe(raw)
+    assert got["boot_epoch"] == 1787275622
+    assert got["services"] == {"colima": True, "ollama": False}
+
+
+def test_parse_macos_boottime_raw_ignores_usec():
+    # Regression guard: even if usec sorts/appears such that a greedy match would
+    # grab it, the \bsec anchor must never return the microseconds field.
+    got = fh.parse_remote_probe("boottime_raw={ sec = 1000000000, usec = 42 }\n")
+    assert got["boot_epoch"] == 1000000000
+
+
 def test_parse_empty_boot_epoch():
     got = fh.parse_remote_probe("boot_epoch=\ncolima=0\n")
     assert got["boot_epoch"] is None
