@@ -622,6 +622,69 @@ def check_backup_verify() -> str:
     return f"backup verify PASS ({age_d:.0f}d ago)"
 
 
+def offsite_freshness_verdict(enabled: bool, result, age_h):
+    """Pure verdict for the offsite backup copy — S1-B3 (audit #01, "RED freshness probe").
+    enabled: offsite.env sets OFFSITE_ENABLED=1. result: first token of
+    ~/backups/.offsite_result ('OK'|'FAIL') or None if never run. age_h: hours since
+    the stamp, or None. WARN while the transport is still gated/disabled (a real but
+    non-runtime gap); RED once enabled and the offsite copy has failed or gone stale
+    (>36h) — that is DR protection actually lapsed."""
+    if not enabled:
+        return "warn", "offsite transport not enabled (staged, awaiting gate) [S1-B3]"
+    if result == "FAIL":
+        return "red", "offsite sync FAILED — no current offsite copy [S1-B3]"
+    if result is None or age_h is None:
+        return "warn", "offsite sync never run (cron pending) [S1-B3]"
+    if age_h > 36:
+        return "red", f"offsite copy stale ({age_h:.0f}h — DR protection lapsed) [S1-B3]"
+    return "green", f"offsite copy fresh ({age_h:.0f}h ago)"
+
+
+def check_offsite_freshness() -> str:
+    """S1-B3 (audit #01, Track 3) — the offsite copy is the disaster-recovery leg;
+    an unwatched offsite is as good as none. Reads offsite.env (enabled?) + the
+    ~/backups/.offsite_result stamp offsite_sync.sh writes. See offsite_freshness_verdict."""
+    import time as _time
+    from pathlib import Path as _Path
+
+    base = None
+    for cand in (_Path.home() / "backups", _Path("/home/leo/backups")):
+        if cand.exists():
+            base = cand
+            break
+    if base is None:
+        return "WARN backups dir absent [S1-B3]"
+
+    enabled = False
+    for cand in (_Path.home() / "kai-system" / "offsite.env",
+                 _Path("/home/leo/kai-system/offsite.env")):
+        if cand.exists():
+            try:
+                for line in cand.read_text().splitlines():
+                    line = line.strip()
+                    if line.startswith("OFFSITE_ENABLED="):
+                        enabled = line.split("=", 1)[1].strip().strip('"').strip("'") == "1"
+            except Exception:
+                pass
+            break
+
+    stamp = base / ".offsite_result"
+    result, age_h = None, None
+    if stamp.exists():
+        try:
+            result = stamp.read_text().strip().split()[0]
+        except Exception:
+            result = None
+        age_h = (_time.time() - stamp.stat().st_mtime) / 3600
+
+    sev, detail = offsite_freshness_verdict(enabled, result, age_h)
+    if sev == "red":
+        raise RuntimeError(detail)
+    if sev == "warn":
+        return "WARN " + detail
+    return detail
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -643,6 +706,7 @@ def checks() -> tuple[Check, ...]:
         Check("tailscale_key_expiry", check_tailscale_key_expiry),
         Check("public_tls", check_public_tls),
         Check("backup_verify", check_backup_verify),
+        Check("offsite_freshness", check_offsite_freshness),
     )
 
 

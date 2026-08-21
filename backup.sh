@@ -111,4 +111,8 @@ else
 fi
 find "$BACKUP_DIR/buzz/" -name "buzz_*.sql.gz" -mtime +7 -delete || true
 
+# --- Offsite transport (S1-B3, audit #01 Track 3). STAGED-DISABLED until offsite.env
+# enables it (a GATE). No-op + logs when disabled; never aborts the local backup. ---
+bash "$HOME/kai-system/scripts/offsite_sync.sh" || echo "[$TIMESTAMP] WARNING: offsite_sync non-zero" >> "$LOG"
+
 echo "[$TIMESTAMP] Backup complete" >> "$LOG"

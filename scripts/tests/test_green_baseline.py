@@ -30,6 +30,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "fleet_visibility", "codex_verifier_auth", "host_hygiene",
                 "disk_pressure", "container_roster", "backup_freshness",
                 "tailscale_key_expiry", "public_tls", "backup_verify",
+                "offsite_freshness",
             ],
         )
 
@@ -238,6 +239,47 @@ class BackupVerifyProbe(unittest.TestCase):
         detail = baseline.check_backup_verify()
         self.assertIsInstance(detail, str)
         self.assertIn("backup verify", detail)
+
+
+
+class OffsiteFreshnessVerdict(unittest.TestCase):
+    """S1-B3 — offsite_freshness_verdict: WARN while gated/disabled, RED once enabled
+    and the offsite copy has failed or gone stale, GREEN on a fresh copy. The live
+    probe (no offsite.env yet) must never turn the suite RED."""
+
+    def test_disabled_warns_not_reds(self):
+        sev, d = baseline.offsite_freshness_verdict(False, None, None)
+        self.assertEqual(sev, "warn")
+        self.assertIn("not enabled", d)
+        self.assertIn("S1-B3", d)
+
+    def test_enabled_fail_reds(self):
+        sev, d = baseline.offsite_freshness_verdict(True, "FAIL", 1.0)
+        self.assertEqual(sev, "red")
+        self.assertIn("FAILED", d)
+
+    def test_enabled_never_run_warns(self):
+        sev, d = baseline.offsite_freshness_verdict(True, None, None)
+        self.assertEqual(sev, "warn")
+        self.assertIn("never run", d)
+
+    def test_enabled_stale_reds(self):
+        sev, d = baseline.offsite_freshness_verdict(True, "OK", 48.0)
+        self.assertEqual(sev, "red")
+        self.assertIn("stale", d)
+
+    def test_enabled_fresh_green(self):
+        sev, d = baseline.offsite_freshness_verdict(True, "OK", 3.0)
+        self.assertEqual(sev, "green")
+        self.assertIn("fresh", d)
+
+    def test_live_probe_runs_and_never_reds_while_gated(self):
+        detail = baseline.check_offsite_freshness()
+        self.assertIsInstance(detail, str)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = baseline.run_suite((baseline.Check("offsite", lambda: detail),))
+        self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":
