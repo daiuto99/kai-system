@@ -283,6 +283,93 @@ def check_codex_verifier_auth() -> str:
     return f"codex verifier OAuth valid ({remaining_h / 24:.0f}d remaining)"
 
 
+# ── cron_log_error_scan (S1-B2) ──────────────────────────────────────────────
+# The cron fleet (fleet_heartbeat, advisor/relay/alert probes, meta_monitor) logs
+# to files no probe read — three real faults (a ~2h advisor DM outage, a codex
+# relay restart loop, 74× notify_dedup PermissionError) sat invisibly in those
+# logs because every other baseline check only samples the instant and they had
+# self-healed between samples. This row scans the logs for RECENT anchored faults.
+_CRON_LOG_FILES = (
+    "advisor_dm_probe.log", "relay_roundtrip_probe.log", "fleet_heartbeat.log",
+    "meta_monitor.log", "alert_delivery_heartbeat.log",
+)
+# Anchored fault signatures ONLY — never bare "error"/"failed", which ride normal
+# status lines ("error: none", "failed=0") and would flood false positives (the
+# exact care the ticket flagged these deferred rows need).
+_CRON_ERR_SIGNATURES = (
+    "Traceback (most recent call last)",
+    "PermissionError",
+    "Error response from daemon",
+    " FAIL ",
+    "CRITICAL",
+)
+_CRON_ISO_RE = re.compile(r"(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})")
+
+
+def _scan_cron_log(path, now, window_s, tail_lines=400, untimestamped_tail=40):
+    """Count RECENT fault lines in one cron log. Returns (count, sample). Never
+    raises — a missing/unreadable log yields (0, None) so this can't RED a run
+    (e.g. in-container CI where the host logs dir isn't mounted). A line counts
+    when it carries a signature AND (its embedded ISO ts is within window_s, OR
+    it has no ts but sits in the last `untimestamped_tail` lines — so a healed
+    fault ages out and stops warning)."""
+    from datetime import datetime as _dt, timezone as _tz
+    try:
+        with open(path, "r", errors="replace") as fh:
+            lines = fh.readlines()[-tail_lines:]
+    except OSError:
+        return (0, None)
+    count, sample, n = 0, None, len(lines)
+    for idx, line in enumerate(lines):
+        if not any(sig in line for sig in _CRON_ERR_SIGNATURES):
+            continue
+        m = _CRON_ISO_RE.search(line)
+        if m:
+            try:
+                ts = _dt.strptime(f"{m.group(1)}T{m.group(2)}", "%Y-%m-%dT%H:%M:%S") \
+                    .replace(tzinfo=_tz.utc).timestamp()
+            except ValueError:
+                ts = None
+            if ts is not None and (now - ts) > window_s:
+                continue  # aged out of the window
+        elif idx < n - untimestamped_tail:
+            continue  # untimestamped and not in the recent tail → skip
+        count += 1
+        if sample is None:
+            sample = line.strip()
+    return (count, sample)
+
+
+def cron_log_error_verdict(hits) -> str:
+    """Pure verdict for check_cron_log_errors (unit-tested). `hits` is a list of
+    (log_name, count, sample). WARN — NEVER RED — when any scanned log shows a
+    recent fault (a stale/erroring cron log is not a runtime dependency and must
+    not block a session or a push); else a clean GREEN detail. Never raises."""
+    hits = [h for h in hits if h[1] > 0]
+    if not hits:
+        return "cron logs clean (no recent faults in scanned jobs)"
+    parts = "; ".join(f"{name}:{count}" for name, count, _ in hits)
+    sample = next((h[2] for h in hits if h[2]), "")
+    tail = f" — e.g. {sample[:120]}" if sample else ""
+    return f"WARN cron log faults (last 6h): {parts}{tail} [S1-B2]"
+
+
+def check_cron_log_errors() -> str:
+    """S1-B2 registry row — scans the cron-driven job logs for recent anchored
+    faults (Traceback/PermissionError/daemon-restart/FAIL/CRITICAL). WARN only."""
+    import os
+    import time as _time
+    log_dir = Path(os.environ.get("KAI_CRON_LOG_DIR", "/home/leo/kai-system/logs"))
+    window_s = int(os.environ.get("KAI_CRON_LOG_WINDOW", "21600"))  # 6h
+    now = _time.time()
+    hits = []
+    for name in _CRON_LOG_FILES:
+        cnt, sample = _scan_cron_log(log_dir / name, now, window_s)
+        if cnt:
+            hits.append((name, cnt, sample))
+    return cron_log_error_verdict(hits)
+
+
 def host_hygiene_verdict(security, total, reboot_required, zombies, cache_age_days) -> str:
     """Pure verdict logic for check_host_hygiene (unit-tested directly). WARN text
     on any hygiene concern, else a clean GREEN detail. Never raises."""
@@ -745,6 +832,7 @@ def checks() -> tuple[Check, ...]:
         Check("fleet_visibility", check_fleet),
         Check("codex_verifier_auth", check_codex_verifier_auth),
         Check("host_hygiene", check_host_hygiene),
+        Check("cron_log_error_scan", check_cron_log_errors),
         Check("disk_pressure", check_disk_pressure),
         Check("container_roster", check_container_roster),
         Check("backup_freshness", check_backup_freshness),

@@ -28,6 +28,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "plane_reachable", "qdrant_up", "litellm_models",
                 "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions", "source_drift",
                 "fleet_visibility", "codex_verifier_auth", "host_hygiene",
+                "cron_log_error_scan",
                 "disk_pressure", "container_roster", "backup_freshness",
                 "tailscale_key_expiry", "public_tls", "backup_verify",
                 "offsite_freshness",
@@ -145,6 +146,77 @@ class HostHygieneVerdict(unittest.TestCase):
         out = io.StringIO()
         with redirect_stdout(out):
             rc = baseline.run_suite((baseline.Check("hh", lambda: detail),))
+        self.assertEqual(rc, 0)
+
+
+class CronLogErrorScan(unittest.TestCase):
+    """S1-B2 — cron_log_error_scan: WARN (never RED) on recent anchored faults,
+    GREEN when clean, and immune to false positives from normal status lines."""
+
+    def test_verdict_clean_is_green(self):
+        d = baseline.cron_log_error_verdict([])
+        self.assertNotIn("WARN", d)
+        self.assertIn("clean", d)
+
+    def test_verdict_warns_with_counts_and_sample(self):
+        d = baseline.cron_log_error_verdict([("advisor_dm_probe.log", 3, "FAIL boom")])
+        self.assertIn("WARN", d)
+        self.assertIn("advisor_dm_probe.log:3", d)
+        self.assertIn("boom", d)
+
+    def _write(self, name, text):
+        p = Path(self._dir) / name
+        p.write_text(text)
+        return p
+
+    def setUp(self):
+        self._dir = tempfile.mkdtemp(prefix="cronlog_test_")
+
+    def test_scan_counts_recent_timestamped_fault(self):
+        now = time.time()
+        from datetime import datetime, timezone
+        recent = datetime.fromtimestamp(now - 60, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        p = self._write("x.log", f"[{recent}Z] FAIL advisor=kai — no round-trip\n")
+        cnt, sample = baseline._scan_cron_log(p, now, 21600)
+        self.assertEqual(cnt, 1)
+        self.assertIn("FAIL", sample)
+
+    def test_scan_ages_out_old_fault(self):
+        now = time.time()
+        from datetime import datetime, timezone
+        old = datetime.fromtimestamp(now - 30000, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        p = self._write("x.log", f"[{old}Z] FAIL advisor=kai — no round-trip\n")
+        cnt, _ = baseline._scan_cron_log(p, now, 21600)  # 30000s > 6h window
+        self.assertEqual(cnt, 0)
+
+    def test_scan_ignores_benign_status_words(self):
+        now = time.time()
+        p = self._write("x.log", "OK advisor=kai healthy round-trip error: none failed=0\n")
+        cnt, _ = baseline._scan_cron_log(p, now, 21600)
+        self.assertEqual(cnt, 0)
+
+    def test_scan_untimestamped_fault_in_recent_tail_counts(self):
+        now = time.time()
+        p = self._write("x.log", "notify_dedup write failed: PermissionError\n")
+        cnt, sample = baseline._scan_cron_log(p, now, 21600)
+        self.assertEqual(cnt, 1)
+        self.assertIn("PermissionError", sample)
+
+    def test_scan_missing_file_is_clean_never_raises(self):
+        cnt, sample = baseline._scan_cron_log(Path(self._dir) / "nope.log", time.time(), 21600)
+        self.assertEqual((cnt, sample), (0, None))
+
+    def test_probe_never_reds(self):
+        import os
+        os.environ["KAI_CRON_LOG_DIR"] = self._dir
+        try:
+            detail = baseline.check_cron_log_errors()
+        finally:
+            del os.environ["KAI_CRON_LOG_DIR"]
+        self.assertIsInstance(detail, str)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = baseline.run_suite((baseline.Check("cron", lambda: detail),))
         self.assertEqual(rc, 0)
 
 
