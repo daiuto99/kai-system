@@ -1,0 +1,19 @@
+# STAGED, NOT YET APPLIED — KAI-1157 relay-cutover follow-up.
+# Prereq: migrate the writable-layer datastore to the named volume below BEFORE
+# `docker compose up -d buzz-relay`, else relay state is lost.
+#   docker cp buzz-relay:/var/lib/buzz/. <volume-mountpoint>/
+# Then add this service to docker-compose.yml services: and add the volume.
+  buzz-relay:
+    image: buzz-relay:eval
+    container_name: buzz-relay
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/buzz-relay"]
+    networks:
+      - buzz-net
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "100.78.94.80:3000:3000"
+    volumes:
+      - buzz-relay-data:/var/lib/buzz
+# volumes:
+#   buzz-relay-data:

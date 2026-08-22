@@ -14,3 +14,4 @@ __pycache__/
 
 # Syncthing temp files
 .syncthing.*.tmp
+backups/buzz-relay/*.tar.gz
