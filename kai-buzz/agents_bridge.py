@@ -42,7 +42,7 @@ RELAY = os.environ.get("RELAY_TAG", "wss://kai-worker.tail7f43c5.ts.net")
 CONNECT_URL = os.environ.get("CONNECT_URL", "ws://127.0.0.1:3002")
 RELAY_HOST = os.environ.get("RELAY_HOST", "kai-worker.tail7f43c5.ts.net")
 MEDIA_UPLOAD_URL = os.environ.get("BUZZ_MEDIA_URL", "http://localhost:3000/media/upload")
-AGENT_DIR = os.environ.get("BUZZ_AGENT_DIR", os.path.expanduser("~/buzz-eval/agent"))
+AGENT_DIR = os.environ.get("BUZZ_AGENT_DIR", "/agent")
 
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:4000/v1/chat/completions")
 LITELLM_KEY = open(os.path.expanduser(os.environ.get("LITELLM_KEY_FILE", "~/kai-system/secrets/litellm_master_key.txt"))).read().strip()

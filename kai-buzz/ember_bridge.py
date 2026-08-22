@@ -24,7 +24,7 @@ LITELLM_KEY = open(os.path.expanduser(os.environ.get("LITELLM_KEY_FILE", "~/kai-
 MODEL = os.environ.get("EMBER_MODEL", "qwen-mid")
 CHANNEL_NAME = "ember-lab"
 
-AGENT_DIR = os.environ.get("BUZZ_AGENT_DIR", os.path.expanduser("~/buzz-eval/agent"))
+AGENT_DIR = os.environ.get("BUZZ_AGENT_DIR", "/agent")
 EMBER_KEY = os.path.join(AGENT_DIR, "ember.key")
 TESTER_KEY = os.path.join(AGENT_DIR, "tester.key")
 CHANNEL_FILE = os.path.join(AGENT_DIR, "channel.txt")

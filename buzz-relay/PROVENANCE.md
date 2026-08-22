@@ -70,11 +70,35 @@ The canonical service definition now lives in `docker-compose.yml` (service
 `buzz-relay`); the previously-staged `compose-service.yml` was removed at cutover
 to avoid a drifting duplicate.
 
-## REMAINING on KAI-1157 (carried — separate live-comms risk)
-- `~/buzz-eval/agent` is still bind-mounted into the live `kai-buzz` container
-  (`BUZZ_AGENT_DIR`) — it holds the advisor Nostr **keys** + channel state + libs.
-  Decoupling it (keys → a dedicated state dir, not the sprawling `~/buzz-eval`
-  clone) is its own careful window; do NOT delete `~/buzz-eval` until then.
-- Then retire the dead copies: `~/buzz-eval/agent/kai_openai_shim.py`,
-  `~/buzz-eval/_archived_kai1142/agents_bridge.py`, `kai-worker-api/scheduler.py`,
-  `~/buzz-eval/agent/watchdog.sh`.
+## kai-buzz decouple — APPLIED 2026-08-22 (KAI-1157 [MR2])
+The `kai-buzz` container previously bind-mounted `~/buzz-eval/agent` (inside the
+orphan upstream clone) for its advisor Nostr **keys** + channel state. Verified
+`/agent` is pure DATA — `websockets`/`coincurve`/`nostr-sdk` are pip-installed in
+the image, and the code's `sys.path` `libs` resolves to `/app/libs`, not the mount.
+
+Steps taken:
+1. Backed up the irreplaceable advisor keys (root-readable via the container) to
+   `~/buzz-agent-backup-<ts>.tar.gz` (in `$HOME`, deliberately OUTSIDE git — keys
+   never enter the repo).
+2. `mv ~/buzz-eval/agent ~/buzz-agent` — a dedicated, minimal state dir; then
+   scrubbed vestigial spike code (old `*.py`, `libs/`, `__pycache__`, `watchdog.sh`,
+   stale `*.log`). `~/buzz-agent` now holds ONLY keys + channel files + avatars +
+   markers. Kept as an inspectable bind-mount (not a named volume) because these
+   keys are the sole copies of the advisor identities.
+3. Repointed the `kai-buzz` compose mount `~/buzz-eval/agent` → `~/buzz-agent`,
+   recreated the container; verified all 8 bridges reconnect + online.
+4. Retired the dead copies: `~/buzz-eval` deleted whole (took
+   `_archived_kai1142/agents_bridge.py` with it; `kai_openai_shim.py`/`watchdog.sh`
+   removed in the scrub), and `kai-worker-api/scheduler.py` deleted from the tree
+   (dormant webhook; long-poll is the live transport; no importers, no Dockerfile
+   COPY). Stripped the `~/buzz-eval/agent` default from the live bridge code
+   (`agents_bridge.py`, `ember_bridge.py` → default `/agent`).
+
+The `buzz_eval_dependency` orphan is CLOSED — `~/buzz-eval` no longer exists and
+nothing live references it (remaining `"buzz-eval"` strings are identifiers/labels,
+not paths).
+
+### Carry (diagnostic only)
+`scripts/mr2_path_inventory.py` still hard-codes the old `~/buzz-eval/agent` paths;
+update the checker to assert the orphan is RESOLVED (points at `~/buzz-agent`) next
+time it's revised. Not a runtime dependency.

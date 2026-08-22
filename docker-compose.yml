@@ -443,7 +443,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - /home/leo/buzz-eval/agent:/agent:rw
+      - /home/leo/buzz-agent:/agent:rw
       - /home/leo/vault:/vault:rw
     secrets:
       - litellm_master_key

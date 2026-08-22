@@ -477,7 +477,7 @@ def _gate_is_orphaned(entry: dict) -> bool:
 @router.get("/council/gate/pending")
 def list_pending_gates():
     """Gates awaiting Leo (status=pending_leo). Read-only; polled by the Buzz
-    approval process (buzz-eval/agent/buzz_approve.py) to send approval prompts."""
+    approval process (kai-buzz/buzz_approve.py) to send approval prompts."""
     out = []
     try:
         for d in sorted(_GATES_STORE.root.iterdir()):
