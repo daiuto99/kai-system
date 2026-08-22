@@ -476,8 +476,32 @@ services:
       retries: 3
       start_period: 10s
 
+  # KAI-1157 [MR2]: buzz-relay adopted from a hand-run `docker run` container into
+  # compose management (restart: always) — the PRIMARY-comms relay must survive
+  # reboots + cleanup sweeps (a hand-run service is exactly what caused the 11-day
+  # advisor-DM shim outage). Image pinned to the versioned tag (== buzz-relay:eval,
+  # id 5d4fc06b5d45; provenance + rebuild recipe in buzz-relay/PROVENANCE.md).
+  # Durable state lives in buzz-postgres/redis/minio; this container is stateless
+  # (writable-layer pack-cache only). Full env in the gitignored kai-buzz-relay.env
+  # (dev creds match the hand-run buzz stack; var list mirrored in PROVENANCE.md).
+  buzz-relay:
+    image: buzz-relay:b1b283c-upstream
+    container_name: buzz-relay
+    restart: always
+    entrypoint: ["/usr/local/bin/buzz-relay"]
+    env_file:
+      - ./kai-buzz-relay.env
+    networks:
+      - buzz-net
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "100.78.94.80:3000:3000"
+    volumes:
+      - buzz-relay-data:/var/lib/buzz
+
 
 volumes:
+  buzz-relay-data:
   qdrant-data:
   n8n_data:
   habitsync_data:
