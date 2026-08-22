@@ -167,7 +167,7 @@ def _page_leo(result: dict, consecutive: int, dry_run: bool) -> str:
             f"latency: {result['latency_ms']} ms\n"
             f"This is the KAI-1108 failure class — Leo's real advisor DMs are likely unanswered.")
     if dry_run:
-        return f"[dry-run] would page: {title}"
+        return (False, f"[dry-run] would page: {title}")
     try:
         # notify_gateway's audit log (Rule A) defaults to the CONTAINER vault path
         # (/vault/...), which is unwritable from this host-cron context — the send would
@@ -190,9 +190,9 @@ def _page_leo(result: dict, consecutive: int, dry_run: bool) -> str:
             provenance="real",     # explicit: the outage is real even though the probe DM is synthetic
             dedup_key=f"advisor_probe_down:{advisor}:{bucket}",
         ))
-        return f"paged: decision={res.decision} dest={res.destination} delivered={res.delivered}"
+        return (bool(res.delivered), f"paged: decision={res.decision} dest={res.destination} delivered={res.delivered}")
     except Exception as e:
-        return f"PAGE FAILED: {type(e).__name__}: {e}"
+        return (False, f"PAGE FAILED: {type(e).__name__}: {e}")
 
 
 def main(argv: list[str]) -> int:
@@ -210,9 +210,9 @@ def main(argv: list[str]) -> int:
     prior = _load_prior()
     consecutive = 0 if result["ok"] else int(prior.get("consecutive_failures", 0)) + 1
 
-    page_line = None
+    page_delivered, page_line = False, None
     if not result["ok"]:
-        page_line = _page_leo(result, consecutive, dry_run)
+        page_delivered, page_line = _page_leo(result, consecutive, dry_run)
 
     state = {
         "schema": SCHEMA,
@@ -225,7 +225,7 @@ def main(argv: list[str]) -> int:
         "reply_excerpt": (result["reply"] or "")[:200],
         "consecutive_failures": consecutive,
         "last_ok": _iso(now) if result["ok"] else prior.get("last_ok"),
-        "paged": bool(page_line and page_line.startswith("paged")),
+        "paged": bool(page_delivered),
         "dry_run": dry_run,
     }
     # Never let a heartbeat-write failure swallow the probe result silently.
