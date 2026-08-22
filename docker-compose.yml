@@ -499,6 +499,19 @@ services:
     volumes:
       - buzz-relay-data:/var/lib/buzz
 
+  # KAI-1157 [MR2]: buzz-hostproxy adopted into compose (was hand-run) — the nginx
+  # :3002 WS proxy in front of the relay; kai-buzz connects via CONNECT_URL=:3002.
+  # Its nginx.conf was folded out of the deleted ~/buzz-eval clone into the
+  # versioned tree (buzz-relay/hostproxy.conf). host network so it binds
+  # 127.0.0.1:3002 + 100.78.94.80:3002 exactly as the conf declares.
+  buzz-hostproxy:
+    image: nginx:alpine
+    container_name: buzz-hostproxy
+    restart: always
+    network_mode: host
+    volumes:
+      - ./buzz-relay/hostproxy.conf:/etc/nginx/nginx.conf:ro
+
 
 volumes:
   buzz-relay-data:

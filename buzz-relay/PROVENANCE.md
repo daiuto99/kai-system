@@ -94,6 +94,15 @@ Steps taken:
    COPY). Stripped the `~/buzz-eval/agent` default from the live bridge code
    (`agents_bridge.py`, `ember_bridge.py` → default `/agent`).
 
+### buzz-hostproxy — folded + adopted 2026-08-22
+The second `~/buzz-eval` tie: `buzz-hostproxy` (the nginx `:3002` WS proxy in front
+of the relay; `kai-buzz` connects via `CONNECT_URL=:3002`) hand-mounted
+`~/buzz-eval/hostproxy.conf`. Recovered that conf byte-exact into the versioned tree
+(`buzz-relay/hostproxy.conf`), added `buzz-hostproxy` to `docker-compose.yml`
+(`network_mode: host`, `restart: always`), and recreated it off the versioned path.
+Without this, deleting `~/buzz-eval` would have dropped the advisors on the next
+reboot (missing mount source).
+
 The `buzz_eval_dependency` orphan is CLOSED — `~/buzz-eval` no longer exists and
 nothing live references it (remaining `"buzz-eval"` strings are identifiers/labels,
 not paths).
