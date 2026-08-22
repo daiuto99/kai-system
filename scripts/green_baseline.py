@@ -148,9 +148,9 @@ def check_qwen_route_contract() -> str:
     has_chain = re.search(r'fallbacks:\s*\[\{"qwen-mid":\s*\["qwen-mid-worker"\]\}\]', config)
     if not primary or not fallback or not has_chain:
         raise RuntimeError("qwen-mid primary/fallback contract missing")
-    if "100.106.160.41:11434" not in primary.group(1):
-        raise RuntimeError("qwen-mid primary is not the 71-kai-mini endpoint")
-    return "qwen-mid routes to 71-kai-mini with worker fallback"
+    if "100.85.243.2:11434" not in primary.group(1):
+        raise RuntimeError("qwen-mid primary is not the kai-mini endpoint")
+    return "qwen-mid routes to kai-mini with worker fallback"
 
 
 def check_secret_permissions() -> str:

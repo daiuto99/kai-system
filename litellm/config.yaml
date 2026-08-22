@@ -34,7 +34,7 @@ model_list:
   - model_name: qwen-mid
     litellm_params:
       model: ollama_chat/qwen2.5:7b
-      api_base: http://100.106.160.41:11434
+      api_base: http://100.85.243.2:11434
 
   - model_name: qwen-mid-worker
     litellm_params:
