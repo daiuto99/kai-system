@@ -7,10 +7,10 @@ set -u
 cd /app
 echo "[kai-buzz] starting advisor bridges + approval poller ($(date -u +%FT%TZ))"
 
-python3 -u agents_bridge.py KAI          &
-python3 -u sky_dm.py                     &   # Sky = NIP-17 DM agent (proof); others still channels
-python3 -u agents_bridge.py Roads        &
-python3 -u agents_bridge.py Coach        &
+python3 -u kai_dm.py                     &   # KAI = NIP-17 1:1 DM agent (was: agents_bridge.py KAI channel) — always-on server-side
+python3 -u sky_dm.py                     &   # Sky = NIP-17 1:1 DM agent (the original proof)
+python3 -u roads_dm.py                   &   # Roads = NIP-17 1:1 DM agent (was: agents_bridge.py Roads channel)
+python3 -u coach_dm.py                   &   # Coach = NIP-17 1:1 DM agent (was: agents_bridge.py Coach channel)
 python3 -u agents_bridge.py GearTalk     &
 python3 -u agents_bridge.py GearTalkSky  &
 python3 -u agents_bridge.py KAIProbe     &   # KAI-1142 round-trip probe responder (echo backend, isolated channel)
