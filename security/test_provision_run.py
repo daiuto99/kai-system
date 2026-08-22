@@ -19,18 +19,18 @@ from provision_capability import ProvisionResult
 
 CONFIRMED_ALLOWLIST = {
     "enrollment_status": "confirmed",
-    "nodes": {"kai-worker": "nzkpgsJk1M11CNTRL", "71-kai-mini": "ntzBBuNMsE11CNTRL"},
+    "nodes": {"kai-worker": "nzkpgsJk1M11CNTRL", "kai-mini": "nrZbQpqJCD11CNTRL"},
 }
 UNENROLLED_ALLOWLIST = {
     "enrollment_status": "seeded_pending_leo_confirmation",
-    "nodes": {"71-kai-mini": "ntzBBuNMsE11CNTRL"},
+    "nodes": {"kai-mini": "nrZbQpqJCD11CNTRL"},
 }
 TRANSPORT_MAP = {
     "_note": "ignored",
     "kai-worker": {"ssh_user": "leo", "ssh_key": "/home/leo/.ssh/id_ed25519",
                    "remote_secrets_dir": "/home/leo/kai-system/secrets"},
-    "71-kai-mini": {"ssh_user": "leodaiuto", "ssh_key": "/home/leo/.ssh/id_ed25519",
-                    "remote_secrets_dir": "/Users/leodaiuto/kai-system/secrets"},
+    "kai-mini": {"ssh_user": "leo", "ssh_key": "/home/leo/.ssh/id_ed25519",
+                    "remote_secrets_dir": "/home/leo/kai-system/secrets"},
 }
 
 
@@ -63,7 +63,7 @@ def captured_transport(monkeypatch):
     def fake_provision_secret(*, transport, node, secret_name, **kw):
         box["transport"] = transport
         box["node"] = node
-        return ProvisionResult(ok=True, status="provisioned", node=node, node_id="ntzBBuNMsE11CNTRL",
+        return ProvisionResult(ok=True, status="provisioned", node=node, node_id="nrZbQpqJCD11CNTRL",
                                secret_name=secret_name, approval_id="appr-1", reason="ok")
 
     monkeypatch.setattr(provision_run, "_tailscale_status", lambda *a, **k: {})
@@ -74,9 +74,9 @@ def captured_transport(monkeypatch):
 # ── load_node_transport: fail-closed parsing ────────────────────────────────────
 
 def test_load_node_transport_valid(transport_map):
-    cfg = provision_run.load_node_transport(transport_map, "71-kai-mini")
-    assert cfg == {"ssh_user": "leodaiuto", "ssh_key": "/home/leo/.ssh/id_ed25519",
-                   "remote_secrets_dir": "/Users/leodaiuto/kai-system/secrets"}
+    cfg = provision_run.load_node_transport(transport_map, "kai-mini")
+    assert cfg == {"ssh_user": "leo", "ssh_key": "/home/leo/.ssh/id_ed25519",
+                   "remote_secrets_dir": "/home/leo/kai-system/secrets"}
 
 
 def test_load_node_transport_missing_node(transport_map):
@@ -89,19 +89,19 @@ def test_load_node_transport_note_key_is_not_a_node(transport_map):
 
 
 def test_load_node_transport_missing_file(tmp_path):
-    assert provision_run.load_node_transport(str(tmp_path / "nope.json"), "71-kai-mini") == {}
+    assert provision_run.load_node_transport(str(tmp_path / "nope.json"), "kai-mini") == {}
 
 
 def test_load_node_transport_malformed_json(tmp_path):
     p = tmp_path / "bad.json"
     p.write_text("{not json", encoding="utf-8")
-    assert provision_run.load_node_transport(str(p), "71-kai-mini") == {}
+    assert provision_run.load_node_transport(str(p), "kai-mini") == {}
 
 
 def test_load_node_transport_partial_entry_fails_closed(tmp_path):
     p = _write(tmp_path / "partial.json",
-               {"71-kai-mini": {"ssh_user": "leodaiuto", "ssh_key": "/home/leo/.ssh/id_ed25519"}})
-    assert provision_run.load_node_transport(p, "71-kai-mini") == {}   # remote_secrets_dir absent
+               {"kai-mini": {"ssh_user": "leo", "ssh_key": "/home/leo/.ssh/id_ed25519"}})
+    assert provision_run.load_node_transport(p, "kai-mini") == {}   # remote_secrets_dir absent
 
 
 @pytest.mark.parametrize("bad", [{"ssh_user": "", "ssh_key": "k", "remote_secrets_dir": "d"},
@@ -134,7 +134,7 @@ def test_load_node_transport_duplicate_field_key_fails_closed(tmp_path):
 
 def test_run_refuses_unenrolled(tmp_path, transport_map, audit, capsys):
     al = _write(tmp_path / "unen.json", UNENROLLED_ALLOWLIST)
-    rc = provision_run.run(["--node", "71-kai-mini", "--secret", "anthropic_api_key",
+    rc = provision_run.run(["--node", "kai-mini", "--secret", "anthropic_api_key",
                             "--allowlist", al, "--node-transport", transport_map, "--audit", audit])
     out = json.loads(capsys.readouterr().out)
     assert rc == 2 and out["status"] == "refused_unenrolled"
@@ -153,10 +153,10 @@ def test_run_refuses_node_without_transport_config(allowlist, transport_map, aud
 
 
 def test_run_refuses_empty_flag_override(allowlist, transport_map, audit, capsys):
-    # 71-kai-mini HAS valid file wiring, but an explicit empty --ssh-user "" overrides it. The gate
+    # kai-mini HAS valid file wiring, but an explicit empty --ssh-user "" overrides it. The gate
     # must reject the blank value (value-completeness, not presence) — never build a blank transport.
     # (Codex inc5 finding #1.)
-    rc = provision_run.run(["--node", "71-kai-mini", "--secret", "anthropic_api_key",
+    rc = provision_run.run(["--node", "kai-mini", "--secret", "anthropic_api_key",
                             "--allowlist", allowlist, "--node-transport", transport_map, "--audit", audit,
                             "--ssh-user", ""])
     out = json.loads(capsys.readouterr().out)
@@ -175,18 +175,18 @@ def test_run_refuses_all_empty_flags(allowlist, transport_map, audit, capsys):
 
 def test_run_resolves_node_config_and_proceeds(allowlist, transport_map, audit,
                                                 captured_transport, capsys):
-    rc = provision_run.run(["--node", "71-kai-mini", "--secret", "anthropic_api_key",
+    rc = provision_run.run(["--node", "kai-mini", "--secret", "anthropic_api_key",
                             "--allowlist", allowlist, "--node-transport", transport_map, "--audit", audit])
     capsys.readouterr()
     t = captured_transport["transport"]
     assert rc == 0
     assert (t._user, t._key, t._dir) == (
-        "leodaiuto", "/home/leo/.ssh/id_ed25519", "/Users/leodaiuto/kai-system/secrets")
+        "leo", "/home/leo/.ssh/id_ed25519", "/home/leo/kai-system/secrets")
 
 
 def test_run_flags_override_file_config(allowlist, transport_map, audit,
                                         captured_transport, capsys):
-    rc = provision_run.run(["--node", "71-kai-mini", "--secret", "anthropic_api_key",
+    rc = provision_run.run(["--node", "kai-mini", "--secret", "anthropic_api_key",
                             "--allowlist", allowlist, "--node-transport", transport_map, "--audit", audit,
                             "--ssh-user", "override-user", "--remote-secrets-dir", "/tmp/override"])
     capsys.readouterr()

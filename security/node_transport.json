@@ -1,13 +1,13 @@
 {
-  "_note": "KAI-984 inc5 per-enrolled-node transport wiring (ssh_user/ssh_key/remote_secrets_dir), read by provision_run to REPLACE the single broken Linux default (ssh_key=/home/leo/.ssh/kai_worker did not exist; ssh_user=leo was wrong for the macOS mini). Keyed by the SAME logical node names as kai_node_allowlist.json 'nodes'. This is deployment WIRING, not a security boundary: tailnet_guard still pins every target to the enrolled node's verified CGNAT IP, so a wrong/tampered entry fails closed (the secret never leaves the tailnet and never routes off the enrolled node). A node ABSENT here fails closed at provision_run (refused_no_transport_config) until wired. mac-mini is intentionally omitted until its worker->node SSH params are verified. kai-worker + 71-kai-mini params: kai-worker verified live 2026-08-03 (worker self-SSH over tailnet, id_ed25519/leo, SELF_OK); 71-kai-mini from AUTHORIZED_PROVISIONING_DESIGN_2026-07.md §7 step-4 (Leo-hand enrollment) — the mini was OFFLINE 2026-08-03 so its worker->node SSH was not re-confirmed this session.",
+  "_note": "KAI-984 inc5 per-enrolled-node transport wiring (ssh_user/ssh_key/remote_secrets_dir), read by provision_run to REPLACE the single broken Linux default (ssh_key=/home/leo/.ssh/kai_worker did not exist; ssh_user=leo was wrong for the macOS mini). Keyed by the SAME logical node names as kai_node_allowlist.json 'nodes'. This is deployment WIRING, not a security boundary: tailnet_guard still pins every target to the enrolled node's verified CGNAT IP, so a wrong/tampered entry fails closed (the secret never leaves the tailnet and never routes off the enrolled node). A node ABSENT here fails closed at provision_run (refused_no_transport_config) until wired. mac-mini is intentionally omitted until its worker->node SSH params are verified. kai-worker + 71-kai-mini params: kai-worker verified live 2026-08-03 (worker self-SSH over tailnet, id_ed25519/leo, SELF_OK); kai-mini (KAI-1191): Intel mini reimaged macOS->Ubuntu, worker->node SSH re-confirmed live 2026-08-22 (leo@100.85.243.2, id_ed25519, Ubuntu 6.8). remote_secrets_dir not yet created on the mini \u2014 provisioning there lands with server-side agents (later MR3).",
   "kai-worker": {
     "ssh_user": "leo",
     "ssh_key": "/home/leo/.ssh/id_ed25519",
     "remote_secrets_dir": "/home/leo/kai-system/secrets"
   },
-  "71-kai-mini": {
-    "ssh_user": "leodaiuto",
+  "kai-mini": {
+    "ssh_user": "leo",
     "ssh_key": "/home/leo/.ssh/id_ed25519",
-    "remote_secrets_dir": "/Users/leodaiuto/kai-system/secrets"
+    "remote_secrets_dir": "/home/leo/kai-system/secrets"
   }
 }

@@ -6,7 +6,7 @@ identically to a remote Telegram tap). No live worker-api/Telegram — a fake cl
 """
 from provision_gate import TelegramApprovalGate, PROVISION_REQUESTER
 
-SECRET, NODE, REQUESTER = "anthropic_api_key", "71-kai-mini", "kai-session"
+SECRET, NODE, REQUESTER = "anthropic_api_key", "kai-mini", "kai-session"
 
 
 class FakeClient:

@@ -14,7 +14,7 @@ import tailnet_guard as tg
 
 ALLOW = {
     "kai-worker": "nzkpgsJk1M11CNTRL",
-    "71-kai-mini": "ntzBBuNMsE11CNTRL",
+    "kai-mini": "nrZbQpqJCD11CNTRL",
     "mac-mini": "nwUpbTFAdP11CNTRL",
 }
 
@@ -38,11 +38,11 @@ def node(node_id, ips, online=True, host="host"):
 
 class AllowPath(unittest.TestCase):
     def test_enrolled_online_peer_single_cgnat_allows(self):
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.41", "fd7a:115c::1"],
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.85.243.2", "fd7a:115c::1"],
                                      online=True, host="Leo's Mac mini (2)")})
-        d = tg.evaluate_target("71-kai-mini", ALLOW, st)
+        d = tg.evaluate_target("kai-mini", ALLOW, st)
         self.assertTrue(d.allowed, d.reason)
-        self.assertEqual(d.tailnet_ip, "100.106.160.41")
+        self.assertEqual(d.tailnet_ip, "100.85.243.2")
 
     def test_self_without_online_field_allows(self):
         # Self commonly omits Online; that is treated as online (it is the local caller).
@@ -57,26 +57,26 @@ class DenyPaths(unittest.TestCase):
 
     def test_enrolled_id_absent(self):
         st = status(self_entry=node("nzkpgsJk1M11CNTRL", ["100.78.94.80"]))
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_hostname_spoof_wrong_id_denied(self):
-        st = status(peers={"evil": node("nEVILimposter00", ["100.106.160.41"], online=True,
+        st = status(peers={"evil": node("nEVILimposter00", ["100.85.243.2"], online=True,
                                         host="Leo's Mac mini (2)")})
-        d = tg.evaluate_target("71-kai-mini", ALLOW, st)
+        d = tg.evaluate_target("kai-mini", ALLOW, st)
         self.assertFalse(d.allowed)
         self.assertIn("not present", d.reason)
 
     def test_online_string_false_denied(self):
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.41"], online="false")})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.85.243.2"], online="false")})
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_online_int_one_denied(self):
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.41"], online=1)})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.85.243.2"], online=1)})
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_online_false_denied(self):
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.41"], online=False)})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.85.243.2"], online=False)})
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_self_explicit_offline_denied(self):
         st = status(self_entry=node("nzkpgsJk1M11CNTRL", ["100.78.94.80"], online=False))
@@ -91,59 +91,59 @@ class DenyPaths(unittest.TestCase):
 
     def test_peer_absent_online_key_denied(self):
         # An absent Online key never helps a PEER (only Self).
-        st = status(peers={"a": {"ID": "ntzBBuNMsE11CNTRL", "TailscaleIPs": ["100.106.160.41"]}})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        st = status(peers={"a": {"ID": "nrZbQpqJCD11CNTRL", "TailscaleIPs": ["100.85.243.2"]}})
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_duplicate_id_in_status_denied(self):
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.41"], online=True),
-                           "b": node("ntzBBuNMsE11CNTRL", ["100.106.160.42"], online=True)})
-        d = tg.evaluate_target("71-kai-mini", ALLOW, st)
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.85.243.2"], online=True),
+                           "b": node("nrZbQpqJCD11CNTRL", ["100.106.160.42"], online=True)})
+        d = tg.evaluate_target("kai-mini", ALLOW, st)
         self.assertFalse(d.allowed)
         self.assertIn("ambiguous", d.reason)
 
     def test_no_cgnat_ip_denied(self):
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["8.8.8.8", "fd7a:115c::9"])})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["8.8.8.8", "fd7a:115c::9"])})
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_ip_outside_cgnat_denied(self):
         for ip in ["100.32.0.1", "100.63.255.255", "100.128.0.1", "101.0.0.1", "10.0.0.5"]:
-            st = status(peers={"a": node("ntzBBuNMsE11CNTRL", [ip])})
-            self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed, ip)
+            st = status(peers={"a": node("nrZbQpqJCD11CNTRL", [ip])})
+            self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed, ip)
 
     def test_cgnat_boundaries_allow(self):
         for ip in ["100.64.0.0", "100.127.255.255"]:
-            st = status(peers={"a": node("ntzBBuNMsE11CNTRL", [ip], online=True)})
-            self.assertTrue(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed, ip)
+            st = status(peers={"a": node("nrZbQpqJCD11CNTRL", [ip], online=True)})
+            self.assertTrue(tg.evaluate_target("kai-mini", ALLOW, st).allowed, ip)
 
     def test_multiple_cgnat_ambiguous_denied(self):
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.64.0.1", "100.64.0.2"], online=True)})
-        d = tg.evaluate_target("71-kai-mini", ALLOW, st)
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.64.0.1", "100.64.0.2"], online=True)})
+        d = tg.evaluate_target("kai-mini", ALLOW, st)
         self.assertFalse(d.allowed)
         self.assertIn("ambiguous", d.reason)
 
     def test_tailscaleips_dict_denied(self):
-        st = status(peers={"a": {"ID": "ntzBBuNMsE11CNTRL", "Online": True,
-                                 "TailscaleIPs": {"0": "100.106.160.41"}}})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        st = status(peers={"a": {"ID": "nrZbQpqJCD11CNTRL", "Online": True,
+                                 "TailscaleIPs": {"0": "100.85.243.2"}}})
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_tailscaleips_int_denied(self):
-        st = status(peers={"a": {"ID": "ntzBBuNMsE11CNTRL", "Online": True, "TailscaleIPs": 5}})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        st = status(peers={"a": {"ID": "nrZbQpqJCD11CNTRL", "Online": True, "TailscaleIPs": 5}})
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_nonstring_ip_element_denied(self):
-        st = status(peers={"a": {"ID": "ntzBBuNMsE11CNTRL", "Online": True,
-                                 "TailscaleIPs": [123, "100.106.160.41"]}})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        st = status(peers={"a": {"ID": "nrZbQpqJCD11CNTRL", "Online": True,
+                                 "TailscaleIPs": [123, "100.85.243.2"]}})
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_malformed_ip_element_denies_whole_decision(self):
-        st = status(peers={"a": {"ID": "ntzBBuNMsE11CNTRL", "Online": True,
-                                 "TailscaleIPs": ["not-an-ip", "100.106.160.41"]}})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        st = status(peers={"a": {"ID": "nrZbQpqJCD11CNTRL", "Online": True,
+                                 "TailscaleIPs": ["not-an-ip", "100.85.243.2"]}})
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_invalid_node_id_format_in_allowlist_denied(self):
-        bad_allow = {"71-kai-mini": "not a node id!"}
-        st = status(peers={"a": node("not a node id!", ["100.106.160.41"], online=True)})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", bad_allow, st).allowed)
+        bad_allow = {"kai-mini": "not a node id!"}
+        st = status(peers={"a": node("not a node id!", ["100.85.243.2"], online=True)})
+        self.assertFalse(tg.evaluate_target("kai-mini", bad_allow, st).allowed)
 
     def test_terminal_newline_node_id_denied(self):
         # `$` in a regex matches before a terminal \n; validation must reject "nABCDEF\n".
@@ -153,34 +153,34 @@ class DenyPaths(unittest.TestCase):
         self.assertFalse(tg.evaluate_target("attacker", bad_allow, st).allowed)
 
     def test_matched_entry_missing_id_denied(self):
-        st = status(peers={"a": {"Online": True, "TailscaleIPs": ["100.106.160.41"]}})  # no ID
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        st = status(peers={"a": {"Online": True, "TailscaleIPs": ["100.85.243.2"]}})  # no ID
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_missing_tailscaleips_field_denied(self):
-        st = status(peers={"a": {"ID": "ntzBBuNMsE11CNTRL", "Online": True}})  # no TailscaleIPs
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        st = status(peers={"a": {"ID": "nrZbQpqJCD11CNTRL", "Online": True}})  # no TailscaleIPs
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_self_and_peer_duplicate_id_ambiguous_denied(self):
-        st = status(self_entry=node("ntzBBuNMsE11CNTRL", ["100.106.160.41"], online=None),
-                    peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.42"], online=True)})
-        d = tg.evaluate_target("71-kai-mini", ALLOW, st)
+        st = status(self_entry=node("nrZbQpqJCD11CNTRL", ["100.85.243.2"], online=None),
+                    peers={"a": node("nrZbQpqJCD11CNTRL", ["100.106.160.42"], online=True)})
+        d = tg.evaluate_target("kai-mini", ALLOW, st)
         self.assertFalse(d.allowed)
         self.assertIn("ambiguous", d.reason)
 
     def test_malformed_status_denies_no_crash(self):
         for bad in [{}, {"Self": None, "Peer": None}, {"Peer": "nope"}, {"Self": 5}]:
-            self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, bad).allowed)
+            self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, bad).allowed)
 
     def test_empty_allowlist_denies(self):
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.41"])})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", {}, st).allowed)
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.85.243.2"])})
+        self.assertFalse(tg.evaluate_target("kai-mini", {}, st).allowed)
 
     def test_bad_name_and_status_types_deny(self):
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.41"])})
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.85.243.2"])})
         for bad in [None, "", 123]:
             self.assertFalse(tg.evaluate_target(bad, ALLOW, st).allowed)
         for bad in [None, [], "status", 42]:
-            self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, bad).allowed)
+            self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, bad).allowed)
 
     def test_hostile_name_str_raises_still_denies(self):
         class Evil:
@@ -190,9 +190,9 @@ class DenyPaths(unittest.TestCase):
 
     def test_backend_not_running_denied(self):
         for backend in ["Stopped", "NeedsLogin", None, "running"]:
-            st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.41"], online=True)},
+            st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.85.243.2"], online=True)},
                         backend=backend)
-            d = tg.evaluate_target("71-kai-mini", ALLOW, st)
+            d = tg.evaluate_target("kai-mini", ALLOW, st)
             self.assertFalse(d.allowed, backend)
 
     def test_self_omitted_online_with_running_backend_allows(self):
@@ -200,29 +200,29 @@ class DenyPaths(unittest.TestCase):
         self.assertTrue(tg.evaluate_target("kai-worker", ALLOW, st).allowed)
 
     def test_non_dict_self_denied(self):
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.41"], online=True)})
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.85.243.2"], online=True)})
         st["Self"] = "not-an-object"
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_non_dict_peer_container_denied(self):
         st = {"BackendState": "Running", "Peer": "not-an-object"}
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_non_dict_peer_value_denied(self):
         st = {"BackendState": "Running",
-              "Peer": {"good": node("ntzBBuNMsE11CNTRL", ["100.106.160.41"], online=True),
+              "Peer": {"good": node("nrZbQpqJCD11CNTRL", ["100.85.243.2"], online=True),
                        "garbage": "not-an-object"}}
-        self.assertFalse(tg.evaluate_target("71-kai-mini", ALLOW, st).allowed)
+        self.assertFalse(tg.evaluate_target("kai-mini", ALLOW, st).allowed)
 
     def test_dirty_allowlist_duplicate_ids_denied_inline(self):
-        dirty = {"alias1": "ntzBBuNMsE11CNTRL", "alias2": "ntzBBuNMsE11CNTRL"}
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.41"], online=True)})
+        dirty = {"alias1": "nrZbQpqJCD11CNTRL", "alias2": "nrZbQpqJCD11CNTRL"}
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.85.243.2"], online=True)})
         self.assertFalse(tg.evaluate_target("alias1", dirty, st).allowed)
 
     def test_dirty_allowlist_invalid_sibling_id_denies_valid_name(self):
-        dirty = {"71-kai-mini": "ntzBBuNMsE11CNTRL", "poison": "42"}
-        st = status(peers={"a": node("ntzBBuNMsE11CNTRL", ["100.106.160.41"], online=True)})
-        self.assertFalse(tg.evaluate_target("71-kai-mini", dirty, st).allowed)
+        dirty = {"kai-mini": "nrZbQpqJCD11CNTRL", "poison": "42"}
+        st = status(peers={"a": node("nrZbQpqJCD11CNTRL", ["100.85.243.2"], online=True)})
+        self.assertFalse(tg.evaluate_target("kai-mini", dirty, st).allowed)
 
 
 class LoadAllowlist(unittest.TestCase):
@@ -238,17 +238,17 @@ class LoadAllowlist(unittest.TestCase):
 
     def test_unconfirmed_enrollment_returns_empty(self):
         p = self._write({"enrollment_status": "seeded_pending_leo_confirmation",
-                         "nodes": {"71-kai-mini": "ntzBBuNMsE11CNTRL"}})
+                         "nodes": {"kai-mini": "nrZbQpqJCD11CNTRL"}})
         self.assertEqual(tg.load_allowlist(p), {})
 
     def test_confirmed_enrollment_loads(self):
         p = self._write({"enrollment_status": "confirmed",
-                         "nodes": {"71-kai-mini": "ntzBBuNMsE11CNTRL"}})
-        self.assertEqual(tg.load_allowlist(p), {"71-kai-mini": "ntzBBuNMsE11CNTRL"})
+                         "nodes": {"kai-mini": "nrZbQpqJCD11CNTRL"}})
+        self.assertEqual(tg.load_allowlist(p), {"kai-mini": "nrZbQpqJCD11CNTRL"})
 
     def test_duplicate_ids_return_empty(self):
         p = self._write({"enrollment_status": "confirmed",
-                         "nodes": {"a": "ntzBBuNMsE11CNTRL", "b": "ntzBBuNMsE11CNTRL"}})
+                         "nodes": {"a": "nrZbQpqJCD11CNTRL", "b": "nrZbQpqJCD11CNTRL"}})
         self.assertEqual(tg.load_allowlist(p), {})
 
     def test_invalid_id_returns_empty(self):
@@ -262,7 +262,7 @@ class LoadAllowlist(unittest.TestCase):
     def test_duplicate_json_keys_return_empty(self):
         # A duplicate name key could silently swap an enrolled node ID (trust-root injection).
         p = self._write('{"enrollment_status":"confirmed","nodes":'
-                        '{"71-kai-mini":"ntzBBuNMsE11CNTRL","71-kai-mini":"nEVILimposter00"}}')
+                        '{"kai-mini":"nrZbQpqJCD11CNTRL","kai-mini":"nEVILimposter00"}}')
         self.assertEqual(tg.load_allowlist(p), {})
 
 

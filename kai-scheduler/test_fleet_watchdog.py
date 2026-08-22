@@ -20,14 +20,14 @@ def test_check_fleet_reads_file_and_reds_on_offline():
         "schema": "kai.fleet_state.v1",
         "updated_epoch": int(time.time()),  # fresh so we reach the offline check
         "transport_loaded": True,
-        "expected_hosts": ["kai-worker", "71-kai-mini"],
+        "expected_hosts": ["kai-worker", "kai-mini"],
         "hosts": {
             "kai-worker": {"reachable": True, "ssh_ok": True, "ssh_expected": True},
-            "71-kai-mini": {"reachable": False, "ssh_ok": False, "ssh_expected": True},
+            "kai-mini": {"reachable": False, "ssh_ok": False, "ssh_expected": True},
         },
     }))
     ok, detail = w.check_fleet()
-    assert ok is False and "OFFLINE" in detail and "71-kai-mini" in detail
+    assert ok is False and "OFFLINE" in detail and "kai-mini" in detail
 
 
 def test_check_fleet_missing_file_is_red():

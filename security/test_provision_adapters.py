@@ -15,7 +15,7 @@ from provision_gate import TelegramApprovalGate, PROVISION_REQUESTER
 from provision_source import FileSecretSource
 
 SECRET = "anthropic_api_key"
-NODE = "71-kai-mini"
+NODE = "kai-mini"
 REQUESTER = "kai-worker-session"
 
 

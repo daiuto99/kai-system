@@ -23,7 +23,7 @@ def test_parse_macos_probe():
 
 
 def test_parse_macos_boottime_raw():
-    # The exact live string from 71-kai-mini `sysctl -n kern.boottime` (KAI-1180).
+    # The exact live string from the retired macOS mini (pre-reimage) `sysctl -n kern.boottime` (KAI-1180).
     # The old remote greedy sed matched `usec` and returned 938717 -> last_boot 1970.
     raw = "boottime_raw={ sec = 1787275622, usec = 938717 } Thu Aug 20 21:27:02 2026\ncolima=1\nollama=0\n"
     got = fh.parse_remote_probe(raw)
@@ -64,7 +64,7 @@ def test_entry_online_ssh_ok():
 
 def test_entry_offline_is_unreachable():
     e = fh.build_host_entry(
-        "71-kai-mini", "ntz", {"online": False, "ips": ["100.106.160.41"], "last_seen": "x"},
+        "kai-mini", "ntz", {"online": False, "ips": ["100.85.243.2"], "last_seen": "x"},
         None, now_epoch=1785950000, ssh_expected=True)
     assert e["reachable"] is False and e["ssh_ok"] is False
     assert "offline" in e["degraded"]
@@ -74,7 +74,7 @@ def test_entry_tailnet_flap_but_ssh_reachable():
     # KAI-1176: Tailscale Online flag flapped to false but the ssh probe still
     # answered (napping mini). ssh_ok overrides the stale flag -> reachable, no page.
     e = fh.build_host_entry(
-        "71-kai-mini", "ntz", {"online": False, "ips": ["100.106.160.41"], "last_seen": "x"},
+        "kai-mini", "ntz", {"online": False, "ips": ["100.85.243.2"], "last_seen": "x"},
         {"boot_epoch": 1785948437, "services": {"ollama": True}}, now_epoch=1785950000,
         ssh_expected=True)
     assert e["reachable"] is True and e["ssh_ok"] is True
@@ -85,7 +85,7 @@ def test_entry_tailnet_flap_but_ssh_reachable():
 def test_entry_online_ssh_expected_but_down_is_flagged_blind():
     # The exact ticket gap: a WIRED node 'on but SSH-unreachable after reboot'.
     e = fh.build_host_entry(
-        "71-kai-mini", "ntz", {"online": True, "ips": ["100.106.160.41"], "last_seen": None},
+        "kai-mini", "ntz", {"online": True, "ips": ["100.85.243.2"], "last_seen": None},
         None, now_epoch=1785950000, ssh_expected=True)
     assert e["reachable"] is True and e["ssh_ok"] is False and e["ssh_expected"] is True
     assert "boot/services blind" in e["degraded"]
@@ -124,10 +124,10 @@ def test_transport_valid_missing_keys_is_false():
 def test_summary_reports_down_and_degraded():
     state = {"hosts": {
         "kai-worker": {"reachable": True, "ssh_ok": True},
-        "71-kai-mini": {"reachable": False, "ssh_ok": False},
+        "kai-mini": {"reachable": False, "ssh_ok": False},
         "mac-mini": {"reachable": True, "ssh_ok": False},
     }}
     s = fh.summarize(state)
     assert "2/3 reachable" in s
-    assert "DOWN: 71-kai-mini" in s
+    assert "DOWN: kai-mini" in s
     assert "degraded: mac-mini" in s

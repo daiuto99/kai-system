@@ -16,7 +16,7 @@ Design pins:
     hung) crosses its max-age window and pages on the very next meta-monitor tick.
   • Separate PROCESS on the worker host (its own cron, */5). The residual it cannot
     cover is TOTAL WORKER DEATH — if the box dies, this dies with it. That off-box
-    watcher lands on 71-kai-mini when M-R3 reimages it (tracked follow-up); until
+    watcher lands on kai-mini when M-R3 reimages it (tracked follow-up); until
     then green_baseline reads this monitor's own heartbeat at session start.
   • The page is provenance='real' (an actually-dead probe is a real outage) and
     audience='personal' so it reaches Leo's phone — a synthetic-stamped alarm would

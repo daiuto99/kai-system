@@ -18,8 +18,8 @@ out-of-band enrollment ceremony (a separate Leo-hand act, never something a sess
 "someone runs this before enrollment is confirmed" fail-closed by construction.
 
 inc5 — node-aware transport wiring (2026-08-03). The target node's SSH login/identity/secret-store
-path differ per node (the worker is Linux `leo`; the 71-kai-mini is macOS `leodaiuto` under
-`/Users/...`). Previously the transport fell back to a single hardcoded Linux default whose ssh_key
+path differ per node (the worker is Linux `leo`; the kai-mini was reimaged macOS->Ubuntu so it is now Linux `leo` under
+`/home/...` (KAI-1191)). Previously the transport fell back to a single hardcoded Linux default whose ssh_key
 (`/home/leo/.ssh/kai_worker`) did not even exist — so a live cutover to the mini would fail-closed at
 transport. inc5 replaces that with a per-enrolled-node map in `node_transport.json`: `provision_run`
 resolves `{ssh_user, ssh_key, remote_secrets_dir}` for `--node` from that file (explicit
@@ -33,7 +33,7 @@ The value NEVER passes through this process except opaquely inside the capabilit
 the only things printed are the secret NAME, the node, the outcome, and the approval id.
 
 Usage:
-    python3 provision_run.py --node 71-kai-mini --secret anthropic_api_key --requester kai-session
+    python3 provision_run.py --node kai-mini --secret anthropic_api_key --requester kai-session
 """
 from __future__ import annotations
 
@@ -154,7 +154,7 @@ def _tailscale_status(cmd: list[str] | None = None) -> dict:
 
 def run(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="KAI-984 authorized secret provisioning")
-    ap.add_argument("--node", required=True, help="enrolled tailnet KAI node (e.g. 71-kai-mini)")
+    ap.add_argument("--node", required=True, help="enrolled tailnet KAI node (e.g. kai-mini)")
     ap.add_argument("--secret", required=True, help="server-held secret NAME (never a value)")
     ap.add_argument("--requester", default="kai-session", help="audit identity of the requester")
     ap.add_argument("--allowlist", default=_DEFAULT_ALLOWLIST)
@@ -164,7 +164,7 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument("--worker-api", default=_DEFAULT_WORKER_API)
     ap.add_argument("--auth-file", default=_DEFAULT_AUTH_FILE)
     # Target-node SSH wiring override (the node's login/identity/secret path differ per node — e.g.
-    # the mini is a Mac: user `leodaiuto`, its own secret dir). Normally resolved from
+    # the mini is Linux post-reimage: user `leo`, its own secret dir). Normally resolved from
     # --node-transport by node name; an explicit flag here OVERRIDES the file entry for that param.
     ap.add_argument("--ssh-user", default=None, help="login user on the target node (overrides file)")
     ap.add_argument("--ssh-key", default=None, help="SSH identity file the target node accepts (overrides file)")

@@ -17,10 +17,10 @@ from provision_capability import Approval, ProvisionResult, provision_secret
 
 # A sentinel secret value that MUST never escape the transport boundary.
 SENTINEL = b"SUPERSECRETVALUE_DO_NOT_LEAK_ZZZ"
-NODE = "71-kai-mini"
-NODE_ID = "ntzBBuNMsE11CNTRL"
+NODE = "kai-mini"
+NODE_ID = "nrZbQpqJCD11CNTRL"
 SECRET = "anthropic_api_key"      # on inc2's PROVISIONABLE_SECRETS
-TAILNET_IP = "100.106.160.41"
+TAILNET_IP = "100.85.243.2"
 
 
 # ── fixtures / fakes ─────────────────────────────────────────────────────────

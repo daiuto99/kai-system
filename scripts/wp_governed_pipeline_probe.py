@@ -29,7 +29,7 @@ Design pins (why this is faithful and not just another green check):
     pending_leo: build-draft launched with probe=True stamps brief.probe=True, and
     kai-council-api auto-approves probe-flagged dev_gate/creative_gate (drafts-only only —
     never a publish/homepage/hostops gate). So Leo is never prompted and the probe is not
-    hostage to advisor/LLM flakiness (71-kai-mini offline would otherwise false-alarm here).
+    hostage to advisor/LLM flakiness (kai-mini offline would otherwise false-alarm here).
   • Drafts-only by construction: build_page_draft has no publish/homepage steps and the
     probe never calls a publish endpoint. The synthetic page is status=draft, then trashed.
   • The probe TRAFFIC is synthetic but the outage PAGE is provenance='real'. The notify

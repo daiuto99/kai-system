@@ -81,7 +81,7 @@ def test_hosts_not_object_is_red():
 def test_all_healthy_is_ok():
     ok, d = fe.fleet_verdict(_state({
         "kai-worker": {"reachable": True, "ssh_ok": True, "ssh_expected": True},
-        "71-kai-mini": {"reachable": True, "ssh_ok": True, "ssh_expected": True},
+        "kai-mini": {"reachable": True, "ssh_ok": True, "ssh_expected": True},
     }), NOW + 60)
     assert ok is True and "2 hosts reachable" in d
 
@@ -100,10 +100,10 @@ def test_ssh_off_unexpected_is_ok_with_note():
 def test_offline_host_is_red():
     ok, d = fe.fleet_verdict(_state({
         "kai-worker": {"reachable": True, "ssh_ok": True, "ssh_expected": True},
-        "71-kai-mini": {"reachable": False, "ssh_ok": False, "ssh_expected": True,
+        "kai-mini": {"reachable": False, "ssh_ok": False, "ssh_expected": True,
                         "tailscale_last_seen": "2026-08-06T12:00:00Z"},
     }), NOW + 60)
-    assert ok is False and "OFFLINE" in d and "71-kai-mini" in d
+    assert ok is False and "OFFLINE" in d and "kai-mini" in d
 
 
 # ── Codex #2: ssh-expected but down is blind -> RED ───────────────────────────
@@ -111,9 +111,9 @@ def test_offline_host_is_red():
 def test_online_ssh_expected_down_is_red():
     ok, d = fe.fleet_verdict(_state({
         "kai-worker": {"reachable": True, "ssh_ok": True, "ssh_expected": True},
-        "71-kai-mini": {"reachable": True, "ssh_ok": False, "ssh_expected": True},
+        "kai-mini": {"reachable": True, "ssh_ok": False, "ssh_expected": True},
     }), NOW + 60)
-    assert ok is False and "SSH-unreachable" in d and "71-kai-mini" in d
+    assert ok is False and "SSH-unreachable" in d and "kai-mini" in d
 
 
 # ── Codex #3: incomplete roster never GREEN ───────────────────────────────────
@@ -121,8 +121,8 @@ def test_online_ssh_expected_down_is_red():
 def test_incomplete_roster_is_red():
     ok, d = fe.fleet_verdict(_state(
         {"kai-worker": {"reachable": True, "ssh_ok": True, "ssh_expected": True}},
-        expected=["kai-worker", "71-kai-mini", "mac-mini"]), NOW + 60)
-    assert ok is False and "INCOMPLETE" in d and "71-kai-mini" in d and "mac-mini" in d
+        expected=["kai-worker", "kai-mini", "mac-mini"]), NOW + 60)
+    assert ok is False and "INCOMPLETE" in d and "kai-mini" in d and "mac-mini" in d
 
 
 def test_empty_expected_roster_is_red():
@@ -204,35 +204,35 @@ def _H(reachable=True, ssh_ok=True, ssh_expected=True):
 
 
 def test_gate_all_healthy_is_ok():
-    st = _state({"kai-worker": _H(), "71-kai-mini": _H()})
+    st = _state({"kai-worker": _H(), "kai-mini": _H()})
     ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker")
     assert ok is True and "spine kai-worker OK" in d
 
 
 def test_gate_spine_down_is_red():
-    st = _state({"kai-worker": _H(reachable=False), "71-kai-mini": _H()})
+    st = _state({"kai-worker": _H(reachable=False), "kai-mini": _H()})
     ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker")
     assert ok is False and "SPINE" in d and "kai-worker" in d
 
 
 def test_gate_spine_ssh_blind_is_red():
-    st = _state({"kai-worker": _H(ssh_ok=False), "71-kai-mini": _H()})
+    st = _state({"kai-worker": _H(ssh_ok=False), "kai-mini": _H()})
     ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker")
     assert ok is False and "SPINE" in d
 
 
 def test_gate_peer_down_is_warn_not_red():
     # A flapping aux node must NOT fail the push gate — warn, stay ok.
-    st = _state({"kai-worker": _H(), "71-kai-mini": _H(reachable=False)})
+    st = _state({"kai-worker": _H(), "kai-mini": _H(reachable=False)})
     ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker")
-    assert ok is True and "WARN offline" in d and "71-kai-mini" in d
+    assert ok is True and "WARN offline" in d and "kai-mini" in d
 
 
 def test_gate_peer_down_muted_reads_muted_not_paging():
     # During a cutover window the muted node must NOT read "watchdog paging"
     # (the watchdog suppresses its page); it reads "muted" instead.
-    st = _state({"kai-worker": _H(), "71-kai-mini": _H(reachable=False)})
-    ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker", muted={"71-kai-mini"})
+    st = _state({"kai-worker": _H(), "kai-mini": _H(reachable=False)})
+    ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker", muted={"kai-mini"})
     assert ok is True
     assert "muted: maintenance window" in d and "watchdog paging" not in d
 
@@ -282,7 +282,7 @@ def test_warn_signals_carry_a_parenthetical_cause():
     # peer ssh-blind. Roster derives from hosts.keys(); all bools supplied by _H.
     st = _state({
         "kai-worker": _H(),
-        "71-kai-mini": _H(reachable=False),
+        "kai-mini": _H(reachable=False),
         "72-kai-aux": _H(ssh_ok=False),
     })
     ok, d = fe.fleet_gate_verdict(st, NOW + 60, "kai-worker")

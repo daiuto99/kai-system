@@ -8,7 +8,7 @@ lost-visibility/structural failure ALWAYS pages (see
 fleet_eval.maint_suppresses_page). The window AUTO-RESTORES at expiry: there is
 nothing to remember to turn back on.
 
-  fleet_maint.py on --nodes 71-kai-mini,mac-mini --hours 96 --reason "cutover"
+  fleet_maint.py on --nodes kai-mini,mac-mini --hours 96 --reason "cutover"
   fleet_maint.py status
   fleet_maint.py off
 
@@ -88,7 +88,7 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
     on = sub.add_parser("on", help="arm a mute window")
     on.add_argument("--nodes", required=True,
-                    help="comma-separated host names, e.g. 71-kai-mini,mac-mini")
+                    help="comma-separated host names, e.g. kai-mini,mac-mini")
     on.add_argument("--hours", type=float, default=96.0)
     on.add_argument("--reason", default="fleet maintenance")
     on.add_argument("--set-by", dest="set_by", default="leo")

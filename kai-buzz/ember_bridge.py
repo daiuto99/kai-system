@@ -3,7 +3,7 @@
 Ember — KAI advisor as a first-class Buzz (Nostr) agent.  KAI-984 comms spike (24e49013).
 
 Ember gets its OWN Nostr keypair, joins a PRIVATE Buzz channel, and on every human
-message calls KAI's local litellm gateway (qwen-mid -> 71-kai-mini, fully on the tailnet)
+message calls KAI's local litellm gateway (qwen-mid -> kai-mini, fully on the tailnet)
 and posts the reply back into the channel. Nothing leaves Leo's infra.
 
 Modes:

@@ -1,7 +1,7 @@
 #!/bin/bash
 # S1-B4 (audit #03) — off-box mini alert watcher (independent 2nd-channel watchdog).
 #
-# Runs ON 71-kai-mini, OFF the worker box, via cron. The worker cannot reliably alert
+# Runs ON kai-mini, OFF the worker box, via cron. The worker cannot reliably alert
 # about its OWN total death (if the worker or its Telegram route is dead, no page ever
 # leaves). This watcher is the net for exactly that: an independent host + independent
 # sender that pages Leo when the worker goes dark.
@@ -80,7 +80,7 @@ else
     CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL+1))
     log "CHECK FAIL #$CONSECUTIVE_FAIL — worker_ok=$worker_ok offsite_ok=$offsite_ok"
     if [ "$CONSECUTIVE_FAIL" -ge "$FAIL_THRESHOLD" ] && [ "${PAGED:-0}" -eq 0 ]; then
-        page "[mini-watchdog] KAI worker appears DOWN — worker:${WORKER_PORT} reachable=${worker_ok}, offsite fresh=${offsite_ok} @ $(ts). Off-box 2nd-channel alert from 71-kai-mini."
+        page "[mini-watchdog] KAI worker appears DOWN — worker:${WORKER_PORT} reachable=${worker_ok}, offsite fresh=${offsite_ok} @ $(ts). Off-box 2nd-channel alert from kai-mini."
         rc=$?
         [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ] && PAGED=1   # sent or staged -> handled; rc=1 retries next run
     fi

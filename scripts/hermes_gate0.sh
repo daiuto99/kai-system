@@ -43,7 +43,7 @@ done
 for c in $(docker ps -aq --filter label=hermes-agent=1); do
   n=$(docker inspect -f '{{.Name}}' "$c" | sed 's#^/##')
   # Safety floor = NON-ROOT (not a specific uid). Hardcoding 1000:1000 (the worker
-  # leo uid) falsely REDs on other hosts — e.g. 71-kai-mini where the host user is
+  # leo uid) falsely REDs on other hosts — e.g. kai-mini where the host user is
   # 501 and run_as_host_user maps 501:501 (KAI-975 mini leg). Assert uid != 0 / unset.
   u=$(docker inspect -f '{{.Config.User}}' "$c"); uid=${u%%:*}
   { [ -n "$u" ] && [ "$uid" != "0" ] && [ "$uid" != "root" ]; } || red "$n: container user is root/unset (got: ${u:-<empty>}); safety floor requires non-root"

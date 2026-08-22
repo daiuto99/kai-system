@@ -8,7 +8,7 @@ import time
 from fleet_eval import maint_suppresses_page
 
 NOW = int(time.time())
-MUTED = {"71-kai-mini", "mac-mini"}
+MUTED = {"kai-mini", "mac-mini"}
 
 
 def _h(reachable=True, ssh_ok=True, ssh_expected=True):
@@ -26,37 +26,37 @@ def _state(hosts, updated=None):
 
 
 def test_only_muted_down_suppresses():
-    st = _state({"kai-worker": _h(), "71-kai-mini": _h(reachable=False), "mac-mini": _h()})
+    st = _state({"kai-worker": _h(), "kai-mini": _h(reachable=False), "mac-mini": _h()})
     supp, prob = maint_suppresses_page(st, NOW, MUTED)
-    assert supp is True and prob == ["71-kai-mini"]
+    assert supp is True and prob == ["kai-mini"]
 
 
 def test_both_muted_down_suppresses():
-    st = _state({"kai-worker": _h(), "71-kai-mini": _h(reachable=False), "mac-mini": _h(reachable=False)})
+    st = _state({"kai-worker": _h(), "kai-mini": _h(reachable=False), "mac-mini": _h(reachable=False)})
     supp, prob = maint_suppresses_page(st, NOW, MUTED)
-    assert supp is True and prob == ["71-kai-mini", "mac-mini"]
+    assert supp is True and prob == ["kai-mini", "mac-mini"]
 
 
 def test_muted_ssh_blind_suppresses():
-    st = _state({"kai-worker": _h(), "71-kai-mini": _h(ssh_ok=False), "mac-mini": _h()})
+    st = _state({"kai-worker": _h(), "kai-mini": _h(ssh_ok=False), "mac-mini": _h()})
     supp, prob = maint_suppresses_page(st, NOW, MUTED)
-    assert supp is True and prob == ["71-kai-mini"]
+    assert supp is True and prob == ["kai-mini"]
 
 
 def test_spine_down_still_pages():
-    st = _state({"kai-worker": _h(reachable=False), "71-kai-mini": _h(reachable=False), "mac-mini": _h()})
+    st = _state({"kai-worker": _h(reachable=False), "kai-mini": _h(reachable=False), "mac-mini": _h()})
     supp, prob = maint_suppresses_page(st, NOW, MUTED)
     assert supp is False and "kai-worker" in prob
 
 
 def test_nonmuted_peer_down_still_pages():
-    st = _state({"kai-worker": _h(), "71-kai-mini": _h(reachable=False), "aux-node": _h(reachable=False)})
+    st = _state({"kai-worker": _h(), "kai-mini": _h(reachable=False), "aux-node": _h(reachable=False)})
     supp, prob = maint_suppresses_page(st, NOW, MUTED)
     assert supp is False and "aux-node" in prob
 
 
 def test_stale_heartbeat_still_pages():
-    st = _state({"kai-worker": _h(), "71-kai-mini": _h(reachable=False), "mac-mini": _h()}, updated=NOW - 100000)
+    st = _state({"kai-worker": _h(), "kai-mini": _h(reachable=False), "mac-mini": _h()}, updated=NOW - 100000)
     supp, prob = maint_suppresses_page(st, NOW, MUTED)
     assert supp is False and prob == []
 
@@ -67,15 +67,15 @@ def test_missing_state_still_pages():
 
 
 def test_healthy_not_suppressed():
-    st = _state({"kai-worker": _h(), "71-kai-mini": _h(), "mac-mini": _h()})
+    st = _state({"kai-worker": _h(), "kai-mini": _h(), "mac-mini": _h()})
     supp, prob = maint_suppresses_page(st, NOW, MUTED)
     assert supp is False and prob == []
 
 
 def test_empty_muted_never_suppresses():
-    st = _state({"kai-worker": _h(), "71-kai-mini": _h(reachable=False), "mac-mini": _h()})
+    st = _state({"kai-worker": _h(), "kai-mini": _h(reachable=False), "mac-mini": _h()})
     supp, prob = maint_suppresses_page(st, NOW, set())
-    assert supp is False and prob == ["71-kai-mini"]
+    assert supp is False and prob == ["kai-mini"]
 
 
 if __name__ == "__main__":
