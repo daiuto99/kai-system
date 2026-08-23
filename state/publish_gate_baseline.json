@@ -1,0 +1,75 @@
+{
+  "alexadaiuto": {
+    "baseline_ids": [
+      "1",
+      "2",
+      "5"
+    ]
+  },
+  "anthonydaiuto": {
+    "baseline_ids": [
+      "1",
+      "2",
+      "5"
+    ]
+  },
+  "giannadaiuto": {
+    "baseline_ids": [
+      "1",
+      "2",
+      "5"
+    ]
+  },
+  "leodaiuto": {
+    "baseline_ids": [
+      "1",
+      "2",
+      "12"
+    ]
+  },
+  "revoltbros": {
+    "baseline_ids": [
+      "1",
+      "2",
+      "5"
+    ]
+  },
+  "sette-uno": {
+    "baseline_ids": [
+      "1",
+      "2",
+      "5",
+      "11",
+      "17",
+      "19",
+      "21",
+      "23"
+    ]
+  },
+  "sonicink": {
+    "baseline_ids": [
+      "1",
+      "2",
+      "5"
+    ]
+  },
+  "the71": {
+    "baseline_ids": [
+      "1",
+      "2",
+      "5"
+    ]
+  },
+  "the71c": {
+    "baseline_ids": [
+      "15"
+    ]
+  },
+  "the71company": {
+    "baseline_ids": [
+      "1",
+      "2",
+      "5"
+    ]
+  }
+}
