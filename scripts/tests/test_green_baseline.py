@@ -27,7 +27,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "services_up", "session_brief", "worker_auth_fail_closed",
                 "plane_reachable", "qdrant_up", "litellm_models",
                 "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions",
-                "credential_registry", "source_drift",
+                "credential_registry", "jobs_secret_leak", "source_drift",
                 "fleet_visibility", "codex_verifier_auth", "hostops_rail_canary",
                 "host_hygiene",
                 "cron_log_error_scan",
@@ -298,6 +298,105 @@ class HostopsRailCanaryProbe(unittest.TestCase):
                 rc = baseline.run_suite((baseline.Check("hostops_rail_canary", baseline.check_hostops_rail_canary),))
         self.assertEqual(rc, 1)
         self.assertIn("hostops_rail_canary", out.getvalue())
+
+
+class JobsSecretLeakGuard(unittest.TestCase):
+    """443fb11e / L18 — the leak-guard REDs when a live credential value is served
+    on /jobs in cleartext, GREENs when at-risk jobs serve redacted, and only WARNs
+    when the guard could not run (no secrets, DB error, docker down)."""
+
+    def _fake_run(self, *, stdout="", stderr="", returncode=0):
+        proc = mock.Mock()
+        proc.stdout, proc.stderr, proc.returncode = stdout, stderr, returncode
+        return mock.patch.object(baseline.subprocess, "run", return_value=proc)
+
+    # ── pure verdict ──
+    def test_verdict_leak_is_red(self):
+        sev, detail = baseline.jobs_secret_leak_verdict("LEAKGUARD_LEAK abc123 2 5")
+        self.assertEqual(sev, "red")
+        self.assertIn("abc123", detail)
+        self.assertIn("cleartext", detail)
+
+    def test_verdict_ok_is_green(self):
+        sev, detail = baseline.jobs_secret_leak_verdict("LEAKGUARD_OK 7 7")
+        self.assertEqual(sev, "green")
+        self.assertIn("0 credential values exposed", detail)
+
+    def test_verdict_nosecrets_is_warn(self):
+        sev, _ = baseline.jobs_secret_leak_verdict("LEAKGUARD_NOSECRETS")
+        self.assertEqual(sev, "warn")
+
+    def test_verdict_truncated_is_warn_not_green(self):
+        sev, detail = baseline.jobs_secret_leak_verdict("LEAKGUARD_TRUNC 100 250")
+        self.assertEqual(sev, "warn")
+        self.assertIn("capped", detail)
+
+    def test_verdict_unverified_is_warn_not_green(self):
+        # Codex round-1: all /jobs reads failed → must NOT read green.
+        sev, detail = baseline.jobs_secret_leak_verdict("LEAKGUARD_UNVERIFIED 17 17")
+        self.assertEqual(sev, "warn")
+        self.assertIn("could NOT verify", detail)
+
+    def test_verdict_partial_is_warn_not_green(self):
+        sev, detail = baseline.jobs_secret_leak_verdict("LEAKGUARD_PARTIAL 10 7 17")
+        self.assertEqual(sev, "warn")
+        self.assertIn("unreachable", detail)
+
+    def test_verdict_ok_with_scanned_lt_total_is_warn(self):
+        # Codex round-2: an OK token where scanned != total is incomplete → WARN.
+        sev, _ = baseline.jobs_secret_leak_verdict("LEAKGUARD_OK 5 17")
+        self.assertEqual(sev, "warn")
+
+    def test_verdict_malformed_prefix_is_warn(self):
+        # LEAKGUARD_OKAY must NOT be accepted as a clean verdict (exact head match).
+        sev, _ = baseline.jobs_secret_leak_verdict("LEAKGUARD_OKAY 5 5")
+        self.assertEqual(sev, "warn")
+
+    def test_verdict_ok_nonnumeric_counts_is_warn(self):
+        sev, _ = baseline.jobs_secret_leak_verdict("LEAKGUARD_OK five five")
+        self.assertEqual(sev, "warn")
+
+    def test_verdict_skipped_source_is_warn(self):
+        sev, _ = baseline.jobs_secret_leak_verdict("LEAKGUARD_SKIPPED 0 0")
+        self.assertEqual(sev, "warn")
+
+    def test_nonzero_exit_warns_even_with_ok_stdout(self):
+        # Codex round-2: a crash (nonzero exit) with a stray OK line must WARN.
+        with self._fake_run(stdout="LEAKGUARD_OK 5 5\n", stderr="boom", returncode=1):
+            detail = baseline.check_jobs_secret_leak()
+        self.assertIn("WARN", detail)
+
+    def test_verdict_dberr_is_warn(self):
+        sev, _ = baseline.jobs_secret_leak_verdict("LEAKGUARD_DBERR OperationalError")
+        self.assertEqual(sev, "warn")
+
+    def test_verdict_unexpected_is_warn(self):
+        sev, _ = baseline.jobs_secret_leak_verdict("")
+        self.assertEqual(sev, "warn")
+
+    # ── check wiring ──
+    def test_clean_serve_reads_green(self):
+        with self._fake_run(stdout="LEAKGUARD_OK 5 5\n"):
+            detail = baseline.check_jobs_secret_leak()
+        self.assertNotIn("WARN", detail)
+        self.assertIn("leak-guard", detail)
+
+    def test_leak_raises_red_in_suite(self):
+        import io
+        from contextlib import redirect_stdout
+        with self._fake_run(stdout="LEAKGUARD_LEAK badjob 1 3\n"):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = baseline.run_suite(
+                    (baseline.Check("jobs_secret_leak", baseline.check_jobs_secret_leak),))
+        self.assertEqual(rc, 1)
+        self.assertIn("jobs_secret_leak", out.getvalue())
+
+    def test_docker_unreachable_warns_not_reds(self):
+        with mock.patch.object(baseline.subprocess, "run",
+                               side_effect=OSError("no docker")):
+            detail = baseline.check_jobs_secret_leak()
+        self.assertIn("WARN", detail)
 
 
 class HostHygieneVerdict(unittest.TestCase):

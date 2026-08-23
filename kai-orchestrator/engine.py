@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Optional
 from db import get_conn, new_id, now_iso
+from redact import redact, redact_json_str
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +54,19 @@ class Engine:
                    error=?, completed_at=?, updated_at=? WHERE id=?""",
                 (
                     new_status,
-                    json.dumps(verification) if verification else None,
-                    json.dumps(result) if result else None,
-                    error,
+                    json.dumps(redact(verification)) if verification else None,
+                    # Persist chokepoint (443fb11e, L18): scrub secrets from
+                    # every persisted step result so no capability can leak a
+                    # credential into the jobs DB, even if load_config's own
+                    # fix regresses. redact() is non-mutating — result.data is
+                    # reused for metrics/verification after this call.
+                    json.dumps(redact(result)) if result else None,
+                    # error is a string here (json.dumps(result.error) or
+                    # str(e)); scrub secrets from any JSON-shaped error dict.
+                    # (A raw secret interpolated into a free-text error string
+                    # is out of the chokepoint's reach — capabilities must not
+                    # put creds in error text; ours don't.)
+                    redact_json_str(error),
                     ts if new_status in TERMINAL else None,
                     ts,
                     step_id,
@@ -96,7 +107,11 @@ class Engine:
             ts = now_iso()
             conn.execute(
                 "INSERT INTO jobs (id,type,inputs,status,approval_policy,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-                (job_id, job_type, json.dumps(inputs), "queued", approval_policy, ts, ts),
+                # Persist chokepoint (443fb11e, L18): scrub any secret passed as
+                # a workflow input so it never lands in the jobs DB. Our WP
+                # workflows take no creds as inputs (they resolve from the
+                # secrets layer), but a caller must not be able to persist one.
+                (job_id, job_type, json.dumps(redact(inputs)), "queued", approval_policy, ts, ts),
             )
             self._emit_event(conn, "job_queued", job_id=job_id, payload={"type": job_type})
             conn.commit()

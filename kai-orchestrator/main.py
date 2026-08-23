@@ -11,6 +11,7 @@ from learning.proposer import generate_proposals
 from context_service import _worker_auth
 from capabilities import _registry as _CAPABILITY_REGISTRY
 from policy.autonomy import AUTONOMY_POLICIES
+from redact import redact_row
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s — %(message)s")
@@ -330,9 +331,12 @@ def get_job(job_id: str):
     conn.close()
     if not job:
         return {"error": "not found"}
+    # Serve chokepoint (443fb11e, L18): scrub secrets from any legacy row
+    # written before the persist-side fix, so reading a job can never leak
+    # a credential in cleartext.
     return {
-        "job": dict(job),
-        "steps": [dict(s) for s in steps],
+        "job": redact_row(dict(job)),
+        "steps": [redact_row(dict(s)) for s in steps],
     }
 
 @app.post("/gates/{gate_id}/resolve")
@@ -489,7 +493,8 @@ def list_jobs(limit: int = 20, status: str = ""):
             d["title"] = inp.get("title", d["type"])
         except Exception:
             d["title"] = d["type"]
-        jobs.append(d)
+        # Serve chokepoint (443fb11e, L18) — scrub secrets from the inputs blob.
+        jobs.append(redact_row(d))
     return {"jobs": jobs, "count": len(jobs)}
 
 

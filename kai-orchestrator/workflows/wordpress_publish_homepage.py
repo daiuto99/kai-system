@@ -77,6 +77,24 @@ class PublishHomepageWorkflow(Workflow):
             # inputs take lower precedence than step results (don't overwrite)
             for k, v in inputs.items():
                 ctx.setdefault(k, v)
+        # WP creds are resolved in-memory here and NEVER persisted (443fb11e,
+        # L18): load_config intentionally no longer returns them in its step
+        # result, so re-read them from the secrets layer into ctx at run time.
+        # Every downstream step still reads ctx["creds"] unchanged, but the
+        # jobs DB / GET /jobs/{id} never see the app-password.
+        #
+        # ALWAYS overwrite any 'creds' that leaked in from a merged step result
+        # or job input — the secrets layer is the sole authority. A stale value
+        # (e.g. a legacy row's "[REDACTED]" string, or a caller-supplied creds
+        # input) must never survive to a downstream step.
+        ctx.pop("creds", None)
+        if ctx.get("site"):
+            try:
+                from capabilities.wordpress import resolve_creds
+                ctx["creds"] = resolve_creds(ctx["site"])
+            except Exception as e:
+                log.warning("in-memory creds resolution failed for site=%s: %s",
+                            ctx.get("site"), e)
         return ctx
 
     # ── Main dispatch ─────────────────────────────────────────────────────

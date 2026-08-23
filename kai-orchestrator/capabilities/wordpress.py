@@ -109,13 +109,28 @@ def _load_creds(site: str) -> dict:
     }
 
 
+def resolve_creds(site: str) -> dict:
+    """In-memory creds resolver for the workflow layer (443fb11e, L18).
+
+    Downstream steps need the WP app-password, but it must NEVER be persisted
+    into the jobs DB. So load_config no longer returns creds in its step result;
+    the workflow re-reads them here (from the secrets layer) into ctx at run
+    time instead, keeping them in-memory only. Same source as load_config."""
+    return _load_creds(site)
+
+
 @capability("wordpress.load_config")
 def load_config(site: str, **_) -> CapabilityResult:
+    # NOTE (443fb11e, L18): this result is PERSISTED to steps.result and served
+    # by GET /jobs/{id}, so it must NOT carry the app-password. It returns only
+    # a non-secret reference (site + fqdn); creds are resolved in-memory by the
+    # workflow's _ctx via resolve_creds() and never touch storage. Validate the
+    # secret loads here so a missing/broken credential still fails this step.
     try:
         creds = _load_creds(site)
         return CapabilityResult(
             ok=True, status="succeeded",
-            data={"site": site, "fqdn": creds["fqdn"], "creds": creds},
+            data={"site": site, "fqdn": creds["fqdn"]},
         )
     except Exception as e:
         return CapabilityResult(ok=False, status="failed_final",

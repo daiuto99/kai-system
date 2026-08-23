@@ -1054,6 +1054,273 @@ def check_credential_registry() -> str:
     return detail
 
 
+# In-container leak-guard: run INSIDE kai-orchestrator (the DB + the /jobs endpoint
+# are container-local). It is the durable tripwire for the 443fb11e / L18 class —
+# a WP app-password once flowed from load_config into steps.result and was served
+# in cleartext by GET /jobs/{id}, landing in a session transcript. The generic
+# redaction chokepoint cannot know secret VALUES; this probe can, so it reads the
+# real app-passwords and asserts none appear in what the endpoint actually serves.
+#
+# Method — value-based, on real data: (1) load the live app-password values from
+# /run/wp_secrets; (2) find the "at-risk" jobs whose RAW stored data still contains
+# one (legacy pre-fix rows are permanent regression fixtures); (3) GET each through
+# the live /jobs/{id} and assert the value is NOT in the served response. If the
+# serve-path redaction ever regresses, a real credential reappears here and the row
+# goes RED. Scope note: this watches the EXPOSURE surface (what a session reads),
+# which is the actual leak vector; the persist-layer scrub is locked by unit tests.
+# Secret material never leaves the container — only sentinels + counts are printed.
+_LEAKGUARD_SCRIPT = r"""
+import json, os, sqlite3, sys, urllib.request
+
+DB = "/data/orchestrator/orchestrator.db"
+BASE = "http://localhost:8003"
+
+# ── load live secret VALUES; any unreadable source downgrades the run to WARN ──
+# /run/wp_secrets is the canonical WP app-password dir and is REQUIRED: if it is
+# missing/unreadable the inventory is incomplete and the run must not read clean.
+# /run/secrets is an OPTIONAL augment (may legitimately be absent).
+REQUIRED_DIRS = ("/run/wp_secrets",)
+OPTIONAL_DIRS = ("/run/secrets",)
+values = set()
+skipped = 0
+for base, required in [(d, True) for d in REQUIRED_DIRS] + [(d, False) for d in OPTIONAL_DIRS]:
+    try:
+        names = os.listdir(base)
+    except OSError:
+        if required:
+            skipped += 1  # a required source we could not read → not confirmable
+        continue
+    for name in names:
+        if "app_password" in name or "password" in name or name.startswith("wp_"):
+            try:
+                v = open(os.path.join(base, name)).read().strip()
+            except OSError:
+                skipped += 1
+                continue
+            if "\x00" in v:
+                skipped += 1
+                continue
+            if len(v) >= 8:
+                values.add(v)
+if skipped:
+    # a required secret source was unreadable — inventory incomplete, cannot
+    # claim clean regardless of what the readable sources yielded.
+    print("LEAKGUARD_SKIPPED 0 0")
+    sys.exit(0)
+if not values:
+    print("LEAKGUARD_NOSECRETS")
+    sys.exit(0)
+
+# Search raw storage for BOTH the literal value and its JSON-escaped inner form —
+# stored blobs are JSON, so a value with an escapable char is escaped there. This
+# keeps at-risk discovery from a false-negative (which would false-GREEN).
+def _variants(v):
+    out = {v}
+    try:
+        out.add(json.dumps(v)[1:-1])
+    except Exception:
+        pass
+    return out
+
+variants = set()
+for v in values:
+    variants |= _variants(v)
+
+def _like(s):
+    esc = s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return "%" + esc + "%"
+
+# Read-only DB access — the probe must never create or mutate the jobs DB.
+try:
+    c = sqlite3.connect("file:" + DB + "?mode=ro", uri=True)
+    c.execute("PRAGMA query_only=ON")
+    at_risk = set()
+    for s in variants:
+        if "\x00" in s:
+            continue
+        pat = _like(s)
+        for (jid,) in c.execute(
+                "SELECT DISTINCT job_id FROM steps WHERE result LIKE ? ESCAPE '\\' "
+                "OR error LIKE ? ESCAPE '\\'", (pat, pat)):
+            at_risk.add(jid)
+        for (jid,) in c.execute(
+                "SELECT id FROM jobs WHERE inputs LIKE ? ESCAPE '\\'", (pat,)):
+            at_risk.add(jid)
+    at_risk = list(at_risk)
+except Exception as e:
+    print("LEAKGUARD_DBERR " + type(e).__name__)
+    sys.exit(0)
+
+if not at_risk:
+    # no stored secret anywhere → nothing to expose; WARN if a source was skipped
+    print("LEAKGUARD_SKIPPED 0 0" if skipped else "LEAKGUARD_OK 0 0")
+    sys.exit(0)
+
+# Parse the served JSON and inspect DECODED scalar strings (keys + values) — this
+# sees the secret regardless of how many escaping layers the transport added, and
+# avoids matching across JSON syntax boundaries (which could false-RED).
+def _walk(obj):
+    if isinstance(obj, str):
+        yield obj
+    elif isinstance(obj, dict):
+        for k, val in obj.items():
+            yield k
+            for s in _walk(val):
+                yield s
+    elif isinstance(obj, list):
+        for val in obj:
+            for s in _walk(val):
+                yield s
+
+def _served_leaks(doc):
+    for s in _walk(doc):
+        for v in values:
+            if v in s:
+                return True
+        # a scalar may itself be nested serialized JSON — decode one more layer
+        st = s.strip()
+        if st[:1] in ("{", "[") and any(v in s for v in variants):
+            try:
+                if _served_leaks(json.loads(st)):
+                    return True
+            except Exception:
+                pass
+    return False
+
+leaks = 0
+scanned = 0
+failed = 0
+truncated = len(at_risk) > 100
+first = ""
+for jid in at_risk[:100]:
+    req = urllib.request.Request(BASE + "/jobs/" + jid)
+    try:
+        resp = urllib.request.urlopen(req, timeout=5)
+        if getattr(resp, "status", 200) != 200:
+            failed += 1
+            continue
+        doc = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception:
+        failed += 1  # a failed/malformed read must NEVER read as verified-clean
+        continue
+    scanned += 1
+    if _served_leaks(doc):
+        leaks += 1
+        if not first:
+            first = jid
+
+if leaks:
+    print("LEAKGUARD_LEAK %s %d %d" % (first, leaks, scanned))
+elif scanned == 0:
+    # had at-risk jobs but verified none — endpoint unreachable; do NOT read green
+    print("LEAKGUARD_UNVERIFIED %d %d" % (failed, len(at_risk)))
+elif failed or skipped:
+    print("LEAKGUARD_PARTIAL %d %d %d" % (scanned, failed, len(at_risk)))
+elif truncated:
+    print("LEAKGUARD_TRUNC %d %d" % (scanned, len(at_risk)))
+else:
+    print("LEAKGUARD_OK %d %d" % (scanned, len(at_risk)))
+"""
+
+_LEAKGUARD_TIMEOUT = 30
+
+
+def jobs_secret_leak_verdict(token: str) -> tuple[str, str]:
+    """Pure verdict (unit-tested) over the in-container leak-guard sentinel.
+
+    RED  → a live credential VALUE appears in a served /jobs response.
+    WARN → the guard could not run to a clean conclusion (no secrets found, DB
+           unreadable, unexpected output) — never a false RED.
+    GREEN → every at-risk job served its credential redacted; 0 values exposed.
+    """
+    t = (token or "").strip()
+    parts = t.split()
+    head = parts[0] if parts else ""
+
+    def _nn_ints(rest):
+        """Parse trailing count tokens as non-negative ints, else None."""
+        try:
+            vals = [int(x) for x in rest]
+        except (TypeError, ValueError):
+            return None
+        return vals if all(v >= 0 for v in vals) else None
+
+    # Exact head match (not startswith) so a malformed prefix like LEAKGUARD_OKAY
+    # cannot masquerade as a clean verdict.
+    if head == "LEAKGUARD_LEAK":
+        jid = parts[1] if len(parts) > 1 else "?"
+        n = parts[2] if len(parts) > 2 else "?"
+        return "red", (f"SECRET LEAK: /jobs serves a live credential in cleartext — "
+                       f"job {jid} ({n} affected); serve-path redaction regressed [443fb11e/L18]")
+    if head == "LEAKGUARD_OK":
+        n = _nn_ints(parts[1:3])
+        # GREEN only on a well-formed token where every at-risk job was scanned
+        # (scanned == total). Anything else is treated as unverified → WARN.
+        if n is None or len(n) != 2 or n[0] != n[1]:
+            return "warn", f"jobs leak-guard: malformed OK token {t[:80]!r} — treating as unverified [443fb11e/L18]"
+        return "green", (f"jobs leak-guard: {n[0]} at-risk job(s) served redacted, "
+                         f"0 credential values exposed [443fb11e/L18]")
+    if head == "LEAKGUARD_TRUNC":
+        n = _nn_ints(parts[1:3]) or ["?", "?"]
+        return "warn", (f"jobs leak-guard: {n[0]}/{n[1]} at-risk jobs served redacted "
+                        f"(0 exposed in scanned set) — >100 at-risk, scan capped [443fb11e/L18]")
+    if head == "LEAKGUARD_UNVERIFIED":
+        total = parts[2] if len(parts) > 2 else "?"
+        return "warn", (f"jobs leak-guard: could NOT verify any of {total} at-risk job(s) — every "
+                        f"/jobs read failed; endpoint unreachable, NOT confirmed clean [443fb11e/L18]")
+    if head == "LEAKGUARD_PARTIAL":
+        scanned = parts[1] if len(parts) > 1 else "?"
+        failed = parts[2] if len(parts) > 2 else "?"
+        total = parts[3] if len(parts) > 3 else "?"
+        return "warn", (f"jobs leak-guard: {scanned}/{total} at-risk jobs verified clean but "
+                        f"{failed} unreachable/skipped — incomplete, not fully confirmed [443fb11e/L18]")
+    if head == "LEAKGUARD_SKIPPED":
+        return "warn", ("jobs leak-guard: a secret source was unreadable — inventory "
+                        "incomplete, not confirmed clean [443fb11e/L18]")
+    if head == "LEAKGUARD_NOSECRETS":
+        return "warn", "jobs leak-guard: no app-password secrets found to scan for [443fb11e/L18]"
+    if head == "LEAKGUARD_DBERR":
+        return "warn", (f"jobs leak-guard: orchestrator DB unreadable "
+                        f"({parts[1] if len(parts) > 1 else '?'}) [443fb11e/L18]")
+    return "warn", f"jobs leak-guard: unexpected probe output: {t[:120] or '(empty)'} [443fb11e/L18]"
+
+
+def check_jobs_secret_leak() -> str:
+    """443fb11e / L18 — standing tripwire that a WP app-password never reaches the
+    /jobs read surface a session consumes. Execs the value-based guard inside
+    kai-orchestrator (see _LEAKGUARD_SCRIPT). RED if any live credential value is
+    served in cleartext; WARN only if the guard could not run (docker/container
+    unreachable — already owned by services_up / container_roster)."""
+    try:
+        result = subprocess.run(
+            ["docker", "exec", "kai-orchestrator", "python3", "-c", _LEAKGUARD_SCRIPT],
+            text=True, capture_output=True, timeout=_LEAKGUARD_TIMEOUT, check=False,
+        )
+    except Exception as exc:
+        return f"WARN jobs leak-guard could not run (docker unreachable: {type(exc).__name__}) [443fb11e/L18]"
+
+    # A nonzero exit means the in-container script crashed (it sys.exit(0)s on
+    # every handled path) — never trust a stray OK-looking stdout line in that
+    # case; fail closed to WARN.
+    if result.returncode != 0:
+        err = (result.stderr or "").strip().replace("\n", " ")
+        if "No such container" in err or "Cannot connect" in err or "not running" in err:
+            return "WARN jobs leak-guard skipped — kai-orchestrator not running [443fb11e/L18]"
+        return f"WARN jobs leak-guard crashed (exit {result.returncode}): {err[:140] or '(no stderr)'} [443fb11e/L18]"
+
+    out = (result.stdout or "").strip().splitlines()
+    token = out[-1].strip() if out else ""
+    if not token:
+        return "WARN jobs leak-guard produced no output — cannot confirm clean [443fb11e/L18]"
+
+    sev, detail = jobs_secret_leak_verdict(token)
+    if sev == "red":
+        raise RuntimeError(detail)
+    if sev == "warn":
+        return "WARN " + detail
+    return detail
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -1066,6 +1333,7 @@ def checks() -> tuple[Check, ...]:
         Check("buzz_shim_backend", check_buzz_shim),
         Check("secret_permissions", check_secret_permissions),
         Check("credential_registry", check_credential_registry),
+        Check("jobs_secret_leak", check_jobs_secret_leak),
         Check("source_drift", check_source_drift),
         Check("fleet_visibility", check_fleet),
         Check("codex_verifier_auth", check_codex_verifier_auth),
