@@ -331,10 +331,11 @@ def _tg_send_gate(gate_id: str, gate_type: str, summary: str) -> bool:
         "creative_gate": "Creative Review", "devops_gate": "DevOps Review",
         "hostops_place_secret": "Host-Op: Place Secret",
         "hostops_deploy_plugin": "Host-Op: Deploy Plugin",
+        "sprint_gate": "Sprint Approval",
     }.get(gate_type, gate_type)
     icon = {"plan_gate": "📋", "dev_gate": "⚙️", "creative_gate": "🎨",
             "devops_gate": "🔧", "hostops_place_secret": "🔐",
-            "hostops_deploy_plugin": "🚀"}.get(gate_type, "🔒")
+            "hostops_deploy_plugin": "🚀", "sprint_gate": "🏁"}.get(gate_type, "🔒")
 
     # Plain text (no parse_mode): Telegram legacy-Markdown 400s on unescaped dynamic
     # gate content (ids, types, free-text summary) and SILENTLY DROPS the message —
@@ -552,9 +553,10 @@ def resolve_gate(gate_id: str, req: GateResolve):
     entry = _update_gate(gate_id, status="resolved", resolution=resolution)
 
     _persist_gate_record(gate_id, entry["gate_type"], entry["brief"], resolution)
-    # A synthetic_probe gate (KAI-1112) has no orchestrator workflow to resume, so there
-    # is no callback to fire — skip it (avoids a weekly warning on an unreachable URL).
-    if entry.get("gate_type") != "synthetic_probe":
+    # A synthetic_probe (KAI-1112) and a sprint_gate ([S1-A1]) have no orchestrator workflow
+    # to resume, so there is no callback to fire — skip it (avoids a warning on an unreachable
+    # URL; sprint gates are polled via /state by request_sprint_gate).
+    if entry.get("gate_type") not in ("synthetic_probe", "sprint_gate"):
         _fire_callback(entry["callback_url"], resolution)
 
     action = "approved" if req.approved else "rejected"
@@ -734,6 +736,15 @@ def _process_gate(req: GateRequest):
             # resolve_gate handler Leo's tap fires. No review, no notification, no Leo spam.
             logger.info("Gate %s is a synthetic_probe (KAI-1112) — no review/notify; awaiting probe resolve", req.gate_id)
             return
+        elif gate_type == "sprint_gate":
+            # [S1-A1] Autonomous-sprint HARD GATE. A sprint run (no orchestrator job) raises a
+            # human-only approval through this same router: no LLM review chain — the caller
+            # already framed the decision — it goes straight to pending_leo so the Buzz poller
+            # (primary) prompts Leo and Telegram carries the emergency alert on Buzz-down. The
+            # caller polls /council/gate/{id}/state; there is no callback to fire (see resolve).
+            summary        = str(brief.get("summary") or "(sprint gate — no summary provided)")
+            kai_assessment = str(brief.get("detail") or "Sprint hard gate — Leo decides.")
+            _persist_artifact(req.gate_id, "brief", json.dumps(brief, indent=2))
         else:
             logger.warning("Unknown gate_type %r — notifying Leo", gate_type)
             _persist_artifact(req.gate_id, "brief", json.dumps(brief, indent=2))
