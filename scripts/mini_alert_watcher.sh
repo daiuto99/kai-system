@@ -46,10 +46,14 @@ fi
 
 # ── signal 2: worker :8001 reachability (TCP) ──
 worker_ok=0
-if command -v nc >/dev/null 2>&1; then
-    nc -z -G 6 "$WORKER_HOST" "$WORKER_PORT" >/dev/null 2>&1 && worker_ok=1
-else
-    timeout 6 bash -c "echo > /dev/tcp/$WORKER_HOST/$WORKER_PORT" 2>/dev/null && worker_ok=1
+# Prefer the bash /dev/tcp builtin: portable across macOS + Linux with no external
+# dependency and no netcat-flag divergence (macOS nc uses -G for connect-timeout,
+# Linux nc uses -w — the old "nc -z -G" false-failed on the reimaged Linux mini,
+# which would page a false worker-DOWN). Fall back to nc only if /dev/tcp is unusable.
+if timeout 6 bash -c "echo > /dev/tcp/$WORKER_HOST/$WORKER_PORT" 2>/dev/null; then
+    worker_ok=1
+elif command -v nc >/dev/null 2>&1; then
+    nc -z -w 6 "$WORKER_HOST" "$WORKER_PORT" >/dev/null 2>&1 && worker_ok=1
 fi
 
 # ── 2nd-channel page (sanctioned off-box raw send; see header) ──
