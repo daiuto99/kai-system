@@ -15,6 +15,28 @@ SERVICES=(
     "kai-orchestrator:kai-orchestrator"
 )
 
+# MR5 (KAI-1201): optionally scope the per-service ruff+pytest to changed services only,
+# to cut close wall-clock. CI_SCOPE_SERVICES = space-separated service names.
+#   UNSET            -> full run (every service) — the pre-push / manual default.
+#   SET (even empty) -> run only the listed services; empty = skip all per-service checks.
+# The green baseline (above) and the whole-repo guards + findings-contract tests (below)
+# ALWAYS run regardless of scope — the safety floor is never scoped away. The close engine
+# (close_engine.step_ci_gate) sets this from the services changed since the last close and
+# falls back to a full run on any cross-cutting change.
+svc_in_scope() {
+    local svc="$1" s
+    # var UNSET => full run; var SET (even empty) => only listed services
+    if [ -z "${CI_SCOPE_SERVICES+x}" ]; then return 0; fi
+    for s in ${CI_SCOPE_SERVICES}; do [ "$s" = "$svc" ] && return 0; done
+    return 1
+}
+
+if [ -z "${CI_SCOPE_SERVICES+x}" ]; then
+    echo "[scope] full CI — all services (green baseline + whole-repo guards always run)"
+else
+    echo "[scope] CI scoped to changed services: '${CI_SCOPE_SERVICES}' (green baseline + whole-repo guards always run)"
+fi
+
 FAIL=0
 
 run_ruff_gate() {
@@ -32,6 +54,12 @@ run_ruff_gate() {
 for entry in "${SERVICES[@]}"; do
     svc="${entry%%:*}"
     container="${entry##*:}"
+
+    if ! svc_in_scope "$svc"; then
+        echo ""
+        echo "  [scoped-out] $svc unchanged since last close — skipping ruff+pytest (MR5 KAI-1201)"
+        continue
+    fi
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
