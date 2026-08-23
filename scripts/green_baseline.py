@@ -953,6 +953,41 @@ def check_hostops_rail_canary() -> str:
     return f"WARN hostops rail canary unexpected output: {token[:160] or '(empty)'} [KAI-1166]"
 
 
+def check_cloudways_auth() -> str:
+    """S1-B5 (audit F5) — the Cloudways API token (WP fleet host API) was unprobed;
+    the audit read it as dead (403) with detection left to Leo. It authenticates now,
+    but a silent lapse would blind WP fleet host ops with no warning. Best-effort OAuth
+    token request: GREEN on 200, WARN on 401/403 (rotate) or any transport failure.
+    WARN never RED — the WP fleet is not the runtime spine, so a dead fleet token must
+    never turn the baseline red or block a push; it only has to be impossible to miss.
+    The token is sent in a POST body only and is never logged or returned."""
+    import urllib.parse as _up
+
+    try:
+        email = (SECRETS / "cloudways_account_email.txt").read_text().strip()
+        api_key = (SECRETS / "cloudways_api_token.txt").read_text().strip()
+    except Exception:
+        return "WARN cloudways credentials unreadable — WP fleet host API unverifiable [S1-B5]"
+    if not email or not api_key:
+        return "WARN cloudways credentials empty — WP fleet host API unverifiable [S1-B5]"
+
+    data = _up.urlencode({"email": email, "api_key": api_key}).encode()
+    # Cloudways' WAF 403s the default Python-urllib User-Agent — send a real one, else
+    # the probe false-WARNs on a perfectly valid token (verified: UA=None→403, UA set→200).
+    request = urllib.request.Request(
+        "https://api.cloudways.com/api/v1/oauth/access_token", data=data, method="POST",
+        headers={"User-Agent": "KAI-green-baseline/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            if response.status == 200:
+                return "cloudways API token valid (WP fleet host API reachable) [S1-B5]"
+            return f"WARN cloudways auth returned HTTP {response.status} — check token [S1-B5]"
+    except urllib.error.HTTPError as exc:
+        return f"WARN cloudways API token rejected (HTTP {exc.code}) — rotate token [S1-B5]"
+    except Exception as exc:
+        return f"WARN cloudways auth unreachable ({type(exc).__name__}) — WP fleet host API unverifiable [S1-B5]"
+
+
 def credential_registry_verdict(registry: dict, present: list[str]) -> tuple[str, str]:
     """Pure verdict (unit-tested) over a readiness registry + the credentials actually
     on disk. This is the inventory-first guard the audit demanded (Fable F6): every
@@ -1042,6 +1077,7 @@ def checks() -> tuple[Check, ...]:
         Check("backup_freshness", check_backup_freshness),
         Check("tailscale_key_expiry", check_tailscale_key_expiry),
         Check("public_tls", check_public_tls),
+        Check("cloudways_auth", check_cloudways_auth),
         Check("backup_verify", check_backup_verify),
         Check("offsite_freshness", check_offsite_freshness),
         Check("alert_delivery", check_alert_delivery),

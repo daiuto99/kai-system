@@ -32,7 +32,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "host_hygiene",
                 "cron_log_error_scan",
                 "disk_pressure", "container_roster", "backup_freshness",
-                "tailscale_key_expiry", "public_tls", "backup_verify",
+                "tailscale_key_expiry", "public_tls", "cloudways_auth", "backup_verify",
                 "offsite_freshness",
                 "alert_delivery",
             ],
@@ -103,6 +103,62 @@ class CodexVerifierAuthProbe(unittest.TestCase):
         detail = self._detail_for({"OPENAI_API_KEY": "sk-test", "tokens": {}})
         self.assertNotIn("WARN", detail)
         self.assertIn("API-key", detail)
+
+
+class CloudwaysAuthProbe(unittest.TestCase):
+    """S1-B5 — best-effort Cloudways OAuth probe: GREEN on 200, WARN (never RED) on
+    401/403 or transport failure, WARN on missing creds. Token never surfaced."""
+
+    def setUp(self):
+        self._dir = tempfile.mkdtemp(prefix="cwauth_")
+        (Path(self._dir) / "cloudways_account_email.txt").write_text("leo@example.com\n")
+        (Path(self._dir) / "cloudways_api_token.txt").write_text("sekret-key\n")
+        self._patch_secrets = mock.patch.object(baseline, "SECRETS", Path(self._dir))
+        self._patch_secrets.start()
+
+    def tearDown(self):
+        self._patch_secrets.stop()
+
+    def _urlopen_returning(self, status):
+        cm = mock.MagicMock()
+        cm.__enter__.return_value = mock.Mock(status=status)
+        return mock.patch.object(baseline.urllib.request, "urlopen", return_value=cm)
+
+    def test_valid_token_reads_green(self):
+        with self._urlopen_returning(200):
+            detail = baseline.check_cloudways_auth()
+        self.assertNotIn("WARN", detail)
+        self.assertIn("valid", detail)
+        self.assertNotIn("sekret-key", detail)
+
+    def test_rejected_token_warns_with_code(self):
+        err = baseline.urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+        with mock.patch.object(baseline.urllib.request, "urlopen", side_effect=err):
+            detail = baseline.check_cloudways_auth()
+        self.assertIn("WARN", detail)
+        self.assertIn("403", detail)
+        self.assertIn("rotate", detail)
+
+    def test_unreachable_warns(self):
+        with mock.patch.object(baseline.urllib.request, "urlopen", side_effect=OSError("boom")):
+            detail = baseline.check_cloudways_auth()
+        self.assertIn("WARN", detail)
+        self.assertIn("unreachable", detail)
+
+    def test_missing_creds_warns(self):
+        for name in ("cloudways_account_email.txt", "cloudways_api_token.txt"):
+            (Path(self._dir) / name).unlink()
+        detail = baseline.check_cloudways_auth()
+        self.assertIn("WARN", detail)
+
+    def test_never_reds(self):
+        err = baseline.urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+        with mock.patch.object(baseline.urllib.request, "urlopen", side_effect=err):
+            detail = baseline.check_cloudways_auth()
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = baseline.run_suite((baseline.Check("cloudways_auth", lambda: detail),))
+        self.assertEqual(rc, 0)
 
 
 class CredentialRegistryVerdict(unittest.TestCase):
