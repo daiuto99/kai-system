@@ -26,7 +26,8 @@ class GreenBaselineTests(unittest.TestCase):
             [
                 "services_up", "session_brief", "worker_auth_fail_closed",
                 "plane_reachable", "qdrant_up", "litellm_models",
-                "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions", "source_drift",
+                "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions",
+                "credential_registry", "source_drift",
                 "fleet_visibility", "codex_verifier_auth", "hostops_rail_canary",
                 "host_hygiene",
                 "cron_log_error_scan",
@@ -102,6 +103,73 @@ class CodexVerifierAuthProbe(unittest.TestCase):
         detail = self._detail_for({"OPENAI_API_KEY": "sk-test", "tokens": {}})
         self.assertNotIn("WARN", detail)
         self.assertIn("API-key", detail)
+
+
+class CredentialRegistryVerdict(unittest.TestCase):
+    """S1-B2 — inventory-first guard: every credential on disk must be registered
+    (else WARN), every runtime-critical one present (else RED), clean surface GREEN."""
+
+    REG = {
+        "credentials": [
+            {"name": "anthropic_api_key", "criticality": "runtime-critical"},
+            {"name": "kai_worker_auth", "criticality": "runtime-critical"},
+            {"name": "oura_token", "criticality": "degraded"},
+        ],
+        "patterns": [
+            {"pattern": r"^wp_[a-z0-9-]+_kai_app_password$", "criticality": "degraded"},
+        ],
+    }
+
+    def test_clean_surface_is_green(self):
+        present = ["anthropic_api_key", "kai_worker_auth", "oura_token",
+                   "wp_sonicink_kai_app_password", "wp_the71_kai_app_password"]
+        sev, detail = baseline.credential_registry_verdict(self.REG, present)
+        self.assertEqual(sev, "green")
+        self.assertIn("5 credentials enumerated", detail)
+        self.assertIn("2 runtime-critical present", detail)
+
+    def test_pattern_covers_fleet_rows(self):
+        # a fleet credential matching only a pattern must NOT read as unregistered
+        sev, _ = baseline.credential_registry_verdict(
+            self.REG, ["anthropic_api_key", "kai_worker_auth", "wp_alexadaiuto_kai_app_password"])
+        self.assertEqual(sev, "green")
+
+    def test_unregistered_credential_warns(self):
+        present = ["anthropic_api_key", "kai_worker_auth", "brand_new_secret"]
+        sev, detail = baseline.credential_registry_verdict(self.REG, present)
+        self.assertEqual(sev, "warn")
+        self.assertIn("brand_new_secret", detail)
+        self.assertIn("add a row", detail)
+
+    def test_missing_runtime_critical_reds(self):
+        present = ["anthropic_api_key", "oura_token"]  # kai_worker_auth absent
+        sev, detail = baseline.credential_registry_verdict(self.REG, present)
+        self.assertEqual(sev, "red")
+        self.assertIn("kai_worker_auth", detail)
+        self.assertIn("MISSING", detail)
+
+    def test_red_precedes_warn(self):
+        # a missing-critical AND an unregistered extra → RED wins (worst-case)
+        present = ["anthropic_api_key", "unexpected_extra"]
+        sev, _ = baseline.credential_registry_verdict(self.REG, present)
+        self.assertEqual(sev, "red")
+
+    def test_shipped_registry_matches_live_secret_surface(self):
+        """The registry that ships must actually cover the repo's own credential
+        surface — this is the guard guarding itself: a real drift fails the test."""
+        registry_path = MODULE.parent / "readiness_registry.json"
+        registry = json.loads(registry_path.read_text())
+        present = sorted(p.stem for p in (MODULE.parents[1] / "secrets").glob("*.txt"))
+        if not present:
+            self.skipTest("secrets/ not present in this checkout")
+        sev, detail = baseline.credential_registry_verdict(registry, present)
+        self.assertIn(sev, ("green", "warn"), detail)  # never RED on the live surface
+        self.assertNotEqual(sev, "warn", f"shipped registry has drift: {detail}")
+
+    def test_probe_never_reds_on_missing_registry_file(self):
+        with mock.patch.object(baseline.Path, "read_text", side_effect=OSError("nope")):
+            detail = baseline.check_credential_registry()
+        self.assertIn("WARN", detail)
 
 
 class HostopsRailCanaryProbe(unittest.TestCase):

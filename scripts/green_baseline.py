@@ -953,6 +953,72 @@ def check_hostops_rail_canary() -> str:
     return f"WARN hostops rail canary unexpected output: {token[:160] or '(empty)'} [KAI-1166]"
 
 
+def credential_registry_verdict(registry: dict, present: list[str]) -> tuple[str, str]:
+    """Pure verdict (unit-tested) over a readiness registry + the credentials actually
+    on disk. This is the inventory-first guard the audit demanded (Fable F6): every
+    credential must be enumerated, so coverage — not the memory of a past incident —
+    decides what is watched.
+
+    RED  → a runtime-critical registered credential's backing file is absent.
+    WARN → a credential exists on disk but matches no registry row (unregistered drift).
+    GREEN → full surface enumerated, all registered, every runtime-critical one present.
+    """
+    creds = registry.get("credentials", []) or []
+    names = {row.get("name") for row in creds}
+    compiled = []
+    for pat in registry.get("patterns", []) or []:
+        try:
+            compiled.append(re.compile(pat["pattern"]))
+        except (re.error, KeyError, TypeError):
+            continue
+
+    def covered(name: str) -> bool:
+        return name in names or any(rx.match(name) for rx in compiled)
+
+    present_set = set(present)
+    unregistered = sorted(n for n in present_set if not covered(n))
+    critical = {row["name"] for row in creds
+                if row.get("criticality") == "runtime-critical" and row.get("name")}
+    missing_critical = sorted(critical - present_set)
+
+    if missing_critical:
+        return "red", (f"{len(missing_critical)} runtime-critical credential(s) MISSING from "
+                       f"secrets/: {', '.join(missing_critical[:5])} [S1-B2]")
+    if unregistered:
+        return "warn", (f"{len(unregistered)} credential(s) on disk not in readiness registry: "
+                        f"{', '.join(unregistered[:6])} — add a row [S1-B2]")
+    return "green", (f"{len(present_set)} credentials enumerated; all registered, "
+                     f"{len(critical)} runtime-critical present [S1-B2]")
+
+
+def check_credential_registry() -> str:
+    """S1-B2 (audit #02 program item 2, Fable F6) — the green baseline was built
+    corpse-by-corpse: one probe per credential that had already burned a session, and
+    no top-down enumeration of the dependency surface. This probe reads a declarative
+    registry (scripts/readiness_registry.json) and asserts the credential inventory is
+    complete and accounted-for: every secrets/*.txt is registered (else WARN), every
+    runtime-critical credential is present (else RED). Expiry/liveness for the expiring
+    subset stays in the dedicated probes; this owns coverage, not freshness."""
+    import glob as _glob
+
+    registry_path = Path(__file__).resolve().parent / "readiness_registry.json"
+    try:
+        registry = json.loads(registry_path.read_text())
+    except Exception as exc:
+        return f"WARN readiness registry unreadable ({type(exc).__name__}) [S1-B2]"
+
+    present = sorted(Path(p).stem for p in _glob.glob(str(SECRETS / "*.txt")))
+    if not present:
+        return "WARN no credential files found under secrets/ — registry cannot be verified [S1-B2]"
+
+    sev, detail = credential_registry_verdict(registry, present)
+    if sev == "red":
+        raise RuntimeError(detail)
+    if sev == "warn":
+        return "WARN " + detail
+    return detail
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -964,6 +1030,7 @@ def checks() -> tuple[Check, ...]:
         Check("qwen_mid_route_and_fallback", check_qwen_route_contract),
         Check("buzz_shim_backend", check_buzz_shim),
         Check("secret_permissions", check_secret_permissions),
+        Check("credential_registry", check_credential_registry),
         Check("source_drift", check_source_drift),
         Check("fleet_visibility", check_fleet),
         Check("codex_verifier_auth", check_codex_verifier_auth),
