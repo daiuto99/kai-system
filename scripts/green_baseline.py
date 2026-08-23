@@ -875,6 +875,84 @@ def check_alert_delivery() -> str:
     return detail
 
 
+_RAIL_CANARY_SCRIPT = r"""
+import os, sys
+BASE = "/run/hostops-payload-secrets"
+try:
+    from hostops_identity import HostOpsSecretResolver
+except Exception as e:
+    print("CANARY_IMPORTERR %s: %s" % (type(e).__name__, str(e)[:120])); sys.exit(0)
+pick = None
+try:
+    for site in sorted(os.listdir(BASE)):
+        d = os.path.join(BASE, site)
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if os.path.isfile(os.path.join(d, name)):
+                pick = (site, name); break
+        if pick:
+            break
+except FileNotFoundError:
+    print("CANARY_EMPTY store-absent"); sys.exit(0)
+if not pick:
+    print("CANARY_EMPTY no-payload"); sys.exit(0)
+site, name = pick
+try:
+    b = HostOpsSecretResolver().resolve(site, name)   # returns bytes; only len() is ever printed
+    print("CANARY_OK %s %s %d" % (site, name, len(b)))
+except Exception as e:
+    print("CANARY_FAIL %s %s: %s" % (site, type(e).__name__, str(e)[:120]))
+"""
+
+
+def check_hostops_rail_canary() -> str:
+    """KAI-1166 [S1-B1] — the approve-and-execute rail (KAI-984) is the execution
+    path for every credential move. Audit F2 read it as "un-executable" because the
+    payload store looks empty from the host — but /run/hostops-payload-secrets is a
+    bind-mount that is only populated inside the orchestrator container. Nothing
+    exercised the rail end-to-end, so a real resolve regression (bad mount, wrong
+    owner/mode, moved module) could rot silently until a live secret move failed.
+
+    This canary execs the resolver INSIDE kai-orchestrator against the first staged
+    payload and asserts it resolves to bytes. Secret material never leaves the
+    container — only its byte length is printed. RED if the rail cannot resolve a
+    payload (no payload staged, or resolve raises); WARN only if the container/docker
+    is unreachable (that failure is already owned by services_up / container_roster).
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "exec", "kai-orchestrator", "python3", "-c", _RAIL_CANARY_SCRIPT],
+            text=True, capture_output=True, timeout=20, check=False,
+        )
+    except Exception as exc:
+        return f"WARN hostops rail canary could not run (docker unreachable: {type(exc).__name__}) [KAI-1166]"
+
+    out = (result.stdout or "").strip().splitlines()
+    token = out[-1].strip() if out else ""
+    if result.returncode != 0 and not token:
+        err = (result.stderr or "").strip().replace("\n", " ")
+        if "No such container" in err or "Cannot connect" in err or "not running" in err:
+            return "WARN hostops rail canary skipped — kai-orchestrator not running [KAI-1166]"
+        return f"WARN hostops rail canary error: {err[:160] or 'exit ' + str(result.returncode)} [KAI-1166]"
+
+    if token.startswith("CANARY_OK"):
+        parts = token.split()
+        site = parts[1] if len(parts) > 1 else "?"
+        secret = parts[2] if len(parts) > 2 else "?"
+        nbytes = parts[3] if len(parts) > 3 else "?"
+        return f"rail resolved {site}/{secret} ({nbytes}B) end-to-end in kai-orchestrator [KAI-1166]"
+    if token.startswith("CANARY_EMPTY"):
+        raise RuntimeError(
+            "hostops rail has NO resolvable payload staged (" + token.split(maxsplit=1)[-1]
+            + ") — rail un-executable [KAI-1166]")
+    if token.startswith("CANARY_FAIL"):
+        raise RuntimeError("hostops rail cannot resolve payload — " + token[len("CANARY_FAIL "):] + " [KAI-1166]")
+    if token.startswith("CANARY_IMPORTERR"):
+        raise RuntimeError("hostops rail resolver import failed in-container — " + token[len("CANARY_IMPORTERR "):] + " [KAI-1166]")
+    return f"WARN hostops rail canary unexpected output: {token[:160] or '(empty)'} [KAI-1166]"
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -889,6 +967,7 @@ def checks() -> tuple[Check, ...]:
         Check("source_drift", check_source_drift),
         Check("fleet_visibility", check_fleet),
         Check("codex_verifier_auth", check_codex_verifier_auth),
+        Check("hostops_rail_canary", check_hostops_rail_canary),
         Check("host_hygiene", check_host_hygiene),
         Check("cron_log_error_scan", check_cron_log_errors),
         Check("disk_pressure", check_disk_pressure),

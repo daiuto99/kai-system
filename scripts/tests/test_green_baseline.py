@@ -27,7 +27,8 @@ class GreenBaselineTests(unittest.TestCase):
                 "services_up", "session_brief", "worker_auth_fail_closed",
                 "plane_reachable", "qdrant_up", "litellm_models",
                 "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions", "source_drift",
-                "fleet_visibility", "codex_verifier_auth", "host_hygiene",
+                "fleet_visibility", "codex_verifier_auth", "hostops_rail_canary",
+                "host_hygiene",
                 "cron_log_error_scan",
                 "disk_pressure", "container_roster", "backup_freshness",
                 "tailscale_key_expiry", "public_tls", "backup_verify",
@@ -101,6 +102,78 @@ class CodexVerifierAuthProbe(unittest.TestCase):
         detail = self._detail_for({"OPENAI_API_KEY": "sk-test", "tokens": {}})
         self.assertNotIn("WARN", detail)
         self.assertIn("API-key", detail)
+
+
+class HostopsRailCanaryProbe(unittest.TestCase):
+    """KAI-1166 [S1-B1] — the canary execs the resolver inside kai-orchestrator and
+    REDs when the rail cannot resolve a payload (empty store or resolve error),
+    GREENs on a successful resolve, and only WARNs when docker/container is down."""
+
+    def _fake_run(self, *, stdout="", stderr="", returncode=0):
+        proc = mock.Mock()
+        proc.stdout, proc.stderr, proc.returncode = stdout, stderr, returncode
+        return mock.patch.object(baseline.subprocess, "run", return_value=proc)
+
+    def test_resolves_reads_green(self):
+        with self._fake_run(stdout="CANARY_OK alexadaiuto kai_publish_gate_secret 64\n"):
+            detail = baseline.check_hostops_rail_canary()
+        self.assertNotIn("WARN", detail)
+        self.assertIn("resolved", detail)
+        self.assertIn("alexadaiuto/kai_publish_gate_secret", detail)
+        self.assertIn("64B", detail)
+        self.assertIn("KAI-1166", detail)
+
+    def test_never_leaks_secret_bytes(self):
+        # The in-container script only ever prints len(); assert the probe surfaces a count, not material.
+        with self._fake_run(stdout="CANARY_OK alexadaiuto kai_publish_gate_secret 64\n"):
+            detail = baseline.check_hostops_rail_canary()
+        self.assertIn("64B", detail)
+
+    def test_empty_store_reds(self):
+        with self._fake_run(stdout="CANARY_EMPTY no-payload\n"):
+            with self.assertRaises(RuntimeError) as ctx:
+                baseline.check_hostops_rail_canary()
+        self.assertIn("un-executable", str(ctx.exception))
+        self.assertIn("KAI-1166", str(ctx.exception))
+
+    def test_resolve_failure_reds(self):
+        with self._fake_run(
+            stdout="CANARY_FAIL alexadaiuto HostOpsIdentityError: payload secret does not have mode 0600\n"
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                baseline.check_hostops_rail_canary()
+        self.assertIn("cannot resolve payload", str(ctx.exception))
+        self.assertIn("mode 0600", str(ctx.exception))
+
+    def test_import_error_reds(self):
+        with self._fake_run(stdout="CANARY_IMPORTERR ModuleNotFoundError: hostops_identity\n"):
+            with self.assertRaises(RuntimeError) as ctx:
+                baseline.check_hostops_rail_canary()
+        self.assertIn("resolver import failed", str(ctx.exception))
+
+    def test_container_down_warns_not_reds(self):
+        with self._fake_run(stderr="Error: No such container: kai-orchestrator", returncode=1):
+            detail = baseline.check_hostops_rail_canary()
+        self.assertIn("WARN", detail)
+        self.assertIn("not running", detail)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = baseline.run_suite((baseline.Check("canary", lambda: detail),))
+        self.assertEqual(rc, 0)
+
+    def test_docker_unreachable_warns(self):
+        with mock.patch.object(baseline.subprocess, "run", side_effect=OSError("boom")):
+            detail = baseline.check_hostops_rail_canary()
+        self.assertIn("WARN", detail)
+        self.assertIn("docker unreachable", detail)
+
+    def test_empty_store_actually_turns_suite_red(self):
+        with self._fake_run(stdout="CANARY_EMPTY store-absent\n"):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = baseline.run_suite((baseline.Check("hostops_rail_canary", baseline.check_hostops_rail_canary),))
+        self.assertEqual(rc, 1)
+        self.assertIn("hostops_rail_canary", out.getvalue())
 
 
 class HostHygieneVerdict(unittest.TestCase):
