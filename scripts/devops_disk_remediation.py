@@ -34,6 +34,13 @@ CRIT_PCT = 90
 BIG_LOG_MB = 200            # a single *.log over this is a runaway → truncate
 LOG_JSONL = Path("/home/leo/kai-system/logs/devops_disk_remediation.jsonl")
 
+# Shared ownership layer (KAI-46) — for the Custodian plug-in below. Imported
+# defensively so the standalone run()/main() path never depends on it.
+import os as _os  # noqa: E402
+_SHARED = Path(_os.environ.get("KAI_SYSTEM_ROOT", "/home/leo/kai-system")) / "shared"
+if str(_SHARED) not in sys.path:
+    sys.path.insert(0, str(_SHARED))
+
 # Root-fs subtrees DevOps may reclaim from autonomously (logs only — regenerable).
 # Everything else (data, backups, mirrors, containerd) is STRUCTURAL → escalate.
 _STRUCTURAL_PREFIXES = ("/mnt", "/home/leo/backups", "/var/lib/containerd", "/var/lib/docker")
@@ -190,6 +197,57 @@ def run(dry: bool, warn: int, crit: int) -> dict:
         rec["escalated"] = f"resolved to {after}% by safe reclaim — DevOps owns it, Leo not involved"
     _record(rec)
     return rec
+
+
+# ── Custodian plug-in (KAI-46) — same verified functions, behind the shared interface ──
+
+class DiskCustodian:
+    """Storage-domain custodian for the shared runner. WATCH+DIAGNOSE in assess()
+    (read-only, [] when healthy); SAFE reclaim in remediate_safe(). Reuses the exact
+    verified functions above — no behavior change, just expressed as Findings the one
+    dispatcher routes (auto reclaim; structural queue when crit persists)."""
+
+    domain = "storage"
+
+    def assess(self) -> list:
+        from devops_ownership import Finding, AUTO, STRUCTURAL
+        pct = root_pct()
+        if not should_engage(pct, WARN_PCT):
+            return []  # healthy — no docker-du cost incurred
+        sev = "crit" if pct >= CRIT_PCT else "warn"
+        findings = [Finding(
+            domain="storage", check="disk", severity=sev,
+            diagnosis=f"root fs at {pct}% (warn {WARN_PCT}% / crit {CRIT_PCT}%)",
+            disposition=AUTO,
+            proposed_action="safe log reclaim: journald archives + oversized *.log truncation + aborted rsync temps",
+            dedup_key="storage-disk-safe-reclaim", detail={"pct": pct},
+        )]
+        # A crit reading despite safe reclaim running every cycle means the remaining
+        # top consumers are STRUCTURAL — queue them, never auto-destroy (§2.3).
+        if pct >= CRIT_PCT:
+            top = top_structural(_docker_du())
+            lines = "; ".join(f"{p} {kb // 1024}M" for p, kb in top)
+            findings.append(Finding(
+                domain="storage", check="disk_structural", severity="crit",
+                diagnosis=f"root {pct}% persists after safe reclaim; remaining top consumers are structural: {lines}",
+                disposition=STRUCTURAL,
+                proposed_action="relocate misplaced large stores off the 98G OS volume onto /mnt/storage, and/or add capacity",
+                dedup_key="storage-disk-structural",
+                detail={"pct": pct, "top": [[p, kb] for p, kb in top]},
+            ))
+        return findings
+
+    def remediate_safe(self, f) -> str:
+        results = []
+        for action in SAFE_RECLAIMS:
+            try:
+                results.append(action(False))
+            except Exception as e:
+                results.append(f"{action.__name__} error: {e}")
+        after = root_pct()
+        rec = {"ts": _now(), "custodian": "storage", "actions": results, "disk_after": after}
+        _record(rec)
+        return f"{'; '.join(results)} → root now {after}%"
 
 
 def main() -> int:
