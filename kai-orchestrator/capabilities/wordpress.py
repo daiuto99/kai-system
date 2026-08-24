@@ -106,6 +106,13 @@ def _load_creds(site: str) -> dict:
         "cloudways_sys_user": entry["cloudways_sys_user"],
         "url": entry.get("url", ""),
         "username": entry.get("username", "kai"),
+        # KAI-39 — brand governance slug. A site key may host a brand whose
+        # BUILD_PROFILE lives under a DIFFERENT slug (e.g. the71company hosts
+        # the the71c brand). This is the brand-drift `property` override so an
+        # unseeded site key is governed by its real profile instead of silently
+        # falling through to _site_key() and reading as ungoverned. None when the
+        # entry declares no brand_slug (genuinely unseeded → fail-safe preserved).
+        "brand_slug": entry.get("brand_slug"),
     }
 
 
@@ -130,7 +137,11 @@ def load_config(site: str, **_) -> CapabilityResult:
         creds = _load_creds(site)
         return CapabilityResult(
             ok=True, status="succeeded",
-            data={"site": site, "fqdn": creds["fqdn"]},
+            # brand_slug is non-secret (a profile name), safe to persist in the
+            # step result; it flows into workflow ctx so create_page can pass it
+            # as the brand-drift `property` override (KAI-39). fqdn/site unchanged.
+            data={"site": site, "fqdn": creds["fqdn"],
+                  "brand_slug": creds.get("brand_slug")},
         )
     except Exception as e:
         return CapabilityResult(ok=False, status="failed_final",

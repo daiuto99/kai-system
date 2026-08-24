@@ -254,8 +254,15 @@ class PublishHomepageWorkflow(Workflow):
         creds = ctx.get("creds")
         title   = ctx.get("page_title", "Home")
         content = ctx.get("page_content", ctx.get("brief_text", "<p>Welcome.</p>"))
+        # KAI-39 — thread the brand-governance slug so a site key whose brand
+        # profile lives under a different slug (e.g. the71company → the71c) is
+        # brand-drift-checked against its real profile instead of silently going
+        # ungoverned. Falls back to an explicit `property` input, then to None
+        # (create_page derives _site_key(site) — the genuinely-unseeded fail-safe).
+        brand_slug = ctx.get("brand_slug") or ctx.get("property")
 
-        result = fn(site=site, creds=creds, title=title, content=content, status="draft", caller=__file__)
+        result = fn(site=site, creds=creds, title=title, content=content, status="draft",
+                    property=brand_slug, caller=__file__)
         if result.ok and result.verification is None:
             vr = wv.verify_page_exists(site, creds, {"data": result.data})
             result.verification = vr
