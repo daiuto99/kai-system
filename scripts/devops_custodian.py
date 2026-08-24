@@ -41,15 +41,28 @@ from devops_ownership import (  # noqa: E402
 
 # ── Custodian registry — every domain plugs in here ────────────────────────────
 
+# Domain roster: (module, class). A broken plug-in is skipped with a WARN — it must
+# never sink the whole sweep (and the meta-monitor will flag a domain that vanishes).
+_ROSTER = [
+    ("devops_disk_remediation", "DiskCustodian"),        # storage (Phase 1)
+    ("devops_updates_custodian", "UpdatesCustodian"),    # updates/patching (Phase 2)
+    ("devops_backups_custodian", "BackupsCustodian"),    # backups (Phase 2)
+    ("devops_services_custodian", "ServicesCustodian"),  # services/containers (Phase 2)
+    ("devops_security_custodian", "SecurityCustodian"),  # security surface (Phase 2, KAI-52)
+    ("devops_fleet_custodian", "FleetCustodian"),        # fleet/host (Phase 2, KAI-53)
+]
+
+
 def load_custodians() -> list:
-    """The live roster. Phase 1 ships the storage (disk) custodian refactored onto
-    the interface; Phase 2 appends updates/backups/services/security/fleet."""
+    """The live roster. Phase 1 shipped storage (disk); Phase 2 appends
+    updates/backups/services. Security + fleet land next on this sprint."""
     custodians = []
-    try:
-        from devops_disk_remediation import DiskCustodian
-        custodians.append(DiskCustodian())
-    except Exception as e:  # a broken plug-in must not sink the whole sweep
-        print(f"[WARN] could not load DiskCustodian: {type(e).__name__}: {e}", file=sys.stderr)
+    for mod, cls in _ROSTER:
+        try:
+            m = __import__(mod)
+            custodians.append(getattr(m, cls)())
+        except Exception as e:  # a broken plug-in must not sink the whole sweep
+            print(f"[WARN] could not load {cls}: {type(e).__name__}: {e}", file=sys.stderr)
     return custodians
 
 
