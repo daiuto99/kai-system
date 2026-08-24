@@ -66,6 +66,29 @@ def load_custodians() -> list:
     return custodians
 
 
+def emergency_reclaimer():
+    """The pre-exhaustion guard's emergency reclaim (§Phase 3): the disk custodian's
+    verified log-only SAFE_RECLAIMS, run immediately when root disk enters the reserve
+    band — so the runner can always still write its own state. Returns None if the disk
+    custodian can't be imported (guard then only flags the pre-empt)."""
+    try:
+        import devops_disk_remediation as disk
+
+        def _reclaim() -> str:
+            done = []
+            for action in disk.SAFE_RECLAIMS:
+                try:
+                    done.append(action(False))  # dry=False → real reclaim
+                except Exception as e:
+                    done.append(f"{action.__name__} error: {type(e).__name__}: {e}")
+            return "; ".join(done)
+
+        return _reclaim
+    except Exception as e:
+        print(f"[WARN] emergency reclaimer unavailable: {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+
+
 # ── Recording deps — a faithful, side-effect-free view of where each Finding routes ──
 
 def recording_deps() -> "Deps":
@@ -167,7 +190,8 @@ def main() -> int:
     if args.dry_run:
         return _print_dry_run(custodians)
 
-    summary = run_custodians(custodians, liveness_max_age_s=args.liveness_max_age_s)
+    summary = run_custodians(custodians, liveness_max_age_s=args.liveness_max_age_s,
+                             preempt_reclaim=emergency_reclaimer())
     print(json.dumps(summary, indent=2, default=str))
     return 0
 

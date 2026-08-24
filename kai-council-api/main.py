@@ -46,14 +46,24 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
             return Response(status_code=503, content="council auth boundary misconfigured")
         expected_user, expected_pw = credential
         header = request.headers.get("Authorization", "")
+        authed = False
         if header.startswith("Basic "):
             try:
                 user, pw = base64.b64decode(header[6:]).decode().split(":", 1)
-                if hmac.compare_digest(user, expected_user) and hmac.compare_digest(pw, expected_pw):
-                    return await call_next(request)
+                authed = hmac.compare_digest(user, expected_user) and hmac.compare_digest(pw, expected_pw)
             except Exception:
-                pass
-        return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="KAI Council API"'})
+                # ONLY the credential parse/compare is guarded here. KAI-1182: the prior
+                # code had `return await call_next(request)` INSIDE this try, so ANY
+                # exception from the downstream route (e.g. an Anthropic API-usage-limit
+                # 400) was swallowed and mis-reported as a 401 — which nginx passed back and
+                # the shim wrapped as a 502. Auth failures alone belong here; route errors
+                # must surface as their own status. See the call_next below, now outside.
+                authed = False
+        if not authed:
+            return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="KAI Council API"'})
+        # Auth passed — run the route. A downstream error propagates as ITS OWN status/
+        # message; it is never masked as an auth rejection (KAI-1182).
+        return await call_next(request)
 
 
 @asynccontextmanager

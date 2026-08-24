@@ -1,2 +1,3 @@
 httpx==0.28.1
 apscheduler==3.10.4
+pytest==8.3.4  # KAI-48: watchdog-subsystem tests run in-container via ci.sh (container is non-root)

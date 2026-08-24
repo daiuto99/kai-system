@@ -547,63 +547,89 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     actual_provider = provider
     actual_model    = model
 
-    if provider == "anthropic":
-        tools = KAI_TOOLS if advisor == "kai" else []
-        raw_reply, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens = _run_agentic_loop(
-            messages, tools, model, system_prompt, advisor, cache_breakpoint_chars=_cache_breakpoint_chars,
-            active_project=req.project, active_task_id=req.task_id,
-        )
+    try:
+        if provider == "anthropic":
+            tools = KAI_TOOLS if advisor == "kai" else []
+            raw_reply, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens = _run_agentic_loop(
+                messages, tools, model, system_prompt, advisor, cache_breakpoint_chars=_cache_breakpoint_chars,
+                active_project=req.project, active_task_id=req.task_id,
+            )
 
-    elif provider == "ollama":
-        try:
-            raw_reply, total_input_tokens, total_output_tokens = _call_ollama(
-                model, system_prompt, messages
-            )
-        except Exception as ollama_err:
-            logger.exception("ollama fallback: %s", ollama_err)
-            if _force_privacy:
-                return {"advisor": advisor, "channel": channel,
-                        "reply": "Privacy mode is active for this advisor — local model is required but currently unavailable. Please try again shortly.",
-                        "insights_logged": 0, "input_tokens": 0, "output_tokens": 0,
-                        "provider": "privacy-error", "model": model}
-            fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-6")
-            actual_provider = "anthropic"
-            actual_model = fallback_model
-            client = get_anthropic_client()
-            response = client.messages.create(
-                model=fallback_model, max_tokens=2048,
-                system=system_prompt + f"\n\n[Note: Local model unavailable ({ollama_err}), using cloud fallback]",
-                messages=messages,
-            )
-            total_input_tokens          = response.usage.input_tokens
-            total_output_tokens         = response.usage.output_tokens
-            total_cache_read_tokens     = getattr(response.usage, "cache_read_input_tokens", 0) or 0
-            total_cache_creation_tokens = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-            raw_reply = next((b.text for b in response.content if hasattr(b, "text")), "")
+        elif provider == "ollama":
+            try:
+                raw_reply, total_input_tokens, total_output_tokens = _call_ollama(
+                    model, system_prompt, messages
+                )
+            except Exception as ollama_err:
+                logger.exception("ollama fallback: %s", ollama_err)
+                if _force_privacy:
+                    return {"advisor": advisor, "channel": channel,
+                            "reply": "Privacy mode is active for this advisor — local model is required but currently unavailable. Please try again shortly.",
+                            "insights_logged": 0, "input_tokens": 0, "output_tokens": 0,
+                            "provider": "privacy-error", "model": model}
+                fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-6")
+                actual_provider = "anthropic"
+                actual_model = fallback_model
+                client = get_anthropic_client()
+                response = client.messages.create(
+                    model=fallback_model, max_tokens=2048,
+                    system=system_prompt + f"\n\n[Note: Local model unavailable ({ollama_err}), using cloud fallback]",
+                    messages=messages,
+                )
+                total_input_tokens          = response.usage.input_tokens
+                total_output_tokens         = response.usage.output_tokens
+                total_cache_read_tokens     = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+                total_cache_creation_tokens = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+                raw_reply = next((b.text for b in response.content if hasattr(b, "text")), "")
 
-    elif provider in ("openai", "litellm", "gemini"):
-        try:
-            raw_reply, total_input_tokens, total_output_tokens = _call_litellm(
-                model, system_prompt, messages
-            )
-        except Exception as oai_err:
-            logger.exception("litellm fallback: %s", oai_err)
-            fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-6")
-            actual_provider = "anthropic"
-            actual_model = fallback_model
-            client = get_anthropic_client()
-            response = client.messages.create(
-                model=fallback_model, max_tokens=2048,
-                system=system_prompt + f"\n\n[Note: LiteLLM unavailable ({oai_err}), using Anthropic fallback]",
-                messages=messages,
-            )
-            total_input_tokens          = response.usage.input_tokens
-            total_output_tokens         = response.usage.output_tokens
-            total_cache_read_tokens     = getattr(response.usage, "cache_read_input_tokens", 0) or 0
-            total_cache_creation_tokens = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-            raw_reply = next((b.text for b in response.content if hasattr(b, "text")), "")
-    else:
-        raise HTTPException(400, f"Unknown provider: {provider}")
+        elif provider in ("openai", "litellm", "gemini"):
+            try:
+                raw_reply, total_input_tokens, total_output_tokens = _call_litellm(
+                    model, system_prompt, messages
+                )
+            except Exception as oai_err:
+                logger.exception("litellm fallback: %s", oai_err)
+                fallback_model = adv_cfg.get("fallback_model", "claude-sonnet-4-6")
+                actual_provider = "anthropic"
+                actual_model = fallback_model
+                client = get_anthropic_client()
+                response = client.messages.create(
+                    model=fallback_model, max_tokens=2048,
+                    system=system_prompt + f"\n\n[Note: LiteLLM unavailable ({oai_err}), using Anthropic fallback]",
+                    messages=messages,
+                )
+                total_input_tokens          = response.usage.input_tokens
+                total_output_tokens         = response.usage.output_tokens
+                total_cache_read_tokens     = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+                total_cache_creation_tokens = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+                raw_reply = next((b.text for b in response.content if hasattr(b, "text")), "")
+        else:
+            raise HTTPException(400, f"Unknown provider: {provider}")
+    except HTTPException:
+        raise
+    except Exception as llm_err:
+        # Graceful advisor-unavailable (KAI-1182). A provider-side failure — API usage
+        # limit, rate limit, or an upstream model outage — must return an honest, user-
+        # facing reply, NOT bubble up as a 500 that BasicAuthMiddleware then masks as a
+        # 401 -> 502 (the exact failure that hid this outage for 28 probe cycles).
+        _low = str(llm_err).lower()
+        _status = getattr(llm_err, "status_code", None)
+        if "usage limit" in _low or "regain access" in _low or "credit balance" in _low:
+            _reply = ("⚠️ Advisors are temporarily offline — the Anthropic API usage limit has been "
+                      "reached. Access returns automatically when the limit resets. Local advisors "
+                      "(Ember, Doc) are unaffected.")
+            _unavail = "api-limit"
+        elif _status == 429 or "rate limit" in _low:
+            _reply = "⚠️ Advisors are briefly rate-limited upstream — try again in a moment."
+            _unavail = "rate-limited"
+        else:
+            _reply = "⚠️ Advisor is temporarily unavailable (upstream model error). Please try again shortly."
+            _unavail = "provider-error"
+        logger.error("advisor provider unavailable (%s) for %s: %s",
+                     _unavail, advisor, type(llm_err).__name__)
+        return {"advisor": advisor, "channel": channel, "reply": _reply,
+                "insights_logged": 0, "input_tokens": 0, "output_tokens": 0,
+                "provider": _unavail, "model": model}
 
     # Cache shape logging (CONTEXT_SPEC §7/§8) — Anthropic-specific (cache_control
     # is an Anthropic feature; the stable/volatile ordering costs nothing on other

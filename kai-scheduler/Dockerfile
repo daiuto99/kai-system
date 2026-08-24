@@ -20,6 +20,13 @@ COPY execution_registry.py .
 COPY triage.py .
 COPY tg_alert.py .
 COPY invariants.py .
+# Watchdog-subsystem test suite baked into the image so ci.sh can exercise it in-place
+# (KAI-48). The container runs non-root, so pytest must be installed at build time
+# (added to requirements.txt). Only HERMETIC tests whose deps are already in the image
+# are baked. Excluded: test_fleet_maint (needs shared/fleet_eval → host CI test_fleet_eval),
+# test_invariant_engine (makes live Plane API calls → not hermetic, tracked separately).
 COPY test_watchdog_dedup.py .
+COPY test_fleet_watchdog.py .
+COPY test_kai808_telegram_allowlist.py .
 
 CMD ["python", "scheduler.py"]

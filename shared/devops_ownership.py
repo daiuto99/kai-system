@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -54,6 +55,14 @@ _DISPOSITIONS = frozenset({AUTO, STRUCTURAL, DECISION})
 _KAI_ROOT = Path(os.environ.get("KAI_SYSTEM_ROOT", "/home/leo/kai-system"))
 RUN_LOG = Path(os.environ.get("DEVOPS_CUSTODIAN_LOG", str(_KAI_ROOT / "logs" / "devops_custodian.jsonl")))
 LIVENESS = Path(os.environ.get("DEVOPS_CUSTODIAN_LIVENESS", str(_KAI_ROOT / "logs" / "devops_custodian_liveness.json")))
+
+# Pre-exhaustion guard (§Phase 3, KAI-48). The 2026-08-24 disk crisis taught that at
+# 100% the monitor itself cannot write its own state — detection and remediation both
+# die exactly when they are needed most. So the runner reserves headroom: at/above
+# PREEMPT_PCT (a hard pre-empt band BELOW true exhaustion) it runs an emergency reclaim
+# FIRST, ahead of the normal sweep, so the custodian can always still stamp liveness and
+# record its run. 95% default = a 5% reserve the runner defends before it does anything else.
+PREEMPT_PCT = int(os.environ.get("DEVOPS_PREEMPT_PCT", "95"))
 
 # The Plane project DevOps files its structural queue into: "KAI System".
 # (The KAI-44 disk custodian filed into the WordPress project by id — a copy-paste
@@ -268,6 +277,55 @@ def dispatch(f: "Finding", custodian: "Custodian", deps: Optional["Deps"] = None
     return rec
 
 
+# ── Pre-exhaustion guard (§Phase 3, KAI-48) ────────────────────────────────────
+
+def root_pct() -> float:
+    """Root-fs usage percent. A float so callers keep precision; the guard compares
+    against an int threshold. Isolated + tiny so tests can monkeypatch it."""
+    du = shutil.disk_usage("/")
+    return du.used / du.total * 100 if du.total else 0.0
+
+
+def pre_exhaustion_engage(pct: float, *, preempt_pct: int = PREEMPT_PCT) -> bool:
+    """Pure verdict: is the root fs inside the reserved headroom band (>= preempt_pct)?
+    At that point a resource is about to exhaust and the custodian's own writes are at
+    risk — so we pre-empt. Unit-testable in isolation."""
+    return pct >= preempt_pct
+
+
+def pre_exhaustion_guard(*, preempt_pct: int = PREEMPT_PCT,
+                         reclaim: Optional[Callable[[], str]] = None,
+                         pct_fn: Optional[Callable[[], float]] = None) -> Optional[dict]:
+    """Run BEFORE the normal sweep. If the root fs has crossed into the reserved
+    headroom band, run the emergency reclaim NOW — ahead of everything else — so the
+    runner can always still record its own state (the KAI-43 lesson: at 100% the
+    monitor cannot write). Returns a preempt record when it engages, else None.
+    Fail-soft: a reclaim error is captured, never raised into the runner.
+
+    pct_fn defaults to the module-level root_pct resolved at CALL time (not def time)
+    so tests can monkeypatch do.root_pct."""
+    pct_fn = pct_fn or root_pct
+    pct = pct_fn()
+    if not pre_exhaustion_engage(pct, preempt_pct=preempt_pct):
+        return None
+    rec = {"ts": _now(), "event": "pre_exhaustion_preempt", "pct": round(pct, 1),
+           "preempt_pct": preempt_pct}
+    if reclaim is None:
+        rec["reclaimed"] = "no emergency reclaimer supplied — pre-empt flagged only"
+        rec["pct_after"] = round(pct, 1)
+        return rec
+    try:
+        rec["reclaimed"] = reclaim()
+    except Exception as e:  # emergency reclaim must never crash the runner
+        log.error("pre-exhaustion reclaim failed: %s", type(e).__name__)
+        rec["reclaimed"] = f"emergency reclaim error: {type(e).__name__}: {e}"
+    try:
+        rec["pct_after"] = round(pct_fn(), 1)
+    except Exception:
+        rec["pct_after"] = None
+    return rec
+
+
 # ── Ownership state + meta-monitoring (§2.5) ────────────────────────────────────
 
 def _record_run(rec: dict) -> None:
@@ -334,12 +392,30 @@ def meta_monitor(expected_domains: list[str], *, max_age_s: float, now: Optional
 
 
 def run_custodians(custodians: list["Custodian"], *, deps: Optional["Deps"] = None,
-                   liveness_max_age_s: float = 3600.0, record: bool = True) -> dict:
+                   liveness_max_age_s: float = 3600.0, record: bool = True,
+                   preempt_reclaim: Optional[Callable[[], str]] = None,
+                   preempt_pct: int = PREEMPT_PCT) -> dict:
     """Sweep every custodian: assess → dispatch each Finding → stamp liveness. Then
     meta-monitor the roster. Returns a summary. This is the runner's core, factored
-    out so it is testable with injected deps + custodians."""
+    out so it is testable with injected deps + custodians.
+
+    Pre-exhaustion guard runs FIRST (§Phase 3): if root disk is inside the reserved
+    headroom band, an emergency reclaim runs ahead of the sweep so the runner can
+    always still record its own state even under near-exhaustion."""
     deps = deps or default_deps()
-    summary = {"ts": _now(), "custodians": [], "findings": 0, "outcomes": [], "meta": []}
+    summary = {"ts": _now(), "custodians": [], "findings": 0, "outcomes": [],
+               "meta": [], "preempt": None}
+
+    # Reserve headroom before doing anything else — a near-full disk must not block
+    # the custodian from writing its own liveness/run-log (the KAI-43 lesson).
+    try:
+        preempt = pre_exhaustion_guard(preempt_pct=preempt_pct, reclaim=preempt_reclaim)
+        if preempt is not None:
+            summary["preempt"] = preempt
+            if record:
+                _record_run(preempt)
+    except Exception as e:  # the guard must never itself abort the sweep
+        log.error("pre-exhaustion guard raised: %s", type(e).__name__)
 
     for c in custodians:
         cname = getattr(c, "domain", c.__class__.__name__)

@@ -182,3 +182,61 @@ def test_run_custodians_dispatches_and_stamps_liveness(monkeypatch, tmp_path):
     assert summary["findings"] == 1
     assert rec.dashboard  # auto finding logged to dashboard
     assert json.loads(live.read_text()).get("storage")  # liveness stamped
+
+
+# ── Pre-exhaustion guard (§Phase 3, KAI-48) ─────────────────────────────────────
+
+def test_preempt_engages_only_at_or_above_threshold():
+    assert do.pre_exhaustion_engage(94.9, preempt_pct=95) is False
+    assert do.pre_exhaustion_engage(95.0, preempt_pct=95) is True
+    assert do.pre_exhaustion_engage(99.9, preempt_pct=95) is True
+
+
+def test_guard_returns_none_below_threshold():
+    # Below the reserve band → no pre-empt, no reclaim call.
+    assert do.pre_exhaustion_guard(preempt_pct=95, reclaim=lambda: "x", pct_fn=lambda: 80.0) is None
+
+
+def test_guard_runs_reclaim_when_in_reserve_band():
+    calls = []
+    rec = do.pre_exhaustion_guard(
+        preempt_pct=95, reclaim=lambda: (calls.append(1) or "reclaimed 2G"),
+        pct_fn=lambda: 97.0)
+    assert calls == [1]                         # emergency reclaim actually ran
+    assert rec is not None and rec["event"] == "pre_exhaustion_preempt"
+    assert rec["pct"] == 97.0 and rec["reclaimed"] == "reclaimed 2G"
+
+
+def test_guard_is_failsoft_when_reclaim_raises():
+    def boom():
+        raise RuntimeError("disk io error")
+    rec = do.pre_exhaustion_guard(preempt_pct=95, reclaim=boom, pct_fn=lambda: 96.0)
+    assert rec is not None
+    assert "emergency reclaim error" in rec["reclaimed"]  # captured, not raised
+
+
+def test_guard_flags_when_no_reclaimer_supplied():
+    rec = do.pre_exhaustion_guard(preempt_pct=95, reclaim=None, pct_fn=lambda: 98.0)
+    assert rec is not None and "no emergency reclaimer" in rec["reclaimed"]
+
+
+def test_run_custodians_records_preempt_in_summary(monkeypatch, tmp_path):
+    monkeypatch.setattr(do, "LIVENESS", tmp_path / "liveness.json")
+    monkeypatch.setattr(do, "root_pct", lambda: 96.0)  # force the reserve band
+    calls = []
+    rec = _Rec(do.DecisionOutcome(True, True))
+    summary = do.run_custodians(
+        [_Cust()], deps=rec.deps(), record=False,
+        preempt_reclaim=lambda: (calls.append(1) or "freed logs"))
+    assert calls == [1]                                  # guard ran the reclaim first
+    assert summary["preempt"] is not None
+    assert summary["preempt"]["reclaimed"] == "freed logs"
+
+
+def test_run_custodians_no_preempt_when_healthy(monkeypatch, tmp_path):
+    monkeypatch.setattr(do, "LIVENESS", tmp_path / "liveness.json")
+    monkeypatch.setattr(do, "root_pct", lambda: 40.0)  # plenty of headroom
+    rec = _Rec(do.DecisionOutcome(True, True))
+    summary = do.run_custodians([_Cust()], deps=rec.deps(), record=False,
+                                preempt_reclaim=lambda: "should not run")
+    assert summary["preempt"] is None

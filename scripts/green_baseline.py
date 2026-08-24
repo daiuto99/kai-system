@@ -554,6 +554,62 @@ def check_disk_pressure() -> str:
     return detail
 
 
+def devops_runner_liveness_eval(newest_age_s, max_age_s):
+    """Pure verdict for check_devops_custodian_runner (unit-tested). `newest_age_s` is
+    the age of the freshest custodian liveness stamp (None if the marker is missing/
+    empty/unparseable). Returns (severity, detail), severity in {"warn","green"}.
+
+    WARN — never RED: the per-custodian meta-monitor (§2.5) can only fire while the
+    RUNNER runs, so a dead runner is invisible to it — this is the external watcher
+    that catches it. WARN (not RED) because a stalled autonomy layer surfaces loudly
+    without blocking the session/close spine (host_hygiene/disk-pressure convention)."""
+    if newest_age_s is None:
+        return ("warn", "WARN devops custodian runner: no liveness stamp — runner may "
+                        "never have run or the marker is unreadable [KAI-48]")
+    if newest_age_s > max_age_s:
+        mins = int(newest_age_s // 60)
+        return ("warn", f"WARN devops custodian runner stalled — freshest stamp {mins}m old "
+                        f"(> {int(max_age_s // 60)}m); the */15 cron may be dead [KAI-48]")
+    return ("green", f"devops custodian runner live — freshest stamp {int(newest_age_s)}s ago [KAI-48]")
+
+
+def check_devops_custodian_runner() -> str:
+    """§Phase 3 (KAI-48) — who watches the watcher. The DevOps custodian runner
+    (scripts/devops_custodian.py, cron */15) stamps devops_custodian_liveness.json
+    every sweep. Its OWN per-custodian meta-monitor cannot detect a dead runner —
+    it only runs when the runner runs. This external probe reads the freshest stamp;
+    WARN if missing or stale (default > 30m = 2× the cron interval)."""
+    import json as _json
+    import os
+    from datetime import datetime as _dt, timezone as _tz
+
+    liveness = os.environ.get(
+        "DEVOPS_CUSTODIAN_LIVENESS",
+        "/home/leo/kai-system/logs/devops_custodian_liveness.json")
+    max_age_s = float(os.environ.get("DEVOPS_RUNNER_MAX_AGE_S", "1800"))
+
+    newest_age_s = None
+    try:
+        data = _json.loads(Path(liveness).read_text())
+        now = _dt.now(_tz.utc)
+        ages = []
+        for stamp in (data or {}).values():
+            try:
+                d = _dt.fromisoformat(stamp)
+                if d.tzinfo is None:
+                    d = d.replace(tzinfo=_tz.utc)
+                ages.append((now - d).total_seconds())
+            except Exception:
+                continue
+        if ages:
+            newest_age_s = min(ages)
+    except Exception:
+        newest_age_s = None  # missing/unreadable → WARN via the verdict
+
+    _sev, detail = devops_runner_liveness_eval(newest_age_s, max_age_s)
+    return detail
+
+
 def check_container_roster() -> str:
     """S1-B2 (audit #08) — only 4 of 34 containers were gated, so a silently-exited
     service or a restart-loop (kai-tailscale rc=5) read as "Up" to every check.
@@ -1341,6 +1397,7 @@ def checks() -> tuple[Check, ...]:
         Check("host_hygiene", check_host_hygiene),
         Check("cron_log_error_scan", check_cron_log_errors),
         Check("disk_pressure", check_disk_pressure),
+        Check("devops_custodian_runner", check_devops_custodian_runner),
         Check("container_roster", check_container_roster),
         Check("backup_freshness", check_backup_freshness),
         Check("tailscale_key_expiry", check_tailscale_key_expiry),
