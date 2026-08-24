@@ -86,6 +86,14 @@ PLANE_CRASH_LOOP_THRESHOLD = 5  # restarts since last check = crash loop
 DISK_WARN_PCT = 85
 DISK_CRIT_PCT = 90
 JOURNAL_VACUUM_DAYS = 7
+
+# KAI-44 — checks whose CRITICAL failure is BOTH self-unfixable by auto-remediation
+# AND system-threatening (it will take the whole worker down). That is a
+# personal-consequence event (Rule B), not DevOps noise, so it escalates to Leo's
+# Telegram instead of the dashboard. Root cause of the 2026-08-24 crisis: every
+# "Disk CRITICAL — you need to take action" page routed dashboard_only for ~11h
+# while _try_fix_disk (docker/log prune only) could not touch the real consumer.
+LEO_CRITICAL_CHECKS = {"disk"}
 _last_maintenance: float = 0.0
 MAINTENANCE_INTERVAL_HOURS = 24
 
@@ -95,14 +103,20 @@ def _load_secret(name: str) -> str:
     return p.read_text().strip() if p.exists() else os.environ.get(name.upper(), "")
 
 
-def _slack_alert(token: str, message: str, *, cause: str | None = None):
+def _slack_alert(token: str, message: str, *, cause: str | None = None,
+                 audience: str = "dashboard"):
     """AR-5.1: rerouted to Telegram (sole surface). Legacy `token` arg ignored.
     KAI-1100: a watchdog page asserts something needs attention, so it routes
     through the Findings Contract as status="alert". A page with no verified
     cause ships as an explicit not-yet-diagnosed (a symptom, honestly undiagnosed)
-    rather than a bare alarm the operator would fill in from memory."""
+    rather than a bare alarm the operator would fill in from memory.
+
+    KAI-44: `audience` defaults to 'dashboard' (Rule B — operational noise is
+    DevOps's to log, not Leo's to be pushed). A self-unfixable, system-threatening
+    CRITICAL passes audience='personal' so the notify gateway routes it to Leo's
+    Telegram instead of a dashboard he never sees (the 2026-08-24 disk-crisis hole)."""
     from tg_alert import tg_alert
-    tg_alert(f"[DevOps] {message}", status="alert", cause=cause)
+    tg_alert(f"[DevOps] {message}", status="alert", cause=cause, audience=audience)
 
 
 def _should_alert(key: str) -> bool:
@@ -1433,7 +1447,14 @@ def run_watchdog_checks():
                 f"You need to take action — {action}. "
                 f"({reason_str} · affects: {affects})"
             )
-            _slack_alert(token, msg)
+            # KAI-44 — a self-unfixable, system-threatening CRITICAL (disk) is Leo's
+            # to act on, not dashboard noise: escalate to his Telegram. Everything
+            # else stays dashboard (Rule B). The existing _should_alert cooldown that
+            # gated this into `failures` also throttles the re-page cadence.
+            if key in LEO_CRITICAL_CHECKS:
+                _slack_alert(token, msg, audience="personal")
+            else:
+                _slack_alert(token, msg)
         log.info("watchdog alert posted: %d failures", len(failures))
     elif not fixed:
         log.info("watchdog all checks passed")
