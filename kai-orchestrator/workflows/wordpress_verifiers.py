@@ -7,9 +7,13 @@ def verify_page_exists(site, creds, result) -> dict:
         "GET", f"https://{creds['fqdn']}/wp-json/wp/v2/pages/{page_id}",
         auth=("kai", creds["app_password"]), verify=False,
     )
+    # KAI-41 — surface the WP page status (draft/publish) so a caller can confirm
+    # drafts-only from the verification evidence. `status` stays the HTTP code (an
+    # existing consumer contract); `wp_status` is the new page-state field.
+    wp_status = r.data.get("status") if r.data else None
     return {
         "verified": bool(r.ok and r.data and r.data.get("id") == page_id),
-        "evidence": {"page_id": page_id, "status": r.status_code},
+        "evidence": {"page_id": page_id, "status": r.status_code, "wp_status": wp_status},
     }
 
 

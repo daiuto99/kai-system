@@ -207,7 +207,12 @@ def create_page(site: str, title: str, content: str, status: str = "draft",
     )
     if r.ok and r.data:
         return CapabilityResult(ok=True, status="succeeded",
+            # KAI-41 — echo the WP page status (draft/publish) the server actually
+            # set, so drafts-only is confirmable from the result itself instead of
+            # requiring a second WP read (the KAI-36 gap). `requested_status` records
+            # what we asked for, so a server that ignored/overrode it is visible.
             data={"id": r.data["id"], "link": r.data.get("link"), "marker": marker,
+                  "status": r.data.get("status"), "requested_status": status,
                   "brand_drift": brand_drift_report},
             transport_used="wp_rest")
     return CapabilityResult(ok=False, status="failed_recoverable",
@@ -352,7 +357,12 @@ def update_page(site: str, page_id: int, content: str, title: str = None,
     )
     if r.ok and r.data:
         return CapabilityResult(ok=True, status="succeeded",
+            # KAI-41 — echo the WP page status (draft/publish) the server actually
+            # set, so drafts-only is confirmable from the result itself instead of
+            # requiring a second WP read (the KAI-36 gap). `requested_status` records
+            # what we asked for, so a server that ignored/overrode it is visible.
             data={"id": r.data["id"], "link": r.data.get("link"), "marker": marker,
+                  "status": r.data.get("status"), "requested_status": status,
                   "brand_drift": brand_drift_report},
             transport_used="wp_rest")
     return CapabilityResult(ok=False, status="failed_recoverable",
