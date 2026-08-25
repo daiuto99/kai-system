@@ -29,9 +29,35 @@ from . import capability
 
 _SITES_JSON = Path("/vault/00_System/wordpress_sites.json")
 _PLUGIN_ALLOWLIST = {"kai-publish-gate"}
-_OP_ALLOWLIST = {"status", "verify", "place_secret", "deploy_plugin", "publish_post"}
+_OP_ALLOWLIST = {"status", "verify", "place_secret", "deploy_plugin", "publish_post", "update_wp"}
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SAFE_SECRET_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+# CUR-5 update-apply target: the literal "core" or a strict WordPress plugin
+# slug (lowercase alnum + dashes). No allowlist — the human gate binds the exact
+# component per approval; this only bounds the shape so it is argv-injection-safe
+# once shlex-quoted. WP updates are NEVER auto-applied (plan §2.4 hard rule).
+_WP_UPDATE_CORE = "core"
+_SAFE_PLUGIN_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+# Read-back version tokens are echoed into the audit evidence, so they are
+# allowlisted to a strict, LENGTH-BOUNDED version grammar — arbitrary site-side
+# stdout (a stray `DB_PASSWORD=...`, a non-dotted `1hunter2`, or a megabyte of
+# text) can never be reflected into a persisted result (L18).
+_MAX_VERSION_LEN = 32
+_SAFE_VERSION = re.compile(r"^[0-9]+(?:\.[0-9A-Za-z]+)*(?:[-+][0-9A-Za-z.]+)?$")
+
+
+def _valid_update_component(component: object) -> bool:
+    """A CUR-5 update target is 'core' or a well-formed plugin slug."""
+    return component == _WP_UPDATE_CORE or (
+        isinstance(component, str) and bool(_SAFE_PLUGIN_SLUG.fullmatch(component))
+    )
+
+
+def _clean_version(token: str) -> str:
+    """Only a short, version-shaped token survives into a result; else 'unknown'."""
+    if not token or len(token) > _MAX_VERSION_LEN or not _SAFE_VERSION.fullmatch(token):
+        return "unknown"
+    return token
 
 # The publish-gate payload secret KAI sends as the X-KAI-Publish-Gate header,
 # minted by hostops_provision and mirrored site-side by place_secret. Read
@@ -89,6 +115,7 @@ class SshTransport(Protocol):
     def place_secret(self, target: HostOpsTarget, secret: bytes) -> dict: ...
     def deploy_plugin(self, target: HostOpsTarget, plugin: str) -> dict: ...
     def publish_post(self, target: HostOpsTarget, post_id: int) -> dict: ...
+    def update_wp(self, target: HostOpsTarget, component: str) -> dict: ...
 
 
 class OpenSshTransport:
@@ -165,6 +192,80 @@ class OpenSshTransport:
         status = (completed.stdout or "").strip()
         return {"published": completed.returncode == 0 and status == "publish",
                 "post_status": status, "post_id": pid}
+
+    def update_wp(self, target: HostOpsTarget, component: str) -> dict:
+        """Apply the available WordPress core OR single-plugin update via wp-cli,
+        proving an ACTUAL version transition — not merely that it is current after.
+
+        ``component`` is either the literal "core" or a strict plugin slug
+        (validated + shlex-quoted by the caller), so the remote command carries
+        no caller-controlled free text. Only the named component is touched:
+        `wp plugin update <slug>` / `wp core update` — never `--all`.
+
+        Honesty (fixes the "already-current reads as applied" foot-gun): read the
+        installed version BEFORE and AFTER, and query remaining availability.
+        `updated` is True only when the version actually changed; `current` is
+        True only when no update remains. An already-current no-op therefore
+        reports updated=False, never a faked success. The result carries only
+        allowlisted, version-shaped tokens — never raw site-side stdout, and on
+        timeout never the SSH argv (L18).
+        """
+        wr = shlex.quote(target.webroot)
+        if component == _WP_UPDATE_CORE:
+            remaining_current = "0"  # `core check-update --format=count` -> 0 when current
+            # NO `|| echo 0` fallback: if the post-update verification itself fails,
+            # the && chain breaks and printf never runs, so the parse is 'unparsable'
+            # and we fail CLOSED — a broken check is never read as "current" (honesty).
+            remote = (
+                f"cd {wr} "
+                f"&& before=$(wp core version) "
+                f"&& wp core update --quiet "
+                f"&& after=$(wp core version) "
+                f"&& rem=$(wp core check-update --format=count 2>/dev/null) "
+                f"&& printf '%s\\n%s\\n%s\\n' \"$before\" \"$after\" \"$rem\""
+            )
+        else:
+            slug = shlex.quote(component)
+            remaining_current = "none"  # `plugin list --field=update` -> 'none' when current
+            # `update` is a `wp plugin list` field, NOT a `wp plugin get` field —
+            # querying it via `get` exits nonzero and would fail-close a genuinely
+            # successful update after the gate is already consumed.
+            remote = (
+                f"cd {wr} "
+                f"&& before=$(wp plugin get {slug} --field=version) "
+                f"&& wp plugin update {slug} --quiet "
+                f"&& after=$(wp plugin get {slug} --field=version) "
+                f"&& upd=$(wp plugin list --name={slug} --field=update) "
+                f"&& printf '%s\\n%s\\n%s\\n' \"$before\" \"$after\" \"$upd\""
+            )
+        try:
+            completed = self._runner(self._ssh(remote), capture_output=True, text=True,
+                                     timeout=180, check=False)
+        except subprocess.TimeoutExpired:
+            # Never surface the argv (master login / IP / key path) — fixed token only (L18).
+            return {"updated": False, "current": False, "component": component, "reason": "timeout"}
+        if completed.returncode != 0:
+            return {"updated": False, "current": False, "component": component, "reason": "wp_cli_error"}
+        # The printf trio is the LAST three lines — any --quiet-leaking chatter is ignored.
+        lines = [ln.strip() for ln in (completed.stdout or "").splitlines() if ln.strip()]
+        tail = lines[-3:]
+        if len(tail) < 3:
+            return {"updated": False, "current": False, "component": component, "reason": "unparsable"}
+        before, after = _clean_version(tail[0]), _clean_version(tail[1])
+        remaining = tail[2].lower()
+        verifiable = before != "unknown" and after != "unknown"
+        updated = verifiable and before != after
+        current = remaining == remaining_current
+        if updated and current:
+            reason = ""
+        elif not verifiable:
+            reason = "version_unverifiable"   # a version token was unreadable — can't prove the transition
+        elif not updated:
+            reason = "no_version_change"      # nothing landed (already current / no-op)
+        else:
+            reason = "update_incomplete"      # a real transition, but an update still remains
+        return {"updated": updated, "current": current, "component": component,
+                "before": before, "after": after, "reason": reason}
 
 
 def _target(site_key: str) -> HostOpsTarget:
@@ -402,4 +503,57 @@ def publish_post(site: str, post_id: object, gate_id: object = None, resolver: s
         return CapabilityResult(ok=False, status="failed_recoverable",
                                 error={"type": "publish_failed", "post_status": proof.get("post_status")})
     except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError, httpx.HTTPError) as exc:
+        return _safe_error(exc)
+
+
+@capability("hostops.update_wp")
+def update_wp(site: str, component: object, gate_id: object = None,
+              *, transport: SshTransport | None = None, **_) -> CapabilityResult:
+    """Apply a WordPress core/plugin update on a live site — ONLY behind a human gate.
+
+    CUR-5 (System Currency Program): the apply half of the currency loop. A bad
+    plugin/core update can break a live client site, so — mirroring the drafts-only
+    publish floor — it is NEVER autonomous: the gate must be an explicit human
+    approval bound to this exact ``component``, and the capability additionally
+    fails closed if it is ever handed an autonomous authorization (defence against
+    org-model drift). Flow: validate component -> consume the resolved human gate
+    bound to (site, component) -> wp-cli update the single named component ->
+    read back that no update remains. Report-only readers stay separate; nothing
+    here scans, and nothing scans here.
+    """
+    if not _valid_update_component(component):
+        return CapabilityResult(ok=False, status="failed_final", error={"type": "input_not_allowed"})
+    component = str(component)
+
+    # Bind the gate to this exact component: an approval to update one plugin can
+    # never authorize updating core or a different plugin on the same site.
+    approved = _gate(gate_id, "update_wp", site, resource=component, component=component)
+    if approved is None:
+        return CapabilityResult(ok=False, status="failed_final", error={"type": "gate_required"})
+    if approved == "autonomous":
+        # Fail closed: WP updates are never auto-applied (plan §2.4 hard rule).
+        return CapabilityResult(ok=False, status="failed_final",
+                                error={"type": "autonomous_wp_update_forbidden"})
+    try:
+        target = _context(site)
+        proof = (transport or OpenSshTransport()).update_wp(target, component)
+        # Success requires a proven version transition AND nothing left to apply —
+        # an already-current no-op or a silently-failed update is never "succeeded".
+        if proof.get("updated") and proof.get("current"):
+            evidence = {"component": component, "current": True,
+                        "before": proof.get("before"), "after": proof.get("after"),
+                        "authorization": "gate", "gate_id": approved}
+            return CapabilityResult(ok=True, status="succeeded",
+                                    data={"identity": target.audit_identity, "component": component},
+                                    verification={"verified": True, "evidence": evidence},
+                                    transport_used="hostops_ssh")
+        return CapabilityResult(ok=False, status="failed_recoverable",
+                                error={"type": "wp_update_failed", "component": component,
+                                       "reason": proof.get("reason") or "unverified"})
+    except subprocess.TimeoutExpired:
+        # Explicit: a timeout must never reach _safe_error(str(exc)) — that would
+        # serialize the SSH argv (master login / IP / key path) into the result (L18).
+        return CapabilityResult(ok=False, status="failed_recoverable",
+                                error={"type": "wp_update_timeout", "component": component})
+    except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
         return _safe_error(exc)
