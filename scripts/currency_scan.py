@@ -10,8 +10,8 @@ HONESTY RULE (no-theater): a layer or component with no live reader, or whose
 reader raises, is recorded status="not-checked" with the reason — NEVER a
 faked "fresh". Green must be earned by a real reading.
 
-Layers in CUR-1: os_apt, container_images, tls_certs.
-Later phases add: py_deps/npm_deps + CVE (CUR-2), wp_fleet (CUR-3).
+Layers: os_apt, container_images, tls_certs, wp_fleet (CUR-3, report-only).
+Later phases add: py_deps/npm_deps + CVE (CUR-2).
 """
 from __future__ import annotations
 
@@ -230,11 +230,122 @@ def read_tls_certs(threshold_days=21) -> dict:
             "detail": f"{len(comps)} endpoint(s), threshold {threshold_days}d", "components": comps}
 
 
+# ── CUR-3: WordPress fleet currency (core + plugin update availability) ────────
+# Read-only by construction: SSH to each Cloudways app via the master operator and
+# run ONLY `wp core check-update` + `wp plugin list --update=available`. WP updates
+# are NEVER applied — this reader reports availability, nothing more. The remote
+# script is a module constant; the sole substitution is the site's sys user,
+# validated against ^[a-z0-9]+$ (no model/DB string reaches the shell).
+_CLOUDWAYS_HOST = "master_vvbwxpwpcc@134.209.166.23"
+_WP_SYSUSER_RE = re.compile(r"^[a-z0-9]+$")
+_WP_CURRENCY_SCRIPT = r"""
+cd "$HOME/applications/__SYSUSER__/public_html" 2>/dev/null || { echo "__CURERR__:cd_failed"; exit 3; }
+WP="wp --skip-plugins --skip-themes"
+printf '\n===CORE===\n'; $WP core check-update --format=count 2>&1
+printf '\n===PLUGINS===\n'; $WP plugin list --update=available --format=count 2>&1
+printf '\n===DONE===\n'
+"""
+
+
+def _cloudways_key():
+    """Resolve the master SSH key from the container secret path or the host path."""
+    for p in ("/run/secrets/cloudways_ssh_key", str(ROOT / "secrets" / "cloudways_ssh_key")):
+        if Path(p).exists():
+            return p
+    return None
+
+
+def _wp_sites() -> dict:
+    for p in ("/vault/00_System/wordpress_sites.json", "/home/leo/vault/00_System/wordpress_sites.json"):
+        if Path(p).exists():
+            try:
+                return json.loads(Path(p).read_text()).get("sites", {})
+            except (OSError, ValueError):
+                return {}
+    return {}
+
+
+def _wp_section_int(raw: str, marker: str):
+    """Parse the integer value printed under `===MARKER===` in the remote output."""
+    token = f"==={marker}==="
+    idx = raw.find(token)
+    if idx < 0:
+        return None
+    tail = raw[idx + len(token):].lstrip("\n")
+    line = tail.split("\n", 1)[0].strip()
+    return int(line) if line.isdigit() else None
+
+
+def read_wp_fleet(sites: dict | None = None, runner=None, key: str | None = None) -> dict:
+    """Report WP core + plugin update AVAILABILITY across the Cloudways fleet.
+
+    Report-only: no update is ever applied. A site that cannot be read is recorded
+    NOT_CHECKED with a reason (never a faked "current"). `sites`/`runner`/`key` are
+    injectable for tests; production resolves them live.
+    """
+    checked = now_iso()
+    sites = _wp_sites() if sites is None else sites
+    key = _cloudways_key() if key is None else key
+    if not sites or key is None:
+        return {"status": NOT_CHECKED, "checked_at": checked,
+                "detail": "cloudways key or wordpress_sites.json unavailable — cannot read WP fleet",
+                "components": []}
+    ssh_opts = ["-i", key, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
+    run = runner or (lambda argv: subprocess.run(argv, capture_output=True, text=True, timeout=60))
+    comps, worst, total_updates = [], FRESH, 0
+    for slug, meta in sites.items():
+        sysuser = str(meta.get("cloudways_sys_user", ""))
+        if not _WP_SYSUSER_RE.match(sysuser):
+            comps.append({"name": slug, "status": NOT_CHECKED, "checked_at": checked,
+                          "note": "missing or invalid cloudways sys user"})
+            worst = worst if worst != FRESH else NOT_CHECKED
+            continue
+        script = _WP_CURRENCY_SCRIPT.replace("__SYSUSER__", sysuser)
+        try:
+            r = run(["ssh"] + ssh_opts + [_CLOUDWAYS_HOST, script])
+            out = r.stdout or ""
+            rc = r.returncode
+        except subprocess.TimeoutExpired:
+            out, rc = "", -1
+        if "__CURERR__:cd_failed" in out or "===DONE===" not in out:
+            comps.append({"name": slug, "status": NOT_CHECKED, "checked_at": checked,
+                          "note": f"unscannable (rc={rc})"})
+            worst = worst if worst != FRESH else NOT_CHECKED
+            continue
+        core = _wp_section_int(out, "CORE")
+        plugins = _wp_section_int(out, "PLUGINS")
+        if core is None or plugins is None:
+            comps.append({"name": slug, "status": NOT_CHECKED, "checked_at": checked,
+                          "note": "update counts unparseable"})
+            worst = worst if worst != FRESH else NOT_CHECKED
+            continue
+        n = core + plugins
+        total_updates += n
+        st = FRESH if n == 0 else STALE
+        comp = {"name": slug, "core_updates": core, "plugin_updates": plugins,
+                "current": n == 0, "risk_tier": "dashboard", "status": st, "checked_at": checked}
+        if st == STALE:
+            comp["cause"] = (f"{core} core + {plugins} plugin update(s) available; "
+                             "report-only — WP updates are never auto-applied")
+            worst = STALE
+        comps.append(comp)
+    current_n = sum(1 for c in comps if c.get("current"))
+    detail = f"{current_n}/{len(sites)} sites current; {total_updates} update(s) available fleet-wide"
+    layer = {"status": worst if comps else NOT_CHECKED, "checked_at": checked,
+             "detail": detail, "components": comps}
+    if worst == STALE:
+        layer["cause"] = (f"{total_updates} WP core/plugin update(s) available across the fleet; "
+                          "report-only by policy (KAI never auto-applies WP updates)")
+    return layer
+
+
 def main():
     layers = {
         "os_apt": read_os_apt(),
         "container_images": read_container_images(),
         "tls_certs": read_tls_certs(),
+        "wp_fleet": read_wp_fleet(),
     }
     # Findings Contract: no bad-status finding may be published without a cause.
     # Anything undiagnosed is stamped not-yet-diagnosed (honest), never dropped.
@@ -246,7 +357,7 @@ def main():
     state = {
         "generated_at": now_iso(),
         "host": HOST,
-        "scanner": "currency_scan.py (CUR-1)",
+        "scanner": "currency_scan.py (CUR-1 + CUR-3 wp_fleet)",
         "layers": layers,
         "rollup": {
             "fresh": counts[FRESH],
