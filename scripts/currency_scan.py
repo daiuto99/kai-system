@@ -10,8 +10,10 @@ HONESTY RULE (no-theater): a layer or component with no live reader, or whose
 reader raises, is recorded status="not-checked" with the reason — NEVER a
 faked "fresh". Green must be earned by a real reading.
 
-Layers: os_apt, container_images, tls_certs, wp_fleet (CUR-3, report-only).
-Later phases add: py_deps/npm_deps + CVE (CUR-2).
+Layers: os_apt, container_images, tls_certs, wp_fleet (CUR-3), py_deps + npm_deps
+(CUR-2, report-only). CVE matching is OFFLINE by construction — it runs only
+against a pulled OSV feed (OSV_DIR); with no feed present the CVE dimension reads
+not-checked, never a faked pass, and never a live CVE SaaS in the hot path.
 """
 from __future__ import annotations
 
@@ -30,6 +32,7 @@ import findings  # Findings Contract — enforce cause-or-not-yet-diagnosed befo
 STATE_DIR = ROOT / "shared" / "currency"
 STATE_FILE = STATE_DIR / "freshness_state.json"
 TLS_CONFIG = STATE_DIR / "tls_endpoints.json"  # optional: ["host:port", ...]
+OSV_DIR = STATE_DIR / "osv"  # CUR-2: pulled OFFLINE OSV feed (absent -> CVE not-checked)
 HOST = socket.gethostname()
 
 FRESH = "fresh"
@@ -340,10 +343,129 @@ def read_wp_fleet(sites: dict | None = None, runner=None, key: str | None = None
     return layer
 
 
+# ── CUR-2: Python dependency currency per service container ───────────────────
+# Reads installed-vs-latest via `pip list --outdated` INSIDE each python service
+# container — the package index is the canonical "latest" source (not a CVE SaaS).
+# CVE matching is a SEPARATE dimension that, by design, runs ONLY against a pulled
+# OFFLINE OSV feed (OSV_DIR) and never a live CVE SaaS in the hot path. That matcher
+# is NOT built in CUR-2, so the CVE dimension is honestly not-checked here — never a
+# faked "checked" — mirroring the container_images registry-latest not-checked cell.
+# Report-only: no pin bump / rebuild happens here — that is a gated action (CUR-5).
+# `names`/`runner` are injectable for tests; the runner returns _run's
+# (code, stdout, stderr) tuple.
+_CONTAINER_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]+$")  # docker's own name grammar; blocks argv injection
+
+
+def _docker_names(run) -> list:
+    code, out, _ = run(["docker", "ps", "--format", "{{.Names}}"])
+    return [n.strip() for n in (out or "").splitlines() if n.strip()] if code == 0 else []
+
+
+def read_py_deps(names=None, runner=None) -> dict:
+    checked = now_iso()
+    run = runner or (lambda argv: _run(argv, timeout=90))
+    try:
+        names = _docker_names(run) if names is None else names
+    except Exception as exc:  # honest: reader failed -> not-checked, never green
+        return {"status": NOT_CHECKED, "checked_at": checked,
+                "detail": f"reader error: {type(exc).__name__}: {exc}", "components": []}
+    if not names:
+        return {"status": NOT_CHECKED, "checked_at": checked,
+                "detail": "no containers visible (docker ps empty/failed)", "components": []}
+    cve_note = (f"CVE matching not yet implemented (CUR-2 reads currency only); when built it runs "
+                f"OFFLINE against a pulled OSV feed at {OSV_DIR} — never a live CVE SaaS")
+    comps, worst, scanned = [], FRESH, 0
+    for name in names:
+        if not _CONTAINER_RE.match(name):
+            continue  # never let a hostile name become a docker-exec option
+        # `--` terminates option parsing so the name can never be read as a flag
+        code, out, _ = run(["docker", "exec", "--", name, "python", "-m", "pip",
+                            "list", "--outdated", "--format=json"])
+        if code != 0:
+            continue  # not a python service (no python/pip) — not ours to judge, skip
+        try:
+            outdated = json.loads(out or "[]")
+        except ValueError:
+            outdated = None
+        # honest: only a JSON list of objects is a real `pip --outdated` payload; anything
+        # else (scalar, dict, list-of-scalars) is malformed -> not-checked, never a bogus count
+        if not isinstance(outdated, list) or not all(isinstance(p, dict) for p in outdated):
+            comps.append({"name": name, "status": NOT_CHECKED, "checked_at": checked,
+                          "note": "pip --outdated output not a JSON list of objects"})
+            worst = worst if worst != FRESH else NOT_CHECKED
+            continue
+        scanned += 1
+        n = len(outdated)
+        comp = {"name": name, "outdated_count": n,
+                "outdated": [p.get("name") for p in outdated][:25],
+                "cve_check": NOT_CHECKED, "cve_note": cve_note,
+                "current": n == 0, "risk_tier": "gated",
+                "status": FRESH if n == 0 else STALE, "checked_at": checked}
+        if n > 0:
+            comp["cause"] = (f"{n} package(s) behind latest; report-only — a pin bump + rebuild "
+                             "is a gated action (CUR-5), never auto-applied")
+            worst = STALE
+        comps.append(comp)
+    if scanned == 0:
+        return {"status": NOT_CHECKED, "checked_at": checked,
+                "detail": f"{len(names)} container(s) seen; none run python/pip", "components": comps}
+    current_n = sum(1 for c in comps if c.get("current"))
+    layer = {"status": worst if comps else NOT_CHECKED, "checked_at": checked,
+             "detail": (f"{current_n}/{scanned} python service(s) current; "
+                        "CVE not-checked (offline-OSV matcher not yet built)"),
+             "components": comps}
+    if worst == STALE:
+        layer["cause"] = ("one or more python services have dependencies behind latest "
+                          "(report-only; bump is gated)")
+    return layer
+
+
+# ── CUR-2: kai-web JS dependency currency ─────────────────────────────────────
+# The production kai-web container ships built assets only (no npm/node runtime),
+# so currency is read from the committed lockfile inventory on the host. Latest-vs-
+# installed and audit are not-checked here: `npm outdated`/`npm audit` need an npm
+# runtime in the hot path and CVE data must come from the OFFLINE OSV feed — so with
+# no npm runtime and no feed we report the honest inventory + not-checked, never a
+# faked pass. Report-only. `lockfile` is injectable for tests.
+def read_npm_deps(lockfile=None) -> dict:
+    checked = now_iso()
+    lock = Path(lockfile) if lockfile else (ROOT / "kai-web" / "package-lock.json")
+    if not lock.exists():
+        return {"status": NOT_CHECKED, "checked_at": checked,
+                "detail": f"no kai-web lockfile at {lock}", "components": []}
+    try:
+        data = json.loads(lock.read_text())
+    except (OSError, ValueError) as exc:
+        return {"status": NOT_CHECKED, "checked_at": checked,
+                "detail": f"lockfile unreadable: {type(exc).__name__}", "components": []}
+    if not isinstance(data, dict):  # honest: unexpected lockfile shape -> not-checked, never a crash
+        return {"status": NOT_CHECKED, "checked_at": checked,
+                "detail": "lockfile is not a JSON object", "components": []}
+    pkgs = data.get("packages")
+    pkgs = pkgs if isinstance(pkgs, dict) else {}
+    dep_count = sum(1 for k in pkgs if k)  # skip the "" root entry; count node_modules/* deps
+    try:
+        age = _age_days(datetime.fromtimestamp(lock.stat().st_mtime, timezone.utc).isoformat())
+    except OSError:
+        age = None
+    comp = {"name": "kai-web", "locked_deps": dep_count, "lockfile_age_days": age,
+            "latest_check": NOT_CHECKED, "audit_check": NOT_CHECKED,
+            "current": None, "risk_tier": "gated", "status": NOT_CHECKED,
+            "note": ("inventory only — no npm runtime in the kai-web container or on the host; "
+                     "outdated/audit need npm, CVE needs the offline OSV feed"),
+            "checked_at": checked}
+    return {"status": NOT_CHECKED, "checked_at": checked,
+            "detail": (f"kai-web: {dep_count} locked dep(s), lockfile {age}d old; "
+                       "latest/audit not-checked (no npm runtime / no OSV feed)"),
+            "components": [comp]}
+
+
 def main():
     layers = {
         "os_apt": read_os_apt(),
         "container_images": read_container_images(),
+        "py_deps": read_py_deps(),
+        "npm_deps": read_npm_deps(),
         "tls_certs": read_tls_certs(),
         "wp_fleet": read_wp_fleet(),
     }
@@ -357,7 +479,7 @@ def main():
     state = {
         "generated_at": now_iso(),
         "host": HOST,
-        "scanner": "currency_scan.py (CUR-1 + CUR-3 wp_fleet)",
+        "scanner": "currency_scan.py (CUR-1 + CUR-3 wp_fleet + CUR-2 py_deps/npm_deps)",
         "layers": layers,
         "rollup": {
             "fresh": counts[FRESH],

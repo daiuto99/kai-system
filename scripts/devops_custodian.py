@@ -50,6 +50,7 @@ _ROSTER = [
     ("devops_services_custodian", "ServicesCustodian"),  # services/containers (Phase 2)
     ("devops_security_custodian", "SecurityCustodian"),  # security surface (Phase 2, KAI-52)
     ("devops_fleet_custodian", "FleetCustodian"),        # fleet/host (Phase 2, KAI-53)
+    ("devops_currency_custodian", "CurrencyCustodian"),  # dependency + WP currency (CUR-4)
 ]
 
 

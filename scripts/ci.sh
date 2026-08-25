@@ -108,7 +108,7 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  findings contract (honesty: no uncaused alarm)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-python3 -m pytest -q scripts/tests/test_findings_contract.py scripts/tests/test_fleet_findings.py scripts/tests/test_fleet_eval.py scripts/tests/test_devops_disk_remediation.py scripts/tests/test_devops_ownership.py scripts/tests/test_devops_updates_custodian.py scripts/tests/test_devops_backups_custodian.py scripts/tests/test_devops_services_custodian.py scripts/tests/test_devops_security_custodian.py scripts/tests/test_devops_fleet_custodian.py scripts/tests/test_devops_runner_liveness.py || FAIL=1
+python3 -m pytest -q scripts/tests/test_findings_contract.py scripts/tests/test_fleet_findings.py scripts/tests/test_fleet_eval.py scripts/tests/test_devops_disk_remediation.py scripts/tests/test_devops_ownership.py scripts/tests/test_devops_updates_custodian.py scripts/tests/test_devops_backups_custodian.py scripts/tests/test_devops_services_custodian.py scripts/tests/test_devops_security_custodian.py scripts/tests/test_devops_fleet_custodian.py scripts/tests/test_devops_runner_liveness.py scripts/tests/test_devops_currency_custodian.py scripts/tests/test_currency_deps.py scripts/tests/test_currency_wp_fleet.py || FAIL=1
 python3 shared/test_notify_gateway.py || FAIL=1  # KAI-1100: notify gateway refuses a bare uncaused alarm
 python3 shared/test_sprint_gate.py || FAIL=1  # S1-A1: sprint hard-gate helper (raise/poll/timeout/fail-closed)
 
