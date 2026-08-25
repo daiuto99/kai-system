@@ -935,8 +935,28 @@ def build_draft_status(job_id: str):
                      if s["status"] in ("awaiting_gate", "pending_leo")), None)
     wrote = any(s["name"] == "create_page_draft" and s["status"] == "succeeded"
                 for s in steps)
+    # KAI-54 — surface the OPEN gate id so the dashboard can resolve it in place.
+    # The gate id lives in the raw orchestrator step result (a uuid, not a secret);
+    # the redaction-safe `steps` list above deliberately drops results, so re-read
+    # the raw payload here just for the id.
+    import json as _json
+    pending_gate = None
+    for s in (data.get("steps", []) or []):
+        if not isinstance(s, dict) or s.get("status") not in ("awaiting_gate", "pending_leo"):
+            continue
+        result = s.get("result")
+        if isinstance(result, str):
+            try:
+                result = _json.loads(result)
+            except Exception:
+                result = {}
+        gid = result.get("gate_id") if isinstance(result, dict) else None
+        if gid:
+            pending_gate = {"gate_id": gid, "step": s.get("name")}
+            break
     return {"job_id": job_id, "status": job.get("status"),
-            "awaiting_gate": awaiting, "draft_written": wrote, "steps": steps}
+            "awaiting_gate": awaiting, "pending_gate": pending_gate,
+            "draft_written": wrote, "steps": steps}
 
 
 # ── WP-20.6c — dashboard EDIT launcher over the governed drafts-only edit workflow ──
@@ -981,3 +1001,36 @@ def edit_draft(site_id: str, req: EditDraftRequest):
         raise HTTPException(400, body["error"])
     return {"job_id": body.get("job_id"), "status": body.get("status"),
             "site": site_id, "page_id": req.page_id, "url": site.get("url")}
+
+
+# ── KAI-54 — dashboard gate resolve. Thin proxy to the orchestrator gate
+# resolver so Leo can approve/reject a governed WP draft's dev/creative gate
+# from the dashboard (the gate id comes from build-draft/{job}.pending_gate).
+class GateResolveRequest(BaseModel):
+    approved: bool = Field(..., description="Approve (true) or reject (false)")
+    advisor: str = Field("leo", description="Who resolved the gate")
+    notes: str = Field("", description="Sign-off / rejection reason")
+
+
+@router.post("/wordpress/gates/{gate_id}/resolve")
+def resolve_build_gate(gate_id: str, req: GateResolveRequest):
+    """Resolve an open dev/creative gate for a governed WP draft job. A 400 means
+    the gate is unknown or already resolved (the orchestrator reports that as an
+    error, not a silent no-op)."""
+    try:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(f"{_ORCH_URL}/gates/{gate_id}/resolve", json=req.dict())
+    except httpx.RequestError as e:
+        logger.exception("orchestrator unreachable for gate resolve")
+        raise HTTPException(502, f"orchestrator unreachable: {e}")
+    if r.status_code != 200:
+        # a 404/400 from upstream must not masquerade as a 502 bad gateway
+        if 400 <= r.status_code < 500:
+            raise HTTPException(r.status_code, f"orchestrator: {r.text[:200]}")
+        raise HTTPException(502, f"orchestrator returned {r.status_code}: {r.text[:200]}")
+    body = _safe_json(r)
+    if isinstance(body, dict) and body.get("_error"):
+        raise HTTPException(502, "orchestrator returned non-JSON response")
+    if isinstance(body, dict) and body.get("error"):
+        raise HTTPException(400, body["error"])
+    return {"ok": True, "gate_id": gate_id, "job_id": body.get("job_id")}

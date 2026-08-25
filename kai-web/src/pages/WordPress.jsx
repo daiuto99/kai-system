@@ -319,6 +319,8 @@ function BuildBoard({ mode = 'build', properties }) {
   const [launching, setLaunching] = useState(false)
   const [error, setError] = useState(null)
   const [planeIssue, setPlaneIssue] = useState('')
+  const [resolving, setResolving] = useState(false)  // KAI-54 gate resolve
+  const [gateNote, setGateNote] = useState('')
 
   const terminal = status && ['succeeded', 'failed_permanent', 'cancelled'].includes(status.status)
 
@@ -360,6 +362,22 @@ function BuildBoard({ mode = 'build', properties }) {
       setError(String(e.message || e))
     }
     setLaunching(false)
+  }
+
+  // KAI-54 — resolve the open dev/creative gate in place, then re-poll so the
+  // step advances in the UI without waiting for the next interval tick.
+  async function resolveGate(approved) {
+    const gid = status?.pending_gate?.gate_id
+    if (!gid || resolving) return
+    setResolving(true); setError(null)
+    try {
+      await api.post(`/wordpress/gates/${gid}/resolve`, { approved, advisor: 'leo', notes: gateNote.trim() })
+      setGateNote('')
+      try { const s = await api.get(`/wordpress/build-draft/${job.job_id}`); setStatus(s) } catch (e) { /* interval will catch up */ }
+    } catch (e) {
+      setError(String(e.message || e))
+    }
+    setResolving(false)
   }
 
   const label = { fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, display: 'block', marginBottom: 5 }
@@ -441,8 +459,35 @@ function BuildBoard({ mode = 'build', properties }) {
               : <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>no write yet</span>}
           </div>
           {status?.awaiting_gate && (
-            <div style={{ fontSize: 12, color: '#f59e0b', marginBottom: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
-              <Clock size={13} /> Awaiting <strong>{status.awaiting_gate}</strong> — approve the pending gate to continue.
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: '#f59e0b', marginBottom: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
+                <Clock size={13} /> Awaiting <strong>{status.awaiting_gate}</strong>
+                {status.pending_gate?.gate_id
+                  ? <span style={{ color: 'var(--text-muted)' }}>· gate {status.pending_gate.gate_id.slice(0, 8)}</span>
+                  : <span style={{ color: 'var(--text-muted)' }}>· resolving gate id…</span>}
+              </div>
+              {status.pending_gate?.gate_id && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 720 }}>
+                  <input value={gateNote} onChange={e => setGateNote(e.target.value)}
+                    placeholder="sign-off / rejection note (optional)" style={field} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => resolveGate(true)} disabled={resolving} style={{
+                      background: resolving ? 'var(--surface)' : '#10b981', border: '1px solid #10b981', borderRadius: 6,
+                      cursor: resolving ? 'default' : 'pointer', color: resolving ? 'var(--text-muted)' : '#fff',
+                      padding: '6px 14px', fontSize: 12, fontWeight: 600, display: 'inline-flex', gap: 6, alignItems: 'center',
+                    }}>
+                      <CheckCircle size={13} /> {resolving ? 'Resolving…' : 'Approve'}
+                    </button>
+                    <button onClick={() => resolveGate(false)} disabled={resolving} style={{
+                      background: 'transparent', border: '1px solid #ef4444', borderRadius: 6,
+                      cursor: resolving ? 'default' : 'pointer', color: '#ef4444',
+                      padding: '6px 14px', fontSize: 12, fontWeight: 600, display: 'inline-flex', gap: 6, alignItems: 'center',
+                    }}>
+                      <AlertCircle size={13} /> Reject
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
