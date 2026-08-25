@@ -1,5 +1,24 @@
 # AR-2 Daily Brief — Cutover & Retirement (handoff)
 
+> ⚠ **SUPERSEDED for the macOS/runtime half (2026-08-25, KAI-1239 + KAI-1240).** The mini
+> was reimaged macOS → **Ubuntu 24.04** and the Hermes runtime was rebuilt there fresh. Every
+> macOS-era provisioning assumption BELOW is now HISTORICAL and wrong for the live mini —
+> ignore: launchd plists, colima, `~/.local/opt/python`, "macOS wheels", `hermes gateway under
+> launchd`, and the old access `leodaiuto@100.106.160.41`. **Current reality:**
+> - **Runtime DONE:** Hermes v0.19.0 at `~/.hermes/hermes-agent` under a Python **3.11 venv**
+>   (`pip install -e .`), KAI-959 hardened `config.yaml`. Access: `ssh -o IdentitiesOnly=yes
+>   -i ~/.ssh/kai_worker leo@100.85.243.2`.
+> - **Skill deploy path DONE:** `~/.hermes/skills/local/<skill>/` (rsync target; `hermes skills
+>   list` auto-discovers). `daily_brief` is already deployed there.
+> - **Scheduler DONE:** **systemd** (not launchd) — pattern in `hosts/kai-mini/` (`hermes-selftest.timer`).
+>   The daily_brief cron becomes the same systemd pattern (or `hermes cron`) once secrets land.
+>
+> **Still genuinely OPEN (the live cutover only):** the 3 API secrets (`todoist/anthropic/slack`
+> at `~/.hermes/secrets/`, mode-lock gated), the custom **egress profile** (needs the
+> `hermes-ember` net + `kai-litellm` on the mini), the `anthropic` dep in the venv, and a vault
+> read path. Current fleet/role facts: `docs/ARCHITECTURE.md` §1 + `hosts/kai-mini/README.md`.
+> The provisioning narrative below is kept only as the AR-2 history.
+
 **Status:** Skill built + shadow parity PROVEN (5/5 green, see `shadow/comparison_log.md`).
 Hermes RUNTIME on the mini REPAIRED 2026-07-27 (see below). Remaining: provision secrets +
 custom egress profile + scheduler on the mini, cron in shadow a few mornings, then flip live.

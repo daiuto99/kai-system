@@ -19,6 +19,15 @@ from __future__ import annotations
 FLEET_MAX_AGE_SEC = 600          # ~3 missed 180s heartbeats before 'stale' (visibility lost)
 FUTURE_TOLERANCE_SEC = 120       # clock-skew allowance; beyond this a future stamp is corrupt
 
+# KAI-1240 — reachable-but-DEGRADED thresholds for a wired Linux node (the mini).
+# These are the "on but sick" signals the reachability verdict cannot see. A
+# gauge at/over its bound, a required service down, OR a signal that should have
+# been collected but is missing (blind), each count as degraded — a blind health
+# signal must never read healthy (KAI-1046 class).
+DISK_DEGRADE_PCT = 90            # root-fs usage at/over this is degraded
+MEM_AVAIL_DEGRADE_PCT = 8        # available memory at/under this (%) is degraded
+_DEGRADE_IF_SERVICE_DOWN = ("ollama", "tailscaled")  # required runtimes on the inference node
+
 # Every host entry MUST carry these as real booleans. A partial/legacy/corrupt
 # entry (missing a field, or a string like "false" that is truthy) is untrusted
 # state and reads RED — never a silent GREEN.
@@ -136,6 +145,85 @@ def fleet_gate_verdict(state: dict, now_epoch: int, self_host,
         if muted_blind:
             detail += f"; ssh-blind (muted: maintenance window): {', '.join(muted_blind)}"
     return True, detail
+
+
+def host_degradations(host: dict, *, expect_health: bool = True) -> list[str]:
+    """KAI-1240 — reachable-but-degraded reasons for ONE host entry. Pure.
+
+    Returns [] for a healthy host. Signal-driven over the entry's `services`
+    (0/1) and `health` (numeric *_pct) maps written by the heartbeat:
+      • a required runtime (ollama, tailscaled) reporting DOWN,
+      • disk_pct >= DISK_DEGRADE_PCT, mem_avail_pct <= MEM_AVAIL_DEGRADE_PCT.
+
+    When `expect_health` is True — an ssh_ok Linux node we CAN and DO probe — a
+    required signal that is MISSING is itself a degrade ('… unknown'), so a blind
+    signal never reads healthy. Set expect_health=False for a node we cannot
+    probe (no ssh transport), where absence is expected, not a fault.
+
+    The caller decides WHICH hosts to run this on (it excludes the spine, which
+    has its own full green-baseline disk/mem coverage, and skips non-ssh nodes).
+    """
+    if not isinstance(host, dict):
+        return ["host entry malformed — health unknown"] if expect_health else []
+    services = host.get("services")
+    services = services if isinstance(services, dict) else {}
+    health = host.get("health")
+    health = health if isinstance(health, dict) else {}
+    reasons: list[str] = []
+
+    for svc in _DEGRADE_IF_SERVICE_DOWN:
+        if svc in services:
+            if services[svc] is not True:
+                label = "ollama :11434 down" if svc == "ollama" else f"{svc} daemon down"
+                reasons.append(label)
+        elif expect_health:
+            reasons.append(f"{svc} state unknown (not reported)")
+
+    disk = health.get("disk_pct")
+    if isinstance(disk, int) and not isinstance(disk, bool):
+        if disk >= DISK_DEGRADE_PCT:
+            reasons.append(f"disk {disk}% (>= {DISK_DEGRADE_PCT}%)")
+    elif expect_health:
+        reasons.append("disk usage unknown (not reported)")
+
+    mem = health.get("mem_avail_pct")
+    if isinstance(mem, int) and not isinstance(mem, bool):
+        if mem <= MEM_AVAIL_DEGRADE_PCT:
+            reasons.append(f"mem avail {mem}% (<= {MEM_AVAIL_DEGRADE_PCT}%)")
+    elif expect_health:
+        reasons.append("memory availability unknown (not reported)")
+
+    return reasons
+
+
+def fleet_degradations(state: dict, now_epoch: int,
+                       max_age_sec: int = FLEET_MAX_AGE_SEC) -> dict[str, list[str]]:
+    """KAI-1240 — {host_name: [degrade reasons]} for every REACHABLE, ssh_ok,
+    NON-spine host whose deeper health signals show trouble. Pure.
+
+    Scope rationale: this is the 'on but sick' layer that sits ON TOP of the
+    reachability verdict (fleet_verdict), not a replacement — an OFFLINE or
+    ssh-blind host is already the strict verdict's job and is skipped here (you
+    cannot read health off a host you cannot reach). The spine (self_host) is
+    skipped because green_baseline already owns its disk/mem/service surface, so
+    a fleet degrade finding would just duplicate it. Returns {} when every
+    in-scope host is healthy (visibility itself is the reachability verdict's
+    concern — a stale/blind state simply yields no in-scope hosts here)."""
+    expected, hosts = _structural_check(state, now_epoch, max_age_sec)
+    if expected is None:
+        return {}  # lost visibility is the strict/gate verdict's RED, not ours
+    self_host = state.get("self_host")
+    out: dict[str, list[str]] = {}
+    for name in expected:
+        if name == self_host:
+            continue
+        h = hosts[name]
+        if not h.get("reachable") or not h.get("ssh_ok"):
+            continue  # unreachable/ssh-blind → reachability verdict's job
+        reasons = host_degradations(h, expect_health=True)
+        if reasons:
+            out[name] = reasons
+    return out
 
 
 def compute_reboots(hosts: dict, seen: dict) -> tuple[list, dict]:

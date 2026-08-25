@@ -63,6 +63,21 @@ _REMOTE_PROBE = (
     'if [ -r /proc/stat ]; then '
     '  awk "/^btime/{print \\"boot_epoch=\\" \\$2}" /proc/stat; '
     '  command -v docker >/dev/null 2>&1 && echo docker=1 || echo docker=0; '
+    # Deeper Linux-node health (KAI-1240): the reachable-but-degraded signals a
+    # bare reachability probe misses. tailscaled DAEMON health (distinct from
+    # Tailscale's Online flag — a crashed daemon can leave a stale Online), the
+    # local Ollama :11434 endpoint (this node's inference runtime), and root-fs +
+    # available-memory pressure. Numeric *_pct signals are parsed into `health`;
+    # ollama/tailscaled are 0/1 services. Each guarded so a missing tool degrades
+    # THAT signal, never the whole probe.
+    '  (pgrep -x tailscaled >/dev/null 2>&1 && echo tailscaled=1 || echo tailscaled=0); '
+    # Ollama :11434 — bind-agnostic port-listen check (the mini binds Ollama to its
+    # TAILNET ip, not 127.0.0.1, so a localhost curl false-negatives; KAI-1240).
+    # `ss` (iproute2, present on Ubuntu) shows the port listening on ANY interface.
+    '  (command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":11434 " '
+    '     && echo ollama=1 || echo ollama=0); '
+    '  df -P / 2>/dev/null | awk "NR==2{gsub(\\"%\\",\\"\\",\\$5); print \\"disk_pct=\\" \\$5}"; '
+    '  awk "/^MemTotal:/{t=\\$2} /^MemAvailable:/{a=\\$2} END{if(t>0) printf \\"mem_avail_pct=%d\\n\\", a*100/t}" /proc/meminfo 2>/dev/null; '
     'else '
     # Emit the RAW kern.boottime line and parse it in python (parse_remote_probe).
     # A remote greedy `sed 's/.*sec = ([0-9]+)/…'` matched `usec` and captured the
@@ -83,9 +98,18 @@ def _iso(epoch: float | int | None) -> str | None:
 
 
 def parse_remote_probe(text: str) -> dict:
-    """Parse the k=v lines emitted by _REMOTE_PROBE into {boot_epoch, services}."""
+    """Parse the k=v lines emitted by _REMOTE_PROBE into {boot_epoch, services, health}.
+
+    services: strict 0/1 booleans (docker, colima, ollama, tailscaled).
+    health:   numeric `*_pct` gauges (disk_pct, mem_avail_pct) — a separate map
+              so a percentage can never be mistaken for a boolean service. A
+              non-integer value for a *_pct key is dropped (untrusted), so a
+              malformed gauge reads as ABSENT (which the degrade verdict treats
+              as unknown → not silent-green), never as a bogus number.
+    """
     boot_epoch = None
     services: dict[str, bool] = {}
+    health: dict[str, int] = {}
     for line in (text or "").splitlines():
         line = line.strip()
         if "=" not in line:
@@ -105,9 +129,14 @@ def parse_remote_probe(text: str) -> dict:
             if boot_epoch is None:
                 m = re.search(r"\bsec = (\d+)", v)
                 boot_epoch = int(m.group(1)) if m else None
+        elif k.endswith("_pct"):
+            try:
+                health[k] = int(v)
+            except (ValueError, TypeError):
+                pass  # untrusted gauge → absent → unknown (never a bogus number)
         elif v in ("0", "1"):
             services[k] = v == "1"
-    return {"boot_epoch": boot_epoch, "services": services}
+    return {"boot_epoch": boot_epoch, "services": services, "health": health}
 
 
 def build_host_entry(name: str, node_id: str, ts_peer: dict | None,
@@ -143,6 +172,7 @@ def build_host_entry(name: str, node_id: str, ts_peer: dict | None,
         "boot_epoch": boot_epoch,
         "last_boot": _iso(boot_epoch),
         "services": (probe or {}).get("services") or {},
+        "health": (probe or {}).get("health") or {},
         "last_probe": _iso(now_epoch),
     }
     if not (online or ssh_ok):

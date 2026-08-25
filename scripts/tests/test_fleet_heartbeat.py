@@ -49,6 +49,40 @@ def test_parse_garbage_is_ignored():
     assert got["boot_epoch"] is None
 
 
+# ── KAI-1240: deeper Linux health signals ─────────────────────────────────────
+
+def test_parse_linux_health_signals():
+    got = fh.parse_remote_probe(
+        "boot_epoch=1785948437\ndocker=1\ntailscaled=1\nollama=1\n"
+        "disk_pct=57\nmem_avail_pct=82\n")
+    assert got["boot_epoch"] == 1785948437
+    assert got["services"] == {"docker": True, "tailscaled": True, "ollama": True}
+    assert got["health"] == {"disk_pct": 57, "mem_avail_pct": 82}
+
+
+def test_parse_pct_gauges_go_to_health_not_services():
+    got = fh.parse_remote_probe("disk_pct=90\nmem_avail_pct=5\n")
+    assert got["health"] == {"disk_pct": 90, "mem_avail_pct": 5}
+    assert got["services"] == {}
+
+
+def test_parse_malformed_pct_is_dropped():
+    # an untrusted gauge must be ABSENT (→ unknown), never a bogus number.
+    got = fh.parse_remote_probe("disk_pct=notanumber\nmem_avail_pct=82\n")
+    assert "disk_pct" not in got["health"]
+    assert got["health"] == {"mem_avail_pct": 82}
+
+
+def test_parse_ollama_down_is_service_false():
+    got = fh.parse_remote_probe("ollama=0\ntailscaled=0\n")
+    assert got["services"] == {"ollama": False, "tailscaled": False}
+
+
+def test_health_key_present_even_when_empty():
+    got = fh.parse_remote_probe("boot_epoch=1\ndocker=1\n")
+    assert got["health"] == {}
+
+
 # ── build_host_entry ──────────────────────────────────────────────────────────
 
 def test_entry_online_ssh_ok():

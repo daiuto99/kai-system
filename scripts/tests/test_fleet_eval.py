@@ -292,3 +292,97 @@ def test_warn_signals_carry_a_parenthetical_cause():
     for seg in warn_segments:
         label = seg.split(":", 1)[0]  # the label before the host list
         assert "(" in label and ")" in label, f"bare WARN without cause: {seg!r}"
+
+
+# ── KAI-1240: reachable-but-degraded health verdict ───────────────────────────
+
+def _HH(reachable=True, ssh_ok=True, ssh_expected=True, services=None, health=None):
+    h = _H(reachable=reachable, ssh_ok=ssh_ok, ssh_expected=ssh_expected)
+    h["services"] = services if services is not None else {"ollama": True, "tailscaled": True}
+    h["health"] = health if health is not None else {"disk_pct": 40, "mem_avail_pct": 60}
+    return h
+
+
+def test_host_degradations_healthy_is_empty():
+    assert fe.host_degradations(_HH()) == []
+
+
+def test_host_degradations_ollama_down():
+    reasons = fe.host_degradations(_HH(services={"ollama": False, "tailscaled": True}))
+    assert reasons == ["ollama :11434 down"]
+
+
+def test_host_degradations_tailscaled_down():
+    reasons = fe.host_degradations(_HH(services={"ollama": True, "tailscaled": False}))
+    assert reasons == ["tailscaled daemon down"]
+
+
+def test_host_degradations_disk_at_threshold_is_degraded():
+    # >= threshold, so exactly the bound trips it.
+    reasons = fe.host_degradations(_HH(health={"disk_pct": fe.DISK_DEGRADE_PCT, "mem_avail_pct": 60}))
+    assert any("disk" in r for r in reasons)
+
+
+def test_host_degradations_mem_low_is_degraded():
+    reasons = fe.host_degradations(_HH(health={"disk_pct": 40, "mem_avail_pct": fe.MEM_AVAIL_DEGRADE_PCT}))
+    assert any("mem avail" in r for r in reasons)
+
+
+def test_host_degradations_disk_just_under_threshold_ok():
+    reasons = fe.host_degradations(_HH(health={"disk_pct": fe.DISK_DEGRADE_PCT - 1, "mem_avail_pct": 60}))
+    assert reasons == []
+
+
+def test_missing_signal_on_probeable_node_is_unknown_not_green():
+    # A blind health signal must never read healthy (KAI-1046 class).
+    reasons = fe.host_degradations(_HH(services={}, health={}), expect_health=True)
+    assert any("unknown" in r for r in reasons)
+    assert len(reasons) == 4  # ollama, tailscaled, disk, mem all unknown
+
+
+def test_missing_signal_when_not_probeable_is_silent():
+    # A node we cannot ssh-probe: absence is expected, not a fault.
+    assert fe.host_degradations(_HH(services={}, health={}), expect_health=False) == []
+
+
+def test_pct_string_bool_is_ignored():
+    # a bool sneaking into a *_pct slot must not be read as a number.
+    reasons = fe.host_degradations(_HH(health={"disk_pct": True, "mem_avail_pct": 60}), expect_health=True)
+    assert any("disk usage unknown" in r for r in reasons)
+
+
+def test_fleet_degradations_skips_spine():
+    st = _state({"kai-worker": _HH(services={}, health={}), "kai-mini": _HH()})
+    st["self_host"] = "kai-worker"
+    # spine has empty signals but is skipped; mini is healthy → no degradations.
+    assert fe.fleet_degradations(st, NOW + 60) == {}
+
+
+def test_fleet_degradations_reports_degraded_mini():
+    st = _state({
+        "kai-worker": _HH(),
+        "kai-mini": _HH(services={"ollama": False, "tailscaled": True},
+                        health={"disk_pct": 95, "mem_avail_pct": 60}),
+    })
+    st["self_host"] = "kai-worker"
+    out = fe.fleet_degradations(st, NOW + 60)
+    assert "kai-mini" in out
+    assert any("ollama" in r for r in out["kai-mini"])
+    assert any("disk" in r for r in out["kai-mini"])
+
+
+def test_fleet_degradations_skips_unreachable_host():
+    # an OFFLINE host is the reachability verdict's job, not the degrade layer.
+    st = _state({
+        "kai-worker": _HH(),
+        "kai-mini": _HH(reachable=False, ssh_ok=False, services={}, health={}),
+    })
+    st["self_host"] = "kai-worker"
+    assert fe.fleet_degradations(st, NOW + 60) == {}
+
+
+def test_fleet_degradations_empty_on_lost_visibility():
+    # stale state → no in-scope hosts (the strict/gate verdict owns the RED).
+    st = _state({"kai-worker": _HH(), "kai-mini": _HH()}, updated=NOW - 10_000)
+    st["self_host"] = "kai-worker"
+    assert fe.fleet_degradations(st, NOW) == {}
