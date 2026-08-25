@@ -192,7 +192,12 @@ class PublishHomepageWorkflow(Workflow):
             }
             brief["plane_issue"] = ctx.get("plane_issue", "")
         if step_name == "creative_brief":
-            brief["vault_brief"] = ctx.get("brief_text", "")
+            # WP AR-1 gap2 — the gate reviews the property's approved brief
+            # (auto-loaded by load_brief into review_brief), falling back to any
+            # authored brief_text. brief_source records where the material came
+            # from so a rubber-stamp (empty) review is visible in the record.
+            brief["vault_brief"] = ctx.get("review_brief") or ctx.get("brief_text", "")
+            brief["brief_source"] = ctx.get("brief_source", "none")
         if step_name == "precheck_homepage_overwrite":
             brief["overwrite_guard"] = {
                 "expected_current_homepage_id": ctx.get("expected_current_homepage_id"),
@@ -222,29 +227,74 @@ class PublishHomepageWorkflow(Workflow):
         return fn(site=ctx.get("site", ""), creds=ctx.get("creds"))
 
     def _step_load_brief(self, ctx: dict) -> CapabilityResult:
-        """Read brief from vault. If no brief_path in inputs, skip with empty brief."""
+        """Load the brief the creative gate reviews.
+
+        Precedence: an explicit ``brief_path`` in inputs wins (authored brief).
+        Otherwise (WP AR-1 gap2) auto-load the property's APPROVED brand brief —
+        its ``BUILD_PROFILE.md`` resolved by governance slug — so the creative
+        gate reviews real material instead of rubber-stamping an empty
+        ``vault_brief``. The reviewed material rides a dedicated ``review_brief``
+        key; ``brief_text`` (the page-content fallback consumed by create_page)
+        is left empty on auto-load so the draft content still comes only from
+        ``inputs.page_content``. ``brief_source`` records provenance.
+        """
         brief_path = ctx.get("brief_path", "")
-        if not brief_path:
-            log.info("No brief_path in inputs — using empty brief")
+        if brief_path:
+            try:
+                text = Path(brief_path).read_text()
+                return CapabilityResult(
+                    ok=True, status="succeeded",
+                    data={"brief_text": text, "review_brief": text,
+                          "brief_source": f"inputs:{brief_path}"},
+                    verification={"verified": True, "evidence": {"path": brief_path,
+                                                                 "chars": len(text)}},
+                )
+            except Exception as e:
+                return CapabilityResult(
+                    ok=False, status="failed_recoverable",
+                    error={"type": "brief_read_failed", "path": brief_path, "detail": str(e)},
+                )
+        # No explicit brief — auto-load the property's approved brand brief by
+        # governance slug (same slug the brand-drift check uses: KAI-39 property
+        # override, else the site key). Fail-open to empty when unseeded so an
+        # ungoverned property surfaces as brief_source=none rather than erroring.
+        import brand_profile
+        from capabilities.wordpress import _site_key
+        slug = ctx.get("brand_slug") or ctx.get("property") or _site_key(ctx.get("site", ""))
+        prof = brand_profile.profile_path(slug) if slug else None
+        if prof and prof.exists():
+            try:
+                text = prof.read_text()
+            except Exception as e:
+                # Fail open, never crash the governed workflow on a brief read
+                # error — surface it as an unreadable (empty) review instead.
+                log.warning("load_brief: approved brief for '%s' unreadable (%s) — "
+                            "creative gate reviews empty material", slug, e)
+                return CapabilityResult(
+                    ok=True, status="succeeded",
+                    data={"brief_text": "", "review_brief": "",
+                          "brief_source": "none:brief_unreadable"},
+                    verification={"verified": True,
+                                  "evidence": {"brief": "empty", "slug": slug,
+                                               "error": str(e)}},
+                )
+            log.info("load_brief: auto-loaded approved brief for creative gate "
+                     "(slug=%s, %d chars)", slug, len(text))
             return CapabilityResult(
                 ok=True, status="succeeded",
-                data={"brief_text": ""},
-                verification={"verified": True, "evidence": {"brief": "empty"}},
+                data={"brief_text": "", "review_brief": text,
+                      "brief_source": f"auto:build_profile:{slug}"},
+                verification={"verified": True,
+                              "evidence": {"brief": "auto:build_profile",
+                                           "slug": slug, "chars": len(text)}},
             )
-        try:
-            p = Path(brief_path)
-            text = p.read_text()
-            return CapabilityResult(
-                ok=True, status="succeeded",
-                data={"brief_text": text},
-                verification={"verified": True, "evidence": {"path": brief_path,
-                                                              "chars": len(text)}},
-            )
-        except Exception as e:
-            return CapabilityResult(
-                ok=False, status="failed_recoverable",
-                error={"type": "brief_read_failed", "path": brief_path, "detail": str(e)},
-            )
+        log.warning("load_brief: no approved brief for property '%s' — creative gate "
+                    "reviews empty material (ungoverned)", slug)
+        return CapabilityResult(
+            ok=True, status="succeeded",
+            data={"brief_text": "", "review_brief": "", "brief_source": "none:no_profile"},
+            verification={"verified": True, "evidence": {"brief": "empty", "slug": slug}},
+        )
 
     def _step_create_page(self, ctx: dict) -> CapabilityResult:
         from capabilities import get_capability
