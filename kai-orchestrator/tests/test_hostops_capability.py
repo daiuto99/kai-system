@@ -27,7 +27,7 @@ def configured_target(tmp_path, monkeypatch):
     monkeypatch.setattr("capabilities.hostops._SITES_JSON", sites)
     monkeypatch.setattr(
         "engine.engine.consume_hostops_gate",
-        lambda gate_id, operation, site: gate_id == "approved-gate" and operation == "place_secret" and site == "site",
+        lambda gate_id, operation, site, resource=None: gate_id == "approved-gate" and operation == "place_secret" and site == "site",
     )
 
 

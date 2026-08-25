@@ -219,12 +219,18 @@ class Engine:
         finally:
             conn.close()
 
-    def consume_hostops_gate(self, gate_id: str, operation: str, site: str) -> bool:
+    def consume_hostops_gate(self, gate_id: str, operation: str, site: str,
+                             resource: str | None = None) -> bool:
         """Atomically consume one approved gate bound to a hostops mutation.
 
         Gate consumption is deliberately part of the persistent gate store: a
         caller cannot manufacture an in-process approval object or replay an
         approval for another site/operation.
+
+        ``resource`` is an optional finer-grained binding (e.g. the exact
+        ``post_id`` for a publish). When provided, the resolved gate's brief must
+        carry a matching ``hostops_resource`` — so an approval for one post can
+        never authorize a mutation on another resource of the same site.
         """
         expected_type = f"hostops_{operation}"
         conn = get_conn()
@@ -240,6 +246,8 @@ class Engine:
             if not resolution.get("approved"):
                 return False
             if brief.get("hostops_operation") != operation or brief.get("site") != site:
+                return False
+            if resource is not None and str(brief.get("hostops_resource")) != str(resource):
                 return False
             changed = conn.execute(
                 "UPDATE gates SET status='consumed' WHERE id=? AND status='resolved'",

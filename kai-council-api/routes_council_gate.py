@@ -50,7 +50,7 @@ _GATE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,128}$")
 # explicitly (not via the "unknown gate type" fall-through) so a future
 # auto-approve fallback can never silently capture them. There is deliberately no
 # code path that resolves one of these without Leo.
-_HOSTOPS_GATE_TYPES = frozenset({"hostops_place_secret", "hostops_deploy_plugin"})
+_HOSTOPS_GATE_TYPES = frozenset({"hostops_place_secret", "hostops_deploy_plugin", "hostops_publish_post"})
 _WORDPRESS_SITES = Path("/vault/00_System/wordpress_sites.json")
 
 
@@ -331,11 +331,13 @@ def _tg_send_gate(gate_id: str, gate_type: str, summary: str) -> bool:
         "creative_gate": "Creative Review", "devops_gate": "DevOps Review",
         "hostops_place_secret": "Host-Op: Place Secret",
         "hostops_deploy_plugin": "Host-Op: Deploy Plugin",
+        "hostops_publish_post": "Host-Op: Publish Post",
         "sprint_gate": "Sprint Approval",
     }.get(gate_type, gate_type)
     icon = {"plan_gate": "📋", "dev_gate": "⚙️", "creative_gate": "🎨",
             "devops_gate": "🔧", "hostops_place_secret": "🔐",
-            "hostops_deploy_plugin": "🚀", "sprint_gate": "🏁"}.get(gate_type, "🔒")
+            "hostops_deploy_plugin": "🚀", "hostops_publish_post": "📢",
+            "sprint_gate": "🏁"}.get(gate_type, "🔒")
 
     # Plain text (no parse_mode): Telegram legacy-Markdown 400s on unescaped dynamic
     # gate content (ids, types, free-text summary) and SILENTLY DROPS the message —

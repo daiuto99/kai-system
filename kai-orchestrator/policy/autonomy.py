@@ -44,6 +44,7 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "hostops.place_secret": {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
     "hostops.deploy_plugin": {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
     "hostops.provision":    {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
+    "hostops.publish_post": {"classification": "mutating", "rule": "contextual", "reason": "Live WordPress publish — routed through org-model; the 'publish' high-risk threshold forces approval, so it is NEVER autonomous (JARVIS §9 drafts-only floor)"},
 
     # ── Self-modification — disabled unless a separate approval path is built ──
     "self_modify.apply":        {"classification": "mutating", "rule": "never", "reason": "Self-modify is disabled"},

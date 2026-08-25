@@ -21,15 +21,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
 
+import httpx
+
 from models import CapabilityResult
 from . import capability
 
 
 _SITES_JSON = Path("/vault/00_System/wordpress_sites.json")
 _PLUGIN_ALLOWLIST = {"kai-publish-gate"}
-_OP_ALLOWLIST = {"status", "verify", "place_secret", "deploy_plugin"}
+_OP_ALLOWLIST = {"status", "verify", "place_secret", "deploy_plugin", "publish_post"}
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SAFE_SECRET_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+
+# The publish-gate payload secret KAI sends as the X-KAI-Publish-Gate header,
+# minted by hostops_provision and mirrored site-side by place_secret. Read
+# in-process only; the bytes never reach an argv, log, or CapabilityResult (L18).
+_PAYLOAD_DIR = Path("/run/hostops-payload-secrets")
+_PUBLISH_GATE_SECRET_FILE = "kai_publish_gate_secret"
 
 # The Cloudways server master operator — the only working SSH identity on this
 # account. Matches transports/ssh_php_eval.py and cloudways_ssh_purge.py.
@@ -80,6 +88,7 @@ class SshTransport(Protocol):
     def verify(self, target: HostOpsTarget) -> dict: ...
     def place_secret(self, target: HostOpsTarget, secret: bytes) -> dict: ...
     def deploy_plugin(self, target: HostOpsTarget, plugin: str) -> dict: ...
+    def publish_post(self, target: HostOpsTarget, post_id: int) -> dict: ...
 
 
 class OpenSshTransport:
@@ -137,6 +146,26 @@ class OpenSshTransport:
                                 capture_output=True, text=True, timeout=20, check=False)
         return {"deployed": True, "read_back": readback.returncode == 0, "plugin": plugin}
 
+    def publish_post(self, target: HostOpsTarget, post_id: int) -> dict:
+        """Transition an exact post to `publish` via wp-cli, then read the status back.
+
+        The publish-gate mu-plugin still enforces the write-time draft filter; this
+        succeeds ONLY because the gate meta was opened first via the authenticated
+        REST route. post_id is an int (validated by the caller), so the remote
+        command carries no caller-controlled string. No mutation of any other post.
+        """
+        wr = shlex.quote(target.webroot)
+        pid = int(post_id)
+        remote = (
+            f"cd {wr} && wp post update {pid} --post_status=publish --quiet "
+            f"&& wp post get {pid} --field=post_status"
+        )
+        completed = self._runner(self._ssh(remote), capture_output=True, text=True,
+                                 timeout=40, check=False)
+        status = (completed.stdout or "").strip()
+        return {"published": completed.returncode == 0 and status == "publish",
+                "post_status": status, "post_id": pid}
+
 
 def _target(site_key: str) -> HostOpsTarget:
     try:
@@ -156,8 +185,13 @@ def _safe_error(exc: Exception) -> CapabilityResult:
     return CapabilityResult(ok=False, status="failed_final", error={"type": "hostops_unavailable", "message": str(exc)})
 
 
-def _gate(gate_id: object, operation: str, site: str, **inputs) -> str | None:
-    """Use org-model policy; consume a bound human gate only when required."""
+def _gate(gate_id: object, operation: str, site: str, resource: object = None, **inputs) -> str | None:
+    """Use org-model policy; consume a bound human gate only when required.
+
+    ``resource`` (optional) binds the consumed gate to an exact sub-resource of
+    the site — e.g. a single post_id — so one approval cannot authorize a
+    mutation on a different resource.
+    """
     from policy.autonomy import check_policy
     policy_action, _ = check_policy(f"hostops.{operation}", "workflow", {"site": site, **inputs})
     if policy_action == "allow":
@@ -165,7 +199,8 @@ def _gate(gate_id: object, operation: str, site: str, **inputs) -> str | None:
     if not isinstance(gate_id, str) or not gate_id:
         return None
     from engine import engine
-    return gate_id if engine.consume_hostops_gate(gate_id, operation, site) else None
+    bind = None if resource is None else str(resource)
+    return gate_id if engine.consume_hostops_gate(gate_id, operation, site, resource=bind) else None
 
 
 def _context(site: str) -> HostOpsTarget:
@@ -266,3 +301,105 @@ def provision(site: str, rotate: bool = False, **_) -> CapabilityResult:
         data={"site": outcome["site"], "payload_secret": outcome["payload_secret"]},
         verification={"verified": True, "evidence": {"payload_secret": outcome["payload_secret"]}},
     )
+
+
+def _read_payload_secret(site: str) -> str:
+    """Read the site's publish-gate payload secret in-process (L18: never logged/returned)."""
+    if not _SAFE_COMPONENT.fullmatch(site):
+        raise HostOpsTargetError("invalid site key")
+    path = _PAYLOAD_DIR / site / _PUBLISH_GATE_SECRET_FILE
+    value = path.read_text().strip()
+    if not value:
+        raise HostOpsTargetError("publish-gate secret unavailable")
+    return value
+
+
+def _site_public_url(site: str) -> str:
+    """Resolve the canonical public URL for the site's WordPress REST endpoint."""
+    try:
+        sites = json.loads(_SITES_JSON.read_text()).get("sites", {})
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HostOpsTargetError("hostops site configuration unavailable") from exc
+    url = str(sites.get(site, {}).get("url", "")).rstrip("/")
+    if not url.startswith("https://"):
+        raise HostOpsTargetError("hostops target is invalid or unavailable")
+    return url
+
+
+def _open_publish_gate(url: str, post_id: int, secret: str, resolver: str, gate_id: str,
+                       *, client: Callable | None = None) -> dict:
+    """Open the per-post publish gate via the plugin's authenticated REST route.
+
+    The secret travels only in the X-KAI-Publish-Gate header (hash_equals-verified
+    site-side); it is never placed in the URL, a log, or the returned dict (L18).
+    """
+    endpoint = f"{url}/wp-json/kai/v1/publish-gate/{int(post_id)}"
+    headers = {
+        "X-KAI-Publish-Gate": secret,
+        "X-KAI-Resolver": resolver,
+        "X-KAI-Gate-ID": gate_id,
+    }
+    poster = client or httpx.post
+    resp = poster(endpoint, headers=headers, timeout=20)
+    body = {}
+    try:
+        body = resp.json()
+    except (ValueError, json.JSONDecodeError):
+        body = {}
+    return {"gate_open": resp.status_code == 200 and bool(body.get("gate_open")),
+            "status_code": resp.status_code}
+
+
+@capability("hostops.publish_post")
+def publish_post(site: str, post_id: object, gate_id: object = None, resolver: str = "",
+                 *, transport: SshTransport | None = None,
+                 gate_opener: Callable | None = None, **_) -> CapabilityResult:
+    """Publish an exact, already-drafted WordPress post — ONLY behind a human gate.
+
+    JARVIS §9 drafts-only floor: publishing is never autonomous. The org-model
+    "publish" high-risk threshold forces `classify` to require approval, and this
+    capability additionally fails closed if it is ever handed an autonomous
+    authorization (defence against org-model drift). Flow: consume the resolved
+    human gate -> open the per-post plugin gate with the payload secret -> flip the
+    single post to publish via wp-cli -> read the status back.
+    """
+    try:
+        pid = int(post_id)
+    except (TypeError, ValueError):
+        return CapabilityResult(ok=False, status="failed_final", error={"type": "input_not_allowed"})
+    if pid <= 0:
+        return CapabilityResult(ok=False, status="failed_final", error={"type": "input_not_allowed"})
+
+    # Bind the gate to this exact post_id: an approval for one post can never
+    # authorize publishing a different post on the same site (mirrors the plugin's
+    # per-post gate meta). The raiser must set brief.hostops_resource = str(post_id).
+    approved = _gate(gate_id, "publish_post", site, resource=pid, post_id=pid)
+    if approved is None:
+        return CapabilityResult(ok=False, status="failed_final", error={"type": "gate_required"})
+    if approved == "autonomous":
+        # Fail closed: a live publish must never resolve autonomously (§9).
+        return CapabilityResult(ok=False, status="failed_final",
+                                error={"type": "autonomous_publish_forbidden"})
+
+    try:
+        target = _context(site)
+        url = _site_public_url(site)
+        secret = _read_payload_secret(site)
+        opener = gate_opener or _open_publish_gate
+        gate = opener(url, pid, secret, resolver, approved)
+        if not gate.get("gate_open"):
+            return CapabilityResult(ok=False, status="failed_recoverable",
+                                    error={"type": "publish_gate_not_opened",
+                                           "status_code": gate.get("status_code")})
+        proof = (transport or OpenSshTransport()).publish_post(target, pid)
+        if proof.get("published"):
+            evidence = {"post_id": pid, "post_status": proof.get("post_status"),
+                        "authorization": "gate", "gate_id": approved, "resolver": resolver}
+            return CapabilityResult(ok=True, status="succeeded",
+                                    data={"identity": target.audit_identity, "post_id": pid},
+                                    verification={"verified": True, "evidence": evidence},
+                                    transport_used="hostops_ssh")
+        return CapabilityResult(ok=False, status="failed_recoverable",
+                                error={"type": "publish_failed", "post_status": proof.get("post_status")})
+    except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError, httpx.HTTPError) as exc:
+        return _safe_error(exc)
