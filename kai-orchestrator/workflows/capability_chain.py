@@ -1,7 +1,7 @@
 """capability_chain workflow — run an arbitrary sequence of capabilities as a tracked job.
 
 Inputs:
-  title   (str, optional)  — human-readable job name shown in Slack notifications
+  title   (str, optional)  — human-readable job name shown in notifications
   chain   (list, required) — ordered list of {"capability": "name", "inputs": {...}}
 
 Example:

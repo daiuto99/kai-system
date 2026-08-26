@@ -103,7 +103,6 @@ _VALID_COLLECTIONS = {
 # implementation detail, so it isn't invented here.
 SHARED_COLLECTIONS = ()
 
-_SLACK_TOKEN_FILE = Path("/run/wp_secrets/slack_bot_token.txt")
 _INVARIANTS_FILE = Path("/vault/00_System/invariants.json")
 
 
@@ -130,15 +129,15 @@ def _get_or_create_conversation(conn, key: dict) -> str:
     return cid
 
 
-def _post_slack_devops(text: str) -> None:
-    """Minimal standalone Slack poster — mirrors main.py's _post_slack for the
-    inv_context_t1 CRITICAL alert (§8). Kept local to avoid importing main.py."""
+def _page_devops(text: str) -> None:
+    """Standalone DevOps pager for the inv_context_t1 CRITICAL alert (§8) —
+    routes to Telegram via the shared tg_alert chokepoint (AR-5 sole surface).
+    Kept local to avoid importing main.py."""
     try:
-        # AR-5.3: rerouted to Telegram (sole surface) — inv_context_t1 CRITICAL (§8).
         from tg_alert import tg_alert
         tg_alert(text)
     except Exception as e:
-        logger.exception("_post_slack_devops failed: %s", e)
+        logger.exception("_page_devops failed: %s", e)
 
 
 def _write_invariant_state(name: str, passed: bool, detail: str) -> None:
@@ -837,7 +836,7 @@ def assemble(key: dict, message: str, task_type: str = None, project: str = None
             detail = f"conversation {cid} (key={conv['key_tuple']}) has {turns_available} stored turns but package {package_id} assembled 0"
             logger.critical("inv_context_t1 CRITICAL: %s", detail)
             _write_invariant_state("inv_context_t1", False, detail)
-            _post_slack_devops(f":rotating_light: *inv_context_t1 CRITICAL* — {detail}")
+            _page_devops(f":rotating_light: *inv_context_t1 CRITICAL* — {detail}")
         else:
             _write_invariant_state("inv_context_t1", True,
                                     f"last checked: package {package_id}, t1.turns_included={len(included)}")

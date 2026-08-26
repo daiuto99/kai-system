@@ -11,7 +11,7 @@ Data shape (per dimension entry):
     by_provider[key]  = {calls, cost_usd, input, output}
     by_trigger[key]   = {calls, cost_usd, input, output}
 
-Trigger source values are colon-hierarchical (e.g. "slack:dm",
+Trigger source values are colon-hierarchical (e.g. "telegram:dm",
 "scheduler:morning_brief"). Frontend splits on `:` to render source vs function.
 
 Legacy int values (from pre-2026-06-09 days) are migrated inline on write.

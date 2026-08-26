@@ -1,7 +1,7 @@
 """notify.post capability — routes operational notifications to Telegram
-(AR-5 sole surface). Renamed from the retired slack.post (KAI-1129); Slack is
-gone (AR-5.2/5.3) and the body routes to Telegram via the shared tg_alert
-chokepoint. The `channel` / `username` / `icon_emoji` args are accepted for
+(AR-5 sole surface). Renamed from the retired legacy chat-post capability
+(KAI-1129); that surface is gone (AR-5.2/5.3) and the body routes to Telegram
+via the shared tg_alert chokepoint. The `channel` / `username` / `icon_emoji` args are accepted for
 signature compatibility but ignored (Telegram has one allowed chat).
 """
 from models import CapabilityResult
