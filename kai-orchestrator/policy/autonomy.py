@@ -46,6 +46,7 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "hostops.provision":    {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
     "hostops.publish_post": {"classification": "mutating", "rule": "contextual", "reason": "Live WordPress publish — routed through org-model; the 'publish' high-risk threshold forces approval, so it is NEVER autonomous (JARVIS §9 drafts-only floor)"},
     "hostops.update_wp":    {"classification": "mutating", "rule": "contextual", "reason": "Live WordPress core/plugin update (CUR-5) — routed through org-model; client-site ownership forces approval and the capability fails closed on any autonomous authorization, so WP updates are NEVER auto-applied (plan §2.4)"},
+    "hostops.place_fleet_secret": {"classification": "destructive", "rule": "requires_approval", "reason": "AR-2: places a named secret onto a fleet host (kai-mini) via SSH. ALWAYS gated, never autonomous — the human gate binds the exact (host, secret_name) per approval; the capability additionally fails closed on any autonomous authorization (defence against org-model drift)"},
 
     # ── Self-modification — disabled unless a separate approval path is built ──
     "self_modify.apply":        {"classification": "mutating", "rule": "never", "reason": "Self-modify is disabled"},

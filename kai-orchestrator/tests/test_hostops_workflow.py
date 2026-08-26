@@ -15,6 +15,7 @@ import engine as engine_module
 from engine import Engine
 from models import CapabilityResult
 from workflows.hostops_deploy import HostopsDeployWorkflow
+from workflows.hostops_place_fleet_secret import HostopsPlaceFleetSecretWorkflow
 
 
 def _wf():
@@ -251,3 +252,60 @@ def test_find_resolved_hostops_gate_binds_and_is_single_use(tmp_path, monkeypatc
     assert eng.find_resolved_hostops_gate("job-1", "place_secret", "site-a") == "gABC"
     assert eng.consume_hostops_gate("gABC", "place_secret", "site-a")
     assert eng.find_resolved_hostops_gate("job-1", "place_secret", "site-a") is None  # replay refused
+
+
+# ── AR-2 fleet-host secret placement workflow (KAI-929) ───────────────────────
+
+def _fleet_wf():
+    return HostopsPlaceFleetSecretWorkflow("job-fleet-1")
+
+
+def test_fleet_exec_step_is_single_use():
+    steps = {s.name: s for s in HostopsPlaceFleetSecretWorkflow.steps}
+    assert steps["place_fleet_secret_exec"].max_retries == 0
+
+
+def test_fleet_gate_binds_host_secret_resource_and_omits_payload():
+    gate = mock.Mock(return_value=CapabilityResult(
+        ok=True, status="awaiting_gate", data={"gate_id": "gf1"}, verification={"verified": False}))
+    fake_target = mock.Mock(audit_identity="fleet-host:kai-mini")
+    ctx = {"host": "kai-mini", "secret_name": "todoist_api_key"}
+    with (
+        mock.patch("capabilities.get_capability", return_value=gate),
+        mock.patch("capabilities.hostops._fleet_target", return_value=fake_target),
+        mock.patch("policy.autonomy.check_policy", return_value=("requires_approval", "human")),
+    ):
+        result = _fleet_wf()._run_gate("place_fleet_secret_gate", {"id": "s1"}, ctx)
+
+    assert result.status == "awaiting_gate"
+    assert gate.call_args.kwargs["gate_type"] == "hostops_place_fleet_secret"
+    brief = gate.call_args.kwargs["brief"]
+    assert brief["hostops_operation"] == "place_fleet_secret"
+    assert brief["site"] == "kai-mini"
+    assert brief["hostops_resource"] == "todoist_api_key"   # binds the gate to this exact secret
+    assert brief["secret_name"] == "todoist_api_key"        # a reference, not the bytes
+    # L18 / §3.3.1: no payload or key material in the persisted brief.
+    blob = json.dumps(brief)
+    assert "material" not in blob and "secret_bytes" not in blob
+
+
+def test_fleet_gate_fails_closed_if_org_model_would_autoapprove():
+    # place_fleet_secret is requires_approval; if policy ever returns allow, refuse.
+    with mock.patch("policy.autonomy.check_policy", return_value=("allow", "drifted")):
+        result = _fleet_wf()._run_gate(
+            "place_fleet_secret_gate", {"id": "s1"},
+            {"host": "kai-mini", "secret_name": "todoist_api_key"})
+    assert result.error["type"] == "autonomous_fleet_secret_forbidden"
+
+
+def test_fleet_gate_requires_host_and_secret_name():
+    r1 = _fleet_wf()._run_gate("place_fleet_secret_gate", {"id": "s1"}, {"secret_name": "todoist_api_key"})
+    r2 = _fleet_wf()._run_gate("place_fleet_secret_gate", {"id": "s1"}, {"host": "kai-mini"})
+    assert r1.error["type"] == "input_not_allowed"
+    assert r2.error["type"] == "input_not_allowed"
+
+
+def test_fleet_exec_fails_closed_without_resolved_gate(monkeypatch):
+    monkeypatch.setattr("engine.engine.find_resolved_hostops_gate", lambda *a, **k: None)
+    result = _fleet_wf()._step_place_fleet_secret({"host": "kai-mini", "secret_name": "todoist_api_key"})
+    assert result.error["type"] == "gate_required"

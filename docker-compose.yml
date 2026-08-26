@@ -390,6 +390,12 @@ services:
     secrets:
       - wpscan_api_token
       - cloudways_ssh_key
+      # AR-2 (KAI-929): mini SSH key for hostops.place_fleet_secret; mounts at
+      # /run/secrets/kai_fleet_ssh_key (fleet_hosts.json ssh_key path).
+      - kai_fleet_ssh_key
+      # AR-2 (KAI-929): source secret the place_fleet_secret exec step resolves in
+      # -process and places onto the mini (/run/secrets/todoist_api_key).
+      - todoist_api_key
       - kai_worker_auth
       - orchestrator_capability_auth
       - telegram_bot_token
@@ -549,6 +555,10 @@ secrets:
     file: ./secrets/oura_token.txt
   cloudways_ssh_key:
     file: ./secrets/cloudways_ssh_key
+  # AR-2 (KAI-929): dedicated 71-kai-mini SSH key. Sourced from its canonical
+  # location (not duplicated into ./secrets) so there is one copy of the key.
+  kai_fleet_ssh_key:
+    file: /home/leo/.ssh/kai_mini_ed25519
   wpscan_api_token:
     file: ./secrets/wpscan_api_token.txt
   litellm_master_key:

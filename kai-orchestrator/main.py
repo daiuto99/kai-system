@@ -148,6 +148,7 @@ def _register_workflows():
     from workflows.devops_self_modify import DevopsSelfModifyWorkflow
     from workflows.hostops_deploy import HostopsDeployWorkflow
     from workflows.hostops_update import HostopsUpdateWorkflow
+    from workflows.hostops_place_fleet_secret import HostopsPlaceFleetSecretWorkflow
     WORKFLOW_REGISTRY["hello_world"] = HelloWorldWorkflow
     WORKFLOW_REGISTRY["capability_chain"] = CapabilityChainWorkflow
     WORKFLOW_REGISTRY["wordpress.publish_homepage"] = PublishHomepageWorkflow
@@ -156,6 +157,7 @@ def _register_workflows():
     WORKFLOW_REGISTRY["devops.self_modify"] = DevopsSelfModifyWorkflow
     WORKFLOW_REGISTRY["hostops.deploy"] = HostopsDeployWorkflow
     WORKFLOW_REGISTRY["hostops.update"] = HostopsUpdateWorkflow
+    WORKFLOW_REGISTRY["hostops.place_fleet_secret"] = HostopsPlaceFleetSecretWorkflow
 
 def _resume_interrupted_jobs():
     conn = get_conn()

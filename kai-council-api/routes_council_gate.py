@@ -332,12 +332,13 @@ def _tg_send_gate(gate_id: str, gate_type: str, summary: str) -> bool:
         "hostops_place_secret": "Host-Op: Place Secret",
         "hostops_deploy_plugin": "Host-Op: Deploy Plugin",
         "hostops_publish_post": "Host-Op: Publish Post",
+        "hostops_place_fleet_secret": "Host-Op: Place Fleet Secret",
         "sprint_gate": "Sprint Approval",
     }.get(gate_type, gate_type)
     icon = {"plan_gate": "📋", "dev_gate": "⚙️", "creative_gate": "🎨",
             "devops_gate": "🔧", "hostops_place_secret": "🔐",
             "hostops_deploy_plugin": "🚀", "hostops_publish_post": "📢",
-            "sprint_gate": "🏁"}.get(gate_type, "🔒")
+            "hostops_place_fleet_secret": "🔑", "sprint_gate": "🏁"}.get(gate_type, "🔒")
 
     # Plain text (no parse_mode): Telegram legacy-Markdown 400s on unescaped dynamic
     # gate content (ids, types, free-text summary) and SILENTLY DROPS the message —
@@ -746,6 +747,21 @@ def _process_gate(req: GateRequest):
             # caller polls /council/gate/{id}/state; there is no callback to fire (see resolve).
             summary        = str(brief.get("summary") or "(sprint gate — no summary provided)")
             kai_assessment = str(brief.get("detail") or "Sprint hard gate — Leo decides.")
+            _persist_artifact(req.gate_id, "brief", json.dumps(brief, indent=2))
+        elif gate_type == "hostops_place_fleet_secret":
+            # AR-2 (KAI-929): fleet-host secret placement. HUMAN-ONLY, like sprint_gate —
+            # deliberately NOT in _HOSTOPS_GATE_TYPES, so it never hits the classify/
+            # auto-approve branch. Placing a secret onto a host is never autonomous; it
+            # goes straight to pending_leo with a clear card of exactly what a tap
+            # authorizes. The secret bytes are never in the brief (L18).
+            host   = str(brief.get("site") or "unknown")
+            secret = str(brief.get("secret_name") or "unknown")
+            summary = (f"*Host-Op: Place Fleet Secret*\n"
+                       f"*Secret:* `{secret}`  →  *Host:* {host}\n"
+                       f"*Decision:* {brief.get('required_decision', 'place the named secret on the host')}")
+            kai_assessment = ("Fleet-host secret placement — human-only approval (never autonomous). "
+                              "Approving writes the named secret mode 0600 to the host and reads the file "
+                              "mode back; the secret value is never logged, echoed, or stored in this gate.")
             _persist_artifact(req.gate_id, "brief", json.dumps(brief, indent=2))
         else:
             logger.warning("Unknown gate_type %r — notifying Leo", gate_type)

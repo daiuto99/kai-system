@@ -28,10 +28,19 @@ from . import capability
 
 
 _SITES_JSON = Path("/vault/00_System/wordpress_sites.json")
+# AR-2 fleet-host secret rail: the allowlist of fleet hosts a named secret may be
+# placed onto (NOT wordpress_sites.json — fleet hosts are our own machines, not
+# Cloudways apps). Only host keys present here are addressable.
+_FLEET_HOSTS_JSON = Path("/vault/00_System/fleet_hosts.json")
 _PLUGIN_ALLOWLIST = {"kai-publish-gate"}
-_OP_ALLOWLIST = {"status", "verify", "place_secret", "deploy_plugin", "publish_post", "update_wp"}
+_OP_ALLOWLIST = {"status", "verify", "place_secret", "deploy_plugin", "publish_post", "update_wp", "place_fleet_secret"}
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SAFE_SECRET_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+# A fleet target's ssh_key / dest_dir come from the (trusted, KAI-authored)
+# allowlist, but are still shape-bounded so a malformed entry can never inject an
+# argv token or a path-traversal into the fixed SSH command. Absolute path, no
+# shell metacharacters, no "..".
+_SAFE_ABS_PATH = re.compile(r"^/[A-Za-z0-9_./-]+$")
 # CUR-5 update-apply target: the literal "core" or a strict WordPress plugin
 # slug (lowercase alnum + dashes). No allowlist — the human gate binds the exact
 # component per approval; this only bounds the shape so it is argv-injection-safe
@@ -268,6 +277,103 @@ class OpenSshTransport:
                 "before": before, "after": after, "reason": reason}
 
 
+# ── AR-2 fleet-host secret rail ───────────────────────────────────────────────
+# Placing an EXISTING named secret onto one of our own fleet hosts (starting with
+# 71-kai-mini). Distinct from the Cloudways/WP rail above: the target is a plain
+# Linux host, the transport is a fixed `install -m600` over SSH with the bytes on
+# stdin only, and there is no wp-cli / webroot. Reuses the SAME gate / policy /
+# audit / resolver spine — no second approval surface.
+
+
+@dataclass(frozen=True)
+class HostOpsFleetTarget:
+    host_key: str          # the allowlist key, e.g. "kai-mini" (audit identity)
+    host: str              # ssh host / IP
+    ssh_user: str
+    ssh_key: str           # path to the mounted SSH key inside the orchestrator
+    dest_dir: str          # directory the secret file is written into (0600)
+
+    @property
+    def audit_identity(self) -> str:
+        """Resolved fleet identity used for the gate and audit trail, not SSH auth."""
+        return f"fleet-host:{self.host_key}"
+
+
+class FleetSshTransport:
+    """Fixed `install -m600` OpenSSH invocation onto a fleet host; the secret bytes
+    flow ONLY on stdin, never an argv/log/result token (L18). No caller-controlled
+    command — dest_dir comes from the allowlist and secret_name is allowlist-shaped
+    and shlex-quoted, so the remote command is fixed syntax over trusted identifiers.
+    """
+
+    def __init__(self, runner: Callable = subprocess.run):
+        self._runner = runner
+
+    @staticmethod
+    def _ssh_opts(key_path: str) -> list[str]:
+        return [
+            "-i", key_path,
+            "-o", "IdentitiesOnly=yes",
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "LogLevel=ERROR",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=15",
+        ]
+
+    def place_secret(self, target: HostOpsFleetTarget, secret: bytes, secret_name: str) -> dict:
+        """Write the secret to <dest_dir>/<secret_name> as mode 0600, then read the
+        mode back. The value is passed on stdin and compared/echoed nowhere (L18):
+        the only thing read back is the octal file mode, never the file contents.
+        """
+        dest = f"{target.dest_dir.rstrip('/')}/{secret_name}"
+        q_dir = shlex.quote(target.dest_dir.rstrip("/"))
+        q_dest = shlex.quote(dest)
+        # umask 077 + install -m600 => the file never exists group/other-readable,
+        # even for the instant between create and chmod. `stat -c %a` is the ONLY
+        # value that returns — the secret itself is never catted back.
+        remote = (
+            f"mkdir -p -m 700 {q_dir} && umask 077 && "
+            f"install -m 600 /dev/stdin {q_dest} && stat -c %a {q_dest}"
+        )
+        login = f"{target.ssh_user}@{target.host}"
+        argv = ["ssh"] + self._ssh_opts(target.ssh_key) + [login, remote]
+        value = secret.decode("ascii")
+        try:
+            completed = self._runner(argv, input=value, capture_output=True, text=True,
+                                     timeout=30, check=False)
+        except subprocess.TimeoutExpired:
+            # Never surface the argv (host / user / key path) — fixed token only (L18).
+            return {"written": False, "read_back": False, "name": secret_name, "reason": "timeout"}
+        mode = (completed.stdout or "").strip().splitlines()[-1:] or [""]
+        return {"written": completed.returncode == 0,
+                "read_back": completed.returncode == 0 and mode[0] == "600",
+                "name": secret_name}
+
+
+def _fleet_target(host_key: str) -> HostOpsFleetTarget:
+    if not isinstance(host_key, str) or not _SAFE_COMPONENT.fullmatch(host_key):
+        raise HostOpsTargetError("invalid fleet host key")
+    try:
+        hosts = json.loads(_FLEET_HOSTS_JSON.read_text()).get("hosts", {})
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HostOpsTargetError("fleet host configuration unavailable") from exc
+    entry = hosts.get(host_key, {})
+    host = str(entry.get("host", ""))
+    ssh_user = str(entry.get("ssh_user", ""))
+    ssh_key = str(entry.get("ssh_key", ""))
+    dest_dir = str(entry.get("dest_dir", ""))
+    if not (host and ssh_user and ssh_key and dest_dir):
+        raise HostOpsTargetError("fleet host is not on the allowlist")
+    if not all(_SAFE_COMPONENT.fullmatch(v) for v in (host, ssh_user)):
+        raise HostOpsTargetError("fleet host target is invalid")
+    if not (_SAFE_ABS_PATH.fullmatch(ssh_key) and _SAFE_ABS_PATH.fullmatch(dest_dir)):
+        raise HostOpsTargetError("fleet host path is invalid")
+    if ".." in ssh_key or ".." in dest_dir:
+        raise HostOpsTargetError("fleet host path traversal rejected")
+    return HostOpsFleetTarget(host_key=host_key, host=host, ssh_user=ssh_user,
+                              ssh_key=ssh_key, dest_dir=dest_dir)
+
+
 def _target(site_key: str) -> HostOpsTarget:
     try:
         site = json.loads(_SITES_JSON.read_text()).get("sites", {}).get(site_key, {})
@@ -358,6 +464,48 @@ def place_secret(site: str, secret_name: str, secret: InMemorySecret, gate_id: o
                 evidence["gate_id"] = approved
             return CapabilityResult(ok=True, status="succeeded", data={"identity": target.audit_identity, "secret_name": secret_name}, verification={"verified": True, "evidence": evidence}, transport_used="hostops_ssh")
         return CapabilityResult(ok=False, status="failed_recoverable", error={"type": "hostops_write_failed"})
+    except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
+        return _safe_error(exc)
+
+
+@capability("hostops.place_fleet_secret")
+def place_fleet_secret(host: str, secret_name: str, secret: InMemorySecret, gate_id: object = None,
+                       *, transport: "FleetSshTransport | None" = None, **_) -> CapabilityResult:
+    """Place an existing named secret onto an allowlisted fleet host — ONLY behind a
+    human gate (AR-2 authorized-execution-path: KAI holds and moves secrets by name,
+    Leo taps to authorize, every move audited).
+
+    Placing a secret onto a host is inherently sensitive, so — mirroring the publish
+    and WP-update floors — it is NEVER autonomous: policy is `requires_approval`, and
+    this capability additionally fails closed if it is ever handed an autonomous
+    authorization (defence against org-model drift). The gate is bound to the exact
+    (host, secret_name), so one approval can never place a different secret or reach
+    a different host. Flow: validate -> consume the resolved human gate bound to
+    (host, secret_name) -> write 0600 via stdin -> read the file MODE (never value) back.
+    """
+    if not _SAFE_SECRET_NAME.fullmatch(secret_name) or not isinstance(secret, InMemorySecret):
+        return CapabilityResult(ok=False, status="failed_final", error={"type": "input_not_allowed"})
+    # Bind the gate to this exact (host, secret_name): an approval to place secret X
+    # on host Y can never authorize placing a different secret or reaching a different
+    # host. The raiser must set brief.hostops_resource = secret_name.
+    approved = _gate(gate_id, "place_fleet_secret", host, resource=secret_name, secret_name=secret_name)
+    if approved is None:
+        return CapabilityResult(ok=False, status="failed_final", error={"type": "gate_required"})
+    if approved == "autonomous":
+        # Fail closed: a secret placement must never resolve autonomously (AR-2).
+        return CapabilityResult(ok=False, status="failed_final",
+                                error={"type": "autonomous_fleet_secret_forbidden"})
+    try:
+        target = _fleet_target(host)
+        proof = (transport or FleetSshTransport()).place_secret(target, secret.material, secret_name)
+        if proof.get("written") and proof.get("read_back"):
+            evidence = {"host": target.host_key, "secret_name": secret_name, "mode": "600",
+                        "authorization": "gate", "gate_id": approved}
+            return CapabilityResult(ok=True, status="succeeded",
+                                    data={"identity": target.audit_identity, "secret_name": secret_name},
+                                    verification={"verified": True, "evidence": evidence},
+                                    transport_used="hostops_fleet_ssh")
+        return CapabilityResult(ok=False, status="failed_recoverable", error={"type": "hostops_fleet_write_failed"})
     except (HostOpsTargetError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
         return _safe_error(exc)
 
