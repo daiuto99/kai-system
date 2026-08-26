@@ -7,7 +7,7 @@ import pytest
 @pytest.mark.whole_repo
 def test_council_port_is_not_host_published():
     compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text()
-    council = compose.split("  kai-council-api:\n", 1)[1].split("\n  kai-slack-bot:", 1)[0]
+    council = compose.split("  kai-council-api:\n", 1)[1].split("\n  kai-web:", 1)[0]
     assert '"8002:8002"' not in council
 
 

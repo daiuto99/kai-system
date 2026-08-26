@@ -123,11 +123,6 @@ services:
       retries: 3
       start_period: 10s
 
-  # RETIRED: the kai-slack-bot service and all Slack surfaces are gone (AR-5.2/5.3
-  # → fully removed KAI-1127, 2026-08-16). Gate approvals + alerts route through
-  # Telegram via the notify() gateway (kai-scheduler long-poll loop). No Slack
-  # service, tokens, or secret defs remain in this compose.
-
   kai-web:
     build: ./kai-web
     container_name: kai-web

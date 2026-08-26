@@ -10,9 +10,9 @@
 #   3. No Slack secret mount or definition in docker-compose.yml — no live service
 #      may be handed a slack_* token.
 #
-# Exceptions (documented, retire-in-place): the retired kai-slack-bot code, archived
-# paths, tests, syncthing temp files, historical doc snapshots, and — check 1 only —
-# kai-worker-api/routes/mode_lock.py (see DEFERRED EXCEPTION below).
+# Exceptions (documented): archived paths, syncthing temp files, historical doc
+# snapshots, and — check 1 only — kai-worker-api/routes/mode_lock.py (Leo-owned, see
+# DEFERRED EXCEPTION below).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."   # repo root (/home/leo/kai-system)
@@ -22,11 +22,11 @@ FAIL=0
 # ── Check 1: live slack.com/api in .py and .sh ──────────────────────────────
 # Exclude this gate script itself (it necessarily contains the literal pattern).
 # Tests ARE scanned (KAI-1127: the retired live call lived in test_jarvis_system.py —
-# excluding tests/ is exactly how it stayed invisible). Only genuinely-retired code
-# (kai-slack-bot), archived paths, syncthing temp files, historical doc snapshots,
-# this gate script, and the mode_lock deferred exception are skipped.
+# excluding tests/ is exactly how it stayed invisible). Only archived paths, syncthing
+# temp files, historical doc snapshots, this gate script, and the mode_lock deferred
+# exception are skipped.
 HITS="$(grep -rn "slack\.com/api" --include=*.py --include=*.sh . 2>/dev/null \
-  | grep -vE '(^|/)(kai-slack-bot|_archived)/' \
+  | grep -vE '(^|/)_archived/' \
   | grep -v '\.syncthing' \
   | grep -vE '(^|/)(IDONTNEEDTHIS|docs/plan/history|docs/reviews)/' \
   | grep -v 'scripts/ci_no_slack_api.sh' \

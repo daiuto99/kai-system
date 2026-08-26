@@ -12,7 +12,7 @@ _TOKEN_FILE = Path("/run/secrets/anthropic_api_key").parent.parent / "secrets" /
 COMPOSE_PROJECT = "kai-system"
 ALLOWED_SERVICES = {
     "kai-worker-api", "kai-council-api", "kai-web",
-    "kai-slack-bot", "kai-scheduler", "kai-n8n",
+    "kai-scheduler", "kai-n8n",
 }
 
 

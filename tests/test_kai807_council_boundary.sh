@@ -3,7 +3,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-council_service=$(sed -n '/^  kai-council-api:/,/^  kai-slack-bot:/p' "$root/docker-compose.yml")
+council_service=$(sed -n '/^  kai-council-api:/,/^  kai-web:/p' "$root/docker-compose.yml")
 if grep -q '8002:8002' <<<"$council_service"; then
   echo "FAIL: kai-council-api publishes host port 8002"
   exit 1

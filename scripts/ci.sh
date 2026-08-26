@@ -113,6 +113,12 @@ python3 shared/test_notify_gateway.py || FAIL=1  # KAI-1100: notify gateway refu
 python3 shared/test_sprint_gate.py || FAIL=1  # S1-A1: sprint hard-gate helper (raise/poll/timeout/fail-closed)
 
 echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  no-live-Slack gate (AR-5 / KAI-1243 retirement)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+bash scripts/ci_no_slack_api.sh || FAIL=1  # KAI-1243: Slack stays retired — no live api/tool/secret ref
+
+echo ""
 if [ "$FAIL" -ne 0 ]; then
     echo "[FAIL] CI gate: one or more services failed lint or tests. Do not commit."
     exit 1
