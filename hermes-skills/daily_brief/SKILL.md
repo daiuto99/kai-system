@@ -1,9 +1,9 @@
 ---
 name: daily_brief
-description: "Generate Leo's daily focus brief (Top 3 / Next 5 / Carried-over) from Todoist tasks + KAI close notes, and deliver it to Slack. Runs on cron under the Hermes hardened profile."
-version: 1.0.0
+description: "Generate Leo's daily focus brief (Top 3 / Next 5 / Carried-over) from Todoist tasks + KAI close notes, and deliver it via KAI's comms surface. Runs on cron under the Hermes hardened profile."
+version: 1.1.0
 author: KAI (LSE) — strangler-fig port of kai-worker-api/focus.py
-tags: [daily-brief, focus, todoist, slack, cron, strangler-fig]
+tags: [daily-brief, focus, todoist, local-llm, cron, strangler-fig]
 platforms: [linux, macos]
 ---
 
@@ -26,7 +26,8 @@ Runs `scripts/build_brief.py`, which:
 
 1. Pulls **Todoist** tasks — due-today and overdue (`todoist_api_key`).
 2. Loads **yesterday's KAI close notes** from the vault (`60_Council/kai/context.md`).
-3. Calls **claude-haiku-4-5** to compose the brief in exactly this shape:
+3. Calls **local qwen-mid** (`qwen2.5:7b` on the mini's Ollama — self-hosted-default,
+   no cloud LLM key) to compose the brief in exactly this shape:
    - **Top 3** — the 3 most important things to move today
    - **Next 5** — on deck after the Top 3
    - **Carried over** — overdue items needing attention
@@ -36,11 +37,10 @@ Runs `scripts/build_brief.py`, which:
 ## Modes — shadow is the default, and it is safe
 
 - `--mode shadow` (**default**): writes the brief to a **sink file only**. It
-  **never** posts to Slack and never writes the vault. Use this for the cutover
-  parity comparison — the brief is visible to Leo as a file/thread, not in his
-  real `#kai-focus` channel.
-- `--mode live`: posts to the real Slack channel (`--channel`) and writes the
-  vault context. Only flip to this after ≥5 green shadow comparisons.
+  **never** delivers to any comms surface and never writes the vault. Use this for
+  the cutover parity comparison — the brief is visible to Leo as a file, not pushed.
+- `--mode live`: delivers to KAI's comms surface and writes the vault context.
+  Only flip to this after ≥5 green shadow comparisons.
 
 ```bash
 # shadow (cutover-safe): write the brief to a file, print the JSON envelope
@@ -48,21 +48,23 @@ python scripts/build_brief.py --mode shadow \
   --secrets-dir /run/secrets --vault /vault \
   --sink-file /tmp/daily_brief_shadow.md
 
-# live (post-cutover only): deliver to the real focus channel
+# live (post-cutover only): generate + deliver
 python scripts/build_brief.py --mode live \
-  --secrets-dir /run/secrets --vault /vault \
-  --channel C0ASGETFCEB
+  --secrets-dir /run/secrets --vault /vault
 ```
 
 ## Egress (hardened profile)
 
-The skill needs exactly three outbound hosts — allow only these in the profile:
+The LLM runs **locally** on the mini's Ollama — no cloud inference egress. The
+skill needs outbound only for task pull and delivery:
 
 - `api.todoist.com` (task pull)
-- `api.anthropic.com` (brief composition — claude-haiku-4-5)
-- `slack.com` (delivery, **live mode only**)
+- the mini's local Ollama (`100.85.243.2:11434`, on-box / tailnet — brief composition)
+- delivery surface for `--mode live` only (Telegram API today; Buzz proactive-push
+  is the intended primary once wired — see the delivery note in `build_brief.py`)
 
-No other egress. Secrets are read from the mounted secrets dir, never embedded.
+No cloud LLM egress. No Slack — Slack is retired system-wide. Secrets are read from
+the mounted secrets dir, never embedded.
 
 ## Retirement note (AR-2)
 

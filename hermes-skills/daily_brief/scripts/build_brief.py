@@ -3,14 +3,16 @@
 daily_brief — self-contained daily focus brief generator (Hermes skill core).
 
 Strangler-fig port of kai-worker-api/focus.py. Same inputs (Todoist today+overdue
-tasks + KAI close notes), same LLM (claude-haiku-4-5), same Top 3 / Next 5 /
-Carried-over format. Unlike focus.py it is standalone (no kai-worker-api import,
-configurable secrets dir + vault path) so it can run under the Hermes hardened
-profile on cron.
+tasks + KAI close notes), same Top 3 / Next 5 / Carried-over format. Standalone
+(no kai-worker-api import, configurable secrets dir + vault path) so it runs under
+the Hermes hardened profile on cron.
+
+LLM is LOCAL (self-hosted-default): qwen2.5:7b on the mini's Ollama, no cloud key.
+Delivery is surface-configurable (currently Telegram; Buzz proactive-push pending).
 
 Modes:
-  --mode shadow  (default) : write the brief to a shadow sink file only. NEVER posts to Slack.
-  --mode live              : post to the real Slack channel (--channel) + write vault context.
+  --mode shadow  (default) : write the brief to a shadow sink file only. Never delivers.
+  --mode live              : deliver to the configured comms surface + write vault context.
 
 Output: a schema-valid JSON envelope (kai.daily_brief.v1) on stdout, so a caller /
 harness can evaluate parity deterministically. See references/brief-contract.md.
@@ -28,7 +30,9 @@ from pathlib import Path
 import httpx
 
 SCHEMA = "kai.daily_brief.v1"
-LLM_MODEL = "claude-haiku-4-5-20251001"
+# LOCAL inference (self-hosted-default): qwen-mid on the mini's Ollama. No cloud LLM key.
+LLM_MODEL = os.environ.get("KAI_LLM_MODEL", "qwen2.5:7b")
+LLM_BASE_URL = os.environ.get("KAI_LLM_BASE_URL", "http://100.85.243.2:11434")
 REQUIRED_SECTIONS = ("top3", "next5", "carried_over")
 
 
@@ -82,12 +86,7 @@ def load_kai_close_notes(vault_path: Path) -> str:
 
 
 def build_brief_text(tasks: dict, close_notes: str, secrets_dir: str) -> str:
-    """Use Claude Haiku to build the Top 3 / Next 5 brief. Prompt identical to focus.py."""
-    import anthropic
-
-    api_key = load_secret("anthropic_api_key", secrets_dir)
-    client = anthropic.Anthropic(api_key=api_key)
-
+    """Build the Top 3 / Next 5 brief with LOCAL qwen-mid (Ollama). Prompt identical to focus.py."""
     today_list = "\n".join(f"- {t}" for t in tasks["today"]) or "- (none)"
     overdue_list = "\n".join(f"- {t}" for t in tasks["overdue"]) or "- (none)"
     close_section = f"Yesterday's close notes:\n{close_notes}" if close_notes else ""
@@ -104,33 +103,40 @@ Overdue tasks:
 
 {close_section}
 
-Build a brief with exactly this format:
+CRITICAL RULES:
+- Use ONLY the tasks listed above. NEVER invent, assume, or add tasks that are not listed.
+- If there are no tasks due today, write "None" under Top 3 and Next 5 — do not fabricate work.
+- Top 3 = the 3 most important tasks due today (fewer if fewer exist). Next 5 = the remaining
+  tasks due today (fewer if fewer exist). Carried over = the overdue tasks verbatim, or "None".
+
+Build a brief with exactly this format (fill only from the real tasks above):
 
 **Good morning. Here's your focus for today.**
 
 **Top 3** — the 3 most important things to move today:
-1. [task]
-2. [task]
-3. [task]
+(numbered list of up to 3 real tasks, or "None")
 
 **Next 5** — on deck after the Top 3:
-- [task]
-- [task]
-- [task]
-- [task]
-- [task]
+(bulleted list of up to 5 real tasks, or "None")
 
 **Carried over** — overdue items needing attention:
-[list any overdue, or "None" if clear]
+(bulleted list of the real overdue tasks, or "None")
 
 Keep it tight. No preamble. Just the brief."""
 
-    response = client.messages.create(
-        model=LLM_MODEL,
-        max_tokens=512,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text
+    with httpx.Client() as client:
+        r = client.post(
+            f"{LLM_BASE_URL}/api/chat",
+            json={
+                "model": LLM_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "options": {"num_predict": 512, "temperature": 0.3},
+            },
+            timeout=120.0,
+        )
+        r.raise_for_status()
+        return r.json()["message"]["content"]
 
 
 def detect_sections(brief: str) -> list[str]:
@@ -146,18 +152,20 @@ def detect_sections(brief: str) -> list[str]:
     return present
 
 
-def post_to_slack(brief: str, channel_id: str, secrets_dir: str) -> None:
-    """AR-5.3: rerouted to Telegram (sole surface). Name/signature kept so call
-    sites stay unchanged; channel_id ignored. Self-contained (no shared import on
-    the hermes path): reads telegram secrets directly, best-effort."""
-    from pathlib import Path as _P
-    tok_f = _P("/run/secrets/telegram_bot_token")
-    ids_f = _P("/run/secrets/telegram_allowed_chat_ids")
+def deliver_brief(brief: str, secrets_dir: str) -> str:
+    """Deliver the brief to the configured comms surface. Returns a sink label.
+
+    Current surface = Telegram (self-contained: reads telegram secrets directly,
+    best-effort). Buzz is KAI's primary comms; a Buzz proactive-push path for the
+    routine brief is the open cutover decision (Telegram is emergency-only in the
+    comms model, so this is interim). No Slack — Slack is retired system-wide."""
+    tok_f = Path("/run/secrets/telegram_bot_token")
+    ids_f = Path("/run/secrets/telegram_allowed_chat_ids")
     token = tok_f.read_text().strip() if tok_f.exists() else load_secret("telegram_bot_token", secrets_dir)
     raw = ids_f.read_text() if ids_f.exists() else ""
     chat_ids = [c.strip() for c in raw.replace("\n", ",").split(",") if c.strip()]
     if not token or not chat_ids:
-        return
+        return "undelivered:no-telegram-config"
     with httpx.Client() as client:
         for cid in chat_ids:
             try:
@@ -168,6 +176,7 @@ def post_to_slack(brief: str, channel_id: str, secrets_dir: str) -> None:
                 )
             except Exception:
                 pass
+    return "telegram"
 
 
 def write_to_vault_context(brief: str, vault_path: Path) -> None:
@@ -190,6 +199,7 @@ def generate(secrets_dir: str, vault_path: Path) -> dict:
         "schema": SCHEMA,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "date_label": date.today().strftime("%A, %B %d"),
+        "llm_model": LLM_MODEL,
         "tasks_today": len(tasks["today"]),
         "tasks_overdue": len(tasks["overdue"]),
         "sections_present": detect_sections(brief),
@@ -203,21 +213,16 @@ def main() -> int:
     ap.add_argument("--secrets-dir", default=os.environ.get("KAI_SECRETS_DIR", "/run/secrets"))
     ap.add_argument("--vault", default=os.environ.get("KAI_VAULT_PATH", "/vault"))
     ap.add_argument("--sink-file", default=None, help="shadow: write brief text here")
-    ap.add_argument("--channel", default=None, help="live: Slack channel id to post to")
     args = ap.parse_args()
 
     vault_path = Path(args.vault)
     env = generate(args.secrets_dir, vault_path)
 
     if args.mode == "live":
-        if not args.channel:
-            print("live mode requires --channel", file=sys.stderr)
-            return 2
-        post_to_slack(env["brief_markdown"], args.channel, args.secrets_dir)
+        env["sink"] = deliver_brief(env["brief_markdown"], args.secrets_dir)
         write_to_vault_context(env["brief_markdown"], vault_path)
-        env["sink"] = f"slack:{args.channel}"
     else:
-        # SHADOW: never touches Slack or vault. Write brief to a sink file if asked.
+        # SHADOW: never delivers to any comms surface or vault. Write to a sink file if asked.
         if args.sink_file:
             Path(args.sink_file).write_text(env["brief_markdown"], encoding="utf-8")
             env["sink"] = f"shadow-file:{args.sink_file}"

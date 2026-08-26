@@ -7,7 +7,7 @@ NEW skill (scripts/build_brief.py) on the SAME deterministic input pull, and
 evaluates content/structure parity per references/brief-contract.md.
 
 Runs inside the kai-worker-api container (has focus.py, anthropic, httpx, and
-/run/secrets). NEVER posts to Slack — both sides are generated in-memory.
+/run/secrets). NEVER delivers to any comms surface — both sides are generated in-memory.
 
 Emits a JSON summary on stdout: {cycles:[...], green:int, total:int, verdict:str}.
 The caller renders shadow/comparison_log.md from it.
