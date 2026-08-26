@@ -95,8 +95,8 @@ def _load_secret(name: str) -> str:
     return p.read_text().strip() if p.exists() else os.environ.get(name.upper(), "")
 
 
-def _slack_alert(token: str, message: str, *, cause: str | None = None):
-    """AR-5.1: rerouted to Telegram (sole surface). Legacy `token` arg ignored.
+def _page_alert(message: str, *, cause: str | None = None):
+    """Page DevOps via Telegram (notify() gateway, AR-5 sole surface).
     KAI-1100: a watchdog page asserts something needs attention, so it routes
     through the Findings Contract as status="alert". A page with no verified
     cause ships as an explicit not-yet-diagnosed (a symptom, honestly undiagnosed)
@@ -207,11 +207,6 @@ def check_ollama() -> tuple[bool, str]:
         return False, str(e)
 
 
-def check_slack() -> tuple[bool, str]:
-    # AR-5.3: Slack retired (AR-5) — nothing to health-check.
-    return True, "retired (AR-5)"
-
-
 def check_telegram() -> tuple[bool, str]:
     token = _load_secret("telegram_bot_token")
     if not token:
@@ -222,7 +217,7 @@ def check_telegram() -> tuple[bool, str]:
         # L18: the response body may reflect the token-bearing request URL,
         # literal or URL-encoded — in the success result as much as in error
         # descriptions or httpx exception text. Redact everything that flows
-        # into transport status + Slack alerts.
+        # into transport status + alerts.
         if data.get("ok"):
             return True, redact(f"bot=@{data['result'].get('username','?')}", token)
         return False, redact(data.get("description", "getMe failed"), token)
@@ -754,7 +749,6 @@ CHECKS = [
     ("worker_api",       "Worker API",       check_worker_api),
     ("council_api",      "Council API",      check_council_api),
     ("ollama",           "Ollama",           check_ollama),
-    ("slack",            "Slack",            check_slack),
     ("telegram",         "Telegram",         lambda: _check_with_retry(check_telegram)),
     ("oura",             "Oura",             lambda: _check_with_retry(check_oura)),
     ("todoist",          "Todoist",          lambda: _check_with_retry(check_todoist)),
@@ -782,7 +776,7 @@ def _remediate_backup() -> str:
         return f"remediation error: {e}"
 
 
-def _post_oauth_escalation(token: str, service: str, detail: str):
+def _post_oauth_escalation(service: str, detail: str):
     """JARVIS §6 CRITICAL format. Posted at most once per 24h per service.
 
     Only fired after persistent failure across retries — transient timeouts
@@ -794,7 +788,7 @@ def _post_oauth_escalation(token: str, service: str, detail: str):
         f"http://100.78.94.80:5678 → Credentials → {service}. "
         f"Detail: `{detail}`."
     )
-    _slack_alert(token, msg)
+    _page_alert(msg)
 
 
 def _try_fix_disk() -> str:
@@ -883,7 +877,6 @@ def _try_fix_components() -> str:
 
     # Map image name → compose service name
     IMAGE_TO_SERVICE = {
-        "kai-system-kai-slack-bot":  "kai-slack-bot",
         "kai-system-kai-mcp-api":    "kai-mcp-api",
         "kai-system-kai-worker-api": "kai-worker-api",
         "kai-system-kai-council-api":"kai-council-api",
@@ -952,7 +945,6 @@ CANT_FIX_REASON = {
     "worker_api":        ("system",    "All KAI tools and API endpoints unavailable"),
     "council_api":       ("system",    "Chat with all advisors unavailable"),
     "ollama":            ("hardlimit", "Local model inference unavailable — Claude fallback active"),
-    "slack":             ("hardlimit", "All Slack notifications and approvals unavailable"),
     "telegram":          ("hardlimit", "Telegram briefs and commands unavailable"),
     "oura":              ("hardlimit", "Health/readiness data unavailable in briefs"),
     "todoist":           ("hardlimit", "Task list unavailable — Todoist API down or token expired"),
@@ -970,7 +962,6 @@ ACTION_NEEDED = {
     "worker_api":        "Check: ssh kai 'docker logs kai-worker-api'",
     "council_api":       "Check: ssh kai 'docker logs kai-council-api'",
     "ollama":            "Check: ssh kai 'docker logs kai-ollama' — may need restart or GPU issue",
-    "slack":             "Verify Slack bot token in ~/kai-system/secrets/slack_bot_token.txt",
     "telegram":          "Verify Telegram bot token in ~/kai-system/secrets/telegram_bot_token.txt",
     "oura":              "Check Oura token in ~/kai-system/secrets/oura_token.txt",
     "todoist":           "Check Todoist token in ~/kai-system/secrets/todoist_api_token.txt",
@@ -1259,13 +1250,8 @@ def prune_archived_logs():
 
 
 def run_watchdog_checks():
-    """Run all functional health checks. Post failures to #kai-system."""
+    """Run all functional health checks. Page failures via the notify() gateway."""
     run_maintenance()
-    # Vestigial (Slack retired, AR-5.x): _slack_alert ignores this and routes to
-    # Telegram/notify-gateway. Kept only so the legacy _slack_alert(token, ...) /
-    # _post_oauth_escalation(token, ...) signatures stay intact; paging no longer
-    # depends on it (see the `if failures:` gate below).
-    token = _load_secret("slack_bot_token")
     failures = []
     remediations = []
     fixed = []
@@ -1322,7 +1308,7 @@ def run_watchdog_checks():
         # No check, anywhere, ever escalates a 'transient' failure to Leo.
         # transient = timeout / 5xx / connection error / read-timeout. These
         # are upstream flap, not actionable. They are logged and tracked, but
-        # never produce a Slack page. Only 'auth' or 'other' classifications
+        # never produce a page. Only 'auth' or 'other' classifications
         # may proceed to the tier handlers below. This applies uniformly to
         # every check in CHECKS — OAuth, infra, API health, the lot.
         classification = _classify_failure(detail)
@@ -1358,7 +1344,7 @@ def run_watchdog_checks():
         # auth failure (401/403/invalid_token) or unclassified 'other'.
         elif key in OAUTH_SERVICES:
             if _should_alert(key):
-                _post_oauth_escalation(token, OAUTH_SERVICES[key], detail)
+                _post_oauth_escalation(OAUTH_SERVICES[key], detail)
                 _last_alert[key] = datetime.now(timezone.utc).timestamp() + (22 * 3600)  # snooze 24h
                 _save_alert_state()
                 log.info("watchdog oauth escalation posted for %s — snoozed 24h", key)
@@ -1406,21 +1392,19 @@ def run_watchdog_checks():
         log.error("log-prune failed: %s", e)
 
 
-    # Auto-fixed: log only, no Slack noise
+    # Auto-fixed: log only, no page noise
     for f in fixed:
         log.info("watchdog auto-fixed: %s", f)
 
-    # 5c4e94f4: paging goes through _slack_alert -> tg_alert -> notify gateway, which
-    # does NOT use the (retired) slack_bot_token. Gating the send on `token` was a
-    # silent-death landmine: the day the dead Slack secret is removed, `token` goes
-    # falsy and EVERY watchdog page (incl. fleet host-down) would vanish while the
-    # summary logged "all checks passed". Failures must page regardless of that secret.
+    # Paging goes through _page_alert -> tg_alert -> notify gateway. Failures page
+    # unconditionally (no secret gate) — a gate on a retired credential was once a
+    # silent-death landmine that would vanish every page while logging "all passed".
     if failures:
         import re as _re
         for failure_line in failures:
             m = _re.search(r"\*(.+?)\*: `(.+?)`", failure_line)
             if not m:
-                _slack_alert(token, failure_line)
+                _page_alert(failure_line)
                 continue
             label, detail = m.group(1), m.group(2)
             key = next((k for k, l, _ in CHECKS if l == label), "")
@@ -1433,7 +1417,7 @@ def run_watchdog_checks():
                 f"You need to take action — {action}. "
                 f"({reason_str} · affects: {affects})"
             )
-            _slack_alert(token, msg)
+            _page_alert(msg)
         log.info("watchdog alert posted: %d failures", len(failures))
     elif not fixed:
         log.info("watchdog all checks passed")

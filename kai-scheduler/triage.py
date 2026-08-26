@@ -1,4 +1,4 @@
-"""Auto-triage pipeline — failure → classify → route via function_map → Plane BUG → Slack to routed team."""
+"""Auto-triage pipeline — failure → classify → route via function_map → Plane BUG → Telegram page to routed team."""
 import logging
 import os
 import re
@@ -88,7 +88,7 @@ def _get_backlog_state() -> str | None:
 # ── Routing via function_map (Sprint 03 T3, option b) ────────────────────────
 
 def _route_bug(category: str) -> tuple[str, str, str]:
-    """Resolve a bug category to (team_role, assignee_uuid, slack_channel).
+    """Resolve a bug category to (team_role, assignee_uuid, team_channel).
 
     Consults the function_map HTTP surface on kai-council-api so triage shares
     the same source of truth as orchestration. Falls back to (devops,
@@ -179,7 +179,7 @@ def create_plane_bug(
         return None
 
 
-def slack_triage_alert(
+def triage_alert(
     function_name: str,
     error: str,
     plane_seq: int | None,
@@ -187,16 +187,11 @@ def slack_triage_alert(
     risk: str = "Unknown",
     category: str = "infra_bug",
 ):
-    """Post one-line Slack alert to the routed team's channel.
+    """Page the routed team via Telegram (notify() gateway, AR-5 sole surface).
 
     Format: "Issue: <label> — Status: Action needed — <one-sentence action> (<plane_ref>)"
     """
-    token = _load("slack_bot_token")
-    if not token:
-        log.error("triage: slack_bot_token not available")
-        return
-
-    team_role, _, channel = _route_bug(category)
+    team_role, _, _ = _route_bug(category)
     plane_ref = f"KAI-{plane_seq}" if plane_seq else "Plane unreachable"
     label = _label(function_name)
 
@@ -225,7 +220,7 @@ def _classify_and_analyze(function_name: str, error: str) -> tuple[str, str, str
 
     Returns (proposed_fix, risk, category). Category is the support-engineer's
     triage call: code_bug / infra_bug / content_bug / unknown — used by
-    _route_bug to pick the assignee + Slack channel.
+    _route_bug to pick the assignee + team channel.
 
     KAI-464 — Sonnet→Qwen retarget; structural classification belongs on Qwen
     per the KAI-459 local-first rule. Cost: $0.
@@ -294,7 +289,7 @@ def _default_category_for(function_name: str) -> str:
 
 
 def triage_failure(function_name: str, error: str):
-    """Full pipeline: classify (support-engineer) → route → Plane BUG → Slack to routed team.
+    """Full pipeline: classify (support-engineer) → route → Plane BUG → Telegram page to routed team.
 
     Zero-evidence path: when `error` is empty (common for watchdog gap alerts
     that only know a function didn't run, not why), skip the qwen call — there's
@@ -309,5 +304,5 @@ def triage_failure(function_name: str, error: str):
         category = _default_category_for(function_name)
     seq = create_plane_bug(function_name, error, proposed_fix=proposed_fix,
                            risk=risk, category=category)
-    slack_triage_alert(function_name, error, seq, proposed_fix=proposed_fix,
-                       risk=risk, category=category)
+    triage_alert(function_name, error, seq, proposed_fix=proposed_fix,
+                 risk=risk, category=category)

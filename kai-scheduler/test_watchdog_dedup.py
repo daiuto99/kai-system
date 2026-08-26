@@ -40,8 +40,8 @@ class WatchdogDedupTests(unittest.TestCase):
         # 5c4e94f4: these tests prove the escalation MECHANISM, not prod deferral
         # config. google_calendar (the OAUTH exemplar) is in DEFERRED_CHECKS in
         # prod, which skips it before the counter/escalation path — the actual
-        # root cause of the 3 stale failures (NOT the Slack->Telegram reroute the
-        # ticket title guessed). Clear it so the exemplar is genuinely exercised;
+        # root cause of the 3 stale failures (NOT the legacy-chat->Telegram reroute
+        # the ticket title guessed). Clear it so the exemplar is genuinely exercised;
         # test_deferred_check_is_skipped covers the deferral behavior separately.
         _p = mock.patch.object(self.wd, "DEFERRED_CHECKS", {})
         _p.start()
@@ -127,7 +127,7 @@ class WatchdogDedupTests(unittest.TestCase):
     def test_single_transient_does_not_escalate(self):
         """Scenario: one tick of timeout. No alert. No counter at threshold."""
         with mock.patch.object(self.wd, "_post_oauth_escalation") as posted, \
-             mock.patch.object(self.wd, "_slack_alert"), \
+             mock.patch.object(self.wd, "_page_alert"), \
              mock.patch.object(self.wd, "_load_secret", return_value="fake-token"), \
              mock.patch.object(self.wd, "run_maintenance"), \
              mock.patch.object(self.wd, "run_gap_checks"), \
@@ -150,7 +150,7 @@ class WatchdogDedupTests(unittest.TestCase):
         """Scenario: 3 ticks of transient timeout. Threshold met BUT classification
         is transient → no escalation. This is the 18:05 bug case."""
         with mock.patch.object(self.wd, "_post_oauth_escalation") as posted, \
-             mock.patch.object(self.wd, "_slack_alert"), \
+             mock.patch.object(self.wd, "_page_alert"), \
              mock.patch.object(self.wd, "_load_secret", return_value="fake-token"), \
              mock.patch.object(self.wd, "run_maintenance"), \
              mock.patch.object(self.wd, "run_gap_checks"), \
@@ -171,7 +171,7 @@ class WatchdogDedupTests(unittest.TestCase):
     def test_three_auth_ticks_escalates_once(self):
         """Scenario: 3 ticks of 401. Threshold met + classification=auth → escalate."""
         with mock.patch.object(self.wd, "_post_oauth_escalation") as posted, \
-             mock.patch.object(self.wd, "_slack_alert"), \
+             mock.patch.object(self.wd, "_page_alert"), \
              mock.patch.object(self.wd, "_load_secret", return_value="fake-token"), \
              mock.patch.object(self.wd, "run_maintenance"), \
              mock.patch.object(self.wd, "run_gap_checks"), \
@@ -197,7 +197,7 @@ class WatchdogDedupTests(unittest.TestCase):
         even past threshold — must never page Leo. The classification gate
         applies to every check, not just OAuth."""
         with mock.patch.object(self.wd, "_post_oauth_escalation") as posted, \
-             mock.patch.object(self.wd, "_slack_alert") as slack, \
+             mock.patch.object(self.wd, "_page_alert") as page, \
              mock.patch.object(self.wd, "_load_secret", return_value="fake-token"), \
              mock.patch.object(self.wd, "run_maintenance"), \
              mock.patch.object(self.wd, "run_gap_checks"), \
@@ -214,16 +214,16 @@ class WatchdogDedupTests(unittest.TestCase):
                 for _ in range(5):  # well past threshold
                     self.wd.run_watchdog_checks()
             posted.assert_not_called()
-            # No batched-failures Slack message either
-            for call in slack.call_args_list:
-                msg = call.args[1] if len(call.args) > 1 else call.kwargs.get("message", "")
-                self.assertNotIn("Telegram", msg, "Transient should never reach Slack")
+            # No batched-failures page either
+            for call in page.call_args_list:
+                msg = call.args[0] if call.args else call.kwargs.get("message", "")
+                self.assertNotIn("Telegram", msg, "Transient should never page")
 
     def test_non_oauth_auth_failure_still_escalates(self):
         """SYSTEM RULE counterpart: real auth failures DO escalate after threshold,
         even for non-OAuth services. Classification gate allows 'auth' through."""
         with mock.patch.object(self.wd, "_post_oauth_escalation"), \
-             mock.patch.object(self.wd, "_slack_alert") as slack, \
+             mock.patch.object(self.wd, "_page_alert") as page, \
              mock.patch.object(self.wd, "_load_secret", return_value="fake-token"), \
              mock.patch.object(self.wd, "run_maintenance"), \
              mock.patch.object(self.wd, "run_gap_checks"), \
@@ -239,17 +239,17 @@ class WatchdogDedupTests(unittest.TestCase):
             with mock.patch.object(self.wd, "CHECKS", patched_checks):
                 for _ in range(3):  # hit threshold
                     self.wd.run_watchdog_checks()
-            # Should have sent at least one Slack message mentioning Oura
+            # Should have sent at least one page mentioning Oura
             oura_msgs = [
-                c for c in slack.call_args_list
-                if "Oura" in (c.args[1] if len(c.args) > 1 else c.kwargs.get("message", ""))
+                c for c in page.call_args_list
+                if "Oura" in (c.args[0] if c.args else c.kwargs.get("message", ""))
             ]
             self.assertGreater(len(oura_msgs), 0, "Real auth failure should escalate")
 
     def test_auth_recovery_preserves_snooze(self):
         """Scenario: auth fail → escalate → recover → next transient must NOT re-fire."""
         with mock.patch.object(self.wd, "_post_oauth_escalation") as posted, \
-             mock.patch.object(self.wd, "_slack_alert"), \
+             mock.patch.object(self.wd, "_page_alert"), \
              mock.patch.object(self.wd, "_load_secret", return_value="fake-token"), \
              mock.patch.object(self.wd, "run_maintenance"), \
              mock.patch.object(self.wd, "run_gap_checks"), \
@@ -292,7 +292,7 @@ class WatchdogDedupTests(unittest.TestCase):
         google_calendar is deferred in prod (n8n OAuth dead until S7-9)."""
         with mock.patch.object(self.wd, "DEFERRED_CHECKS", {"google_calendar": "deferred"}), \
              mock.patch.object(self.wd, "_post_oauth_escalation") as posted, \
-             mock.patch.object(self.wd, "_slack_alert"), \
+             mock.patch.object(self.wd, "_page_alert"), \
              mock.patch.object(self.wd, "_load_secret", return_value="fake-token"), \
              mock.patch.object(self.wd, "run_maintenance"), \
              mock.patch.object(self.wd, "run_gap_checks"), \
@@ -311,17 +311,14 @@ class WatchdogDedupTests(unittest.TestCase):
             posted.assert_not_called()
             self.assertIsNone(self.wd._fail_counter.get("google_calendar"))
 
-    def test_failures_page_without_slack_token(self):
-        """5c4e94f4 landmine regression: a real failure must still page Leo when
-        the RETIRED slack_bot_token is ABSENT. Paging routes through
-        _slack_alert -> tg_alert -> notify gateway, which does not use that
-        secret; gating the send on it (the old `if failures and token`) was a
-        silent-death path the day the dead secret is removed."""
-        def _no_slack_token(name):
-            return "" if name == "slack_bot_token" else "fake-token"
+    def test_failures_always_page(self):
+        """5c4e94f4 landmine regression: a real failure must page unconditionally.
+        Paging routes through _page_alert -> tg_alert -> notify gateway, gated on
+        nothing — the old design loaded a now-retired credential and gated the send
+        on it, which would silently drop every page the day that secret went away."""
         with mock.patch.object(self.wd, "_post_oauth_escalation"), \
-             mock.patch.object(self.wd, "_slack_alert") as slack, \
-             mock.patch.object(self.wd, "_load_secret", side_effect=_no_slack_token), \
+             mock.patch.object(self.wd, "_page_alert") as page, \
+             mock.patch.object(self.wd, "_load_secret", return_value="fake-token"), \
              mock.patch.object(self.wd, "run_maintenance"), \
              mock.patch.object(self.wd, "run_gap_checks"), \
              mock.patch.object(self.wd, "check_container_warnings"), \
@@ -337,11 +334,11 @@ class WatchdogDedupTests(unittest.TestCase):
                 for _ in range(3):
                     self.wd.run_watchdog_checks()
             oura_msgs = [
-                c for c in slack.call_args_list
-                if "Oura" in (c.args[1] if len(c.args) > 1 else c.kwargs.get("message", ""))
+                c for c in page.call_args_list
+                if "Oura" in (c.args[0] if c.args else c.kwargs.get("message", ""))
             ]
             self.assertGreater(len(oura_msgs), 0,
-                               "Failure must page even with slack_bot_token absent")
+                               "A real failure must always page")
 
 
 if __name__ == "__main__":
