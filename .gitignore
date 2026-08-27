@@ -16,3 +16,6 @@ __pycache__/
 .syncthing.*.tmp
 backups/buzz-relay/*.tar.gz
 logs/*.log
+logs/devops_custodian.jsonl
+logs/devops_custodian_liveness.json
+logs/.devops_backups_custodian.lock
