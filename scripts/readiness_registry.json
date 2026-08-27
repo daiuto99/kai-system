@@ -1,54 +1,202 @@
 {
-  "_doc": "S1-B2 readiness registry — the top-down enumeration of KAI's credential dependency surface the 2026-08-20 autonomy audit said never existed (Fable F6: system built corpse-by-corpse, a probe per burned incident). Every credential file in secrets/*.txt MUST match a row here (an explicit `name` or a `pattern`) or check_credential_registry WARNs — that is the inventory-first guard: a new credential must be registered or the green baseline flags it. `runtime-critical` rows RED if the backing file is absent. Expiry/liveness for the expiring subset is intentionally NOT duplicated here — it lives in the dedicated probes (tailscale_key_expiry, public_tls, codex_verifier_auth, and the Cloudways token probe in S1-B5). This registry is DATA: adjust criticality by editing a row, not by writing code.",
+  "_doc": "S1-B2 readiness registry \u2014 the top-down enumeration of KAI's credential dependency surface the 2026-08-20 autonomy audit said never existed (Fable F6: system built corpse-by-corpse, a probe per burned incident). Every credential file in secrets/*.txt MUST match a row here (an explicit `name` or a `pattern`) or check_credential_registry WARNs \u2014 that is the inventory-first guard: a new credential must be registered or the green baseline flags it. `runtime-critical` rows RED if the backing file is absent. Expiry/liveness for the expiring subset is intentionally NOT duplicated here \u2014 it lives in the dedicated probes (tailscale_key_expiry, public_tls, codex_verifier_auth, and the Cloudways token probe in S1-B5). This registry is DATA: adjust criticality by editing a row, not by writing code.",
   "credentials": [
-    {"name": "anthropic_api_key", "criticality": "runtime-critical", "note": "primary model provider for the whole system"},
-    {"name": "kai_worker_auth", "criticality": "runtime-critical", "note": "worker-api :8001 basic-auth — session brief, warmboot, close"},
-    {"name": "litellm_master_key", "criticality": "runtime-critical", "note": "LiteLLM gateway master key — all routed completions"},
-    {"name": "plane_api_token", "criticality": "runtime-critical", "note": "Plane board = task authority; warmboot + close depend on it"},
-    {"name": "cloudflare_tunnel_token", "criticality": "runtime-critical", "note": "public ingress tunnel (kai.sonicink.space)"},
-    {"name": "orchestrator_capability_auth", "criticality": "runtime-critical", "note": "orchestrator capability-call auth"},
-    {"name": "kai_publish_gate_secret", "criticality": "runtime-critical", "note": "hostops publish-gate payload — the approve-and-execute rail"},
-    {"name": "telegram_bot_token", "criticality": "runtime-critical", "note": "emergency comms surface (Telegram long-poll)"},
-    {"name": "telegram_allowed_chat_ids", "criticality": "runtime-critical", "note": "Telegram authz allowlist — comms fail-closed without it"},
-    {"name": "tailscale_authkey", "criticality": "runtime-critical", "note": "tailnet enrollment key (node-key expiry watched separately)"},
-    {"name": "redeploy_token", "criticality": "runtime-critical", "note": "deploy/redeploy trigger"},
-    {"name": "github_webhook_secret", "criticality": "runtime-critical", "note": "deploy webhook HMAC"},
-
-    {"name": "openai_api_key", "criticality": "degraded", "note": "Codex cross-provider verifier (verifier, not a runtime dep — audit F4)"},
-    {"name": "cloudways_api_token", "criticality": "degraded", "note": "WP fleet host API (known 403 — rotation tracked S1-B5)"},
-    {"name": "cloudways_account_email", "criticality": "degraded", "note": "Cloudways account identity"},
-    {"name": "cloudways_ssh_key", "criticality": "degraded", "note": "master-operator SSH key for the WP fleet (non-.txt; documented, not coverage-enforced)"},
-    {"name": "wp_write_token", "criticality": "degraded", "note": "WP write path token"},
-    {"name": "wp_kai_admin", "criticality": "degraded", "note": "WP KAI admin credential"},
-    {"name": "wp_leo_admin", "criticality": "degraded", "note": "WP Leo admin credential"},
-    {"name": "wpscan_api_token", "criticality": "degraded", "note": "WPScan vuln feed"},
-    {"name": "n8n_api_key", "criticality": "degraded", "note": "n8n automation API"},
-    {"name": "n8n_basic_auth_password", "criticality": "degraded", "note": "n8n UI basic-auth"},
-    {"name": "n8n_encryption_key", "criticality": "degraded", "note": "n8n credential encryption key"},
-    {"name": "oura_token", "criticality": "degraded", "note": "Oura personal-data integration"},
-    {"name": "todoist_api_key", "criticality": "degraded", "note": "Todoist integration"},
-    {"name": "habitsync_api_key", "criticality": "degraded", "note": "HabitSync integration"},
-    {"name": "habitsync_password", "criticality": "degraded", "note": "HabitSync integration"},
-    {"name": "healthchecks_url", "criticality": "degraded", "note": "healthchecks.io dead-man ping URL"},
-    {"name": "syncthing_api_key", "criticality": "degraded", "note": "Syncthing secret replication API"},
-    {"name": "tavily_api_key", "criticality": "degraded", "note": "web-search provider"},
-    {"name": "unifi_api_key", "criticality": "degraded", "note": "Ubiquiti/UniFi monitoring (KAI-985, parked)"},
-    {"name": "codeserver_password", "criticality": "degraded", "note": "code-server UI password"},
-    {"name": "kai_web_password", "criticality": "degraded", "note": "KAI web UI password"},
-    {"name": "ms_client_id", "criticality": "degraded", "note": "Microsoft OAuth client id"},
-    {"name": "ms_client_secret", "criticality": "degraded", "note": "Microsoft OAuth client secret"},
-    {"name": "google_oauth_client_id", "criticality": "degraded", "note": "Google OAuth client id"},
-    {"name": "google_oauth_client_secret", "criticality": "degraded", "note": "Google OAuth client secret"},
-    {"name": "slack_app_token", "criticality": "degraded", "note": "Slack (retired comms) — app token"},
-    {"name": "slack_app_token_roads", "criticality": "degraded", "note": "Slack (retired) — Roads advisor app token"},
-    {"name": "slack_app_token_sky", "criticality": "degraded", "note": "Slack (retired) — Sky advisor app token"},
-    {"name": "slack_bot_token", "criticality": "degraded", "note": "Slack (retired) — bot token"},
-    {"name": "slack_bot_token_roads", "criticality": "degraded", "note": "Slack (retired) — Roads bot token"},
-    {"name": "slack_bot_token_sky", "criticality": "degraded", "note": "Slack (retired) — Sky bot token"},
-    {"name": "slack_signing_secret", "criticality": "degraded", "note": "Slack (retired) — signing secret"}
+    {
+      "name": "anthropic_api_key",
+      "criticality": "runtime-critical",
+      "note": "primary model provider for the whole system"
+    },
+    {
+      "name": "kai_worker_auth",
+      "criticality": "runtime-critical",
+      "note": "worker-api :8001 basic-auth \u2014 session brief, warmboot, close"
+    },
+    {
+      "name": "litellm_master_key",
+      "criticality": "runtime-critical",
+      "note": "LiteLLM gateway master key \u2014 all routed completions"
+    },
+    {
+      "name": "plane_api_token",
+      "criticality": "runtime-critical",
+      "note": "Plane board = task authority; warmboot + close depend on it"
+    },
+    {
+      "name": "cloudflare_tunnel_token",
+      "criticality": "runtime-critical",
+      "note": "public ingress tunnel (kai.sonicink.space)"
+    },
+    {
+      "name": "orchestrator_capability_auth",
+      "criticality": "runtime-critical",
+      "note": "orchestrator capability-call auth"
+    },
+    {
+      "name": "kai_publish_gate_secret",
+      "criticality": "runtime-critical",
+      "note": "hostops publish-gate payload \u2014 the approve-and-execute rail"
+    },
+    {
+      "name": "telegram_bot_token",
+      "criticality": "runtime-critical",
+      "note": "emergency comms surface (Telegram long-poll)"
+    },
+    {
+      "name": "telegram_allowed_chat_ids",
+      "criticality": "runtime-critical",
+      "note": "Telegram authz allowlist \u2014 comms fail-closed without it"
+    },
+    {
+      "name": "tailscale_authkey",
+      "criticality": "runtime-critical",
+      "note": "tailnet enrollment key (node-key expiry watched separately)"
+    },
+    {
+      "name": "redeploy_token",
+      "criticality": "runtime-critical",
+      "note": "deploy/redeploy trigger"
+    },
+    {
+      "name": "github_webhook_secret",
+      "criticality": "runtime-critical",
+      "note": "deploy webhook HMAC"
+    },
+    {
+      "name": "openai_api_key",
+      "criticality": "degraded",
+      "note": "Codex cross-provider verifier (verifier, not a runtime dep \u2014 audit F4)"
+    },
+    {
+      "name": "cloudways_api_token",
+      "criticality": "degraded",
+      "note": "WP fleet host API (known 403 \u2014 rotation tracked S1-B5)"
+    },
+    {
+      "name": "cloudways_account_email",
+      "criticality": "degraded",
+      "note": "Cloudways account identity"
+    },
+    {
+      "name": "cloudways_ssh_key",
+      "criticality": "degraded",
+      "note": "master-operator SSH key for the WP fleet (non-.txt; documented, not coverage-enforced)"
+    },
+    {
+      "name": "wp_write_token",
+      "criticality": "degraded",
+      "note": "WP write path token"
+    },
+    {
+      "name": "wp_kai_admin",
+      "criticality": "degraded",
+      "note": "WP KAI admin credential"
+    },
+    {
+      "name": "wp_leo_admin",
+      "criticality": "degraded",
+      "note": "WP Leo admin credential"
+    },
+    {
+      "name": "wpscan_api_token",
+      "criticality": "degraded",
+      "note": "WPScan vuln feed"
+    },
+    {
+      "name": "n8n_api_key",
+      "criticality": "degraded",
+      "note": "n8n automation API"
+    },
+    {
+      "name": "n8n_basic_auth_password",
+      "criticality": "degraded",
+      "note": "n8n UI basic-auth"
+    },
+    {
+      "name": "n8n_encryption_key",
+      "criticality": "degraded",
+      "note": "n8n credential encryption key"
+    },
+    {
+      "name": "oura_token",
+      "criticality": "degraded",
+      "note": "Oura personal-data integration"
+    },
+    {
+      "name": "todoist_api_key",
+      "criticality": "degraded",
+      "note": "Todoist integration"
+    },
+    {
+      "name": "habitsync_api_key",
+      "criticality": "degraded",
+      "note": "HabitSync integration"
+    },
+    {
+      "name": "habitsync_password",
+      "criticality": "degraded",
+      "note": "HabitSync integration"
+    },
+    {
+      "name": "healthchecks_url",
+      "criticality": "degraded",
+      "note": "healthchecks.io dead-man ping URL"
+    },
+    {
+      "name": "syncthing_api_key",
+      "criticality": "degraded",
+      "note": "Syncthing secret replication API"
+    },
+    {
+      "name": "tavily_api_key",
+      "criticality": "degraded",
+      "note": "web-search provider"
+    },
+    {
+      "name": "unifi_api_key",
+      "criticality": "degraded",
+      "note": "Ubiquiti/UniFi monitoring (KAI-985, parked)"
+    },
+    {
+      "name": "codeserver_password",
+      "criticality": "degraded",
+      "note": "code-server UI password"
+    },
+    {
+      "name": "kai_web_password",
+      "criticality": "degraded",
+      "note": "KAI web UI password"
+    },
+    {
+      "name": "ms_client_id",
+      "criticality": "degraded",
+      "note": "Microsoft OAuth client id"
+    },
+    {
+      "name": "ms_client_secret",
+      "criticality": "degraded",
+      "note": "Microsoft OAuth client secret"
+    },
+    {
+      "name": "google_oauth_client_id",
+      "criticality": "degraded",
+      "note": "Google OAuth client id"
+    },
+    {
+      "name": "google_oauth_client_secret",
+      "criticality": "degraded",
+      "note": "Google OAuth client secret"
+    }
   ],
   "patterns": [
-    {"pattern": "^wp_[a-z0-9-]+_cloudways_(app|mysql|sys)_password$", "criticality": "degraded", "note": "Cloudways per-site fleet credentials (11 WP sites × app/mysql/sys)"},
-    {"pattern": "^wp_[a-z0-9-]+_kai_app_password$", "criticality": "degraded", "note": "KAI per-site WordPress application passwords (11 WP sites)"}
+    {
+      "pattern": "^wp_[a-z0-9-]+_cloudways_(app|mysql|sys)_password$",
+      "criticality": "degraded",
+      "note": "Cloudways per-site fleet credentials (11 WP sites \u00d7 app/mysql/sys)"
+    },
+    {
+      "pattern": "^wp_[a-z0-9-]+_kai_app_password$",
+      "criticality": "degraded",
+      "note": "KAI per-site WordPress application passwords (11 WP sites)"
+    }
   ]
 }
