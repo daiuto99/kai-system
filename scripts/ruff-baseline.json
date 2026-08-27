@@ -670,63 +670,63 @@
       "service": "kai-worker-api",
       "filename": "/app/routes/parking_lot.py",
       "code": "F401",
-      "row": 504,
+      "row": 515,
       "column": 21
     },
     {
       "service": "kai-worker-api",
       "filename": "/app/routes/parking_lot.py",
       "code": "F841",
-      "row": 509,
+      "row": 520,
       "column": 5
     },
     {
       "service": "kai-worker-api",
       "filename": "/app/routes/parking_lot.py",
       "code": "F841",
-      "row": 514,
+      "row": 525,
       "column": 5
     },
     {
       "service": "kai-worker-api",
       "filename": "/app/routes/parking_lot.py",
       "code": "E701",
-      "row": 522,
+      "row": 533,
       "column": 19
     },
     {
       "service": "kai-worker-api",
       "filename": "/app/routes/parking_lot.py",
       "code": "E701",
-      "row": 523,
+      "row": 534,
       "column": 15
     },
     {
       "service": "kai-worker-api",
       "filename": "/app/routes/parking_lot.py",
       "code": "E701",
-      "row": 524,
+      "row": 535,
       "column": 24
     },
     {
       "service": "kai-worker-api",
       "filename": "/app/routes/parking_lot.py",
       "code": "E701",
-      "row": 580,
+      "row": 591,
       "column": 15
     },
     {
       "service": "kai-worker-api",
       "filename": "/app/routes/parking_lot.py",
       "code": "E701",
-      "row": 581,
+      "row": 592,
       "column": 11
     },
     {
       "service": "kai-worker-api",
       "filename": "/app/routes/parking_lot.py",
       "code": "E701",
-      "row": 582,
+      "row": 593,
       "column": 20
     },
     {
@@ -859,7 +859,7 @@
       "service": "kai-worker-api",
       "filename": "/app/routing_engine.py",
       "code": "F841",
-      "row": 57,
+      "row": 63,
       "column": 5
     },
     {

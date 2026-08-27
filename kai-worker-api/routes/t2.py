@@ -68,6 +68,9 @@ def create_t2_action(req: T2ActionRequest):
         "advisor": req.advisor,
         "status": "pending",
         "created_at": _dt.now().isoformat(),
+        # slack_ts / slack_channel_id: retired-Slack-named vestige fields, ALWAYS None
+        # since AR-5.3 rerouted T2 notifications to Telegram (below). Kept as inert keys
+        # to avoid a data migration of existing queue entries; removal deferred (KAI-1243).
         "slack_ts": None,
         "slack_channel_id": None,
         "gate_id": req.gate_id,

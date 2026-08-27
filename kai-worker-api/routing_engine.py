@@ -38,14 +38,20 @@ DEFAULT_BLOG = "sette-uno"
 
 def build_dispatch_plan(
     intent: dict,
-    origin_channel: str = "slack",
+    origin_channel: str = "telegram",
     wp_sites: tuple[str, ...] | None = None,
 ) -> dict:
     """Map a parsed intent to a dispatch plan.
 
     Args:
         intent: output of intent_parser.parse_intent().
-        origin_channel: "slack" | "telegram" | "web" — affects privacy + surface routing.
+        origin_channel: "telegram" | "web" — affects privacy + surface routing.
+            The private-advisor privacy gate below blocks dispatch to PRIVACY_ADVISORS
+            when origin_channel == "telegram" (not end-to-end encrypted). The default
+            is FAIL-CLOSED ("telegram"): a caller that omits the origin gets the
+            privacy-restricted posture, never a bypass. (Was "slack" pre-AR-5; Slack
+            is retired — a dead-channel default silently defeated this gate, KAI [BUG][PRIV]
+            0e6870b7. Every caller should pass the true origin explicitly.)
         wp_sites: override list of valid WordPress site keys (defaults to vault config).
 
     Returns a dict describing the dispatch plan. The plan is NOT executed here.

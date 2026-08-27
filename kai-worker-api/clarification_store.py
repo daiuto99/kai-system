@@ -12,9 +12,13 @@ Entry shape:
         "id":              "<uuid4>",
         "created_at":      "<iso8601>",
         "updated_at":      "<iso8601>",
-        "channel":         "slack" | "telegram" | "web",
+        "channel":         "telegram" | "web",   # "slack" retired (AR-5); no longer written
         "origin_chat_id":  "<channel-specific chat/user id>",
-        "slack_thread_ts": "<ts>" | null,   # only set for slack
+        # slack_thread_ts: NAME IS A RETIRED-SLACK VESTIGE. Stores the message thread ts
+        # of whatever channel opened the clarification (now Telegram) — not Slack-specific.
+        # Correct name is `thread_ts`/`notify_thread_ts`; rename deferred (AR-2/KAI-1243)
+        # because it needs a data migration of existing sprint_a_pending.json entries.
+        "slack_thread_ts": "<ts>" | null,
         "telegram_msg_id": <int> | null,    # only set for telegram, the bot's prompt msg
         "parsed_intent":   {...},           # output of intent_parser.parse_intent
         "dispatch_plan":   {...},           # output of routing_engine.build_dispatch_plan
@@ -84,6 +88,8 @@ def create_pending(
     channel: str,
     origin_chat_id: str,
     captured_content: dict | None = None,
+    # slack_thread_ts: retired-Slack-named param; holds the thread ts of any channel.
+    # Rename deferred (AR-2/KAI-1243 — needs a sprint_a_pending.json data migration).
     slack_thread_ts: str | None = None,
     telegram_msg_id: int | None = None,
     store_path: Path = DEFAULT_PATH,
@@ -95,7 +101,9 @@ def create_pending(
         {"original_message": str, "url": str|None,
          "og_title": str, "og_description": str}
     """
-    if channel not in {"slack", "telegram", "web"}:
+    # "slack" retired (AR-5, KAI-1243) — no code writes it anymore; accepted channels
+    # are the live surfaces only.
+    if channel not in {"telegram", "web"}:
         raise ClarificationStoreError(f"invalid channel: {channel}")
     if not dispatch_plan.get("clarifications_needed"):
         raise ClarificationStoreError("plan has no clarifications_needed — nothing to pend")

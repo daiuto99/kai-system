@@ -112,6 +112,12 @@ class ParkingLotRequest(BaseModel):
     channel_id: str
     thread_ts: str
     user_id: str = ""
+    # Origin channel drives the routing_engine private-advisor privacy gate.
+    # FAIL-CLOSED default: an unspecified origin is treated as the privacy-restricted
+    # remote channel ("telegram"), so private-advisor dispatch is blocked unless the
+    # caller declares a trusted origin. (Was hardcoded "slack" — a retired channel that
+    # silently bypassed the gate: KAI [BUG][PRIV] 0e6870b7.)
+    origin_channel: str = "telegram"
 
 
 class QuickCaptureRequest(BaseModel):
@@ -137,15 +143,17 @@ def parking_lot_capture(req: ParkingLotRequest):
             og_title=captured_content.get("og_title", ""),
             og_description=captured_content.get("og_description", ""),
         )
-        plan = build_dispatch_plan(intent, origin_channel="slack")
+        plan = build_dispatch_plan(intent, origin_channel=req.origin_channel)
 
         if plan.get("clarifications_needed"):
             entry = create_pending(
                 parsed_intent=intent,
                 dispatch_plan=plan,
-                channel="slack",
+                channel=req.origin_channel,
                 origin_chat_id=req.channel_id,
                 captured_content=captured_content,
+                # slack_thread_ts: retired-Slack-named param that actually stores the
+                # message thread ts of any channel (rename deferred, see clarification_store).
                 slack_thread_ts=req.thread_ts or None,
             )
             ask(entry["id"])
@@ -428,7 +436,10 @@ def parking_lot_sprint_a_route(slug: str, req: SprintARouteRequest):
         og_title=title,
         og_description=summary,
     )
-    plan = build_dispatch_plan(intent, origin_channel="slack")
+    # Backlog reprocess is an internal dashboard-originated action (Leo reprocessing a
+    # saved card), not a remote message channel — a trusted "web" origin. (Was hardcoded
+    # "slack" — retired: KAI [BUG][PRIV] 0e6870b7.)
+    plan = build_dispatch_plan(intent, origin_channel="web")
 
     _backlog_audit(slug, intent, plan)
 
@@ -445,7 +456,7 @@ def parking_lot_sprint_a_route(slug: str, req: SprintARouteRequest):
         entry = create_pending(
             parsed_intent=intent,
             dispatch_plan=plan,
-            channel="slack",
+            channel="web",
             origin_chat_id=f"backlog:{slug}",
             captured_content=captured_content,
         )

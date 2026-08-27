@@ -85,6 +85,15 @@ CREATE TABLE IF NOT EXISTS overrides (
     step_name  TEXT NOT NULL,
     reason     TEXT NOT NULL,
     operator   TEXT NOT NULL DEFAULT 'leo',
+    -- slack_ack: NAME IS A RETIRED-SLACK VESTIGE, NOT A LIVE SLACK DEPENDENCY.
+    -- Holds 1 iff the override notification was acknowledged/delivered. Written from
+    -- main.py as `slack_ack=notify_ok`, where notify_ok now comes from the notify()
+    -- gateway (Telegram/dashboard) — Slack is retired (AR-5). The semantically correct
+    -- name is `notify_ack`. RENAME DEFERRED ON PURPOSE (AR-2 / KAI-1243): it is a live
+    -- SQLite column with existing rows, so a rename needs `ALTER TABLE overrides RENAME
+    -- COLUMN slack_ack TO notify_ack` coordinated with engine.py + main.py in one deploy.
+    -- Low-value / higher-risk; scheduled for the next orchestrator schema migration. Do
+    -- NOT read this as evidence of a live Slack integration.
     slack_ack  INTEGER DEFAULT 0,
     bug_filed  TEXT,
     created_at TEXT NOT NULL
