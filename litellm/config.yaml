@@ -45,6 +45,8 @@ litellm_settings:
   drop_params: true
   request_timeout: 90
   fallbacks: [{"qwen-mid": ["qwen-mid-worker"]}]
+  # KAI-963 (AR-2): trace every gateway call to self-hosted Langfuse via OTLP (v4-native).
+  callbacks: ["langfuse_otel"]
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

@@ -19,3 +19,5 @@ logs/*.log
 logs/devops_custodian.jsonl
 logs/devops_custodian_liveness.json
 logs/.devops_backups_custodian.lock
+langfuse.env
+langfuse-client.env

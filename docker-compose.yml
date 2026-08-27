@@ -1,3 +1,6 @@
+include:
+  - langfuse-compose.yml
+
 services:
 
   docker-socket-proxy:
@@ -174,6 +177,9 @@ services:
     ports:
       # council, orchestrator, and scheduler use kai-litellm:4000 on Docker.
       - "127.0.0.1:4000:4000"
+    env_file:
+      # KAI-963: LANGFUSE_HOST/PUBLIC_KEY/SECRET_KEY for the langfuse_otel callback.
+      - langfuse-client.env
     volumes:
       - ./litellm/config.yaml:/app/config.yaml:ro
     secrets:
