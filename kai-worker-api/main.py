@@ -9,7 +9,7 @@ from routes import vault, focus, parking_lot, inbox, checkin, settings, projects
 from harmony import router as harmony_router
 
 _NO_AUTH = frozenset({
-    "/health", "/github/webhook", "/telegram/webhook", "/mode_lock/slack_callback",
+    "/health", "/github/webhook", "/telegram/webhook",
 })
 
 _AUTH_FILES = (Path("/run/secrets/kai_worker_auth"), Path("/home/leo/kai-system/secrets/kai_worker_auth.txt"))

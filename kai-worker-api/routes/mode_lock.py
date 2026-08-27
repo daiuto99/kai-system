@@ -19,8 +19,8 @@ Replaces the binary YES unlock with a contextual, Leo-in-the-loop approval flow:
      stays valid until expires_at.
 
 AR-5.x (KAI-999): the remote approval channel moved from Slack (retired, AR-5)
-to Telegram. The Slack callback + helpers are kept dormant for the eventual
-HTTP cutover but are no longer used to post requests. See memory
+to Telegram. AR-2 (KAI-1243): the dormant Slack callback + helpers were removed
+entirely — Telegram/Buzz/present are the only surfaces. See memory
 feedback_mode_lock_approval_telegram.
 
 Storage: JSON file at /vault/00_System/mode_lock_approvals.json with fcntl
@@ -29,8 +29,6 @@ flock for concurrency safety. Pattern matches clarification_store.py.
 from __future__ import annotations
 
 import fcntl
-import hashlib
-import hmac
 import json
 import logging
 import os
@@ -39,15 +37,13 @@ import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import parse_qs
 
 import httpx as _mlhx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from safe_http import safe_json
 # KAI-1004: the approval-card send + its token redaction moved into the notify()
-# gateway; the raw-body redact() call here is retired. _mlhx/safe_json remain in use
-# for editMessageText (in-place card edit on decision).
+# gateway; the raw-body redact() call here is retired. _mlhx remains in use for
+# editMessageText (in-place Telegram card edit on decision).
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -61,10 +57,9 @@ STORE_PATH = Path(os.environ.get(
 ))
 # Generous default window: the remote (Telegram) path is async and Leo may be
 # away/busy, so a pending request stays tappable for an hour rather than the
-# old ~5-min Slack window (KAI-999).
+# old ~5-min remote-approval window (KAI-999).
 DEFAULT_REQUEST_TTL_S = int(os.environ.get("MODE_LOCK_REQUEST_TTL_S", "3600"))
 DEFAULT_SESSION_TTL_S = int(os.environ.get("MODE_LOCK_SESSION_TTL_S", "3600"))
-SLACK_CHANNEL = os.environ.get("MODE_LOCK_SLACK_CHANNEL", "#devops")
 
 TELEGRAM_API = "https://api.telegram.org"
 
@@ -116,45 +111,6 @@ def _telegram_chat_id() -> int | None:
             except ValueError:
                 continue
     return None
-
-
-# ── Slack helpers (reused pattern from routes/slack.py) ──────────────────────
-
-def _slack_token() -> str:
-    p = Path("/run/secrets/slack_bot_token")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
-
-
-def _slack_signing_secret() -> str:
-    p = Path("/run/secrets/slack_signing_secret")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_SIGNING_SECRET", "")
-
-
-def _verify_slack_sig(raw_body: bytes, ts: str, sig: str) -> bool:
-    secret = _slack_signing_secret()
-    if not secret:
-        logger.warning("mode_lock: SLACK_SIGNING_SECRET unset — skipping verification")
-        return True
-    base = f"v0:{ts}:{raw_body.decode('utf-8', errors='replace')}".encode()
-    expected = "v0=" + hmac.new(secret.encode(), base, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, sig)
-
-
-def _slack_api(method: str, payload: dict) -> dict:
-    token = _slack_token()
-    if not token:
-        return {"ok": False, "error": "no_slack_token"}
-    try:
-        r = _mlhx.post(
-            f"https://slack.com/api/{method}",
-            headers={"Authorization": f"Bearer {token}"},
-            json=payload,
-            timeout=10,
-        )
-        return safe_json(r)
-    except Exception as e:
-        logger.exception("mode_lock: slack %s failed: %s", method, e)
-        return {"ok": False, "error": str(e)}
 
 
 # ── Storage (atomic write-rename + fcntl flock) ──────────────────────────────
@@ -294,96 +250,6 @@ def _active_session_for(data: dict, requester: str) -> dict | None:
     return None
 
 
-# ── Slack message rendering ───────────────────────────────────────────────────
-
-def _build_blocks(request_id: str, tool: str, target: str, reason: str,
-                  requester: str) -> list:
-    target_display = target or "(none)"
-    if len(target_display) > 200:
-        target_display = target_display[:197] + "..."
-    reason_display = reason or "(no reason provided)"
-    if len(reason_display) > 600:
-        reason_display = reason_display[:597] + "..."
-    return [
-        {
-            "type": "header",
-            "text": {"type": "plain_text", "text": "🔐 KAI Mode Lock — Approval"},
-        },
-        {
-            "type": "section",
-            "fields": [
-                {"type": "mrkdwn", "text": f"*Tool:*\n`{tool}`"},
-                {"type": "mrkdwn", "text": f"*Requester:*\n`{requester}`"},
-            ],
-        },
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*Target:*\n`{target_display}`"},
-        },
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*Reason:*\n{reason_display}"},
-        },
-        {
-            "type": "actions",
-            "block_id": f"mode_lock:{request_id}",
-            "elements": [
-                {
-                    "type": "button",
-                    "style": "primary",
-                    "text": {"type": "plain_text", "text": "Allow once"},
-                    "action_id": "mode_lock_allow_once",
-                    "value": request_id,
-                },
-                {
-                    "type": "button",
-                    "style": "danger",
-                    "text": {"type": "plain_text", "text": "Deny"},
-                    "action_id": "mode_lock_deny",
-                    "value": request_id,
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Allow session (1h)"},
-                    "action_id": "mode_lock_allow_session",
-                    "value": request_id,
-                },
-            ],
-        },
-    ]
-
-
-def _post_slack_request(request_id: str, tool: str, target: str, reason: str,
-                        requester: str) -> dict:
-    payload = {
-        "channel": SLACK_CHANNEL,
-        "text": f"KAI Mode Lock approval requested: {tool} on {target or '?'}",
-        "blocks": _build_blocks(request_id, tool, target, reason, requester),
-    }
-    return _slack_api("chat.postMessage", payload)
-
-
-def _update_slack_message(channel: str, ts: str, header_text: str,
-                          summary: str) -> None:
-    if not channel or not ts:
-        return
-    _slack_api("chat.update", {
-        "channel": channel,
-        "ts": ts,
-        "text": summary,
-        "blocks": [
-            {
-                "type": "header",
-                "text": {"type": "plain_text", "text": header_text},
-            },
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": summary},
-            },
-        ],
-    })
-
-
 # ── Telegram message rendering (remote approval channel) ─────────────────────
 
 def _telegram_text(tool: str, target: str, reason: str, requester: str) -> str:
@@ -512,7 +378,7 @@ class ApprovalResponse(BaseModel):
 @router.post("/mode_lock/request_approval", response_model=ApprovalResponse)
 def request_approval(req: ApprovalRequest) -> ApprovalResponse:
     """Create an approval request. If an active session-unlock exists for this
-    requester, returns approved_session immediately (no Slack noise)."""
+    requester, returns approved_session immediately (no remote prompt)."""
     if not req.tool:
         raise HTTPException(400, "tool is required")
 
@@ -539,8 +405,6 @@ def request_approval(req: ApprovalRequest) -> ApprovalResponse:
                 "decision_at": _iso(now),
                 "decision_kind": "session_unlock_active",
                 "session_id": sess.get("id"),
-                "slack_channel": None,
-                "slack_ts": None,
                 "telegram_chat_id": None,
                 "telegram_message_id": None,
             }
@@ -565,8 +429,6 @@ def request_approval(req: ApprovalRequest) -> ApprovalResponse:
             "status": "pending",
             "decision_at": None,
             "decision_kind": None,
-            "slack_channel": None,
-            "slack_ts": None,
             "telegram_chat_id": None,
             "telegram_message_id": None,
         }
@@ -636,13 +498,6 @@ _ACTION_MAP = {
     "session": ("approved_session", "allow_session"),
 }
 
-# Slack action_id → canonical action key (dormant Slack cutover path).
-_SLACK_ACTION_MAP = {
-    "mode_lock_allow_once":    "once",
-    "mode_lock_deny":          "deny",
-    "mode_lock_allow_session": "session",
-}
-
 
 def _decision_render(new_status: str, user: str, requester: str) -> tuple[str, str]:
     """(header, summary) text for a decided request — surface-agnostic. Total by
@@ -664,7 +519,7 @@ def _decision_render(new_status: str, user: str, requester: str) -> tuple[str, s
 
 def _apply_decision(request_id: str, action: str, user: str) -> dict:
     """Apply a decision to a pending request. Surface-agnostic state mutation
-    shared by the Slack callback and the Telegram callback forward. `action`
+    shared by the Telegram callback forward and the present/Buzz paths. `action`
     is one of once / deny / session. On a fresh decision the result carries the
     entry `snapshot` so the caller can render the surface-specific update."""
     if not request_id:
@@ -712,74 +567,6 @@ def _apply_decision(request_id: str, action: str, user: str) -> dict:
 
     return {"ok": True, "status": new_status, "request_id": request_id,
             "snapshot": snapshot}
-
-
-def _apply_block_actions(payload: dict) -> dict:
-    """Apply a Slack block_actions payload to mode_lock state (dormant — the
-    live remote channel is Telegram as of AR-5.x/KAI-999; kept for the eventual
-    Slack HTTP cutover)."""
-    if payload.get("type") != "block_actions":
-        return {"ok": True, "ignored": payload.get("type")}
-
-    actions = payload.get("actions") or []
-    if not actions:
-        return {"ok": True, "ignored": "no actions"}
-
-    action = actions[0]
-    action_id = action.get("action_id", "")
-    request_id = action.get("value", "")
-    user = (payload.get("user") or {}).get("name", "unknown")
-    channel = (payload.get("channel") or {}).get("id")
-    message_ts = (payload.get("message") or {}).get("ts")
-
-    if action_id not in _SLACK_ACTION_MAP:
-        return {"ok": False, "error": f"unknown action_id: {action_id}"}
-
-    result = _apply_decision(request_id, _SLACK_ACTION_MAP[action_id], user)
-    if not result.get("ok") or result.get("already_decided"):
-        return result
-
-    snapshot = result["snapshot"]
-    header, summary = _decision_render(result["status"], user,
-                                       snapshot.get("requester"))
-    _update_slack_message(channel or snapshot.get("slack_channel"),
-                          message_ts or snapshot.get("slack_ts"),
-                          header, summary)
-    return {"ok": True, "status": result["status"], "request_id": request_id}
-
-
-@router.post("/mode_lock/slack_callback")
-async def slack_callback(request: Request):
-    """Slack interactivity endpoint (HTTP mode). Receives block_actions payload
-    as form-urlencoded `payload=<json>`. Signature-verified per Slack convention.
-    Unused while app runs in Socket Mode — kept for the eventual HTTP cutover."""
-    raw = await request.body()
-    ts = request.headers.get("X-Slack-Request-Timestamp", "")
-    sig = request.headers.get("X-Slack-Signature", "")
-    if not _verify_slack_sig(raw, ts, sig):
-        raise HTTPException(403, "Invalid Slack signature")
-
-    form = parse_qs(raw.decode("utf-8", errors="replace"))
-    payload_raw = (form.get("payload") or [""])[0]
-    if not payload_raw:
-        raise HTTPException(400, "missing payload")
-    try:
-        payload = json.loads(payload_raw)
-    except json.JSONDecodeError:
-        raise HTTPException(400, "payload not JSON")
-    return _apply_block_actions(payload)
-
-
-@router.post("/mode_lock/slack_action_internal")
-async def slack_action_internal(request: Request):
-    """Forwarded block_actions payload from kai-slack-bot (Socket Mode).
-    No signature check — endpoint not exposed publicly (nginx port-8080 webhook
-    block omits it; port-80 has basic auth). Bot reaches via docker network."""
-    body = await request.json()
-    payload = body.get("payload") if isinstance(body, dict) else None
-    if not isinstance(payload, dict):
-        raise HTTPException(400, "missing payload object")
-    return _apply_block_actions(payload)
 
 
 class TelegramAction(BaseModel):

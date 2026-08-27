@@ -31,7 +31,7 @@ class AllowPath(unittest.TestCase):
 
 class SecretNameDenies(unittest.TestCase):
     def test_non_allowlisted_secret_denied(self):
-        for name in ["kai_worker_auth", "slack_bot_token_roads", "anthropic_api_key_sky",
+        for name in ["kai_worker_auth", "legacy_bot_token_roads", "anthropic_api_key_sky",
                      "todoist", "random_secret"]:
             d = pp.authorize_provision("kai-mini", name, ALLOW, good_status())
             self.assertFalse(d.allowed, name)

@@ -27,10 +27,13 @@ ROUTES = APP / "routes"
 # ingress + helpers shifted its request.json() 112 -> 33; dropping intake.py's dead
 # _slack_token + splitting two E701 one-liners shifted its two httpx .json() calls
 # 94 -> 89 and 166 -> 161 (same calls, moved only). No NEW bare-json introduced.
+# Re-synced 2026-08-27 (KAI-1243, session 42): removing mode_lock.py's dormant Slack
+# unlock path (slack_callback + slack_action_internal) DELETED the bare-json body-parse
+# at routes/mode_lock.py:778 — dropped from the baseline (a removed call, not a moved one).
 LEGACY_EXEMPTIONS = {
     "routes/calendar.py:164", "routes/focus.py:57", "routes/focus.py:110",
     "routes/focus.py:137", "routes/focus.py:187", "routes/inbox.py:107",
-    "routes/intake.py:89", "routes/intake.py:161", "routes/mode_lock.py:778",
+    "routes/intake.py:89", "routes/intake.py:161",
     "routes/orchestrator.py:66", "routes/oura.py:31", "routes/oura.py:43",
     "routes/sprint_a.py:33", "routes/telegram.py:202", "routes/wordpress.py:61",
 }

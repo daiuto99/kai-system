@@ -1,10 +1,7 @@
 import json
 import logging
-import os
-import re
 from datetime import datetime as _dt
-from pathlib import Path
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from config import VAULT_PATH, safe_path
 
@@ -13,83 +10,30 @@ router = APIRouter()
 
 CHECKIN_FILE   = VAULT_PATH / "00_System" / "checkin.json"
 WELLBEING_DIR  = VAULT_PATH / "90_Wellbeing"
-PENDING_FILE   = VAULT_PATH / "00_System" / "checkin_pending.json"
+
+# AR-2 (KAI-1243): the Slack send/reply routes + their thread-pending machinery
+# were removed — the morning/evening check-in jobs that drove them were retired
+# from the scheduler, so that surface was dead code. The dashboard read/save
+# routes below (GET/POST /checkin, /checkin/questions, /checkin/history) remain.
 
 MORNING_QUESTIONS = [
-    {"id": "sleep",     "n": 1, "label": "How did you sleep?",                "type": "scale5",
-     "slack": "1. Sleep quality (1=terrible, 5=great):"},
-    {"id": "gi",        "n": 2, "label": "Any GI issues overnight?",           "type": "yesno_notes",
-     "slack": "2. GI issues overnight? (yes/no + notes if yes):"},
-    {"id": "autonomic", "n": 3, "label": "Any autonomic issues overnight?",    "type": "yesno_notes",
-     "slack": "3. Autonomic issues overnight? (yes/no + notes if yes):"},
-    {"id": "edible",    "n": 4, "label": "Did you take an edible last night?", "type": "yesno",
-     "slack": "4. Edible last night? (yes/no):"},
-    {"id": "intention", "n": 5, "label": "What's your intention for today?",   "type": "text",
-     "slack": "5. Today's intention:"},
-    {"id": "energy",    "n": 6, "label": "Energy right now?",                  "type": "scale5",
-     "slack": "6. Energy right now (1=drained, 5=energized):"},
+    {"id": "sleep",     "n": 1, "label": "How did you sleep?",                "type": "scale5"},
+    {"id": "gi",        "n": 2, "label": "Any GI issues overnight?",           "type": "yesno_notes"},
+    {"id": "autonomic", "n": 3, "label": "Any autonomic issues overnight?",    "type": "yesno_notes"},
+    {"id": "edible",    "n": 4, "label": "Did you take an edible last night?", "type": "yesno"},
+    {"id": "intention", "n": 5, "label": "What's your intention for today?",   "type": "text"},
+    {"id": "energy",    "n": 6, "label": "Energy right now?",                  "type": "scale5"},
 ]
 
 EVENING_QUESTIONS = [
-    {"id": "day_rating", "n": 1, "label": "How was your day overall?",          "type": "scale5",
-     "slack": "1. Day rating (1-5):"},
-    {"id": "energy_end", "n": 2, "label": "Energy at end of day?",              "type": "scale5",
-     "slack": "2. Energy at end of day (1-5):"},
-    {"id": "symptoms",   "n": 3, "label": "Any notable symptoms today?",        "type": "yesno_notes",
-     "slack": "3. Symptoms today? (yes/no + notes if yes):"},
-    {"id": "wins",       "n": 4, "label": "What went well today?",              "type": "text",
-     "slack": "4. Wins today:"},
-    {"id": "tomorrow",   "n": 5, "label": "What's on your mind for tomorrow?",  "type": "text",
-     "slack": "5. On your mind for tomorrow:"},
+    {"id": "day_rating", "n": 1, "label": "How was your day overall?",          "type": "scale5"},
+    {"id": "energy_end", "n": 2, "label": "Energy at end of day?",              "type": "scale5"},
+    {"id": "symptoms",   "n": 3, "label": "Any notable symptoms today?",        "type": "yesno_notes"},
+    {"id": "wins",       "n": 4, "label": "What went well today?",              "type": "text"},
+    {"id": "tomorrow",   "n": 5, "label": "What's on your mind for tomorrow?",  "type": "text"},
 ]
 
 QUESTION_SETS = {"morning": MORNING_QUESTIONS, "evening": EVENING_QUESTIONS}
-
-
-def _slack_token() -> str:
-    p = Path("/run/secrets/slack_bot_token")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
-
-
-def _slack_post(channel: str, text: str, thread_ts: str = None) -> dict:
-    # AR-5.3: rerouted to Telegram (sole surface). channel/thread_ts ignored.
-    from tg_alert import tg_alert
-    return {"ok": bool(tg_alert(text))}
-
-
-def _lookup_channel(name: str) -> str | None:
-    # AR-5.3: Slack retired (AR-5) — no channel lookup.
-    return None
-
-
-def _parse_answers(text: str, questions: list) -> dict:
-    """Parse 'N. answer' lines from Leo's reply into a {question_id: value} dict."""
-    answers = {}
-    lines = text.strip().splitlines()
-    for line in lines:
-        m = re.match(r'^(\d+)[.\):\s]\s*(.+)', line.strip())
-        if not m:
-            continue
-        n = int(m.group(1))
-        val = m.group(2).strip()
-        qs = [q for q in questions if q["n"] == n]
-        if not qs:
-            continue
-        q = qs[0]
-        if q["type"] == "scale5":
-            try:
-                answers[q["id"]] = max(1, min(5, int(val.split()[0])))
-            except ValueError:
-                answers[q["id"]] = val
-        elif q["type"] == "yesno":
-            answers[q["id"]] = val.lower().startswith("y")
-        elif q["type"] == "yesno_notes":
-            first = val.split()[0].lower() if val else "no"
-            notes = val[len(val.split()[0]):].strip(" ,-") if val else ""
-            answers[q["id"]] = {"yes": first.startswith("y"), "notes": notes}
-        else:
-            answers[q["id"]] = val
-    return answers
 
 
 def _save_checkin_data(checkin_type: str, answers: dict):
@@ -154,86 +98,6 @@ class CheckInRequest(BaseModel):
 def save_checkin(req: CheckInRequest):
     _save_checkin_data(req.checkin_type, req.answers)
     return {"ok": True, "type": req.checkin_type, "date": _dt.utcnow().strftime("%Y-%m-%d")}
-
-
-class SendCheckinRequest(BaseModel):
-    checkin_type: str  # "morning" | "evening"
-    channel: str = "devops"
-
-
-@router.post("/checkin/send")
-def send_checkin_to_slack(req: SendCheckinRequest):
-    questions = QUESTION_SETS.get(req.checkin_type)
-    if not questions:
-        return {"ok": False, "error": "unknown type"}
-
-    today = _dt.utcnow().strftime("%A, %B %-d")
-    emoji = "🌅" if req.checkin_type == "morning" else "🌙"
-    label = "Morning" if req.checkin_type == "morning" else "Evening"
-
-    header = f"*{label} Check-in* {emoji} — {today}\nReply to this thread with your answers:\n"
-    body = "\n".join(q["slack"] for q in questions)
-    text = header + "\n" + body
-
-    # Try lookup first; fall back to posting directly to the channel name
-    channel_id = _lookup_channel(req.channel) or req.channel
-
-    result = _slack_post(channel_id, text)
-    if not result.get("ok"):
-        return {"ok": False, "error": result.get("error")}
-
-    # Use the resolved channel ID from the response if available
-    channel_id = result.get("channel", channel_id)
-    ts = result["ts"]
-    pending = {}
-    if PENDING_FILE.exists():
-        try:
-            pending = json.loads(PENDING_FILE.read_text())
-        except Exception:
-            pass
-    pending[req.checkin_type] = {
-        "ts": ts, "channel_id": channel_id,
-        "date": _dt.utcnow().strftime("%Y-%m-%d"),
-    }
-    PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PENDING_FILE.write_text(json.dumps(pending, indent=2))
-    logger.info("checkin question sent to Slack: %s ts=%s", req.checkin_type, ts)
-    return {"ok": True, "ts": ts, "channel": channel_id}
-
-
-class SlackReplyRequest(BaseModel):
-    checkin_type: str
-    text: str
-    thread_ts: str = ""
-    channel_id: str = ""
-
-
-@router.post("/checkin/slack-reply")
-def handle_slack_reply(req: SlackReplyRequest, background_tasks: BackgroundTasks):
-    questions = QUESTION_SETS.get(req.checkin_type, [])
-    answers = _parse_answers(req.text, questions)
-    if not answers:
-        return {"ok": False, "error": "no answers parsed"}
-
-    _save_checkin_data(req.checkin_type, answers)
-
-    if req.thread_ts and req.channel_id:
-        background_tasks.add_task(
-            _slack_post, req.channel_id,
-            f"✓ {req.checkin_type.capitalize()} check-in saved. {len(answers)}/{len(questions)} answered.",
-            req.thread_ts,
-        )
-
-    pending = {}
-    if PENDING_FILE.exists():
-        try:
-            pending = json.loads(PENDING_FILE.read_text())
-        except Exception:
-            pass
-    pending.pop(req.checkin_type, None)
-    PENDING_FILE.write_text(json.dumps(pending, indent=2))
-
-    return {"ok": True, "type": req.checkin_type, "answered": len(answers)}
 
 
 @router.get("/checkin/history")

@@ -51,8 +51,9 @@ def _load_secret(name: str) -> str:
     return os.environ.get(name.upper(), "")
 
 
-def _slack_security(text: str):
-    """AR-5.1: rerouted to Telegram (sole surface)."""
+def _security_alert(text: str):
+    """AR-5.1: security alerts route to Telegram (sole surface).
+    AR-2/KAI-1243: renamed from _slack_security — Slack is fully retired."""
     from tg_alert import tg_alert
     tg_alert(f"[Security] {text}")
 
@@ -175,7 +176,7 @@ def run_security_checks():
 
     if alerts:
         header = f":shield: *KAI Security Alert* — {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        _slack_security(header + "\n" + "\n".join(alerts))
+        _security_alert(header + "\n" + "\n".join(alerts))
         log.warning(f"security watchdog: {len(alerts)} alert(s) posted")
     else:
         log.info("security watchdog: all clear")

@@ -222,7 +222,7 @@ def write_capture_card(text: str, classification: dict, og: dict,
 date: {date_str}
 time: {time_str}
 type: {classification['type']}
-source: slack
+source: telegram
 status: captured
 url: {real_url}
 image: {og_image}
@@ -241,7 +241,7 @@ tags: {tags_str}
     return str(filepath.relative_to(vault_path))
 
 
-def post_capture_response(slack_token: str, channel: str, thread_ts: str,
+def post_capture_response(channel: str, thread_ts: str,
                           classification: dict, file_path: str,
                           routing: str | None) -> None:
     type_emoji = {
@@ -298,8 +298,7 @@ def capture(text: str, channel_id: str, thread_ts: str,
     file_path = write_capture_card(text, classification, og, real_url, vault_path, user_id)
     routing = suggest_routing(text, classification["type"])
 
-    slack_token = load_secret("slack_bot_token")
-    post_capture_response(slack_token, channel_id, thread_ts, classification, file_path, routing)
+    post_capture_response(channel_id, thread_ts, classification, file_path, routing)
 
     return {
         "status": "captured",

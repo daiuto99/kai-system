@@ -28,10 +28,11 @@ def _make_app():
 
 @pytest.fixture()
 def tmp_audit(tmp_path, monkeypatch):
-    """Redirect AUDIT_LOG to a temp file and suppress Slack calls."""
+    """Redirect AUDIT_LOG to a temp file. The Telegram mirror in audit_before()
+    is wrapped in try/except, so its failure in tests is already non-fatal
+    (AR-2/KAI-1243: the old _slack_token suppression was removed with Slack)."""
     import routes._destructive_audit as da
     monkeypatch.setattr(da, 'AUDIT_LOG', tmp_path / 'audit.jsonl')
-    monkeypatch.setattr(da, '_slack_token', lambda: '')  # no Slack in tests
     return tmp_path / 'audit.jsonl'
 
 
@@ -84,7 +85,7 @@ def test_delete_project_writes_audit_before_execution(client, tmp_path, monkeypa
     assert r.status_code == 200, r.text
 
     # JSONL written
-    lines = [json.loads(l) for l in tmp_audit.read_text().splitlines() if l.strip()]
+    lines = [json.loads(ln) for ln in tmp_audit.read_text().splitlines() if ln.strip()]
     assert len(lines) == 1
     rec = lines[0]
     assert rec['operator'] == 'leo'
@@ -106,6 +107,6 @@ def test_delete_workflow_writes_audit(client, tmp_path, monkeypatch, tmp_audit):
     })
     assert r.status_code == 200, r.text
 
-    lines = [json.loads(l) for l in tmp_audit.read_text().splitlines() if l.strip()]
+    lines = [json.loads(ln) for ln in tmp_audit.read_text().splitlines() if ln.strip()]
     assert lines[0]['endpoint'] == '/workflows/{workflow_id}'
     assert lines[0]['detail']['workflow_id'] == 'w1'

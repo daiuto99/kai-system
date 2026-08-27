@@ -32,7 +32,6 @@ SKIP_PATH_SUBSTRINGS = (
     "/internal/",            # internal probes used by invariants directly
     "/inbox/scan",           # triggers council calls
     "/sprint-a/expire-stale",# fires expiry workflow
-    "/checkin/send",         # posts to Slack
     "/wordpress/",           # external WP calls — tested separately
     "/calendar/ics",         # external calendar dep
     "/health/",              # often heavyweight aggregates

@@ -38,9 +38,9 @@ def _worker_auth() -> tuple[str, str] | None:
     logger.warning("worker_auth: no kai_worker_auth credential found — internal worker calls will 401")
     return None
 
-# Channel-name → advisor routing. Slim post-Slack-Sprint: only channels/DMs
-# that still exist in the workspace. Scheduler check-ins still address the
-# `council-*` aliases (resolved to KAI), so those stay.
+# Channel-name → advisor routing. Slim roster: only channels/DMs that still
+# exist. Scheduler check-ins still address the `council-*` aliases (resolved
+# to KAI), so those stay.
 ADVISOR_CHANNELS = {
     "kai":             "kai",
     "sky":             "sky",
@@ -55,8 +55,8 @@ ADVISOR_CHANNELS = {
     "council-monthly": "kai",
 }
 
-# Slack-posting identities — only advisors that post as themselves in Slack.
-# All other advisor output is relayed by KAI with a "Beats says:" prefix.
+# Advisor posting identities — advisors that surface as themselves (username +
+# avatar). All other advisor output is relayed by KAI with a "Beats says:" prefix.
 ADVISOR_IDENTITIES = {
     "kai":    {"username": "KAI",    "icon_url": "https://kai.sonicink.space/avatar-kai.png"},
     "sky":    {"username": "Sky",    "icon_url": "https://kai.sonicink.space/avatar-sky.png"},
@@ -64,7 +64,7 @@ ADVISOR_IDENTITIES = {
     "devops": {"username": "DevOps", "icon_url": "https://kai.sonicink.space/avatar-devops.png"},
 }
 
-# Capitalized labels for the "Beats says:" relay prefix when KAI surfaces a non-Slack advisor
+# Capitalized labels for the "Beats says:" relay prefix when KAI surfaces a relayed advisor
 ADVISOR_LABELS = {
     "beats": "Beats", "ember": "Ember", "doc": "Doc", "coach": "Coach",
     "creative": "Creative", "tech": "Tech", "dev": "Dev", "ops": "Ops",
@@ -74,7 +74,7 @@ ADVISOR_LABELS = {
 # Backward-compat — execute_tool.py imports this
 ADVISOR_AVATARS = {k: v["icon_url"] for k, v in ADVISOR_IDENTITIES.items()}
 
-# _slack_token() removed — Slack retired (AR-5 / KAI-1127). No Slack token is read.
+# Remote-alert token read removed — Slack fully retired (AR-5/AR-2, KAI-1127/1243).
 
 
 # ── Rate limiting (S5R-19: tiered budget) ────────────────────────────────────
@@ -95,7 +95,7 @@ def _check_rate_limit(advisor: str, traffic_type: str = "interactive") -> dict:
     Keys:
       blocked (bool) — only True for hourly runaway; interactive never hard-blocks
       degrade (bool) — interactive spend ≥ INTERACTIVE_BUDGET_USD; caller uses Haiku
-      warn    (bool) — interactive spend ≥ 80% of sub-budget; Slack alert already sent
+      warn    (bool) — interactive spend ≥ 80% of sub-budget; alert already sent
       reason  (str)  — human-readable explanation for blocked/warn states
     """
     import datetime
@@ -115,14 +115,14 @@ def _check_rate_limit(advisor: str, traffic_type: str = "interactive") -> dict:
 
         if traffic_type == "interactive":
             if cost >= INTERACTIVE_BUDGET_USD:
-                _maybe_slack_alert(
+                _maybe_alert(
                     "interactive_budget_exhausted",
                     f":warning: *KAI budget* — interactive spend ${cost:.2f} exceeds "
                     f"${INTERACTIVE_BUDGET_USD:.2f} sub-budget. Degrading to Haiku until midnight.",
                 )
                 return {"blocked": False, "degrade": True, "warn": False, "reason": ""}
             if cost >= warn_level:
-                _maybe_slack_alert(
+                _maybe_alert(
                     "interactive_budget_warn",
                     f":information_source: *KAI budget* — interactive spend "
                     f"${cost:.2f} / ${INTERACTIVE_BUDGET_USD:.2f} (80%). "
@@ -135,7 +135,7 @@ def _check_rate_limit(advisor: str, traffic_type: str = "interactive") -> dict:
         else:
             # Alert / critical-ops: log if total cap reached, never block
             if cost >= DAILY_COST_CAP_USD:
-                _maybe_slack_alert(
+                _maybe_alert(
                     "total_cap_alert_traffic",
                     f":warning: *KAI budget* — total spend ${cost:.2f} at cap "
                     f"${DAILY_COST_CAP_USD:.2f}. Alert traffic continuing on reserve.",
@@ -144,7 +144,7 @@ def _check_rate_limit(advisor: str, traffic_type: str = "interactive") -> dict:
         # Hourly call cap — hard block for all traffic types (loop/runaway protection)
         hour = day.get("hours", {}).get(hour_key, {})
         if hour.get("calls", 0) >= HOURLY_CALL_CAP:
-            _maybe_slack_alert(
+            _maybe_alert(
                 "hourly_cap",
                 f":warning: *KAI rate limit hit* — {HOURLY_CALL_CAP} calls in the last hour. Cooling down.",
             )
@@ -159,8 +159,9 @@ def _check_rate_limit(advisor: str, traffic_type: str = "interactive") -> dict:
         return {"blocked": False, "degrade": False, "warn": False, "reason": ""}
 
 
-def _maybe_slack_alert(key: str, message: str):
-    """Post to #kai-system once per rate-limit trigger (not every blocked call)."""
+def _maybe_alert(key: str, message: str):
+    """Alert once per rate-limit trigger (not every blocked call). AR-2/KAI-1243:
+    renamed from _maybe_slack_alert — routes to Telegram, Slack fully retired."""
     import datetime
     period = datetime.datetime.now().strftime("%Y-%m-%d-%H" if "hourly" in key else "%Y-%m-%d")
     alert_key = f"{key}:{period}"

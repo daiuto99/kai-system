@@ -425,8 +425,6 @@ def check_worker_health():
 
 _afternoon_sent:        str = ""
 _health_sent:           str = ""
-_morning_checkin_sent:  str = ""
-_evening_checkin_sent:  str = ""
 _last_watchdog_run: str = ""
 _last_security_run: str = ""
 _last_invariant_run: str = ""
@@ -502,24 +500,6 @@ def _update_location_from_calendar():
     except Exception as e:
         log.debug(f"Calendar location check: {e}")
 
-
-
-def send_checkin(checkin_type: str):
-    """Post check-in questions to #devops and store the thread ts for reply detection."""
-    try:
-        r = httpx.post(
-            f"{WORKER_API}/checkin/send",
-            json={"checkin_type": checkin_type, "channel": "devops"},
-            timeout=20,
-            auth=worker_auth(),
-        )
-        result = r.json() if r.status_code == 200 else {}
-        if result.get("ok"):
-            log.info("checkin sent: %s ts=%s", checkin_type, result.get("ts"))
-        else:
-            log.error("checkin send failed: %s", result)
-    except Exception as e:
-        log.error("checkin send error (%s): %s", checkin_type, e)
 
 
 def _n8n_oauth_health_job():

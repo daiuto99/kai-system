@@ -28,7 +28,7 @@ def _rl(cost_usd: float, calls: int = 0, traffic_type: str = "interactive"):
     mock_path.read_text.return_value = usage
 
     import council_config as cc
-    with patch.object(cc, "_maybe_slack_alert"), \
+    with patch.object(cc, "_maybe_alert"), \
          patch("council_config.Path", return_value=mock_path):
         # Path is called with the usage file path inside _check_rate_limit
         # We need to patch just the usage_path resolution

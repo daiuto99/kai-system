@@ -61,7 +61,6 @@ NO_AUTH_PATHS = {
     "/health",
     "/github/webhook",
     "/telegram/webhook",
-    "/mode_lock/slack_callback",
 }
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete", "request", "stream", "urlopen"}

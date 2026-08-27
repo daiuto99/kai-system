@@ -3,13 +3,12 @@
 Every destructive capability call must:
   1. Validate operator + reason in the request body (422 if absent/short).
   2. Call audit_before() which writes to capability_audit.jsonl BEFORE execution.
-  3. Mirror the record to Slack #kai-system BEFORE execution.
+  3. Mirror the record to Telegram BEFORE execution.
 """
 from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,7 +17,6 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 AUDIT_LOG = Path("/vault/00_System/capability_audit.jsonl")
-_SLACK_CHANNEL = "#devops"
 
 
 class DestructiveRequest(BaseModel):
@@ -26,13 +24,8 @@ class DestructiveRequest(BaseModel):
     reason: str = Field(..., min_length=10, description="Why this destructive op is being performed (>=10 chars)")
 
 
-def _slack_token() -> str:
-    p = Path("/run/secrets/slack_bot_token")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
-
-
 def audit_before(endpoint: str, detail: dict, operator: str, reason: str) -> dict:
-    """Write audit JSONL + Slack mirror. MUST be called before the destructive op runs."""
+    """Write audit JSONL + Telegram mirror. MUST be called before the destructive op runs."""
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "endpoint": endpoint,

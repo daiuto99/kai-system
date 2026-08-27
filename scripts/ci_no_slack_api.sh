@@ -23,21 +23,15 @@ FAIL=0
 # Exclude this gate script itself (it necessarily contains the literal pattern).
 # Tests ARE scanned (KAI-1127: the retired live call lived in test_jarvis_system.py —
 # excluding tests/ is exactly how it stayed invisible). Only archived paths, syncthing
-# temp files, historical doc snapshots, this gate script, and the mode_lock deferred
-# exception are skipped.
+# temp files, historical doc snapshots, and this gate script are skipped.
+# AR-2 (KAI-1243): the mode_lock deferred exception was removed — mode_lock.py no
+# longer holds any live slack.com/api call, so the gate now scans it like everything else.
 HITS="$(grep -rn "slack\.com/api" --include=*.py --include=*.sh . 2>/dev/null \
   | grep -vE '(^|/)_archived/' \
   | grep -v '\.syncthing' \
   | grep -vE '(^|/)(IDONTNEEDTHIS|docs/plan/history|docs/reviews)/' \
   | grep -v 'scripts/ci_no_slack_api.sh' \
-  | grep -v 'kai-worker-api/routes/mode_lock.py' \
   || true)"
-
-# DEFERRED EXCEPTION: kai-worker-api/routes/mode_lock.py still references the Slack
-# web API for the mode-lock unlock-approval flow. Migrating it to Telegram touches
-# protected lock assets (~/.claude/hooks/kai_mode_gate.sh etc.) and is owned by Leo
-# — tracked as the dedicated mode-lock-approval ticket. Remove this exclusion when
-# that ticket lands. See memory feedback_mode_lock_approval_telegram.
 
 if [ -n "$HITS" ]; then
   echo "CI FAIL — live slack.com/api reference(s) found (Slack is retired, AR-5):"
