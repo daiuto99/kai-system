@@ -71,16 +71,11 @@ def _examples_dir(advisor_id: str) -> Path:
 _sessions: dict = {}
 
 
-# ── Slack helpers (optional — only fires when channel_id provided) ──────────
+# ── Alert helper (only fires when the caller provided a channel_id) ─────────
 
-def _slack_token() -> str:
-    p = Path("/run/secrets/slack_bot_token")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
-
-
-def _post_slack(channel_id: str, text: str):
-    # AR-5.3: rerouted to Telegram (sole surface, AR-5). Signature kept so call
-    # sites stay unchanged; `channel_id` is now ignored. Fail-soft chokepoint.
+def _post_alert(channel_id: str, text: str):
+    # Routes through the notify gateway (Telegram, single voice). `channel_id`
+    # is retained in the signature for call-site compatibility but ignored.
     from tg_alert import tg_alert
     tg_alert(text)
 
@@ -273,9 +268,11 @@ def _complete_intake(advisor: str, channel_id: str = "") -> dict:
         pos = summary["annotations"].get("positive", [])
         neg = summary["annotations"].get("negative", [])
         parts = []
-        if pos: parts.append(f"*Like:* {'; '.join(pos[:3])}")
-        if neg: parts.append(f"*Avoid:* {'; '.join(neg[:3])}")
-        _post_slack(channel_id,
+        if pos:
+            parts.append(f"*Like:* {'; '.join(pos[:3])}")
+        if neg:
+            parts.append(f"*Avoid:* {'; '.join(neg[:3])}")
+        _post_alert(channel_id,
             f"✓ *{summary['filename']}* saved as *{summary['verdict']}* "
             f"under _{', '.join(cat_labels)}_.\n" + ("\n".join(parts) if parts else ""))
 
@@ -329,7 +326,7 @@ def start_intake(advisor: str, body: dict):
     }
 
     prompt = "Is this a *reference* example (direction to follow) or an *avoid* example (what not to do)?"
-    _post_slack(channel_id, f"Starting Creative intake for *{filename}*\n\n{prompt}")
+    _post_alert(channel_id, f"Starting Creative intake for *{filename}*\n\n{prompt}")
     return {"ok": True, "stage": "q1", "prompt": prompt}
 
 
@@ -372,7 +369,7 @@ def intake_reply(advisor: str, body: dict):
         session["verdict"] = verdict
         session["stage"] = "q2"
         prompt = "What category applies? Select all that apply."
-        _post_slack(channel_id, prompt)
+        _post_alert(channel_id, prompt)
         return {"ok": True, "stage": "q2", "prompt": prompt, "categories": CATEGORIES}
 
     elif stage == "q2":
@@ -384,7 +381,7 @@ def intake_reply(advisor: str, body: dict):
         session["stage"] = "q3"
         cat_labels = [c["label"] for c in CATEGORIES if c["id"] in cats]
         prompt = f"Walk me through what you like or don't like about this {', '.join(cat_labels)} example — be as specific as you want."
-        _post_slack(channel_id, prompt)
+        _post_alert(channel_id, prompt)
         return {"ok": True, "stage": "q3", "prompt": prompt}
 
     elif stage == "q3":
@@ -395,7 +392,7 @@ def intake_reply(advisor: str, body: dict):
         session["clarifying_index"] = 0
         if questions:
             session["stage"] = "clarifying"
-            _post_slack(channel_id, questions[0])
+            _post_alert(channel_id, questions[0])
             return {"ok": True, "stage": "clarifying",
                     "current_question": questions[0],
                     "question_index": 0,
@@ -411,7 +408,7 @@ def intake_reply(advisor: str, body: dict):
         questions = session.get("clarifying_questions", [])
         if idx < len(questions):
             session["stage"] = "clarifying"
-            _post_slack(channel_id, questions[idx])
+            _post_alert(channel_id, questions[idx])
             return {"ok": True, "stage": "clarifying",
                     "current_question": questions[idx],
                     "question_index": idx,
@@ -425,7 +422,7 @@ def intake_reply(advisor: str, body: dict):
 
 @router.post("/intake/scan")
 def scan_resources(body: dict, background_tasks: BackgroundTasks):
-    """Slack-driven: scan resources and start intake for first file, posting to Slack."""
+    """Scan resources and start intake for the first file, posting progress via the notify gateway."""
     advisor = body.get("advisor", "creative")
     channel_id = body.get("channel_id", "")
 
@@ -437,14 +434,14 @@ def scan_resources(body: dict, background_tasks: BackgroundTasks):
     ]
 
     if not files:
-        _post_slack(channel_id,
+        _post_alert(channel_id,
             f"No files found in Creative's resources folder.\n"
             f"Drop files into `~/vault/60_Council/{advisor}/resources/` and try again.")
         return {"found": 0, "files": []}
 
-    result = start_intake(advisor, {"filename": files[0], "channel_id": channel_id})
+    start_intake(advisor, {"filename": files[0], "channel_id": channel_id})
     if len(files) > 1:
-        _post_slack(channel_id, f"_{len(files) - 1} more file(s) queued after this one._")
+        _post_alert(channel_id, f"_{len(files) - 1} more file(s) queued after this one._")
     return {"found": len(files), "files": files, "started": files[0]}
 
 

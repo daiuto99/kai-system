@@ -23,12 +23,16 @@ ROUTES = APP / "routes"
 # Re-synced 2026-08-27 (KAI-1243): the worker-api Slack purge removed inbox.py's dead
 # _slack_token/SLACK_TOKEN_FILE above the council body-parse, shifting inbox.py's
 # bare-json 112 -> 107 (same call, moved only). No NEW bare-json introduced.
+# Re-synced 2026-08-27 (KAI-1243, cont'd): removing sprint_a.py's dead /slack/interactions
+# ingress + helpers shifted its request.json() 112 -> 33; dropping intake.py's dead
+# _slack_token + splitting two E701 one-liners shifted its two httpx .json() calls
+# 94 -> 89 and 166 -> 161 (same calls, moved only). No NEW bare-json introduced.
 LEGACY_EXEMPTIONS = {
     "routes/calendar.py:164", "routes/focus.py:57", "routes/focus.py:110",
     "routes/focus.py:137", "routes/focus.py:187", "routes/inbox.py:107",
-    "routes/intake.py:94", "routes/intake.py:166", "routes/mode_lock.py:778",
+    "routes/intake.py:89", "routes/intake.py:161", "routes/mode_lock.py:778",
     "routes/orchestrator.py:66", "routes/oura.py:31", "routes/oura.py:43",
-    "routes/sprint_a.py:112", "routes/telegram.py:202", "routes/wordpress.py:61",
+    "routes/sprint_a.py:33", "routes/telegram.py:202", "routes/wordpress.py:61",
 }
 
 
