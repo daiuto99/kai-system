@@ -40,8 +40,8 @@ def _load_secret(name: str) -> str:
     return p.read_text().strip() if p.exists() else os.environ.get(name.upper(), "")
 
 
-def _slack_alert(token: str, message: str):
-    """AR-5.3: rerouted to Telegram (sole surface). token ignored."""
+def _page_alert(message: str):
+    """Page DevOps via Telegram (notify() gateway, AR-5 sole surface)."""
     try:
         from tg_alert import tg_alert
         tg_alert(message)
@@ -95,11 +95,6 @@ def check_ollama() -> tuple[bool, str]:
         return False, str(e)
 
 
-def check_slack() -> tuple[bool, str]:
-    # AR-5.3: Slack retired (AR-5) — nothing to health-check.
-    return True, "retired (AR-5)"
-
-
 def check_telegram() -> tuple[bool, str]:
     token = _load_secret("telegram_bot_token")
     if not token:
@@ -110,7 +105,7 @@ def check_telegram() -> tuple[bool, str]:
         # L18: the response body may reflect the token-bearing request URL,
         # literal or URL-encoded — in the success result as much as in error
         # descriptions or httpx exception text. Redact everything that flows
-        # into transport status + Slack alerts.
+        # into transport status + alerts.
         if data.get("ok"):
             return True, redact(f"bot=@{data['result'].get('username','?')}", token)
         return False, redact(data.get("description", "getMe failed"), token)
@@ -187,7 +182,6 @@ CHECKS = [
     ("worker_api",       "Worker API",       check_worker_api),
     ("council_api",      "Council API",      check_council_api),
     ("ollama",           "Ollama",           check_ollama),
-    ("slack",            "Slack",            check_slack),
     ("telegram",         "Telegram",         check_telegram),
     ("oura",             "Oura",             check_oura),
     ("todoist",          "Todoist",          check_todoist),
@@ -199,7 +193,7 @@ def run_watchdog_checks():
     """RETIRED 2026-06-11 — duplicate of kai-scheduler/watchdog.py.
 
     Worker-api had its own watchdog that fired the same checks every 30min as
-    the canonical scheduler watchdog — producing duplicate Slack alerts. This
+    the canonical scheduler watchdog — producing duplicate alerts. This
     function is now a no-op; the canonical watchdog lives in kai-scheduler.
     Kept as importable shim so worker-api/scheduler.py imports still work.
     """

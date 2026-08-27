@@ -33,18 +33,14 @@ def is_canonical_caller(caller: str) -> bool:
 
 def _alert_devops(caller: str, action: str) -> None:
     """Alert through the established watchdog #devops transport."""
-    from watchdog import _load_secret, _slack_alert
+    from watchdog import _page_alert
 
-    token = _load_secret("slack_bot_token")
-    if not token:
-        log.error("WP write guard violation could not alert #devops: Slack token unavailable")
-        return
     text = (
         ":rotating_light: *WP-20.3 workflow-only writes violation blocked* — "
         f"non-canonical caller `{_normalise(caller)}` attempted `{action}`. "
         "Use a canonical WordPress workflow surface."
     )
-    _slack_alert(token, text)
+    _page_alert(text)
     log.warning("WP write guard violation alert sent through watchdog transport")
 
 
