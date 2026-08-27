@@ -530,7 +530,7 @@
       "service": "kai-worker-api",
       "filename": "/app/routes/git_activity.py",
       "code": "E402",
-      "row": 16,
+      "row": 14,
       "column": 1
     },
     {

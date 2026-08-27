@@ -18,19 +18,14 @@ PENDING_DIR   = INBOX_DIR / "pending"
 FAILED_DIR    = INBOX_DIR / "failed"
 COUNCIL_API   = "http://kai-council-api:8002"
 WORKER_API    = "http://kai-worker-api:8001"
-SLACK_TOKEN_FILE = Path("/run/secrets/slack_bot_token")
 
 VALID_ROUTES  = {"doc", "sky", "roads", "beats", "creative", "dev", "project", "kai", "parking-lot"}
 VALID_ACTIONS = {"ingest", "create_project", "update_project", "create_task", "evaluate", "capture"}
 
 
-def _slack_token() -> str:
-    return SLACK_TOKEN_FILE.read_text().strip() if SLACK_TOKEN_FILE.exists() else ""
-
-
-def _post_slack(channel: str, message: str):
-    # AR-5.3: rerouted to Telegram (sole surface, AR-5). Signature kept so call
-    # sites stay unchanged; `channel` is now ignored. Fail-soft chokepoint.
+def _notify(channel: str, message: str):
+    # Routes to Telegram via the shared tg_alert chokepoint (AR-5 sole surface).
+    # `channel` is accepted for call-site compatibility but ignored. Fail-soft.
     from tg_alert import tg_alert
     tg_alert(message)
 
@@ -78,7 +73,7 @@ def _process_file(path: Path):
             f"Valid routes: {', '.join(sorted(VALID_ROUTES))}\n"
             f"Reply with the correct route and I'll reprocess it, or edit the file at `~/vault/50_Inbox/pending/{filename}`."
         )
-        _post_slack("#devops", msg)
+        _notify("#devops", msg)
         path.rename(PENDING_DIR / filename)
         logger.info("inbox: %s → pending (no route)", filename)
         return
@@ -113,7 +108,7 @@ def _process_file(path: Path):
     except Exception as e:
         logger.exception("inbox: council call failed: %s", e)
         path.rename(FAILED_DIR / filename)
-        _post_slack("#devops", f":x: Inbox intake failed for `{filename}`: {e}")
+        _notify("#devops", f":x: Inbox intake failed for `{filename}`: {e}")
         return
 
     reply = result.get("reply", "")
@@ -130,9 +125,9 @@ def _process_file(path: Path):
     # Move file to processed
     path.rename(PROCESSED_DIR / filename)
 
-    # Notify via Slack
+    # Notify via Telegram
     preview = reply[:400] + ("..." if len(reply) > 400 else "")
-    _post_slack("#devops",
+    _notify("#devops",
         f":white_check_mark: *Inbox processed* — `{filename}`\n"
         f"Route: `{route}` | Action: `{action}`\n\n{preview}"
     )

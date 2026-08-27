@@ -1,19 +1,16 @@
 """Clarification surface for Sprint A Slice 2b.
 
 Reads a pending row from clarification_store and posts a channel-appropriate
-prompt asking Leo to pick. Slack uses Block Kit buttons; Telegram uses an
-inline keyboard. Web (dashboard) is not posted from here — the dashboard reads
-pending rows directly.
+prompt asking Leo to pick. Telegram uses an inline keyboard. Web (dashboard) is
+not posted from here — the dashboard reads pending rows directly.
 
-Idempotent: if the pending row already has surface metadata (slack_thread_ts
-populated post-create, or telegram_msg_id), ask() is a no-op and returns the
-existing surface descriptor.
+Idempotent: if the pending row already has surface metadata (telegram_msg_id),
+ask() is a no-op and returns the existing surface descriptor.
 
 ask() returns: {"ok": bool, "channel": str, "skipped": bool, "detail": str}
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 from pathlib import Path
@@ -32,11 +29,6 @@ ACTION_PREFIX = "sprint_a_clarify"
 
 class ClarificationSurfaceError(Exception):
     pass
-
-
-def _slack_token() -> str:
-    p = Path("/run/secrets/slack_bot_token")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
 
 
 def _telegram_token() -> str:
@@ -62,69 +54,12 @@ def ask(pending_id: str, store_path: Path = store.DEFAULT_PATH) -> dict:
     clar = clarifications[0]
 
     channel = entry["channel"]
-    if channel == "slack":
-        return _ask_slack(entry, clar, store_path)
     if channel == "telegram":
         return _ask_telegram(entry, clar, store_path)
     if channel == "web":
         return {"ok": True, "channel": "web", "skipped": True,
                 "detail": "web surface is the dashboard — no push needed"}
     raise ClarificationSurfaceError(f"unknown channel: {channel}")
-
-
-# ---------------------------------------------------------------------------
-# Slack
-# ---------------------------------------------------------------------------
-
-def _ask_slack(entry: dict, clar: dict, store_path: Path) -> dict:
-    # AR-5.3: Slack retired (AR-5) — dormant no-op. Sprint-A clarifications are
-    # asked over Telegram; this Slack branch is no longer used.
-    return {"ok": True, "channel": "slack", "skipped": True,
-            "detail": "retired (AR-5)"}
-
-
-def _slack_blocks(pending_id: str, clar: dict) -> list[dict]:
-    """Block Kit: prompt + one button per option. Default option is highlighted."""
-    options = clar.get("options") or []
-    default = clar.get("default")
-    field = clar.get("field", "choice")
-
-    blocks: list[dict] = [
-        {"type": "section",
-         "text": {"type": "mrkdwn",
-                  "text": f"*{clar.get('prompt', 'Pick one:')}*"}}
-    ]
-
-    if not options:
-        blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn",
-                     "text": "_(no options configured — reply in thread to pick)_"},
-        })
-        return blocks
-
-    elements = []
-    for opt in options[:5]:  # Slack actions block caps at 5 buttons per row
-        button: dict = {
-            "type": "button",
-            "text": {"type": "plain_text", "text": str(opt)},
-            "value": str(opt),
-            "action_id": f"{ACTION_PREFIX}:{pending_id}:{field}:{opt}",
-        }
-        if default and opt == default:
-            button["style"] = "primary"
-        elements.append(button)
-
-    blocks.append({"type": "actions", "elements": elements})
-
-    if len(options) > 5:
-        extras = ", ".join(str(o) for o in options[5:])
-        blocks.append({
-            "type": "context",
-            "elements": [{"type": "mrkdwn",
-                          "text": f"_or reply in thread with one of:_ {extras}"}],
-        })
-    return blocks
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +146,7 @@ def _mark_surface_posted(pending_id: str, fields: dict, store_path: Path) -> Non
 # ---------------------------------------------------------------------------
 
 def parse_callback(action_id_or_data: str) -> dict | None:
-    """Parse our Slack action_id or Telegram callback_data.
+    """Parse our Telegram callback_data (ACTION_PREFIX action id).
 
     Returns {"pending_id", "field", "choice"} or None if not ours.
     """

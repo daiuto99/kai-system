@@ -1,14 +1,11 @@
-"""Asset delivery from KAI to Leo's Slack DM, with versioned vault persistence.
+"""Asset delivery from KAI to Leo (Telegram notice), with versioned vault persistence.
 
-Convention (Slack Sprint Task 4):
+Convention:
 - Files persist at vault/60_Council/<advisor>/deliverables/<slug>/v<n>.<ext>
-- Latest version is DM'd to Leo via KAI bot (using "Beats says:" / "Dev says:" prefix)
-- Filename in DM: <slug>_v<n>.<ext>
-- All KAI's posts use the dashboard avatar
+- Leo is notified on Telegram with the vault path (using "Beats says:" / "Dev says:" prefix)
 """
 import json
 import logging
-import os
 import re
 import shutil
 from pathlib import Path
@@ -20,21 +17,15 @@ from config import VAULT_PATH
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-LEO_USER_ID = os.environ.get("LEO_USER_ID", "U0AG93XJ927")
 KAI_AVATAR = "https://kai.sonicink.space/avatar-kai.png"
 
-# Advisors whose Slack relay needs a "Beats says:" prefix (anyone not self-posting)
+# Advisors whose relay needs a "Beats says:" prefix (anyone not self-posting)
 _RELAY_LABELS = {
     "beats": "Beats", "ember": "Ember", "doc": "Doc", "coach": "Coach",
     "creative": "Creative", "tech": "Tech", "dev": "Dev", "ops": "Ops",
     "learning": "Learning", "support": "Support",
 }
 _SELF_POST = {"kai", "sky", "roads", "devops"}
-
-
-def _slack_token() -> str:
-    p = Path("/run/secrets/slack_bot_token")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
 
 
 def _slugify(value: str) -> str:
@@ -51,11 +42,6 @@ def _next_version(asset_dir: Path, ext: str) -> int:
         if m:
             used.append(int(m.group(1)))
     return (max(used) + 1) if used else 1
-
-
-def _resolve_leo_dm_channel(token: str) -> str | None:
-    # AR-5.3: Slack retired (AR-5) — no DM channel.
-    return None
 
 
 def _attribution_text(advisor: str, context: str) -> str:
@@ -92,8 +78,7 @@ def deliver_asset(req: DeliverAssetRequest):
     versioned_path = asset_dir / f"v{version}.{ext}"
     shutil.copy2(src, versioned_path)
 
-    # AR-5.3: Slack retired (AR-5). The asset is versioned in the vault above;
-    # Slack DM + file-upload delivery is retired. Notify Leo on Telegram with the
+    # The asset is versioned in the vault above; notify Leo on Telegram with the
     # vault path (native Telegram file upload is a separate future build).
     try:
         from tg_alert import tg_alert

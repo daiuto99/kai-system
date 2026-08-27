@@ -2,9 +2,7 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 from datetime import datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Request, HTTPException
@@ -17,21 +15,6 @@ from config import VAULT_PATH, load_secret
 
 GIT_ACTIVITY_FILE = VAULT_PATH / "00_System" / "git_activity.json"
 ET = ZoneInfo("America/New_York")
-SLACK_CHANNEL = "devops"
-
-
-def _slack_token() -> str:
-    p = Path("/run/secrets/slack_bot_token")
-    return p.read_text().strip() if p.exists() else os.environ.get("SLACK_BOT_TOKEN", "")
-
-
-def _post_slack(text: str):
-    # AR-5.3: rerouted to Telegram (sole surface, AR-5). Name kept so call sites
-    # stay unchanged; fail-soft via the shared chokepoint.
-    from tg_alert import tg_alert
-    tg_alert(text)
-
-
 def _load() -> list:
     if not GIT_ACTIVITY_FILE.exists():
         return []
@@ -80,7 +63,7 @@ def _record(hash_: str, message: str, branch: str, author: str, repo: str, commi
     _save(entries[:100])
 
     # JARVIS §6: commits are not "auto-fixed" and not "needs-action".
-    # Recording to the dashboard is sufficient — no Slack post.
+    # Recording to the dashboard is sufficient — no external post.
     logger.info(f"Git commit recorded: {short} ({commit_type}) — {message[:60]}")
     return {"action": "recorded"}
 
