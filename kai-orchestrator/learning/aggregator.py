@@ -250,8 +250,8 @@ def start_learning_loop():
                     try:
                         from learning.proposer import generate_proposals
                         result = generate_proposals(path)
-                        log.info("learning-loop: proposals generated — %s qualifying, slack=%s",
-                                 result.get("qualifying_patterns"), result.get("slack_posted"))
+                        log.info("learning-loop: proposals generated — %s qualifying, alerted=%s",
+                                 result.get("qualifying_patterns"), result.get("alert_posted"))
                     except Exception:
                         log.exception("learning-loop: proposal generation failed")
                     last_run = datetime.datetime.utcnow()

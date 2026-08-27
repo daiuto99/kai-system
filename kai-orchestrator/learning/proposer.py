@@ -1,7 +1,7 @@
 """
 S6-3 Proposal generator — reads pattern JSON from S6-2, generates structured
-Markdown proposals for patterns with evidence_count >= 2, posts summary to
-#kai-system Slack, writes proposals to vault/60_Council/learning/.
+Markdown proposals for patterns with evidence_count >= 2, posts a summary via the
+notify gateway, writes proposals to vault/60_Council/learning/.
 
 Human-in-the-loop: system proposes, Leo merges — NO auto-apply.
 """
@@ -9,7 +9,6 @@ Human-in-the-loop: system proposes, Leo merges — NO auto-apply.
 import datetime
 import json
 import logging
-import os
 import pathlib
 
 
@@ -17,39 +16,18 @@ log = logging.getLogger(__name__)
 
 _VAULT_LEARNING = pathlib.Path("/vault/60_Council/learning")
 
-_SLACK_TOKEN   = None  # loaded lazily from secrets file
-_SLACK_CHANNEL = "#devops"
-
 _EVIDENCE_THRESHOLD = 2  # only generate proposals for patterns with this many+ evidence items
 
 
-# ── Slack helper ──────────────────────────────────────────────────────────────
+# ── Alert helper ──────────────────────────────────────────────────────────────
 
-def _get_slack_token() -> str | None:
-    global _SLACK_TOKEN
-    if _SLACK_TOKEN:
-        return _SLACK_TOKEN
-    for path in [
-        "/run/wp_secrets/slack_bot_token.txt",
-        "/vault/00_System/secrets/slack_bot_token.txt",
-        os.environ.get("SLACK_BOT_TOKEN_FILE", ""),
-    ]:
-        if path and pathlib.Path(path).exists():
-            _SLACK_TOKEN = pathlib.Path(path).read_text().strip()
-            return _SLACK_TOKEN
-    token = os.environ.get("SLACK_BOT_TOKEN")
-    if token:
-        _SLACK_TOKEN = token
-    return _SLACK_TOKEN
-
-
-def _post_slack(text: str) -> bool:
-    """AR-5.3: rerouted to Telegram (sole surface). Name kept; call sites unchanged."""
+def _post_alert(text: str) -> bool:
+    """Route the learning-loop summary through the notify gateway (single voice)."""
     try:
         from tg_alert import tg_alert
         return tg_alert(text)
     except Exception as exc:
-        log.warning("proposal-gen tg_alert exception: %s", exc)
+        log.warning("proposal-gen alert exception: %s", exc)
         return False
 
 
@@ -129,7 +107,7 @@ def generate_proposals(pattern_file: pathlib.Path | None = None) -> dict:
     """
     Read pattern JSON (defaults to latest in vault/60_Council/learning/),
     generate Markdown proposals for qualifying patterns,
-    post Slack summary, return summary dict.
+    post an alert summary, return summary dict.
     """
     if pattern_file is None:
         candidates = sorted(_VAULT_LEARNING.glob("*-patterns.json"))
@@ -152,7 +130,7 @@ def generate_proposals(pattern_file: pathlib.Path | None = None) -> dict:
         proposals_written.append(str(out_path))
         log.info("proposal-gen: wrote %s", out_path.name)
 
-    # Slack summary
+    # Alert summary
     if proposals_written:
         lines = [f"*KAI Learning Loop — {week}*"]
         lines.append(f"Pattern aggregation found *{len(patterns)} patterns*, *{len(qualifying)} actionable* (evidence ≥ {_EVIDENCE_THRESHOLD}):")
@@ -160,11 +138,11 @@ def generate_proposals(pattern_file: pathlib.Path | None = None) -> dict:
             lines.append(f"  • `{p['capability']}` [{p['pattern_type']}] — {p['evidence_count']} evidence items")
         lines.append(f"\n{len(proposals_written)} proposal(s) written to vault/60_Council/learning/")
         lines.append("_Human-in-the-loop: system proposes, Leo merges._")
-        slack_text = "\n".join(lines)
-        slack_ok = _post_slack(slack_text)
+        alert_text = "\n".join(lines)
+        alert_posted = _post_alert(alert_text)
     else:
-        slack_text = f"KAI Learning Loop — {week}: {len(patterns)} patterns, none qualify (all below threshold {_EVIDENCE_THRESHOLD})"
-        slack_ok = _post_slack(slack_text)
+        alert_text = f"KAI Learning Loop — {week}: {len(patterns)} patterns, none qualify (all below threshold {_EVIDENCE_THRESHOLD})"
+        alert_posted = _post_alert(alert_text)
 
     return {
         "ok": True,
@@ -173,5 +151,5 @@ def generate_proposals(pattern_file: pathlib.Path | None = None) -> dict:
         "total_patterns": len(patterns),
         "qualifying_patterns": len(qualifying),
         "proposals_written": proposals_written,
-        "slack_posted": slack_ok,
+        "alert_posted": alert_posted,
     }

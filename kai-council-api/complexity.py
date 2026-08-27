@@ -9,7 +9,7 @@ MODEL_CONFIG_FILE = Path("/vault/00_System/model_config.json")
 TOOL_SIGNALS = [
     "look up", "find ", "search", "contact", "phone", "number", "email",
     "calendar", "schedule", "what's", "who is", "who's", "send ",
-    "draft", "create ", "remind", "project", "task", "slack",
+    "draft", "create ", "remind", "project", "task",
 ]
 
 
