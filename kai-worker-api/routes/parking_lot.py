@@ -488,7 +488,7 @@ def parking_lot_annotate(slug: str, req: AnnotateRequest):
     """Append a timestamped context note to a backlog card without dispatching.
 
     The note is appended as a markdown blockquote at the end of the card body.
-    Card stays in /vault/50_ParkingLot/. No archive, no dispatch, no Slack noise.
+    Card stays in /vault/50_ParkingLot/. No archive, no dispatch, no notification noise.
     Use this when Leo wants to add context to an existing card while triaging.
     """
     path = LOT_DIR / f"{slug}.md"

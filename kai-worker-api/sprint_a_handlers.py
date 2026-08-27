@@ -2,10 +2,10 @@
 
 Three entry points:
 
-- handle_clarification_choice(pending_id, field, value) — used by Slack
+- handle_clarification_choice(pending_id, field, value) — used by the inbound clarification handler
   button click and Telegram callback_query. Resumes the plan and dispatches.
 
-- handle_freetext_reply(pending_id, raw_text) — used by Slack thread replies
+- handle_freetext_reply(pending_id, raw_text) — used by inbound thread replies
   and Telegram free-text in a freshness window. validate_choice on raw_text;
   on hit, resume+dispatch; on miss, bump_retry and (if past retry limit)
   fall back to capture.

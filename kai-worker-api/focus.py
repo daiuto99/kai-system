@@ -1,6 +1,6 @@
 """
 Focus brief generator — pulls Todoist tasks, builds Top 3 / Next 5 brief,
-posts to #kai-focus in Slack, and writes to kai/context.md for morning check-in.
+posts to Leo via Telegram (tg_alert), and writes to kai/context.md for morning check-in.
 """
 from pathlib import Path
 from datetime import date
@@ -115,7 +115,7 @@ Keep it tight. No preamble. Just the brief."""
     return response.content[0].text
 
 
-def post_to_slack(brief: str, channel_id: str) -> None:
+def post_brief(brief: str, channel_id: str) -> None:
     """AR-5.3: rerouted to Telegram (sole surface). Name/signature kept so call
     sites stay unchanged; channel_id ignored; fail-soft via the shared chokepoint."""
     from tg_alert import tg_alert
@@ -139,11 +139,11 @@ def write_to_kai_context(brief: str, vault_path: Path) -> None:
 
 
 def run_focus_brief(kai_focus_channel_id: str, vault_path: Path = Path("/vault")) -> dict:
-    """Full pipeline: fetch tasks → build brief → post to Slack → write to vault."""
+    """Full pipeline: fetch tasks → build brief → post to Telegram → write to vault."""
     tasks = get_todoist_tasks()
     close_notes = load_kai_close_notes(vault_path)
     brief = build_focus_brief(tasks, close_notes)
-    post_to_slack(brief, kai_focus_channel_id)
+    post_brief(brief, kai_focus_channel_id)
     write_to_kai_context(brief, vault_path)
     return {
         "status": "ok",

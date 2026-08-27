@@ -195,7 +195,7 @@ def get_model_catalog():
     cfg = _load_model_config()
     advisor_configs = cfg.get("advisors", {})
     FUNCTION_MAP = [
-        {"function": "KAI Tools",            "description": "create_task, send_slack, create_event, write_vault", "provider": "anthropic", "model": advisor_configs.get("kai", {}).get("model", "claude-sonnet-4-6")},
+        {"function": "KAI Tools",            "description": "create_task, create_event, write_vault", "provider": "anthropic", "model": advisor_configs.get("kai", {}).get("model", "claude-sonnet-4-6")},
         {"function": "Specialist Consult",   "description": "consult_specialist — 10 domain experts",             "provider": "anthropic", "model": advisor_configs.get("kai", {}).get("model", "claude-sonnet-4-6")},
         {"function": "Session Summaries",    "description": "Auto-summarize after 20+ exchanges",                  "provider": "anthropic", "model": advisor_configs.get("kai", {}).get("model", "claude-sonnet-4-6")},
         {"function": "Decision Logging",     "description": "log_decision — vault/60_Council/decisions/",          "provider": "anthropic", "model": advisor_configs.get("kai", {}).get("model", "claude-sonnet-4-6")},

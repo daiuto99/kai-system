@@ -25,7 +25,7 @@ def trigger_focus_brief(req: FocusRequest):
 
 @router.get("/focus/today")
 def focus_today():
-    """Return structured focus stack for the web UI (no Slack post)."""
+    """Return structured focus stack for the web UI (no notification post)."""
     today = _date.today().isoformat()
 
     def shape(t):

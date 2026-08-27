@@ -3,7 +3,7 @@
 Takes a dispatch_plan from routing_engine and actually does the thing. Pure
 side-effects: calls the council API for advisor work, calls WordPress for blog
 drafts, writes vault files for recipes. Does NOT post replies back to the
-origin channel — the caller (Slack interactions handler, dashboard, etc.)
+origin channel — the caller (inbound interactions handler, dashboard, etc.)
 owns that step.
 
 Result shape:
@@ -156,7 +156,7 @@ def _dispatch_share(plan: dict, content: dict, intent: dict, *,
 
 
 def _short_summary_id() -> str:
-    """4-char base32 id like S-7K3M, easy to read back to KAI from a Slack message."""
+    """4-char base32 id like S-7K3M, easy to read back to KAI from a message."""
     import secrets, string
     alphabet = string.ascii_uppercase + "2345679"  # no 0/1/8/I/O — readability
     return "S-" + "".join(secrets.choice(alphabet) for _ in range(4))
@@ -219,7 +219,7 @@ def _update_last_summary(channel: str, chat_id: str | None, sid: str, path: Path
 
 def _dispatch_summarize(plan: dict, content: dict, intent: dict, *,
                         client: httpx.Client | None) -> dict:
-    """Summarize via KAI. Writes neutral md to vault/40_Summaries/, terse Slack notice."""
+    """Summarize via KAI. Writes neutral md to vault/40_Summaries/, terse Telegram notice."""
     advisor = plan["target"].get("advisor") or "kai"
     prompt = _summarize_prompt(content, intent)
     reply = _call_council(advisor, prompt, client=client)
