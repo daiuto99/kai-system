@@ -12,6 +12,41 @@ import function_map as fm
 from insights import extract_and_strip_insights, append_insights_to_vault
 from execute_tool import execute_tool
 from providers import get_anthropic_client, _call_ollama, _call_litellm
+import os
+from datetime import datetime, timezone
+from pathlib import Path as _Path
+
+# AR-3/KAI-964: the migrated advisor pair (sky/roads) runs as isolated Hermes
+# profiles with LOCAL inference on the mini via the durable advisor shim. CPU-only
+# inference is ~90s/turn, so this path is ASYNC: council acks immediately and the
+# real reply is produced in the background and appended to the advisor dm_log (the
+# dashboard surface). Retires _run_agentic_loop for the pair.
+ADVISOR_SHIM_URL = os.environ.get("ADVISOR_SHIM_URL", "http://100.85.243.2:4002")
+ADVISOR_SHIM_TIMEOUT = int(os.environ.get("ADVISOR_SHIM_TIMEOUT", "300"))
+
+
+def _run_hermes_async(advisor: str, message: str, user_id: str) -> None:
+    """Run the advisor Hermes profile on the mini (local, ~90s) and append the reply
+    to /vault/60_Council/<advisor>/dm_log.jsonl so it surfaces on the dashboard."""
+    reply = None
+    try:
+        r = httpx.post(f"{ADVISOR_SHIM_URL}/advisor",
+                       json={"advisor": advisor, "message": message},
+                       timeout=ADVISOR_SHIM_TIMEOUT)
+        r.raise_for_status()
+        reply = (r.json().get("reply") or "").strip()
+    except Exception as exc:
+        logger.exception("hermes-async advisor=%s failed: %s", advisor, exc)
+        reply = f"(Local {advisor} run failed: {type(exc).__name__} — try again.)"
+    try:
+        log_file = _Path("/vault") / "60_Council" / advisor / "dm_log.jsonl"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        entry = {"user_id": user_id, "message": message, "reply": reply,
+                 "ts": datetime.now(timezone.utc).isoformat(), "provider": "hermes-local"}
+        with log_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as exc:
+        logger.exception("hermes-async dm_log append failed advisor=%s: %s", advisor, exc)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -603,6 +638,19 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
                 total_cache_read_tokens     = getattr(response.usage, "cache_read_input_tokens", 0) or 0
                 total_cache_creation_tokens = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
                 raw_reply = next((b.text for b in response.content if hasattr(b, "text")), "")
+        elif provider == "hermes":
+            # AR-3/KAI-964: async local advisor. Ack now; the Hermes profile runs in the
+            # background and the reply lands in the advisor dm_log (dashboard surface).
+            _uid = req.user_id or channel
+            if background_tasks is not None:
+                background_tasks.add_task(_run_hermes_async, advisor, req.message, _uid)
+            else:
+                import threading
+                threading.Thread(target=_run_hermes_async,
+                                 args=(advisor, req.message, _uid), daemon=True).start()
+            actual_provider, actual_model = "hermes-async", model
+            raw_reply = (f"{advisor.capitalize()} is on it — running locally on the mini. "
+                         f"The answer will land in your {advisor.capitalize()} thread in about a minute.")
         else:
             raise HTTPException(400, f"Unknown provider: {provider}")
     except HTTPException:
