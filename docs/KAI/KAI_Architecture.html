@@ -116,7 +116,7 @@
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
         <span class="badge badge-purple">8 Advisors</span>
         <span class="badge badge-green">Live Dashboard</span>
-        <span class="badge badge-blue">Slack Native</span>
+        <span class="badge badge-blue">Buzz Native</span>
         <span class="badge badge-yellow">Local AI</span>
       </div>
     </div>
@@ -131,7 +131,7 @@
         <span class="badge badge-green"><span class="dot"></span> Live</span>
       </div>
       <div class="container-row" style="margin-bottom:6px">
-        <div><div class="container-name">Slack Workspace "71"</div><div class="container-meta">8 advisor accounts</div></div>
+        <div><div class="container-name">Buzz Advisors</div><div class="container-meta">Native advisor DMs</div></div>
         <span class="badge badge-green"><span class="dot"></span> Live</span>
       </div>
       <div class="container-row">
@@ -147,7 +147,7 @@
       <div class="layer-title" style="color:#a5b4fc">Interfaces</div>
       <div class="layer-items">
         <span class="layer-item" style="background:#6366f120;color:#a5b4fc">Web Dashboard (kai.sonicink.space)</span>
-        <span class="layer-item" style="background:#6366f120;color:#a5b4fc">Slack (Desktop + Mobile)</span>
+        <span class="layer-item" style="background:#6366f120;color:#a5b4fc">Buzz (Primary Mobile)</span>
         <span class="layer-item" style="background:#6366f120;color:#a5b4fc">iOS Shortcut → Parking Lot (planned)</span>
         <span class="layer-item" style="background:#6366f120;color:#a5b4fc">Telegram (planned)</span>
       </div>
@@ -196,7 +196,7 @@
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Google Calendar (via n8n)</span>
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Gmail (via n8n)</span>
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Todoist</span>
-        <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Slack</span>
+        <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Buzz</span>
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Cloudflare Tunnel</span>
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Resend (email send)</span>
       </div>
@@ -223,7 +223,7 @@
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:3001</span><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-slack-bot</div><div class="container-meta">slack-bolt · Socket Mode · Advisor identities</div></div>
+      <div><div class="container-name">kai-buzz-shim</div><div class="container-meta">Buzz native-advisor backend (:4001) · advisor identities</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
     <div class="container-row">
@@ -268,13 +268,13 @@
 
 <!-- ADVISORS -->
 <div id="panel-advisors" class="panel">
-  <div style="margin-bottom:16px;font-size:13px;color:#64748b">8 lead advisors + 10 specialist personas available for consultation. Specialists are invoked by KAI on demand — no Slack, no direct channel.</div>
+  <div style="margin-bottom:16px;font-size:13px;color:#64748b">8 lead advisors + 10 specialist personas available for consultation. Specialists are invoked by KAI on demand — no Buzz DM, no direct channel.</div>
   <div class="grid grid-2" style="margin-bottom:24px">
     <div class="advisor-card" style="border-color:#6366f144">
       <div class="advisor-name" style="color:#a5b4fc">KAI</div>
       <div class="advisor-domain">Command · Operations · Execution · JARVIS DNA</div>
       <div style="margin-top:6px;display:flex;gap:6px">
-        <span class="badge badge-purple">Slack DM</span>
+        <span class="badge badge-purple">Buzz DM</span>
         <span class="badge badge-blue">Tool-use</span>
         <span class="badge badge-green">13 tools</span>
       </div>
@@ -284,7 +284,7 @@
       <div class="advisor-name" style="color:#f472b6">Ember</div>
       <div class="advisor-domain">Emotional intelligence · Personal growth · Insights</div>
       <div style="margin-top:6px;display:flex;gap:6px">
-        <span class="badge badge-pink">Slack DM</span>
+        <span class="badge badge-pink">Buzz DM</span>
         <span class="badge badge-yellow">Local-first</span>
       </div>
       <div class="advisor-model"><span class="badge badge-yellow">Ollama · llama3.2 (local)</span></div>
@@ -293,7 +293,7 @@
       <div class="advisor-name" style="color:#34d399">Doc</div>
       <div class="advisor-domain">Health · Longevity · Medical analysis</div>
       <div style="margin-top:6px;display:flex;gap:6px">
-        <span class="badge badge-pink">Slack DM</span>
+        <span class="badge badge-pink">Buzz DM</span>
         <span class="badge badge-yellow">Local-first</span>
       </div>
       <div class="advisor-model"><span class="badge badge-yellow">Ollama · llama3.2 (local)</span></div>
@@ -301,7 +301,7 @@
     <div class="advisor-card" style="border-color:#f59e0b44">
       <div class="advisor-name" style="color:#fbbf24">Coach</div>
       <div class="advisor-domain">Performance · Fitness · Physical health</div>
-      <div style="margin-top:6px"><span class="badge badge-pink">Slack DM</span></div>
+      <div style="margin-top:6px"><span class="badge badge-pink">Buzz DM</span></div>
       <div class="advisor-model"><span class="badge badge-purple">Anthropic · claude-sonnet-4-5</span></div>
     </div>
     <div class="advisor-card" style="border-color:#f59e0b44">
@@ -313,13 +313,13 @@
     <div class="advisor-card" style="border-color:#06b6d444">
       <div class="advisor-name" style="color:#22d3ee">Sky</div>
       <div class="advisor-domain">Studio Assistant · DAW · Sessions · Music theory</div>
-      <div style="margin-top:6px"><span class="badge badge-pink">Slack DM</span></div>
+      <div style="margin-top:6px"><span class="badge badge-pink">Buzz DM</span></div>
       <div class="advisor-model"><span class="badge badge-purple">Anthropic · claude-sonnet-4-5</span></div>
     </div>
     <div class="advisor-card" style="border-color:#f59e0b44">
       <div class="advisor-name" style="color:#fbbf24">Roads</div>
       <div class="advisor-domain">Gear Guru · Roadie · Guitars · Amps · Live</div>
-      <div style="margin-top:6px"><span class="badge badge-pink">Slack DM</span></div>
+      <div style="margin-top:6px"><span class="badge badge-pink">Buzz DM</span></div>
       <div class="advisor-model"><span class="badge badge-purple">Anthropic · claude-sonnet-4-5</span></div>
     </div>
     <div class="advisor-card" style="border-color:#3b82f644">
@@ -358,7 +358,7 @@
       <div style="margin-top:12px">
         <div class="flow-step">
           <div class="flow-num">→</div>
-          <div class="flow-text"><div class="flow-label">All advisor conversations</div><div class="flow-desc">Same history as Slack — shared vault</div></div>
+          <div class="flow-text"><div class="flow-label">All advisor conversations</div><div class="flow-desc">Same history as Buzz — shared vault</div></div>
         </div>
         <div class="flow-step">
           <div class="flow-num">→</div>
@@ -372,11 +372,11 @@
     </div>
 
     <div class="card">
-      <div class="card-title">Slack (Desktop + iOS App)</div>
+      <div class="card-title">Buzz (Primary Mobile + Advisor DMs)</div>
       <h3 style="margin-bottom:8px">Primary mobile + async interface</h3>
-      <p>Native Slack notifications on all devices. Full advisor DMs. Project channels. Approval flows via ✅ reactions.</p>
+      <p>Buzz is the primary mobile surface — advisor DMs, notifications, and approvals (Got-it ack) on all devices. Telegram is emergency backup only.</p>
       <div style="margin-top:12px">
-        <div style="font-size:12px;font-weight:700;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em">Slack Use Cases</div>
+        <div style="font-size:12px;font-weight:700;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em">Buzz Use Cases</div>
         <div class="privacy-row" style="margin-bottom:4px">
           <span class="badge badge-purple" style="flex-shrink:0">Personal DMs</span>
           <span style="font-size:12px;color:#94a3b8">KAI, Ember, Coach, Doc, Sky, Roads — 1:1 advisor conversations</span>
@@ -399,7 +399,7 @@
 
   <div class="grid grid-2" style="margin-bottom:20px">
     <div class="card">
-      <div class="card-title">Slack — Project Channels</div>
+      <div class="card-title">Projects (vault-backed)</div>
       <div class="container-row"><div class="container-name">#encore</div><span style="font-size:11px;color:#64748b">Biz advisor · Music platform</span></div>
       <div class="container-row"><div class="container-name">#launchbox</div><span style="font-size:11px;color:#64748b">Biz advisor · Agency</span></div>
       <div class="container-row"><div class="container-name">#soul-collective</div><span style="font-size:11px;color:#64748b">Ember advisor · Brand</span></div>
@@ -407,9 +407,9 @@
       <div class="container-row"><div class="container-name">#kai-system</div><span style="font-size:11px;color:#64748b">KAI advisor · System ops</span></div>
     </div>
     <div class="card">
-      <div class="card-title">Slack vs Web — Key Differences</div>
+      <div class="card-title">Buzz vs Web — Key Differences</div>
       <table>
-        <tr><th>Feature</th><th>Web</th><th>Slack</th></tr>
+        <tr><th>Feature</th><th>Web</th><th>Buzz</th></tr>
         <tr><td>Mobile</td><td style="color:#ef4444">No</td><td style="color:#10b981">Native app</td></tr>
         <tr><td>Notifications</td><td style="color:#ef4444">Browser only</td><td style="color:#10b981">All devices</td></tr>
         <tr><td>Approval flow</td><td style="color:#ef4444">Not wired</td><td style="color:#10b981">✅ reaction</td></tr>
@@ -439,7 +439,7 @@
         <span class="badge badge-red">Not built</span>
       </div>
       <div class="container-row">
-        <div><div class="container-name">Morning Brief DM</div><div class="container-meta">7am Slack DM: calendar + tasks + email + projects</div></div>
+        <div><div class="container-name">Morning Brief DM</div><div class="container-meta">7am Buzz brief: calendar + tasks + email + projects</div></div>
         <span class="badge badge-yellow">Sprint 8</span>
       </div>
       <div class="container-row">
@@ -498,10 +498,10 @@
     <table>
       <tr><th>Channel</th><th>Provider</th><th>Model</th><th>Input rate</th><th>Output rate</th><th>Privacy</th></tr>
       <tr><td>Web dashboard chat</td><td>Per advisor config</td><td>varies</td><td>varies</td><td>varies</td><td style="color:#10b981">On-worker API</td></tr>
-      <tr><td>Slack DM — KAI</td><td>Anthropic</td><td>claude-sonnet-4-5</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker</td></tr>
-      <tr><td>Slack DM — Ember</td><td>Ollama</td><td>llama3.2</td><td>$0</td><td>$0</td><td style="color:#10b981">100% local</td></tr>
-      <tr><td>Slack DM — Doc</td><td>Ollama</td><td>llama3.2</td><td>$0</td><td>$0</td><td style="color:#10b981">100% local</td></tr>
-      <tr><td>Slack — Biz (planned)</td><td>OpenAI</td><td>gpt-4o</td><td>$5/1M</td><td>$15/1M</td><td style="color:#fbbf24">OpenAI servers</td></tr>
+      <tr><td>Buzz DM — KAI</td><td>Anthropic</td><td>claude-sonnet-4-5</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker</td></tr>
+      <tr><td>Buzz DM — Ember</td><td>Ollama</td><td>llama3.2</td><td>$0</td><td>$0</td><td style="color:#10b981">100% local</td></tr>
+      <tr><td>Buzz DM — Doc</td><td>Ollama</td><td>llama3.2</td><td>$0</td><td>$0</td><td style="color:#10b981">100% local</td></tr>
+      <tr><td>Buzz — Biz (planned)</td><td>OpenAI</td><td>gpt-4o</td><td>$5/1M</td><td>$15/1M</td><td style="color:#fbbf24">OpenAI servers</td></tr>
       <tr><td>Telegram (planned)</td><td>TBD</td><td>TBD</td><td>—</td><td>—</td><td style="color:#64748b">Not built</td></tr>
       <tr><td>Specialist consultation</td><td>Anthropic</td><td>claude-sonnet-4-5</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker</td></tr>
       <tr><td>Auto-session summary</td><td>Anthropic</td><td>claude-sonnet-4-5</td><td>$3/1M</td><td>$15/1M</td><td style="color:#10b981">On-worker</td></tr>
@@ -546,7 +546,7 @@
       </div>
       <div class="privacy-row">
         <span class="badge badge-yellow" style="flex-shrink:0">External comms</span>
-        <span style="font-size:12px;color:#94a3b8">Anything crossing to outside world needs Slack ✅ reaction (Tier 2).</span>
+        <span style="font-size:12px;color:#94a3b8">Anything crossing to outside world needs Buzz approval (Got-it ack, Tier 2).</span>
       </div>
     </div>
   </div>
@@ -561,7 +561,7 @@
       <tr><td>AI inference (cloud advisors)</td><td>Not stored by Anthropic (no training)</td><td style="color:#fbbf24">Yes — Anthropic API</td><td style="color:#fbbf24">Anthropic</td></tr>
       <tr><td>Calendar events</td><td>Fetched live via n8n</td><td style="color:#fbbf24">Yes — Google</td><td style="color:#fbbf24">Google</td></tr>
       <tr><td>Email content</td><td>Not stored — fetched on request</td><td style="color:#fbbf24">Yes — Google</td><td style="color:#fbbf24">Google</td></tr>
-      <tr><td>Slack messages</td><td>vault history + Slack servers</td><td style="color:#fbbf24">Yes — Slack</td><td style="color:#fbbf24">Slack</td></tr>
+      <tr><td>Buzz messages</td><td>vault history + Buzz app</td><td style="color:#fbbf24">Yes — Buzz</td><td style="color:#fbbf24">Buzz</td></tr>
       <tr><td>Projects/tasks</td><td>vault + Todoist</td><td style="color:#fbbf24">Yes — Todoist</td><td style="color:#fbbf24">Todoist</td></tr>
     </table>
   </div>
@@ -575,14 +575,14 @@
       <div class="tier-num" style="color:#34d399">T1</div>
       <div>
         <div style="font-size:14px;font-weight:700;color:#34d399">Autonomous</div>
-        <div style="font-size:13px;color:#94a3b8;margin-top:4px">Internal ops, vault writes, task creation, project status updates, Slack channel posts, pre-approved automations, read-only data fetching</div>
+        <div style="font-size:13px;color:#94a3b8;margin-top:4px">Internal ops, vault writes, task creation, project status updates, Buzz notifications, pre-approved automations, read-only data fetching</div>
       </div>
     </div>
     <div class="tier" style="background:#f59e0b08;border-color:#f59e0b40">
       <div class="tier-num" style="color:#fbbf24">T2</div>
       <div>
-        <div style="font-size:14px;font-weight:700;color:#fbbf24">Slack ✅ Reaction</div>
-        <div style="font-size:13px;color:#94a3b8;margin-top:4px">External comms, adding new advisors or humans, anything that costs money, creating Slack workspaces or channels</div>
+        <div style="font-size:14px;font-weight:700;color:#fbbf24">Buzz approval (Got-it)</div>
+        <div style="font-size:13px;color:#94a3b8;margin-top:4px">External comms, adding new advisors or humans, anything that costs money</div>
         <div style="font-size:12px;color:#64748b;margin-top:4px">Not yet wired — Sprint 8 target</div>
       </div>
     </div>
@@ -646,7 +646,7 @@
       <div>
         <div class="flow-step">
           <div class="flow-num" style="background:#f59e0b">4</div>
-          <div class="flow-text"><div class="flow-label">Slack bidirectional logging</div><div class="flow-desc">Leo's messages in Slack aren't captured in vault history — only AI replies. Full bidirectional logging would complete the record</div></div>
+          <div class="flow-text"><div class="flow-label">Buzz bidirectional logging</div><div class="flow-desc">Leo's messages in Buzz aren't captured in vault history — only AI replies. Full bidirectional logging would complete the record</div></div>
         </div>
         <div class="flow-step">
           <div class="flow-num" style="background:#3b82f6">5</div>

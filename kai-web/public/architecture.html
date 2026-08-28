@@ -287,7 +287,7 @@ function loadCost() {
         <span class="badge badge-cyan">Job Engine ✅</span>
         <span class="badge badge-green">JARVIS Autonomy ✅</span>
         <span class="badge badge-green">Live Dashboard</span>
-        <span class="badge badge-blue">Slack Native</span>
+        <span class="badge badge-blue">Buzz Native</span>
         <span class="badge badge-yellow">Local AI</span>
         <span class="badge badge-cyan">Telegram Live</span>
         <span class="badge badge-green">44 KAI Tools</span>
@@ -305,7 +305,7 @@ function loadCost() {
         <span class="badge badge-green"><span class="dot"></span> Live</span>
       </div>
       <div class="container-row" style="margin-bottom:6px">
-        <div><div class="container-name">Slack Workspace "71"</div><div class="container-meta">8 advisor accounts · T2 approval gate live</div></div>
+        <div><div class="container-name">Buzz Advisors</div><div class="container-meta">Native advisor DMs · approval gate live</div></div>
         <span class="badge badge-green"><span class="dot"></span> Live</span>
       </div>
       <div class="container-row" style="margin-bottom:6px">
@@ -355,7 +355,7 @@ function loadCost() {
       <div class="layer-title" style="color:#a5b4fc">Interfaces</div>
       <div class="layer-items">
         <span class="layer-item" style="background:#6366f120;color:#a5b4fc">Web Dashboard (kai.sonicink.space)</span>
-        <span class="layer-item" style="background:#6366f120;color:#a5b4fc">Slack (Desktop + Mobile)</span>
+        <span class="layer-item" style="background:#6366f120;color:#a5b4fc">Buzz (Primary Mobile)</span>
         <span class="layer-item" style="background:#6366f120;color:#a5b4fc">iOS Shortcut → Parking Lot ✅</span>
         <span class="layer-item" style="background:#6366f120;color:#a5b4fc">Telegram @Kai_sonicink_bot ✅</span>
         <span class="layer-item" style="background:#6366f118;color:#64748b">Voice / Siri (planned)</span>
@@ -398,7 +398,7 @@ function loadCost() {
         <span class="layer-item" style="background:#10b98120;color:#34d399">Token Usage</span>
         <span class="layer-item" style="background:#10b98120;color:#34d399">Email (via n8n)</span>
         <span class="layer-item" style="background:#10b98120;color:#34d399">Calendar (via n8n)</span>
-        <span class="layer-item" style="background:#10b98120;color:#34d399">Slack channels + T2 queue</span>
+        <span class="layer-item" style="background:#10b98120;color:#34d399">Buzz DMs + approval queue</span>
         <span class="layer-item" style="background:#10b98120;color:#34d399">Contacts registry</span>
         <span class="layer-item" style="background:#10b98120;color:#34d399">Oura API ✅</span>
         <span class="layer-item" style="background:#10b98120;color:#34d399">ICS Calendar feeds ✅</span>
@@ -424,7 +424,7 @@ function loadCost() {
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Anthropic API</span>
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Google Calendar + Gmail (via n8n)</span>
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Todoist</span>
-        <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Slack</span>
+        <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Buzz</span>
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Telegram</span>
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Cloudflare Tunnel</span>
         <span class="layer-item" style="background:#3b82f620;color:#60a5fa">Resend (email send)</span>
@@ -448,10 +448,10 @@ function loadCost() {
     <div class="sys-layer-icon">🖥️</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#a5b4fc">Interface Layer</div>
-      <div class="sys-layer-desc">How Leo talks to KAI. Web dashboard, Slack DMs, Telegram, iOS Shortcut, Wispr Flow dictation, and Siri voice. Each surface has different strengths — web for visual/data, Slack for mobile/notifications, Telegram for on-the-go capture, Wispr Flow for quality dictation at any screen, Siri for hands-free.</div>
+      <div class="sys-layer-desc">How Leo talks to KAI. Web dashboard, Buzz advisor DMs, Telegram (emergency backup), iOS Shortcut, Wispr Flow dictation, and Siri voice. Each surface has different strengths — dashboard is the primary local surface for visual/data, Buzz is the primary mobile surface for advisor conversations + approvals + notifications, Telegram is emergency backup only, Wispr Flow for quality dictation at any screen, Siri for hands-free.</div>
       <div class="sys-layer-status">
         <span class="badge badge-green">Dashboard ✅</span>
-        <span class="badge badge-green">Slack ✅</span>
+        <span class="badge badge-green">Buzz ✅</span>
         <span class="badge badge-green">Telegram ✅</span>
         <span class="badge badge-green">iOS Shortcut ✅</span>
         <span class="badge badge-green">Wispr Flow ✅ (works now, no build)</span>
@@ -481,7 +481,7 @@ function loadCost() {
     <div class="sys-layer-icon">📚</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#fbbf24">Knowledge Layer</div>
-      <div class="sys-layer-desc">The "brain" — persistent memory that makes KAI smarter over time. Sprint 15: cross-session memory injection is live. Every conversation loads the last 2 session summaries + a rolling context.md into the system prompt. context.md auto-updates after every save_session call. Knowledge is now read back, not just written. Qdrant vector DB live Sprint 19b. 9 collections, nomic-embed-text embeddings, knowledge context injected into council prompts. n8n expansion live ✅ Sprint 20 (KAI-98: 5 workflows — Calendar, Gmail, Morning Brief, Parking Lot, Slack). Knowledge base active ✅ Sprint 19c. Next: populate vault/60_Council/&lt;advisor&gt;/knowledge/ (KAI-97 ongoing).</div>
+      <div class="sys-layer-desc">The "brain" — persistent memory that makes KAI smarter over time. Sprint 15: cross-session memory injection is live. Every conversation loads the last 2 session summaries + a rolling context.md into the system prompt. context.md auto-updates after every save_session call. Knowledge is now read back, not just written. Qdrant vector DB live Sprint 19b. 9 collections, nomic-embed-text embeddings, knowledge context injected into council prompts. n8n expansion live ✅ Sprint 20 (KAI-98: 4 workflows — Calendar, Gmail, Morning Brief, Parking Lot). Knowledge base active ✅ Sprint 19c. Next: populate vault/60_Council/&lt;advisor&gt;/knowledge/ (KAI-97 ongoing).</div>
       <div class="sys-layer-status">
         <span class="badge badge-green">Vault (markdown) ✅</span>
         <span class="badge badge-green">Session summaries ✅</span>
@@ -499,11 +499,11 @@ function loadCost() {
     <div class="sys-layer-icon">⚡</div>
     <div style="flex:1">
       <div class="sys-layer-name" style="color:#34d399">Action Layer</div>
-      <div class="sys-layer-desc">KAI does things, not just answers questions. Integrated tools let KAI create tasks, manage projects, send Slack messages, draft emails, create calendar events, trigger n8n workflows, manage contacts, and set up entire project spaces in one command. Oura health data live in morning brief. Tavily web search active. ICS calendar feeds (Revolt, PSU) merged. Calendar-aware location: timezone auto-detected from calendar events every 30min. Future: content creation pipeline and proactive KAI-initiated actions.</div>
+      <div class="sys-layer-desc">KAI does things, not just answers questions. Integrated tools let KAI create tasks, manage projects, send Buzz messages, draft emails, create calendar events, trigger n8n workflows, manage contacts, and set up entire project spaces in one command. Oura health data live in morning brief. Tavily web search active. ICS calendar feeds (Revolt, PSU) merged. Calendar-aware location: timezone auto-detected from calendar events every 30min. Future: content creation pipeline and proactive KAI-initiated actions.</div>
       <div class="sys-layer-status">
         <span class="badge badge-green">44 tools ✅</span>
         <span class="badge badge-green">Project setup pipeline ✅</span>
-        <span class="badge badge-green">Slack T2 gate ✅</span>
+        <span class="badge badge-green">Buzz approval gate ✅</span>
         <span class="badge badge-green">Morning brief + Oura + weather ✅</span>
         <span class="badge badge-green">Tavily web search ✅</span>
         <span class="badge badge-green">ICS calendar feeds ✅</span>
@@ -594,7 +594,7 @@ function loadCost() {
       <div style="display:flex;gap:8px;align-items:center"><span class="port">:3001</span><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
     <div class="container-row">
-      <div><div class="container-name">kai-slack-bot</div><div class="container-meta">slack-bolt · Socket Mode · Advisor identities · T2 reaction gate (✅/❌)</div></div>
+      <div><div class="container-name">kai-buzz-shim</div><div class="container-meta">Buzz native-advisor backend (:4001) · advisor identities · approval gate</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="badge badge-green"><span class="dot"></span>live</span></div>
     </div>
     <div class="container-row">
@@ -774,7 +774,7 @@ function loadCost() {
 </div>
 <!-- AUTO_DOCUMENTED: 2026-06-10 -->
 <div class="container-row">
-  <div><div class="container-name">assets</div><div class="container-meta">Asset delivery from KAI to Leo's Slack DM, with versioned vault persistence. <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
+  <div><div class="container-name">assets</div><div class="container-meta">Asset delivery from KAI to Leo's Buzz DM, with versioned vault persistence. <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div>
 </div>
 <!-- AUTO_DOCUMENTED: 2026-06-11 -->
 <div class="container-row">
@@ -981,7 +981,7 @@ function loadCost() {
       <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
         <span class="badge badge-purple">30 tools</span>
         <span class="badge badge-blue">consult_specialist</span>
-        <span class="badge badge-cyan">Slack DM</span>
+        <span class="badge badge-cyan">Buzz DM</span>
         <span class="badge badge-cyan">Telegram</span>
       </div>
       <div class="advisor-model" style="margin-top:8px"><span class="badge badge-purple">claude-sonnet-4-6 · Haiku/Sonnet/Opus by complexity</span></div>
@@ -1169,7 +1169,7 @@ function loadCost() {
       <div style="margin-top:12px">
         <div class="flow-step">
           <div class="flow-num">→</div>
-          <div class="flow-text"><div class="flow-label">All advisor conversations</div><div class="flow-desc">Same history as Slack — shared vault</div></div>
+          <div class="flow-text"><div class="flow-label">All advisor conversations</div><div class="flow-desc">Same history as Buzz — shared vault</div></div>
         </div>
         <div class="flow-step">
           <div class="flow-num">→</div>
@@ -1183,26 +1183,26 @@ function loadCost() {
     </div>
 
     <div class="card">
-      <div class="card-title">Slack (Desktop + iOS App)</div>
+      <div class="card-title">Buzz (Primary Mobile + Advisor DMs)</div>
       <h3 style="margin-bottom:8px">Primary mobile + async interface</h3>
-      <p>Native Slack notifications on all devices. Full advisor DMs. Project channels. Approval flows via ✅ reactions.</p>
+      <p>Buzz is the primary mobile surface — advisor DMs, notifications, and approvals (Got-it ack) on all devices. Telegram is emergency backup only.</p>
       <div style="margin-top:12px">
-        <div style="font-size:12px;font-weight:700;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em">Slack Use Cases</div>
+        <div style="font-size:12px;font-weight:700;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em">Buzz Use Cases</div>
         <div class="privacy-row" style="margin-bottom:4px">
           <span class="badge badge-purple" style="flex-shrink:0">Personal DMs</span>
           <span style="font-size:12px;color:#94a3b8">KAI, Ember, Coach, Doc, Sky, Roads — 1:1 advisor conversations</span>
         </div>
         <div class="privacy-row" style="margin-bottom:4px">
           <span class="badge badge-blue" style="flex-shrink:0">Brainstorming</span>
-          <span style="font-size:12px;color:#94a3b8">Dev + Creative teams — product design, marketing, feature ideation in project channels</span>
+          <span style="font-size:12px;color:#94a3b8">Dev + Creative teams — product design, marketing, feature ideation in Buzz</span>
         </div>
         <div class="privacy-row" style="margin-bottom:4px">
           <span class="badge badge-green" style="flex-shrink:0">Approvals</span>
-          <span style="font-size:12px;color:#94a3b8">KAI proposes → ✅ reaction → executes (Tier 2 gate)</span>
+          <span style="font-size:12px;color:#94a3b8">KAI proposes → Got-it ack → executes (Tier 2 gate)</span>
         </div>
         <div class="privacy-row">
           <span class="badge badge-yellow" style="flex-shrink:0">Morning Brief</span>
-          <span style="font-size:12px;color:#94a3b8">7am Slack DM: calendar + tasks + projects + intention → KAI summary. Live ✅</span>
+          <span style="font-size:12px;color:#94a3b8">7am Buzz brief: calendar + tasks + projects + intention → KAI summary. Live ✅</span>
         </div>
       </div>
     </div>
@@ -1210,7 +1210,7 @@ function loadCost() {
 
   <div class="grid grid-2" style="margin-bottom:20px">
     <div class="card">
-      <div class="card-title">Slack — Project Channels</div>
+      <div class="card-title">Projects (vault-backed)</div>
       <div class="container-row"><div class="container-name">#encore</div><span style="font-size:11px;color:#64748b">Project channel · Music platform</span></div>
       <div class="container-row"><div class="container-name">#launchbox</div><span style="font-size:11px;color:#64748b">Project channel · Agency</span></div>
       <div class="container-row"><div class="container-name">#soul-collective</div><span style="font-size:11px;color:#64748b">Ember advisor · Brand</span></div>
@@ -1218,12 +1218,12 @@ function loadCost() {
       <div class="container-row"><div class="container-name">#kai-system</div><span style="font-size:11px;color:#64748b">KAI advisor · System ops</span></div>
     </div>
     <div class="card">
-      <div class="card-title">Slack vs Web — Key Differences</div>
+      <div class="card-title">Buzz vs Web — Key Differences</div>
       <table>
-        <tr><th>Feature</th><th>Web</th><th>Slack</th></tr>
+        <tr><th>Feature</th><th>Web</th><th>Buzz</th></tr>
         <tr><td>Mobile</td><td style="color:#ef4444">No</td><td style="color:#10b981">Native app</td></tr>
         <tr><td>Notifications</td><td style="color:#ef4444">Browser only</td><td style="color:#10b981">All devices</td></tr>
-        <tr><td>Approval flow</td><td style="color:#ef4444">Not wired</td><td style="color:#10b981">✅ reaction</td></tr>
+        <tr><td>Approval flow</td><td style="color:#ef4444">Not wired</td><td style="color:#10b981">Got-it ack</td></tr>
         <tr><td>Visual widgets</td><td style="color:#10b981">Full dashboard</td><td style="color:#ef4444">Text only</td></tr>
         <tr><td>Model config</td><td style="color:#10b981">Live UI</td><td style="color:#ef4444">Via KAI chat</td></tr>
         <tr><td>History</td><td colspan="2" style="color:#fbbf24;text-align:center">Shared vault — same source</td></tr>
@@ -1236,7 +1236,7 @@ function loadCost() {
     <div class="grid grid-3" style="margin-bottom:14px">
       <div style="background:#6366f108;border:1px solid #6366f130;border-radius:10px;padding:14px">
         <div style="font-size:12px;font-weight:700;color:#a5b4fc;margin-bottom:6px">Wispr Flow</div>
-        <div style="font-size:12px;color:#94a3b8;line-height:1.6">System-wide AI dictation. Hold hotkey → speak → clean text typed wherever cursor is. Works with web dashboard, Slack desktop, Telegram desktop — any KAI surface. No build required.</div>
+        <div style="font-size:12px;color:#94a3b8;line-height:1.6">System-wide AI dictation. Hold hotkey → speak → clean text typed wherever cursor is. Works with web dashboard, Buzz desktop, Telegram desktop — any KAI surface. No build required.</div>
         <div style="margin-top:8px"><span class="badge badge-green">Works today</span></div>
       </div>
       <div style="background:#f59e0b08;border:1px solid #f59e0b30;border-radius:10px;padding:14px">
@@ -1282,7 +1282,7 @@ function loadCost() {
         <span class="badge badge-green"><span class="dot"></span> Live</span>
       </div>
       <div class="container-row">
-        <div><div class="container-name">Morning Brief DM</div><div class="container-meta">7am Slack DM: calendar + tasks + projects + intention</div></div>
+        <div><div class="container-name">Morning Brief DM</div><div class="container-meta">7am Buzz brief: calendar + tasks + projects + intention</div></div>
         <span class="badge badge-green"><span class="dot"></span> Live</span>
       </div>
       <div class="container-row">
@@ -1465,7 +1465,7 @@ function loadCost() {
       </div>
       <div class="privacy-row">
         <span class="badge badge-yellow" style="flex-shrink:0">External comms</span>
-        <span style="font-size:12px;color:#94a3b8">Anything crossing to outside world needs Slack ✅ reaction (Tier 2).</span>
+        <span style="font-size:12px;color:#94a3b8">Anything crossing to outside world needs Buzz approval (Got-it ack, Tier 2).</span>
       </div>
     </div>
   </div>
@@ -1480,7 +1480,7 @@ function loadCost() {
       <tr><td>AI inference (cloud advisors)</td><td>Not stored by Anthropic (no training)</td><td style="color:#fbbf24">Yes — Anthropic API</td><td style="color:#fbbf24">Anthropic</td></tr>
       <tr><td>Calendar events</td><td>Fetched live via n8n</td><td style="color:#fbbf24">Yes — Google</td><td style="color:#fbbf24">Google</td></tr>
       <tr><td>Email content</td><td>Not stored — fetched on request</td><td style="color:#fbbf24">Yes — Google</td><td style="color:#fbbf24">Google</td></tr>
-      <tr><td>Slack messages</td><td>vault history + Slack servers</td><td style="color:#fbbf24">Yes — Slack</td><td style="color:#fbbf24">Slack</td></tr>
+      <tr><td>Buzz messages</td><td>vault history + Buzz app</td><td style="color:#fbbf24">Yes — Buzz</td><td style="color:#fbbf24">Buzz</td></tr>
       <tr><td>Projects/tasks</td><td>vault + Todoist</td><td style="color:#fbbf24">Yes — Todoist</td><td style="color:#fbbf24">Todoist</td></tr>
       <tr><td>Vault sync (Syncthing)</td><td>~/vault/ → iCloud/BRAIN/KAI-SYSTEM/</td><td style="color:#fbbf24">Yes — iCloud</td><td style="color:#fbbf24">Apple iCloud</td></tr>
       <tr><td>Oura health data</td><td>Not stored — fetched live each morning</td><td style="color:#fbbf24">Yes — Oura API</td><td style="color:#fbbf24">Oura Health</td></tr>
@@ -1496,14 +1496,14 @@ function loadCost() {
       <div class="tier-num" style="color:#34d399">T1</div>
       <div>
         <div style="font-size:14px;font-weight:700;color:#34d399">Autonomous</div>
-        <div style="font-size:13px;color:#94a3b8;margin-top:4px">Internal ops, vault writes, task creation, project status updates, Slack channel posts, pre-approved automations, read-only data fetching</div>
+        <div style="font-size:13px;color:#94a3b8;margin-top:4px">Internal ops, vault writes, task creation, project status updates, Buzz notifications, pre-approved automations, read-only data fetching</div>
       </div>
     </div>
     <div class="tier" style="background:#f59e0b08;border-color:#f59e0b40">
       <div class="tier-num" style="color:#fbbf24">T2</div>
       <div>
-        <div style="font-size:14px;font-weight:700;color:#fbbf24">Slack ✅ Reaction</div>
-        <div style="font-size:13px;color:#94a3b8;margin-top:4px">External comms, adding new advisors or humans, anything that costs money, creating Slack workspaces or channels</div>
+        <div style="font-size:14px;font-weight:700;color:#fbbf24">Buzz approval (Got-it)</div>
+        <div style="font-size:13px;color:#94a3b8;margin-top:4px">External comms, adding new advisors or humans, anything that costs money</div>
         <div style="font-size:12px;color:#64748b;margin-top:4px">Live — ✅ reaction = approve, ❌ = reject. Queue at vault/00_System/t2_queue.json</div>
       </div>
     </div>
@@ -1527,7 +1527,7 @@ function loadCost() {
   </div>
   <div class="card">
     <div class="card-title">Council Gate Engine — Multi-Agent Review Chain</div>
-    <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">How work reaches Leo's gate. Each gate type runs a chain of advisor + KAI reviews against full artifacts (no truncation), persists every step, then hands Leo a short Slack message pointing at the artifact directory. Reviewer exceptions and empty replies fail closed as a resolved denial with <code>retry_after=60</code>; they can never become approval evidence. Source: <code>kai-council-api/routes_council_gate.py</code>. Redesigned 2026-06-12 (Sprint 02); fail-closed durability added 2026-07-12 (BUG-18).</p>
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">How work reaches Leo's gate. Each gate type runs a chain of advisor + KAI reviews against full artifacts (no truncation), persists every step, then hands Leo a short Buzz message pointing at the artifact directory. Reviewer exceptions and empty replies fail closed as a resolved denial with <code>retry_after=60</code>; they can never become approval evidence. Source: <code>kai-council-api/routes_council_gate.py</code>. Redesigned 2026-06-12 (Sprint 02); fail-closed durability added 2026-07-12 (BUG-18).</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:12px">
       <div style="background:#6366f108;border:1px solid #6366f140;border-radius:8px;padding:10px">
         <div style="font-weight:700;color:#a5b4fc;font-size:13px">plan_gate</div>
@@ -1546,10 +1546,10 @@ function loadCost() {
         <div style="font-size:12px;color:#94a3b8;margin-top:4px">brief → DevOps review → auto-approve (ROUTINE) or escalate to Leo (STRUCTURAL / REJECTED)</div>
       </div>
     </div>
-    <div style="font-size:13px;color:#cbd5e1;margin-bottom:6px"><b>VERDICT protocol:</b> every advisor + KAI prompt instructs the response to start <code>VERDICT: &lt;state&gt; — one-sentence headline</code>. <code>_extract_verdict()</code> pulls the headline for Slack; the full body persists to the artifact. Missing-VERDICT path logs a warning and falls back to "see artifact" — drift is visible, not silent.</div>
+    <div style="font-size:13px;color:#cbd5e1;margin-bottom:6px"><b>VERDICT protocol:</b> every advisor + KAI prompt instructs the response to start <code>VERDICT: &lt;state&gt; — one-sentence headline</code>. <code>_extract_verdict()</code> pulls the headline for the Buzz notice; the full body persists to the artifact. Missing-VERDICT path logs a warning and falls back to "see artifact" — drift is visible, not silent.</div>
     <div style="font-size:13px;color:#cbd5e1;margin-bottom:6px"><b>Fallback poller:</b> polls once immediately at orchestrator startup, then every 30 seconds when healthy. Before polling, pending rows with a missing, mismatched, or terminal parent job/step are atomically retired as <code>orphaned</code>; age alone never suppresses a gate, so an old but live wedge still fails loud. Consecutive failures back off <code>30→60→120→240→300s</code> and post one DevOps alert on the third failure; a successful cycle resets the interval.</div>
     <div style="font-size:13px;color:#cbd5e1;margin-bottom:6px"><b>Per-gate durable directory:</b> <code>vault/00_System/gates/&lt;gate_id&gt;/</code> contains atomic mode-600 <code>state.json</code> (written at accept and every transition, lazily reloaded after restart), <code>brief.md</code>, the advisor output(s), <code>kai_verdict.md</code> (plan/dev gates), <code>director_iter_N.md</code> + <code>kai_validation_iter_N.md</code> + <code>iteration_log</code> (creative), and <code>audit.json</code> (at resolve).</div>
-    <div style="font-size:13px;color:#cbd5e1"><b>Slack format:</b> short by design. Header + <code>Gate ID · Status</code> + <code>*Subject:*</code> + <code>*Chain:*</code> + <code>*Artifacts:*</code> path + approve/reject commands. No body dumps, no <code>[:N]</code> truncation. Mood-board images pulled from the persisted director iteration.</div>
+    <div style="font-size:13px;color:#cbd5e1"><b>Buzz format:</b> short by design. Header + <code>Gate ID · Status</code> + <code>*Subject:*</code> + <code>*Chain:*</code> + <code>*Artifacts:*</code> path + approve/reject commands. No body dumps, no <code>[:N]</code> truncation. Mood-board images pulled from the persisted director iteration.</div>
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
       <span class="badge badge-purple">_extract_verdict</span>
       <span class="badge badge-purple">_persist_artifact</span>
@@ -2074,7 +2074,7 @@ function loadCost() {
     <div class="container-row"><div><div class="container-name">model_peer</div><div class="container-meta">Model peer review capabilities — S4-6. Codex + ChatGPT review integration.</div></div></div>
     <div class="container-row"><div><div class="container-name">plane</div><div class="container-meta">plane.create_issue and plane.update_state capabilities.</div></div></div>
     <div class="container-row"><div><div class="container-name">session</div><div class="container-meta">session.close, session.close_status — orchestrator-native KAI session close.</div></div></div>
-    <div class="container-row"><div><div class="container-name">slack</div><div class="container-meta">slack.post — post a message to a Slack channel from a workflow step.</div></div></div>
+    <div class="container-row"><div><div class="container-name">notify</div><div class="container-meta">notify Leo via the notify() gateway (Buzz primary, Telegram emergency backup) from a workflow step. (Slack node retired, AR-5.)</div></div></div>
     <div class="container-row"><div><div class="container-name">vault</div><div class="container-meta">vault.read, vault.write, vault.list — direct vault filesystem access.</div></div></div>
     <div class="container-row"><div><div class="container-name">wordpress</div><div class="container-meta">WordPress publishing capabilities. <span style="font-size:10px;color:#f59e0b">(auto-documented, review pending)</span></div></div></div>
     <div class="container-row"><div><div class="container-name">workspace</div><div class="container-meta">workspace.read, workspace.list, workspace.sync capabilities.</div></div></div>
@@ -2157,7 +2157,7 @@ function loadCost() {
     <div style="font-size:12px;color:#64748b;margin-bottom:12px">Model Context Protocol server — exposes KAI tools to external MCP clients. Source: <code style="background:#f8fafc;padding:2px 5px;border-radius:3px;color:#a5b4fc">kai-mcp-api/</code></div>
 
     <div class="container-row">
-      <div><div class="container-name">kai-mcp-api</div><div class="container-meta">KAI MCP (Model Context Protocol) server — exposes vault, calendar, Plane, and Slack tools via standard MCP interface.</div></div>
+      <div><div class="container-name">kai-mcp-api</div><div class="container-meta">KAI MCP (Model Context Protocol) server — exposes vault, calendar, and Plane tools via standard MCP interface.</div></div>
       <div style="display:flex;gap:8px;align-items:center"><span class="badge badge-yellow"><span class="dot"></span>configured</span></div>
     </div>
   </div>
