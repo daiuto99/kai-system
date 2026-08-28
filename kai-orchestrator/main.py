@@ -427,7 +427,7 @@ def override_step(job_id: str, step_id: str, body: dict):
 
     # Record override in DB
     engine.record_override(job_id, step_id, step_name, reason, operator,
-                           slack_ack=notify_ok, bug_filed=bug_id)
+                           notify_ack=notify_ok, bug_filed=bug_id)
 
     # Resume workflow
     conn = get_conn()
@@ -440,7 +440,7 @@ def override_step(job_id: str, step_id: str, body: dict):
         "ok": True,
         "job_id": job_id,
         "step_name": step_name,
-        "slack_ack": notify_ok,
+        "notify_ack": notify_ok,
         "bug_filed": bug_id or None,
     }
 

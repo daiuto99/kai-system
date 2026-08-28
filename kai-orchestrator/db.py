@@ -85,16 +85,12 @@ CREATE TABLE IF NOT EXISTS overrides (
     step_name  TEXT NOT NULL,
     reason     TEXT NOT NULL,
     operator   TEXT NOT NULL DEFAULT 'leo',
-    -- slack_ack: NAME IS A RETIRED-SLACK VESTIGE, NOT A LIVE SLACK DEPENDENCY.
-    -- Holds 1 iff the override notification was acknowledged/delivered. Written from
-    -- main.py as `slack_ack=notify_ok`, where notify_ok now comes from the notify()
-    -- gateway (Telegram/dashboard) — Slack is retired (AR-5). The semantically correct
-    -- name is `notify_ack`. RENAME DEFERRED ON PURPOSE (AR-2 / KAI-1243): it is a live
-    -- SQLite column with existing rows, so a rename needs `ALTER TABLE overrides RENAME
-    -- COLUMN slack_ack TO notify_ack` coordinated with engine.py + main.py in one deploy.
-    -- Low-value / higher-risk; scheduled for the next orchestrator schema migration. Do
-    -- NOT read this as evidence of a live Slack integration.
-    slack_ack  INTEGER DEFAULT 0,
+    -- notify_ack: 1 iff the override notification was acknowledged/delivered.
+    -- Written from main.py as notify_ack=notify_ok, where notify_ok comes from the
+    -- notify() gateway (Telegram/dashboard). Renamed from the legacy column name
+    -- (AR-2/KAI-1252, 2026-08-27): last literal vestige identifier in the orchestrator
+    -- schema. Existing rows migrated in init_db() via ALTER TABLE ... RENAME COLUMN.
+    notify_ack INTEGER DEFAULT 0,
     bug_filed  TEXT,
     created_at TEXT NOT NULL
 );
@@ -196,6 +192,11 @@ def init_db():
     ]:
         if col not in existing_al:
             conn.execute(f"ALTER TABLE assembly_log ADD COLUMN {col} {col_def}")
+
+    # AR-2/KAI-1252: rename overrides.slack_ack -> notify_ack on existing DBs (idempotent).
+    ov_cols = {r[1] for r in conn.execute("PRAGMA table_info(overrides)").fetchall()}
+    if "slack_ack" in ov_cols and "notify_ack" not in ov_cols:
+        conn.execute("ALTER TABLE overrides RENAME COLUMN slack_ack TO notify_ack")
 
     conn.commit()
     conn.close()

@@ -345,17 +345,17 @@ class Engine:
 
     def record_override(self, job_id: str, step_id: str, step_name: str,
                         reason: str, operator: str = "leo",
-                        slack_ack: bool = False, bug_filed: str = None) -> str:
+                        notify_ack: bool = False, bug_filed: str = None) -> str:
         conn = get_conn()
         try:
             override_id = new_id()
             ts = now_iso()
             conn.execute(
                 """INSERT INTO overrides
-                   (id,job_id,step_id,step_name,reason,operator,slack_ack,bug_filed,created_at)
+                   (id,job_id,step_id,step_name,reason,operator,notify_ack,bug_filed,created_at)
                    VALUES (?,?,?,?,?,?,?,?,?)""",
                 (override_id, job_id, step_id, step_name, reason, operator,
-                 1 if slack_ack else 0, bug_filed, ts),
+                 1 if notify_ack else 0, bug_filed, ts),
             )
             self._emit_event(conn, "override", job_id=job_id, step_id=step_id,
                              payload={"step_name": step_name, "operator": operator,
