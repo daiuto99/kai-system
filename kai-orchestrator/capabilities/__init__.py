@@ -54,6 +54,7 @@ from . import plane as _plane    # noqa: F401, E402
 from . import vault as _vault        # noqa: F401, E402
 from . import workspace as _workspace  # noqa: F401, E402
 from . import calendar as _calendar    # noqa: F401, E402
+from . import wp_generate as _wp_generate  # noqa: F401, E402  # AR-3/KAI-965
 from . import session as _session    # noqa: F401, E402
 from . import model_peer as _model_peer  # noqa: F401, E402
 from . import self_modify as _self_modify  # noqa: F401, E402

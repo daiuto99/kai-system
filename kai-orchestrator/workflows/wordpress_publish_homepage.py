@@ -120,6 +120,7 @@ class PublishHomepageWorkflow(Workflow):
             "load_site_config":    self._step_load_config,
             "check_credentials":   self._step_check_credentials,
             "load_brief":          self._step_load_brief,
+            "generate_page":       self._step_generate_page,
             "create_page_draft":   self._step_create_page,
             "disable_coming_soon": self._step_disable_cs,
             "precheck_homepage_overwrite": self._step_precheck_homepage_overwrite,
@@ -295,6 +296,29 @@ class PublishHomepageWorkflow(Workflow):
             data={"brief_text": "", "review_brief": "", "brief_source": "none:no_profile"},
             verification={"verified": True, "evidence": {"brief": "empty", "slug": slug}},
         )
+
+    def _step_generate_page(self, ctx: dict) -> CapabilityResult:
+        """AR-3/KAI-965 — generate the page body locally (style.md -> Gutenberg
+        blocks) and expose it as ``page_content`` for the create_page step. Runs
+        AFTER the dev + creative gates, so generation is governed; fails closed
+        (the workflow stops) rather than authoring invalid/absent content."""
+        from capabilities import get_capability
+        fn = get_capability("wordpress.generate_blocks")
+        site  = ctx.get("site", "")
+        slug  = ctx.get("brand_slug") or ctx.get("property")
+        brief = (ctx.get("page_brief") or ctx.get("review_brief")
+                 or ctx.get("brief_text") or "").strip()
+        if not brief:
+            return CapabilityResult(
+                ok=False, status="failed_permanent",
+                error={"type": "no_brief",
+                       "detail": "generate_page needs a page brief (page_brief input "
+                                 "or a loaded property brief)"})
+        result = fn(site=site, brief=brief, slug=slug)
+        if result.ok:
+            content = (result.data or {}).get("content", "")
+            result.data = {**(result.data or {}), "page_content": content}
+        return result
 
     def _step_create_page(self, ctx: dict) -> CapabilityResult:
         from capabilities import get_capability

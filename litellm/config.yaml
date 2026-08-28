@@ -41,6 +41,14 @@ model_list:
       model: ollama_chat/qwen2.5:7b
       api_base: http://kai-ollama:11434
 
+  # qwen-gen -> Intel mini 14b, for design-quality structured generation (AR-3/KAI-965).
+  # A CPU 14b run exceeds the global 90s request_timeout, so this route overrides it.
+  - model_name: qwen-gen
+    litellm_params:
+      model: ollama_chat/qwen2.5:14b-instruct
+      api_base: http://100.85.243.2:11434
+      timeout: 600
+
 litellm_settings:
   drop_params: true
   request_timeout: 90

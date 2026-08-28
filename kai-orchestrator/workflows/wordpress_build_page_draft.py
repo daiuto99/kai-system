@@ -44,6 +44,7 @@ class BuildPageDraftWorkflow(PublishHomepageWorkflow):
         StepDef("load_brief",        capability="vault.read"),
         StepDef("dev_gate",          step_type="approval_gate"),
         StepDef("creative_brief",    step_type="approval_gate"),
+        StepDef("generate_page",     capability="wordpress.generate_blocks"),  # AR-3/KAI-965
         StepDef("create_page_draft", capability="wordpress.create_page", max_retries=2),
         StepDef("complete",          finalize=True),
     ]

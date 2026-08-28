@@ -31,7 +31,7 @@ class DraftsOnlyByConstruction(unittest.TestCase):
         self.assertEqual(
             names,
             ["load_site_config", "check_credentials", "load_brief",
-             "dev_gate", "creative_brief", "create_page_draft", "complete"],
+             "dev_gate", "creative_brief", "generate_page", "create_page_draft", "complete"],
         )
         # both governance gates present
         gates = {s.name for s in BuildPageDraftWorkflow.steps if s.step_type == "approval_gate"}

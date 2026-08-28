@@ -372,6 +372,9 @@ services:
       - SELF_MODIFY_VERIFIER_MODEL=qwen-mid
       - SELF_MODIFY_GIT_AUTHOR_NAME=kai-orchestrator
       - PYTHONPATH=/shared
+      - LITELLM_URL=http://kai-litellm:4000/v1/chat/completions
+      - LITELLM_KEY_FILE=/run/secrets/litellm_master_key
+      - WP_GENERATE_MODEL=qwen-gen  # AR-3/KAI-965: mini 14b for structured page generation
       - SELF_MODIFY_GIT_AUTHOR_EMAIL=orchestrator@kai-system.local
       - SELF_MODIFY_ENABLED=false
     volumes:
@@ -399,6 +402,7 @@ services:
       - todoist_api_key
       - kai_worker_auth
       - orchestrator_capability_auth
+      - litellm_master_key
       - telegram_bot_token
       - telegram_allowed_chat_ids
       - source: wp_alexadaiuto_kai_app_password

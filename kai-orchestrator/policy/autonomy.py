@@ -69,6 +69,7 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "wordpress.get_front_page": {"classification": "read_only", "rule": "allow"},
     "wordpress.verify_live": {"classification": "read_only", "rule": "allow"},
     "wordpress.security_scan": {"classification": "read_only", "rule": "allow"},
+    "wordpress.generate_blocks": {"classification": "read_only", "rule": "allow"},  # AR-3/KAI-965 - local generation, no WP write
     "hostops.status":       {"classification": "read_only", "rule": "allow"},
     "hostops.verify":       {"classification": "read_only", "rule": "allow"},
 
