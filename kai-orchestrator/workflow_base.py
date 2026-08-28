@@ -53,6 +53,23 @@ class Workflow:
             should_continue = self._run_step(dict(row))
             if not should_continue:
                 return  # gate opened mid-run, stop
+            # Fail-closed halt: _run_step persists terminal state AFTER this
+            # method's initial snapshot, so the failed_permanent check at the top
+            # of the loop can't see a failure that just happened — it only fires
+            # on a later resume() that a completed job never gets. Re-read THIS
+            # step's authoritative status and stop the chain now (job 6af6c143:
+            # create_page ran — and wrote — after generate_page failed_permanent).
+            conn = get_conn()
+            try:
+                cur = conn.execute(
+                    "SELECT status FROM steps WHERE id=?", (row["id"],)
+                ).fetchone()
+            finally:
+                conn.close()
+            if cur and cur["status"] in ("failed_permanent", "cancelled"):
+                engine.transition("job", self.job_id, "failed_permanent",
+                                  error=f"Step {row['name']} permanently failed")
+                return
 
         # _run_step() persists terminal state after this method has taken its
         # initial snapshot. Re-read the authoritative step rows before rolling

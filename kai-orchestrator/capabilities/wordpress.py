@@ -191,6 +191,13 @@ def create_page(site: str, title: str, content: str, status: str = "draft",
                 creds: dict = None, caller: str = "", property: str = None,
                 **_) -> CapabilityResult:
     wp_write_preflight(caller, "create_page")
+    # Fail-closed content guard: a contentless write is never a valid page.
+    # Job 6af6c143 (2026-08-28) wrote a 33-byte marker-only draft after the
+    # generation step failed — the chokepoint must refuse, not comply.
+    if not (content or "").strip():
+        return CapabilityResult(ok=False, status="failed_permanent",
+            error={"type": "empty_content",
+                   "detail": "create_page refuses a contentless write"})
     # WP-20.2 — brand-drift check on the authored content BEFORE the write. Draft
     # creation still proceeds (drafts are iterative; live overwrite is guarded by
     # WP-20.4) but drift is recorded in the result (audit trail, §5.4) and, when
@@ -325,6 +332,12 @@ def update_page(site: str, page_id: int, content: str, title: str = None,
     workflow's job (WP-20.4), never this path. A draft stays a draft.
     """
     wp_write_preflight(caller, "update_page")
+    # Same fail-closed content guard as create_page (job 6af6c143): an empty
+    # body must never blank an existing draft.
+    if not (content or "").strip():
+        return CapabilityResult(ok=False, status="failed_permanent",
+            error={"type": "empty_content",
+                   "detail": "update_page refuses a contentless write"})
 
     # Drafts-only guard: read the current page; refuse anything that isn't a draft.
     cur = safe_request(

@@ -39,13 +39,18 @@ def _install(plan_sections, render_fn):
         name = tool["function"]["name"]
         if name == "plan_page":
             return {"sections": plan_sections}
-        if name == "render_section":
-            i = state["render_calls"]
-            state["render_calls"] += 1
-            return {"block_markup": render_fn(i)}
         raise AssertionError(name)
 
+    # Renders are a PLAIN COMPLETION since the 2026-08-28 tool-call-echo fix
+    # (job 29e383ac): planning keeps the tool call; rendering stubs
+    # _call_completion, mirroring the production split.
+    def fake_call_completion(messages, *, timeout=180):
+        i = state["render_calls"]
+        state["render_calls"] += 1
+        return render_fn(i)
+
     wg._call_tool = fake_call_tool
+    wg._call_completion = fake_call_completion
     wg.load_style = lambda slug: None
     return state
 

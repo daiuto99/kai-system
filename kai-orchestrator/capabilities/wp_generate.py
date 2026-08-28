@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -52,7 +53,12 @@ MAX_DOC_RETRIES = 2      # whole-doc validate/repair rounds
 # plan/render call runs well past the 180s an OpenAI-style default assumes. Give
 # each call a generous, env-tunable budget so a slow-but-working generation is not
 # mistaken for an unreachable model.
-CALL_TIMEOUT = int(os.environ.get("WP_GENERATE_TIMEOUT", "420"))
+# 420s sat exactly on the observed per-section wall-clock of the CPU 14B
+# (~4-7 min: ~2k-token prompt prefill + a few hundred tokens out), so real
+# renders timed out at the app layer while the route (now 900s) would have let
+# them finish — job 29e383ac died on this. 900 gives honest headroom; the M4
+# cutover is the real fix for the latency itself.
+CALL_TIMEOUT = int(os.environ.get("WP_GENERATE_TIMEOUT", "900"))
 
 # The CPU-only 7B is not a perfectly reliable tool-caller: a call intermittently
 # returns an empty message (no tool call, no content). That is transient, so each
@@ -245,7 +251,18 @@ _FORMAT_SPEC = (
     "<!-- wp:buttons --><div class=\"wp-block-buttons\">"
     "<!-- wp:button --><div class=\"wp-block-button\">"
     "<a class=\"wp-block-button__link\">Get in touch</a></div>"
-    "<!-- /wp:button --></div><!-- /wp:buttons -->")
+    "<!-- /wp:button --></div><!-- /wp:buttons -->\n\n"
+    # Job 29e383ac (2026-08-28): with no cover example the model invents
+    # wp:cover attrs (invalid JSON, unclosed block) or gives up empty. A full
+    # ground-color hero needs the exact cover shape spelled out.
+    "WORKED EXAMPLE (a cover/banner with a background color):\n"
+    "<!-- wp:cover {\"customOverlayColor\":\"#35302A\",\"dimRatio\":100} -->"
+    "<div class=\"wp-block-cover\">"
+    "<span aria-hidden=\"true\" class=\"wp-block-cover__background\"></span>"
+    "<div class=\"wp-block-cover__inner-container\">"
+    "<!-- wp:heading {\"level\":1} --><h1>Headline here</h1><!-- /wp:heading -->"
+    "<!-- wp:paragraph --><p>One short lede.</p><!-- /wp:paragraph -->"
+    "</div></div><!-- /wp:cover -->")
 
 
 def _render(section: dict, style: str | None, *, error: str | None = None) -> str:
@@ -257,31 +274,140 @@ def _render(section: dict, style: str | None, *, error: str | None = None) -> st
     fix = (f"\n\nThe previous attempt was REJECTED by the validator: {error}. "
            "The most common cause is writing `<wp:name>` tags instead of "
            "`<!-- wp:name -->` comment delimiters. Fix exactly that.") if error else ""
-    args = _call_tool(
-        [{"role": "system", "content": sys_msg},
-         {"role": "user",
-          "content": (f"SECTION type={section.get('type')} "
-                      f"intent={section.get('intent')}\n"
-                      f"COPY: {section.get('copy_brief')}{style_block}{fix}")}],
-        _RENDER_TOOL, fallback_key="block_markup")
-    raw = args.get("block_markup")
-    # the 7B sometimes hands back a nested object/array instead of a markup
-    # string. Coerce non-strings to text so gutenberg.validate rejects them into
-    # the repair loop (a JSON blob has no block delimiters) rather than crashing.
-    markup = raw if isinstance(raw, str) else json.dumps(raw) if raw else ""
-    markup = markup.strip()
+    messages = [
+        {"role": "system", "content": sys_msg},
+        {"role": "user",
+         "content": (f"SECTION type={section.get('type')} "
+                     f"intent={section.get('intent')}\n"
+                     f"COPY: {section.get('copy_brief')}{style_block}{fix}")}]
+    # Render is a PLAIN COMPLETION, not a forced tool call (job 29e383ac,
+    # 2026-08-28): with tool_choice forced, the local model emits a tool call
+    # whose arguments ECHO the input fields ({intent, copy, section_type}) and
+    # never contain block_markup — raw-response probe proved it, every retry,
+    # even with a minimal prompt. Small-model function-calling is unreliable
+    # for long-string payloads; validity was never the tool schema's job anyway
+    # — gutenberg.validate remains the hard gate. Planning keeps its tool call
+    # (list-shaped schema, works reliably).
+    markup = _strip_fences(_call_completion(messages))
     if not markup:
         raise GenerateError(f"renderer returned empty markup for section "
                             f"{section.get('type')}")
     return markup
 
 
+_FONT_DECL_RX = re.compile(r"font-family\s*:\s*([^;{}<]*)", re.IGNORECASE)
+
+
+def _normalize_fonts(markup: str, fonts: list[str]) -> str:
+    """Deterministically canonicalize font-family declarations to the brand faces.
+
+    Page 34 (2026-08-28): the model used the right fonts but wrote system
+    fallback stacks (Roboto, Segoe UI, ...), lowercase/slugified variants
+    (ibm-plex-sans) and occasionally malformed attrs — 14 high font_drift
+    findings for what was INTENT-correct type. Rules: a declaration mentioning
+    a brand family in any casing/slugging becomes exactly that single family;
+    a declaration naming NO brand family becomes the BODY face (fonts[1] by
+    the display/body/mono contract order, else fonts[0]) — by contract the
+    brand faces are the ONLY families a generated page may carry, so forcing
+    conformance is the generator doing its job, not masking drift (the
+    detector still judges every other content path)."""
+    if not fonts:
+        return markup
+    canon = {re.sub(r"[^a-z]", "", f.lower()): f for f in fonts}
+    body_face = fonts[1] if len(fonts) > 1 else fonts[0]
+
+    def fix(m: "re.Match[str]") -> str:
+        val = m.group(1)
+        qi = val.find('"')
+        tail = val[qi:] if qi != -1 else ""
+        body = val[:qi] if qi != -1 else val
+        for tok in body.split(","):
+            key = re.sub(r"[^a-z]", "", tok.strip().strip("'").lower())
+            if key in canon:
+                return f"font-family:'{canon[key]}'" + tail
+        return f"font-family:'{body_face}'" + tail
+
+    return _FONT_DECL_RX.sub(fix, markup)
+
+
+def _strip_fences(text: str) -> str:
+    """Drop a wrapping markdown code fence (```html ... ```), if present."""
+    t = (text or "").strip()
+    m = re.match(r"^```[a-zA-Z]*\s*\n(.*?)\n?```$", t, re.DOTALL)
+    return (m.group(1) if m else t).strip()
+
+
+def _call_completion(messages: list[dict], *, timeout: int = CALL_TIMEOUT) -> str:
+    """One plain chat completion against the local route; returns content."""
+    key = _read_key()
+    if not key:
+        raise GenerateError("no LiteLLM key available to reach the local model")
+    payload = {"model": MODEL, "messages": messages, "temperature": 0.2}
+    req = urllib.request.Request(
+        LITELLM_URL, data=json.dumps(payload).encode(),
+        headers={"Authorization": f"Bearer {key}",
+                 "Content-Type": "application/json"})
+    try:
+        resp = json.load(urllib.request.urlopen(req, timeout=timeout))
+    except urllib.error.HTTPError as e:
+        raise GenerateError(f"local model HTTP {e.code}: {e.read()[:200]!r}") from e
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise GenerateError(f"local model unreachable: {e}") from e
+    try:
+        return (resp["choices"][0]["message"].get("content") or "").strip()
+    except (KeyError, IndexError, TypeError) as e:
+        raise GenerateError(f"malformed model response: {e}") from e
+
+
+def _style_for_section(style: str | None, section_type: str | None) -> str | None:
+    """Trim the full brand guide to the subset one section render needs.
+
+    The full ~108-line guide in EVERY render prompt overloads the local model —
+    job 6af6c143 (2026-08-28) returned empty hero markup through every retry
+    with the whole guide in-context. The load-bearing subset for a render is:
+    palette + typography (the drift-enforced tokens), voice, and only the
+    page-pattern precedent matching this section's type. Planning still sees
+    the full guide — this trims renders only."""
+    if not style:
+        return None
+    keep: list[str] = []
+    for chunk in re.split(r"\n(?=## )", style):
+        lines = chunk.splitlines()
+        head = lines[0].lower() if lines else ""
+        if any(k in head for k in ("color", "palette", "typography", "voice")):
+            keep.append(chunk.strip())
+        elif "pattern" in head or "precedent" in head:
+            stype = (section_type or "").lower()
+            hits = [ln for ln in lines[1:] if stype and stype in ln.lower()]
+            # No matching precedent → keep NOTHING from this chunk (Codex
+            # verify 2026-08-28): carrying every other section's pattern is
+            # exactly the prompt overload this trimmer exists to prevent.
+            if hits:
+                keep.append("\n".join([lines[0]] + hits).strip())
+    trimmed = "\n\n".join(k for k in keep if k)
+    return (trimmed or style)[:4000]
+
+
 def _render_valid_section(section: dict, style: str | None) -> str:
     """Render one section and repair it until it passes gutenberg.validate, within
-    the per-section retry budget. Raises GenerateError if it cannot be made valid."""
+    the per-section retry budget. Raises GenerateError if it cannot be made valid.
+
+    Degradation ladder (job 6af6c143): renders get the TRIMMED guide, an
+    empty/unusable model reply counts as a retryable attempt instead of aborting
+    the whole page, and the final attempt drops the guide entirely — a bare
+    render obeying the format spec still lands brand-safe because brand_drift
+    enforces the tokens mechanically at the write chokepoint."""
     error: str | None = None
+    section_style = _style_for_section(style, section.get("type"))
     for attempt in range(MAX_RENDER_RETRIES + 1):
-        markup = _render(section, style, error=error)
+        use_style = section_style if attempt < MAX_RENDER_RETRIES else None
+        try:
+            markup = _render(section, use_style, error=error)
+        except GenerateError as exc:
+            error = str(exc)
+            log.warning("section %s render failed (attempt %d): %s",
+                        section.get("type"), attempt + 1, error)
+            continue
         rep = gutenberg.validate(markup)
         if rep["valid"]:
             return markup
@@ -302,11 +428,44 @@ def generate_blocks(site: str, brief: str, *, slug: str | None = None) -> dict:
     """
     slug = slug or site
     style = load_style(slug)
+    # style_used reports whether the human brand GUIDE was loaded — captured
+    # BEFORE token injection below, which can make `style` truthy on its own.
+    style_loaded = style is not None
+    # Close the intent↔enforcement loop (job c486a810: structurally valid but
+    # visually unbranded markup — brand_drift high on font_drift +
+    # brand_color_loss). Inject the ENFORCEMENT tokens (the exact fields
+    # brand_drift checks) into the guide as mandatory render requirements, so
+    # the model is told precisely what the chokepoint will measure. Headed with
+    # 'palette' so _style_for_section keeps it for every section render.
+    try:
+        import brand_profile
+        tokens = brand_profile.parse(slug) or {}
+    except Exception:  # noqa: BLE001 — tokens are an enhancement, never a blocker
+        tokens = {}
+    if tokens:
+        style = (style or "") + (
+            "\n\n## Brand palette requirements (mandatory)\n"
+            "- The page MUST visibly use each of these exact colors in block "
+            f"style/color attributes: {', '.join(tokens.get('required_colors', []))}.\n"
+            f"- Font families allowed ONLY: {', '.join(tokens.get('fonts', []))} "
+            "— set them explicitly (e.g. style=\"font-family:...\") on headings and body text. "
+            "EXACTLY one family per declaration, spelled exactly as given — "
+            "NEVER a fallback stack, never system fonts.\n"
+            "- Set explicit textColor/background style attributes so the brand "
+            "colors appear literally in the markup, not implied by the theme.")
     plan = _plan(brief, style)
     log.info("planned %d sections for %s", len(plan), site)
 
-    rendered = [_render_valid_section(s, style) for s in plan]
-    content = "\n\n".join(rendered)
+    rendered = []
+    for i, s in enumerate(plan, 1):
+        markup = _render_valid_section(s, style)
+        # Success visibility (job c486a810 wedged silently for 80+ min):
+        # failures already warn; progress must log too, or a hung thread and a
+        # long healthy render are indistinguishable from outside.
+        log.info("rendered section %d/%d (%s, %d chars) for %s",
+                 i, len(plan), s.get("type"), len(markup), site)
+        rendered.append(markup)
+    content = _normalize_fonts("\n\n".join(rendered), tokens.get("fonts", []))
 
     # whole-document validate; a per-section-valid set can still misnest at the
     # seams in theory — repair rounds are the backstop before we ever return.
@@ -318,7 +477,7 @@ def generate_blocks(site: str, brief: str, *, slug: str | None = None) -> dict:
                 "plan": plan,
                 "sections": rendered,
                 "validation": rep,
-                "style_used": style is not None,
+                "style_used": style_loaded,
             }
         # wrap-level repair is out of scope for v1; fail closed with the reason.
         break
@@ -345,8 +504,15 @@ try:
             return CapabilityResult(ok=False, status="failed_recoverable",
                                     error={"type": "generation_failed", "detail": str(e)},
                                     model=MODEL, provider="local")
+        validation = out.get("validation") or {}
+        # Engine contract: a succeeded transition REQUIRES verified=True. The
+        # raw gutenberg.validate report says "valid", not "verified" — a latent
+        # slice-4 wiring bug that only the FIRST full-workflow completion could
+        # hit (job c486a810: all 5 sections rendered, then the engine refused
+        # the success). Wrap the report as the evidence it is.
         return CapabilityResult(ok=True, status="succeeded", data=out,
-                                verification=out.get("validation"),
+                                verification={"verified": bool(validation.get("valid")),
+                                              "evidence": validation},
                                 model=MODEL, provider="local")
 except ImportError:
     pass  # standalone / unit-test context — core generate_blocks() is enough

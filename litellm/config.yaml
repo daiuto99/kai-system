@@ -47,7 +47,7 @@ model_list:
     litellm_params:
       model: ollama_chat/qwen2.5:14b-instruct
       api_base: http://100.85.243.2:11434
-      timeout: 600
+      timeout: 900
 
 litellm_settings:
   drop_params: true

@@ -35,7 +35,11 @@ _GENERIC_FONTS = {
     "math", "fangsong",
 }
 
-_FONT_FAMILY_DECL = re.compile(r"font-family\s*:\s*([^;{}]+)", re.IGNORECASE)
+# Capture stops at ; { } AND a double quote: a declaration that ends a
+# style attribute with no trailing semicolon (font-family:'X'">...) used
+# to swallow the following HTML into the "family name" and flag the brand
+# font itself as foreign (page 34, 2026-08-28 — 4 false font_drift highs).
+_FONT_FAMILY_DECL = re.compile(r"font-family\s*:\s*([^;{}\"]+)", re.IGNORECASE)
 _FONT_FACE_NAME = re.compile(
     r"@font-face\s*\{[^}]*?font-family\s*:\s*['\"]?([^;'\"}]+)", re.IGNORECASE | re.DOTALL
 )
