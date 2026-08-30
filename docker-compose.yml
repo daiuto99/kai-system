@@ -496,7 +496,7 @@ services:
   # (writable-layer pack-cache only). Full env in the gitignored kai-buzz-relay.env
   # (dev creds match the hand-run buzz stack; var list mirrored in PROVENANCE.md).
   buzz-relay:
-    image: buzz-relay:b1b283c-upstream
+    image: buzz-relay:head-eed74bd
     container_name: buzz-relay
     restart: always
     entrypoint: ["/usr/local/bin/buzz-relay"]

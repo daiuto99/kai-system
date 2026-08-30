@@ -111,3 +111,15 @@ not paths).
 `scripts/mr2_path_inventory.py` still hard-codes the old `~/buzz-eval/agent` paths;
 update the checker to assert the orphan is RESOLVED (points at `~/buzz-agent`) next
 time it's revised. Not a runtime dependency.
+
+## HEAD cutover — APPLIED 2026-08-30 (KAI-1295)
+Upgraded from `buzz-relay:b1b283c-upstream` (2026-07-31) to upstream HEAD.
+- **Image:** `buzz-relay:head-eed74bd` (id `cd16bd9bd67a`, software v0.2.1)
+- **Upstream commit:** `eed74bde2f4797714335ac10c56c0b0244c1def4` (pure upstream build, same recipe)
+- **Rebuild-proof tarball:** `backups/buzz-relay/buzz-relay-head-eed74bd.tar.gz` (sha256 `27d1b888079cae91fe2fb2ca4a1cd07356408d12ca620e2d7ef478fee339e1c7`)
+- **Required new env:** `BUZZ_RELAY_PRIVATE_KEY` (32-byte hex) added to gitignored `kai-buzz-relay.env` — #6729 fail-closed; relay will not boot without it. Fresh identity (prior relay used an ephemeral random key; no continuity lost).
+- **Migrations:** 0027–0040 auto-applied on live data (head=40, all success; 0–26 checksums matched).
+- **New boot gate:** A3 git-object-store S3 conformance probe requires the `buzz-media` bucket (present since 2026-07-31).
+- **Rollback anchor:** `backups/buzz-relay/buzz_pre_head_20260830T182550Z.dump` (pre-cutover pg_dump).
+- **Verified live:** readiness 200, NIP-42 auth OK for advisor pubkeys, all 8 kai-buzz bridges + approval poller online, KAIProbe round-trip OK, zero relay errors.
+- Full stage-and-test evidence + runbook: `docs/KAI-1295_BUZZ_RELAY_HEAD_CUTOVER_RUNBOOK.md`.
