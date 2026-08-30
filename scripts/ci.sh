@@ -95,6 +95,20 @@ fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  kai-buzz approval parser + batched cards (P-3)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+# The approval surface is the phone front door — its decision parser + batched-card
+# composition are exercised by buzz_approve.py --selftest (offline crypto+parser gate).
+# kai-buzz is NOT in SERVICES (tests live in /app root, container is non-root).
+if docker ps --format '{{.Names}}' | grep -qx 'kai-buzz'; then
+    docker exec kai-buzz python buzz_approve.py --selftest || FAIL=1
+else
+    echo "  [FAIL] kai-buzz container not running — cannot exercise approval selftest"
+    FAIL=1
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  whole-repo guards"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 python3 -m pytest -v --tb=short -m whole_repo \

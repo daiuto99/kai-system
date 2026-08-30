@@ -308,6 +308,78 @@ def _plain(s: str) -> str:
     Underscores are left intact — they are common in real paths/ids and are not decoration."""
     return (s or "").replace("*", "").replace("`", "")
 
+# ── Code-composed gate cards (KAI P-3: the ask is never model-authored) ────────
+# The approval card's ASK is composed entirely from code — facts about what is
+# being approved (subject, the literal action, the factual chain of review steps).
+# Any advisor/model verdict appears ONLY under an explicitly-labeled "Advisory
+# (model)" line and is NEVER the ask itself. This kills the failure class where an
+# LLM sentence in the summary reads as the authoritative request while the actual
+# action differs. Chained shell parts and truncation are disclosed so Leo always
+# sees every command he authorizes and knows when text was cut. Pattern mirror:
+# Claude Code's own permission gate (make_permission_gate).
+
+_CARD_MAX = 3500          # Telegram-safe ceiling for the composed ask body
+_ACTION_PART_MAX = 300    # per chained-part cap before per-part truncation
+_CHAIN_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|\|)\s*")
+_ACTION_FIELDS = ("command", "cmd", "shell_command", "shell", "script")
+
+
+def _truncate_disclosed(text: str, limit: int) -> str:
+    """Return text capped to `limit`, appending an explicit marker when cut.
+    Disclosure is mandatory — a silently-truncated ask lies about scope."""
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + f" … [truncated {len(text) - limit} chars]"
+
+
+def _split_chained(command: str) -> list:
+    """Split a shell command on top-level chaining operators (&&, ||, ;, |) so each
+    part Leo authorizes is disclosed separately. Naive by design (no full shell
+    parse): over-disclosure is safe, hiding a chained part is not."""
+    parts = [p.strip() for p in _CHAIN_SPLIT_RE.split(command or "") if p.strip()]
+    return parts or ([command.strip()] if (command or "").strip() else [])
+
+
+def _disclose_action(brief: dict) -> str:
+    """If the gated brief carries a raw command, render it as a disclosed, split,
+    truncation-marked Action block. Chained parts are numbered so nothing hides
+    behind an `&&`. Returns "" when the brief carries no command."""
+    if not isinstance(brief, dict):
+        return ""
+    raw = ""
+    for k in _ACTION_FIELDS:
+        v = brief.get(k)
+        if isinstance(v, str) and v.strip():
+            raw = v.strip()
+            break
+    if not raw:
+        return ""
+    parts = _split_chained(raw)
+    if len(parts) == 1:
+        return "Action: " + _truncate_disclosed(parts[0], _ACTION_PART_MAX)
+    lines = ["Action (chained — every part runs):"]
+    for i, p in enumerate(parts, 1):
+        lines.append(f"  {i}. " + _truncate_disclosed(p, _ACTION_PART_MAX))
+    return "\n".join(lines)
+
+
+def _compose_gate_card(subject: str, chain: str, brief: dict, advisory: str = "") -> str:
+    """Compose the approval-ask card entirely from code. `subject` and the disclosed
+    action are FACTS; `chain` names the review steps factually; `advisory` (a model
+    verdict, if any) is demarcated under its own label and is never the ask.
+    Whole-card truncation is disclosed."""
+    lines = [f"Subject: {subject}"]
+    action = _disclose_action(brief)
+    if action:
+        lines.append(action)
+    if chain:
+        lines.append(f"Chain: {chain}")
+    if advisory:
+        lines.append(f"Advisory (model — not the ask): {advisory}")
+    return _truncate_disclosed("\n".join(lines), _CARD_MAX)
+
+
 
 def _tg_send_gate(gate_id: str, gate_type: str, summary: str) -> bool:
     """Send the pending_leo gate prompt to Telegram with inline approve/reject
@@ -862,7 +934,7 @@ def _plan_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
     _persist_artifact(gate_id, "kai_verdict", kai_full)
     kai_line = _extract_verdict(kai_full, fallback="see kai_verdict.md")
 
-    summary = f"*Subject:* {job_name}\n*Chain:* KAI plan-review — {kai_line}"
+    summary = _compose_gate_card(job_name, "KAI plan-review", brief, advisory=kai_line)
     return summary, kai_line
 
 
@@ -929,7 +1001,10 @@ def _dev_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
     _persist_artifact(gate_id, "kai_verdict", kai_full)
     kai_line = _extract_verdict(kai_full, fallback="see kai_verdict.md")
 
-    summary = f"*Subject:* {job_name}\n*Chain:* LSE — {lse_line} · KAI — {kai_line}"
+    summary = _compose_gate_card(
+        job_name, "LSE engineering review · KAI quality check", brief,
+        advisory=f"LSE — {lse_line} · KAI — {kai_line}",
+    )
     return summary, kai_line
 
 
@@ -1048,15 +1123,15 @@ def _creative_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
 
     if not approved:
         verdict = f"ESCALATE — Director failed KAI validation after {len(iteration_log)} iterations"
-        summary = (
-            f"*Subject:* {title}\n"
-            f"*Chain:* Director (×{len(iteration_log)}) → KAI — {verdict}"
+        summary = _compose_gate_card(
+            title, f"Creative Director (×{len(iteration_log)}) · KAI validation", brief,
+            advisory=verdict,
         )
     else:
         verdict = f"APPROVED — Brief approved by KAI on iteration {len(iteration_log)}"
-        summary = (
-            f"*Subject:* {title}\n"
-            f"*Chain:* Director (×{len(iteration_log)}) → KAI — {verdict}"
+        summary = _compose_gate_card(
+            title, f"Creative Director (×{len(iteration_log)}) · KAI validation", brief,
+            advisory=verdict,
         )
 
     # Store the approved brief on the gate record for use at resolution
@@ -1089,7 +1164,7 @@ def _devops_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
     _persist_artifact(gate_id, "devops_review", devops_full)
     devops_line = _extract_verdict(devops_full, fallback="see devops_review.md")
 
-    summary = f"*Subject:* {job_name}\n*Chain:* DevOps — {devops_line}"
+    summary = _compose_gate_card(job_name, "DevOps review", brief, advisory=devops_line)
     return summary, devops_line
 
 
@@ -1116,10 +1191,9 @@ def _hostops_gate_review(brief: dict, gate_id: str) -> tuple[str, str]:
     site = brief.get("site", "unknown")
     identity = brief.get("audit_identity", "")
     target = brief.get("secret_name") or brief.get("plugin") or ""
-    summary = (
-        f"*Subject:* privileged host-op `{op}` on `{site}`\n"
-        f"*Target:* `{target}`  *Identity:* `{identity}`\n"
-        f"*Chain:* autonomy policy decides whether Leo approval is required"
+    subject = f"privileged host-op {op} on {site} (target: {target or 'n/a'}, identity: {identity or 'n/a'})"
+    summary = _compose_gate_card(
+        subject, "autonomy policy decides whether Leo approval is required", brief,
     )
     assessment = f"HOSTOPS mutation {op} on {site} — routing through autonomy policy"
     return summary, assessment

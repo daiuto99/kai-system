@@ -52,7 +52,7 @@ _ONLY_GATE = os.environ.get("BUZZ_APPROVAL_ONLY", "").strip()
 
 # <verb> [gate-token] [: reason]. gate-token optional — bound from reply/single-open.
 _DECISION_RE = re.compile(
-    r"^\s*(approve|approved|allow|yes|ok|session|1h|reject|rejected|no|deny)\b\s*([\w-]{6,})?\s*(?::\s*(.*))?\s*$", re.I)
+    r"^\s*(approve|approved|allow|yes|ok|session|1h|reject|rejected|no|deny)\b\s*([\w-]{6,}|\d{1,3})?\s*(?::\s*(.*))?\s*$", re.I)
 # Gate approve/reject is binary; allow/session on a gate count as approve.
 _APPROVE_VERBS = {"approve", "approved", "allow", "yes", "ok", "session", "1h"}
 # Mode-lock unlock verbs map to the three actions request_approval understands.
@@ -137,6 +137,42 @@ def parse_decision(content: str):
     return (m.group(2) or None), m.group(1).lower(), (m.group(3) or "").strip()
 
 
+# ── Batched approval cards (P-3: one card, N items, resolved per-item) ─────────
+# When multiple gates are pending, aggregate them into ONE Buzz card instead of N
+# separate cards buried in the DM thread. Each item is addressed by its ordinal —
+# `approve 2` / `reject 3: <reason>` — the short handle Leo actually replies with;
+# the full id stays available as the power path. Reuses the code-composed Subject
+# line of each gate summary (never model-authored — see routes_council_gate.py).
+
+def _subject_of(summary: str) -> str:
+    """First 'Subject:' line of a code-composed gate card; else a short fallback."""
+    for ln in (summary or "").splitlines():
+        s = ln.strip()
+        if s.lower().startswith("subject:"):
+            return s.split(":", 1)[1].strip() or "(no subject)"
+    body = (summary or "").strip()
+    return (body.splitlines()[0].strip()[:80] if body else "") or "(no subject)"
+
+
+def _batch_order(pending) -> list:
+    """Stable gid order for a batch card, matching the ordinals shown to Leo."""
+    return [g.get("gate_id") for g in pending if g.get("gate_id")]
+
+
+def compose_batch_card(pending, prefix: str = "") -> str:
+    """One card, N items. The ordinal is the reply handle; the id is shown for the
+    power path. Aggregates what were N separate cards into a single glanceable card."""
+    n = len(pending)
+    lines = [f"{prefix}\U0001f510 {n} APPROVALS PENDING \u2014 reply per item"]
+    for i, g in enumerate(pending, 1):
+        gid = g.get("gate_id", "?")
+        lines.append(f"\n{i}. [{g.get('gate_type', 'gate')}] {_subject_of(g.get('summary', ''))}")
+        lines.append(f"   id {gid[:8]} \u00b7 reply `approve {i}` or `reject {i}: <reason>`")
+    lines.append("\nReply `approve <n>` / `reject <n>: <reason>` per item.")
+    return "\n".join(lines)
+
+
+
 async def run():
     pk = ab.load_or_create_key(KEY_FILE)
     cid = ab.get_channel(CHAN_FILE)
@@ -146,6 +182,7 @@ async def run():
     open_gates: set[str] = set()      # prompted + still-unresolved gate ids
     prompted: set[str] = set()        # gate ids we've ever prompted (no double-prompt)
     kind_of: dict[str, str] = {}      # id -> 'gate' | 'modelock' (routes the reply)
+    batch = {"sig": None, "last": 0.0, "order": []}  # P-3 batched-card state
     ab.log("approvals", "pubkey", me, "channel", cid, "council", COUNCIL_BASE)
 
     async def send(text) -> dict:
@@ -174,6 +211,17 @@ async def run():
         kind_of[rid] = "modelock"
         return rid
 
+    async def prompt_batch(pending, prefix=""):
+        """Post one batched card for N pending gates; record the ordinal order so a
+        `approve <n>` reply binds to the right gate. The e-tag is deliberately NOT
+        used for a batch (it is ambiguous across N items) — the ordinal disambiguates."""
+        await send(compose_batch_card(pending, prefix))
+        order = _batch_order(pending)
+        batch["order"] = order
+        for gid in order:
+            open_gates.add(gid); kind_of[gid] = "gate"
+        return order
+
     async with websockets.connect(ab.CONNECT_URL, max_size=2 ** 20) as ws:
         await ab.authenticate(ws, pk)
         async with send_lock:
@@ -201,22 +249,34 @@ async def run():
                 await asyncio.to_thread(_beat)   # prove liveness BEFORE work each cycle
                 try:
                     data = await asyncio.to_thread(_council_get, "/gate/pending")
-                    live = set()
-                    for g in data.get("pending", []):
-                        gid = g.get("gate_id")
-                        if not gid or (_ONLY_GATE and gid != _ONLY_GATE):
-                            continue
-                        live.add(gid)
-                        last = last_prompt.get(gid)
-                        if last is None:
-                            await prompt_gate(g)
-                            last_prompt[gid] = time.time()
-                            ab.log("approvals", f">> prompt sent for {gid}")
-                        elif (time.time() - last) >= _RENUDGE_SECONDS:
-                            # Re-nudge on Buzz first — Telegram is only the Buzz-dead lifeline.
-                            await prompt_gate(g, prefix="🔁 (still waiting on you) ")
-                            last_prompt[gid] = time.time()
-                            ab.log("approvals", f">> re-nudged {gid}")
+                    pend = [g for g in data.get("pending", [])
+                            if g.get("gate_id") and not (_ONLY_GATE and g.get("gate_id") != _ONLY_GATE)]
+                    live = {g["gate_id"] for g in pend}
+                    if len(pend) >= 2:
+                        # P-3: one card, N items — aggregate instead of N separate cards.
+                        sig = frozenset(live)
+                        due = (time.time() - batch["last"]) >= _RENUDGE_SECONDS
+                        if sig != batch["sig"] or due:
+                            prefix = "🔁 (still waiting on you) " if (due and sig == batch["sig"]) else ""
+                            await prompt_batch(pend, prefix=prefix)
+                            batch["sig"] = sig; batch["last"] = time.time()
+                            ab.log("approvals", f">> batch card sent ({len(pend)} items)")
+                        for gid in live:
+                            last_prompt.pop(gid, None)   # batch owns these ids
+                    else:
+                        batch["sig"] = None; batch["order"] = []
+                        for g in pend:
+                            gid = g["gate_id"]
+                            last = last_prompt.get(gid)
+                            if last is None:
+                                await prompt_gate(g)
+                                last_prompt[gid] = time.time()
+                                ab.log("approvals", f">> prompt sent for {gid}")
+                            elif (time.time() - last) >= _RENUDGE_SECONDS:
+                                # Re-nudge on Buzz first — Telegram is only the Buzz-dead lifeline.
+                                await prompt_gate(g, prefix="🔁 (still waiting on you) ")
+                                last_prompt[gid] = time.time()
+                                ab.log("approvals", f">> re-nudged {gid}")
                     for gid in [k for k in last_prompt
                                 if kind_of.get(k, "gate") == "gate" and k not in live]:
                         last_prompt.pop(gid, None)  # gate resolved — forget it
@@ -300,8 +360,13 @@ async def run():
                         await send("✅ Nothing pending — you're all caught up.")
                     else:
                         await send(f"You have {total} pending approval(s):")
-                        for g in pend:
-                            await prompt_gate(g, prefix="🔁 (re-sent) ")
+                        if len(pend) >= 2:
+                            await prompt_batch(pend, prefix="🔁 (re-sent) ")
+                            batch["sig"] = frozenset(x.get("gate_id") for x in pend if x.get("gate_id"))
+                            batch["last"] = time.time()
+                        else:
+                            for g in pend:
+                                await prompt_gate(g, prefix="🔁 (re-sent) ")
                         for item in ml_pend:
                             await prompt_unlock(item, prefix="🔁 (re-sent) ")
                     ab.log("approvals", f"re-surfaced {total} pending on request")
@@ -349,6 +414,13 @@ async def run():
                         bkind, tid = "gate", token
                     elif in_m:
                         bkind, tid = "modelock", token
+                # P-3 ordinal handle from a batch card: `approve 2` -> the 2nd item.
+                if tid is None and token and token.isdigit() and batch["order"]:
+                    idx = int(token)
+                    if 1 <= idx <= len(batch["order"]):
+                        cand = batch["order"][idx - 1]
+                        if cand in gate_set:
+                            bkind, tid = "gate", cand
                 if tid is None:
                     for t in ev.get("tags", []):
                         if len(t) > 1 and t[0] == "e":
@@ -421,6 +493,21 @@ def _selftest():
     assert parse_decision("reject: not on brand") == (None, "reject", "not on brand")
     assert parse_decision("approve abc123") == ("abc123", "approve", "")
     assert parse_decision("reject abc123: nope") == ("abc123", "reject", "nope")
+    # P-3 batched-card: short ordinal handle + one-card composition
+    assert parse_decision("approve 2") == ("2", "approve", "")
+    assert parse_decision("reject 3: nope") == ("3", "reject", "nope")
+    assert _subject_of("Subject: Deploy X\nChain: a") == "Deploy X"
+    assert _subject_of("no subject line here") == "no subject line here"
+    _pend = [
+        {"gate_id": "abc123def", "gate_type": "dev_gate", "summary": "Subject: Deploy X\nChain: c"},
+        {"gate_id": "zzz999yyy", "gate_type": "devops_gate", "summary": "Subject: Rotate Y"},
+    ]
+    assert _batch_order(_pend) == ["abc123def", "zzz999yyy"]
+    _card = compose_batch_card(_pend)
+    assert "2 APPROVALS PENDING" in _card
+    assert "Deploy X" in _card and "Rotate Y" in _card
+    assert "approve 1" in _card and "approve 2" in _card
+    assert "abc123de" in _card  # id8 shown for the power path
     assert parse_decision("allow") == (None, "allow", "")
     assert parse_decision("session") == (None, "session", "")
     assert parse_decision("deny") == (None, "deny", "")
