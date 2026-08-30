@@ -112,6 +112,7 @@ python3 -m pytest -q scripts/tests/test_findings_contract.py scripts/tests/test_
 python3 shared/test_notify_gateway.py || FAIL=1  # KAI-1100: notify gateway refuses a bare uncaused alarm
 python3 shared/test_sprint_gate.py || FAIL=1  # S1-A1: sprint hard-gate helper (raise/poll/timeout/fail-closed)
 python3 shared/test_gutenberg.py || FAIL=1  # AR-3/KAI-965: Gutenberg block-grammar validator (safety floor)
+python3 shared/test_witness.py || FAIL=1  # W-1: three-state trust verdict (default UNKNOWN) + external-witness receipt contract
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
