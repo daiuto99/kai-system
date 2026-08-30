@@ -31,7 +31,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "fleet_visibility", "codex_verifier_auth", "hostops_rail_canary",
                 "host_hygiene",
                 "cron_log_error_scan",
-                "disk_pressure", "devops_custodian_runner",
+                "disk_pressure",
                 "container_roster", "backup_freshness",
                 "tailscale_key_expiry", "public_tls", "cloudways_auth", "backup_verify",
                 "offsite_freshness",
@@ -668,13 +668,42 @@ class AlertDeliveryVerdict(unittest.TestCase):
         self.assertEqual(sev, "red")
         self.assertIn("FAILED", d)
 
+    def test_red_receipt_reds(self):
+        # W-1 three-state receipt: an affirmative RED verdict is a delivery failure.
+        sev, d = baseline.alert_delivery_verdict("RED", 1.0)
+        self.assertEqual(sev, "red")
+        self.assertIn("FAILED", d)
+
+    def test_unknown_receipt_blocks(self):
+        # W-1: absence of an external receipt (UNKNOWN) is never GREEN — it blocks.
+        sev, d = baseline.alert_delivery_verdict("UNKNOWN", 1.0)
+        self.assertEqual(sev, "red")
+        self.assertIn("UNKNOWN", d)
+
+    def test_unrecognised_receipt_reds(self):
+        # A stamp token the contract does not know is unproven, not silently green.
+        sev, d = baseline.alert_delivery_verdict("garbage", 1.0)
+        self.assertEqual(sev, "red")
+        self.assertIn("unproven", d)
+
     def test_stale_reds(self):
         sev, d = baseline.alert_delivery_verdict("OK", 48.0)
         self.assertEqual(sev, "red")
         self.assertIn("stale", d)
 
+    def test_stale_reds_green_token(self):
+        sev, d = baseline.alert_delivery_verdict("GREEN", 48.0)
+        self.assertEqual(sev, "red")
+        self.assertIn("stale", d)
+
     def test_fresh_green(self):
         sev, d = baseline.alert_delivery_verdict("OK", 2.0)
+        self.assertEqual(sev, "green")
+        self.assertIn("delivery-verified", d)
+
+    def test_fresh_green_receipt_token(self):
+        # W-1 reference witness: a fresh Telegram-minted receipt promotes to GREEN.
+        sev, d = baseline.alert_delivery_verdict("GREEN", 2.0)
         self.assertEqual(sev, "green")
         self.assertIn("delivery-verified", d)
 
@@ -686,6 +715,68 @@ class AlertDeliveryVerdict(unittest.TestCase):
             rc = baseline.run_suite((baseline.Check("ad", lambda: detail),))
         # never-run/fresh -> not RED; a pre-existing stale/FAIL stamp is a real RED
         self.assertIn(rc, (0, 1))
+
+
+class ThreeStateHeadline(unittest.TestCase):
+    """W-1 build-order #4: run_suite is a three-state gate. Journeys grant GREEN;
+    the diagnostics explain but cannot grant green; UNKNOWN journeys are amber
+    (non-blocking by default); a RED journey OR a RED diagnostic blocks."""
+
+    def _run(self, checks, env=None):
+        out = io.StringIO()
+        with mock.patch.dict("os.environ", env or {}, clear=False):
+            with redirect_stdout(out):
+                rc = baseline.run_suite(tuple(checks))
+        return rc, out.getvalue()
+
+    def _journey(self, name, fn):
+        return baseline.Check(name, fn, journey=True)
+
+    def test_green_journey_grants_green(self):
+        rc, out = self._run([self._journey("j", lambda: "witnessed receipt=1")])
+        self.assertEqual(rc, 0)
+        self.assertIn("KAI GREEN BASELINE — GREEN", out)
+        self.assertIn("GREEN [journey:j]", out)
+        self.assertIn("1 green", out)
+
+    def test_warn_journey_is_amber_nonblocking(self):
+        rc, out = self._run([self._journey("j", lambda: "WARN never run")])
+        self.assertEqual(rc, 0)  # amber does not brick the close by default
+        self.assertIn("KAI GREEN BASELINE — AMBER", out)
+        self.assertIn("UNKNOWN [journey:j]", out)
+
+    def test_witness_strict_makes_unknown_block(self):
+        rc, out = self._run([self._journey("j", lambda: "WARN never run")],
+                            env={"WITNESS_STRICT": "1"})
+        self.assertEqual(rc, 1)
+        self.assertIn("KAI GREEN BASELINE — AMBER", out)
+
+    def test_red_journey_blocks(self):
+        def boom():
+            raise RuntimeError("ack only, no answer")
+        rc, out = self._run([self._journey("j", boom)])
+        self.assertEqual(rc, 1)
+        self.assertIn("KAI GREEN BASELINE — RED: j", out)
+        self.assertIn("RED [journey:j]", out)
+
+    def test_passing_diagnostic_alone_is_not_green(self):
+        # A diagnostic that passes with no journey present => no journey witnessed;
+        # there is nothing to grant green, but a clean diagnostic-only run does not
+        # falsely RED either. The point: green is never GRANTED by a diagnostic.
+        rc, out = self._run([baseline.Check("diag", lambda: "port answered")])
+        self.assertEqual(rc, 0)
+        self.assertNotIn("[journey:", out)
+        self.assertIn("GREEN [diag]", out)
+
+    def test_red_diagnostic_blocks_even_with_green_journey(self):
+        def diag_boom():
+            raise RuntimeError("disk full")
+        rc, out = self._run([
+            self._journey("j", lambda: "receipt=1"),
+            baseline.Check("diag", diag_boom),
+        ])
+        self.assertEqual(rc, 1)
+        self.assertIn("KAI GREEN BASELINE — RED: diag", out)
 
 
 if __name__ == "__main__":

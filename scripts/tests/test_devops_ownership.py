@@ -1,8 +1,8 @@
-"""KAI-46 — DevOps ownership layer: Finding contract + dispatcher routing + meta-monitor."""
+"""KAI-46 — DevOps ownership layer: Finding contract + dispatcher routing.
+(W-1 #5 removed the custodian-liveness meta-monitor from this layer.)"""
 import importlib.util
 import json
 import sys
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -142,29 +142,22 @@ def test_missing_execute_decision_logs_not_crashes():
     assert out["handled"] is True and "no execute_decision" in out["outcome"]
 
 
-# ── Meta-monitor (liveness) ─────────────────────────────────────────────────────
+# ── Meta-monitor removed in W-1 #5 (declaration-class tear-out) ─────────────────
+# do.meta_monitor() and its "custodian not running" Findings were deleted — a dead
+# custodian now surfaces via its DOMAIN diagnostic, not a liveness health declaration.
 
-def test_meta_monitor_flags_missing_and_stale(monkeypatch, tmp_path):
+
+def test_meta_monitor_removed(monkeypatch, tmp_path):
+    # The self-referential meta-monitor must be GONE, not merely quiet.
+    assert not hasattr(do, "meta_monitor")
+
+
+def test_run_custodians_emits_no_meta_findings(monkeypatch, tmp_path):
+    # Even a never-stamped roster produces no meta health Finding anymore.
     live = tmp_path / "liveness.json"
-    now = datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc)
-    fresh = (now - timedelta(seconds=100)).isoformat()
-    stale = (now - timedelta(seconds=9999)).isoformat()
-    live.write_text(json.dumps({"storage": fresh, "backups": stale}))
     monkeypatch.setattr(do, "LIVENESS", live)
-    out = do.meta_monitor(["storage", "backups", "fleet"], max_age_s=3600, now=now)
-    checks = {f.detail["domain"] for f in out}
-    assert checks == {"backups", "fleet"}          # storage fresh → not flagged
-    for f in out:
-        assert f.disposition == do.STRUCTURAL
-        assert f.domain == "meta"
-
-
-def test_meta_monitor_clean_when_all_fresh(monkeypatch, tmp_path):
-    live = tmp_path / "liveness.json"
-    now = datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc)
-    live.write_text(json.dumps({"storage": (now - timedelta(seconds=10)).isoformat()}))
-    monkeypatch.setattr(do, "LIVENESS", live)
-    assert do.meta_monitor(["storage"], max_age_s=3600, now=now) == []
+    summary = do.run_custodians([], record=False)
+    assert summary["meta"] == []
 
 
 # ── run_custodians end-to-end (injected deps, no real transport) ────────────────

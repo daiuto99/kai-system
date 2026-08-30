@@ -338,8 +338,11 @@ def _record_run(rec: dict) -> None:
 
 
 def mark_liveness(domain: str, ts: Optional[str] = None) -> None:
-    """Stamp the last-successful-run time for a custodian. A custodian that stops
-    stamping becomes itself a Finding (meta_monitor)."""
+    """Stamp the last-successful-run time for a custodian. The meta-monitor that
+    turned a stale stamp into a health Finding was REMOVED in W-1 #5 (declaration-
+    class tear-out); the stamp is retained as a plain record. A custodian that stops
+    running is now caught by its DOMAIN diagnostic going RED (disk fills, backups go
+    stale), not by a meta-layer asserting the custodian is 'alive'."""
     ts = ts or _now()
     try:
         data = {}
@@ -359,45 +362,24 @@ def _parse_iso(ts: str) -> Optional[datetime]:
         return None
 
 
-def meta_monitor(expected_domains: list[str], *, max_age_s: float, now: Optional[datetime] = None) -> list["Finding"]:
-    """A custodian that stopped running is an incident, not silence (§2.5). Returns a
-    structural Finding for every expected domain whose liveness stamp is missing or
-    older than max_age_s. Pure logic (now injectable) so it is unit-testable."""
-    now = now or datetime.now(timezone.utc)
-    try:
-        data = json.loads(LIVENESS.read_text()) if LIVENESS.exists() else {}
-    except Exception:
-        data = {}
-    out: list[Finding] = []
-    for domain in expected_domains:
-        stamp = data.get(domain)
-        age = None
-        if stamp:
-            dt = _parse_iso(stamp)
-            if dt is not None:
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                age = (now - dt).total_seconds()
-        if age is None or age > max_age_s:
-            reason = "never ran" if stamp is None else f"last ran {int(age)}s ago (> {int(max_age_s)}s)"
-            out.append(Finding(
-                domain="meta", check=f"custodian_liveness:{domain}", severity="warn",
-                diagnosis=f"custodian '{domain}' is not running — {reason}. A stopped custodian is an incident.",
-                disposition=STRUCTURAL,
-                proposed_action=f"investigate why the {domain} custodian stopped and restore its cron/timer",
-                dedup_key=f"meta-liveness-{domain}",
-                detail={"domain": domain, "last_stamp": stamp, "age_s": age, "max_age_s": max_age_s},
-            ))
-    return out
+# W-1 #5: meta_monitor() was DELETED — it was the per-custodian meta-monitor that
+# turned a stale liveness stamp into a "custodian is not running" health Finding.
+# That is exactly the self-referential declaration class the invariant retires: the
+# system asserting its own watchers are alive. A dead custodian now surfaces through
+# the CONSEQUENCE its domain diagnostic reports (disk fills -> disk_pressure RED,
+# backups go stale -> backup_freshness RED), not through a meta-layer declaring health.
+# Design §4 (tear-out).
 
 
 def run_custodians(custodians: list["Custodian"], *, deps: Optional["Deps"] = None,
                    liveness_max_age_s: float = 3600.0, record: bool = True,
                    preempt_reclaim: Optional[Callable[[], str]] = None,
                    preempt_pct: int = PREEMPT_PCT) -> dict:
-    """Sweep every custodian: assess → dispatch each Finding → stamp liveness. Then
-    meta-monitor the roster. Returns a summary. This is the runner's core, factored
-    out so it is testable with injected deps + custodians.
+    """Sweep every custodian: assess → dispatch each Finding → stamp liveness.
+    Returns a summary. This is the runner's core, factored out so it is testable with
+    injected deps + custodians. (W-1 #5: the roster meta-monitor was removed — a dead
+    custodian surfaces via its domain diagnostic, not a liveness health declaration.
+    `liveness_max_age_s` is retained for signature compatibility, now unused.)
 
     Pre-exhaustion guard runs FIRST (§Phase 3): if root disk is inside the reserved
     headroom band, an emergency reclaim runs ahead of the sweep so the runner can
@@ -434,26 +416,11 @@ def run_custodians(custodians: list["Custodian"], *, deps: Optional["Deps"] = No
             summary["outcomes"].append(rec)
             if record:
                 _record_run(rec)
-        # A custodian that assessed without raising is alive — stamp it.
+        # A custodian that assessed without raising has run — stamp its record.
         mark_liveness(cname)
         summary["custodians"].append(entry)
 
-    # Meta-monitor: a custodian that stopped stamping is itself a structural Finding.
-    expected = [getattr(c, "domain", c.__class__.__name__) for c in custodians]
-    meta_findings = meta_monitor(expected, max_age_s=liveness_max_age_s)
-    for mf in meta_findings:
-        rec = dispatch(mf, _NullCustodian(), deps)
-        summary["meta"].append(rec)
-        if record:
-            _record_run(rec)
-
+    # W-1 #5: the roster meta-monitor block was removed here — the system no longer
+    # emits a Finding declaring a custodian "not running". summary["meta"] stays in
+    # the return shape (always empty now) for consumer compatibility.
     return summary
-
-
-class _NullCustodian:
-    """Stand-in owner for meta findings (they are structural — no remediate needed)."""
-    domain = "meta"
-    def assess(self) -> list["Finding"]:
-        return []
-    def remediate_safe(self, f: "Finding") -> str:  # pragma: no cover - never auto
-        return "n/a"

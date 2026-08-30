@@ -28,6 +28,14 @@ LITELLM_CONTAINER = "kai-litellm"
 class Check:
     name: str
     probe: Callable[[], str]
+    # W-1 (external-witness invariant, design build-order #4): a JOURNEY grants
+    # GREEN — its probe reads an unforgeable external receipt (a Telegram
+    # message_id, a relay reply id, an origin-REST object). Everything else is a
+    # DIAGNOSTIC: a system self-probe (a port answered, a stamp is fresh, a config
+    # regex matched) that can explain WHY a journey failed but can NEVER by itself
+    # grant green. This is the whole fix: green now means "a party outside the code
+    # under test confirmed it," not "27 signals the system produced look fine."
+    journey: bool = False
 
 
 def _command(*args: str, timeout: int = 8) -> str:
@@ -220,70 +228,18 @@ def check_buzz_shim() -> str:
     # KAI-1029: the openai-compat backend Leo's native Buzz advisor agents call.
     # A cleanup sweep once retired this endpoint and no probe noticed, so every
     # advisor DM went silently unanswered for 11 days. Liveness-only (no completion,
-    # per this suite's read-only contract): if :4001 is gone, this goes RED.
+    # per this suite's read-only contract): if :4001 is gone, this goes RED. This is a
+    # DIAGNOSTIC (the endpoint is up) — NOT a claim the advisor answers Leo; that
+    # journey is asserted only by the external advisor witness (W-1). It stays because
+    # a dead shim endpoint is a real, RED-worthy infra failure the witness can't blame.
     models = parse_model_ids(_request("http://localhost:4001/v1/models"))
     missing = {"kai", "sky", "roads", "coach"} - models
     if missing:
         raise RuntimeError("Buzz shim :4001 missing advisor models: " + ", ".join(sorted(missing)))
-    # KAI-1182: the instant :4001 poke passing is NOT proof the advisor path is healthy.
-    # On 2026-08-21 the shim wedged (2.5h connection-refused) yet this check read GREEN
-    # at the next session start because it samples the instant. Fold in the last ~30 min
-    # of observed round-trip behavior from the advisor_dm_probe heartbeat so a RECENT
-    # outage cannot read clean: a failed/stale probe window downgrades GREEN -> WARN
-    # (never RED — a dead :4001 already RED'd above; this only catches recent-but-recovered).
-    window = _advisor_probe_window()
-    if window:
-        # WARN leads the string (host_hygiene/codex convention) so the row reads
-        # "GREEN [buzz_shim_backend] WARN ..." — a pass, but a visible recent-outage flag.
-        return window + " — :4001 live now (kai/sky/roads/coach)"
+    # W-1 #5: the advisor_dm_probe round-trip fold-in was REMOVED — it read the
+    # self-asserting probe's "healthy round-trip" heartbeat (which passed on the ack,
+    # not the answer). Health of the advisor JOURNEY is the external witness's alone.
     return "Buzz advisor shim (:4001) serves kai/sky/roads/coach"
-
-
-def _advisor_probe_window() -> str:
-    """Read the advisor_dm_probe heartbeat; return a WARN string if the recent
-    round-trip window is unhealthy/stale, '' if the window is healthy. Never raises —
-    a missing/unparseable heartbeat yields '' (the instant poke above already passed;
-    we do not fabricate an outage from a transient read miss)."""
-    import json as _json
-    import time as _time
-    from datetime import datetime as _dt, timezone as _tz
-    STALE_SEC = 40 * 60  # probe runs every 15 min; >40 min = ~2+ missed cycles = probe stalled
-    state = None
-    for candidate in (Path("/vault/_advisor_probe_state.json"),
-                      Path("/home/leo/vault/_advisor_probe_state.json")):
-        try:
-            state = _json.loads(candidate.read_text())
-            break
-        except Exception:
-            continue
-    if not isinstance(state, dict):
-        return ""  # no heartbeat readable -> defer to the instant poke (no false alarm)
-    # INVARIANT (KAI-1182): the window read must NEVER raise/RED the baseline — the
-    # instant poke above already proved :4001 live. A single broad guard so ANY
-    # malformed field (e.g. consecutive_failures: null -> int(None), bad timestamp)
-    # degrades to '' (defer to the instant poke) rather than turning the row RED.
-    def _int(v) -> int:
-        try:
-            return int(v)
-        except Exception:
-            return 0
-    try:
-        if not state.get("ok", True):
-            return (f"WARN last advisor round-trip FAILED ({state.get('advisor', '?')}: "
-                    f"{str(state.get('reason', '?'))[:60]}; "
-                    f"{_int(state.get('consecutive_failures', 0))} consecutive) [KAI-1182]")
-        if _int(state.get("consecutive_failures", 0)) > 0:
-            return (f"WARN advisor round-trip recovering "
-                    f"({_int(state.get('consecutive_failures', 0))} recent fail) [KAI-1182]")
-        last_ok = state.get("last_ok")
-        if last_ok:
-            age = _time.time() - _dt.fromisoformat(str(last_ok).replace("Z", "+00:00")).timestamp()
-            if age > STALE_SEC:
-                return (f"WARN no healthy advisor round-trip in {int(age // 60)}m "
-                        f"(probe stalled?) [KAI-1182]")
-        return ""  # window healthy
-    except Exception:
-        return ""  # never RED / never raise from the window read (KAI-1182 invariant)
 
 
 def check_codex_verifier_auth() -> str:
@@ -347,9 +303,12 @@ def check_codex_verifier_auth() -> str:
 # relay restart loop, 74× notify_dedup PermissionError) sat invisibly in those
 # logs because every other baseline check only samples the instant and they had
 # self-healed between samples. This row scans the logs for RECENT anchored faults.
+# W-1 #5 removed advisor_dm_probe.log + meta_monitor.log — those crons (the self-
+# asserting advisor probe + the meta-monitor) were torn out with the declaration
+# class, so their logs no longer advance and scanning them would flag false faults.
 _CRON_LOG_FILES = (
-    "advisor_dm_probe.log", "relay_roundtrip_probe.log", "fleet_heartbeat.log",
-    "meta_monitor.log", "alert_delivery_heartbeat.log",
+    "relay_roundtrip_probe.log", "fleet_heartbeat.log",
+    "alert_delivery_heartbeat.log",
 )
 # Anchored fault signatures ONLY — never bare "error"/"failed", which ride normal
 # status lines ("error: none", "failed=0") and would flood false positives (the
@@ -554,60 +513,12 @@ def check_disk_pressure() -> str:
     return detail
 
 
-def devops_runner_liveness_eval(newest_age_s, max_age_s):
-    """Pure verdict for check_devops_custodian_runner (unit-tested). `newest_age_s` is
-    the age of the freshest custodian liveness stamp (None if the marker is missing/
-    empty/unparseable). Returns (severity, detail), severity in {"warn","green"}.
-
-    WARN — never RED: the per-custodian meta-monitor (§2.5) can only fire while the
-    RUNNER runs, so a dead runner is invisible to it — this is the external watcher
-    that catches it. WARN (not RED) because a stalled autonomy layer surfaces loudly
-    without blocking the session/close spine (host_hygiene/disk-pressure convention)."""
-    if newest_age_s is None:
-        return ("warn", "WARN devops custodian runner: no liveness stamp — runner may "
-                        "never have run or the marker is unreadable [KAI-48]")
-    if newest_age_s > max_age_s:
-        mins = int(newest_age_s // 60)
-        return ("warn", f"WARN devops custodian runner stalled — freshest stamp {mins}m old "
-                        f"(> {int(max_age_s // 60)}m); the */15 cron may be dead [KAI-48]")
-    return ("green", f"devops custodian runner live — freshest stamp {int(newest_age_s)}s ago [KAI-48]")
-
-
-def check_devops_custodian_runner() -> str:
-    """§Phase 3 (KAI-48) — who watches the watcher. The DevOps custodian runner
-    (scripts/devops_custodian.py, cron */15) stamps devops_custodian_liveness.json
-    every sweep. Its OWN per-custodian meta-monitor cannot detect a dead runner —
-    it only runs when the runner runs. This external probe reads the freshest stamp;
-    WARN if missing or stale (default > 30m = 2× the cron interval)."""
-    import json as _json
-    import os
-    from datetime import datetime as _dt, timezone as _tz
-
-    liveness = os.environ.get(
-        "DEVOPS_CUSTODIAN_LIVENESS",
-        "/home/leo/kai-system/logs/devops_custodian_liveness.json")
-    max_age_s = float(os.environ.get("DEVOPS_RUNNER_MAX_AGE_S", "1800"))
-
-    newest_age_s = None
-    try:
-        data = _json.loads(Path(liveness).read_text())
-        now = _dt.now(_tz.utc)
-        ages = []
-        for stamp in (data or {}).values():
-            try:
-                d = _dt.fromisoformat(stamp)
-                if d.tzinfo is None:
-                    d = d.replace(tzinfo=_tz.utc)
-                ages.append((now - d).total_seconds())
-            except Exception:
-                continue
-        if ages:
-            newest_age_s = min(ages)
-    except Exception:
-        newest_age_s = None  # missing/unreadable → WARN via the verdict
-
-    _sev, detail = devops_runner_liveness_eval(newest_age_s, max_age_s)
-    return detail
+# W-1 #5: check_devops_custodian_runner + devops_runner_liveness_eval were DELETED —
+# they were the "runner-liveness-of-the-runner" (who-watches-the-watcher) self-
+# referential health declaration the invariant explicitly retires. A custodian runner
+# that stalls no longer produces its remediation receipts; under the three-state gate
+# that absence is UNKNOWN, not a false green — the honest signal, without a meta-watcher
+# asserting the autonomy layer is "live". Design §4 (tear-out).
 
 
 def check_container_roster() -> str:
@@ -887,17 +798,28 @@ def check_offsite_freshness() -> str:
 
 
 def alert_delivery_verdict(result, age_h):
-    """Pure verdict for the alert-channel delivery heartbeat — S1-B4 (audit #03).
-    result: first token of ~/backups/.alert_heartbeat ('OK'|'FAIL') or None. age_h:
-    hours since the stamp, or None. RED when the channel last FAILED its delivery
-    receipt or the proof is stale (>36h) — an alert channel we cannot prove delivers
-    is the silent-outage risk B4 exists to kill; WARN when the heartbeat never ran."""
+    """Pure verdict for the alert-channel delivery heartbeat — S1-B4 (audit #03),
+    W-1 reference witness. `result` is the first token of ~/backups/.alert_heartbeat:
+    the three-state receipt verdict 'GREEN'|'UNKNOWN'|'RED' (legacy 'OK'|'FAIL' still
+    honoured), or None. age_h: hours since the stamp, or None.
+
+    GREEN is granted ONLY when the heartbeat recorded a real Telegram message_id
+    receipt for its run (verdict GREEN/OK) AND the proof is fresh — an external
+    party confirmed delivery. RED when it FAILED its receipt (RED/FAIL) or the proof
+    is stale (>36h): an alert channel we cannot prove delivers is the silent-outage
+    risk B4 exists to kill. UNKNOWN (the witness could not attest) blocks too — no
+    receipt is never GREEN — surfaced as RED in this two-state baseline until the
+    three-state headline lands (design build order #4). WARN when it never ran."""
     if result is None or age_h is None:
         return "warn", "alert-delivery heartbeat never run [S1-B4]"
-    if result == "FAIL":
+    if result in ("RED", "FAIL"):
         return "red", "alert channel FAILED delivery receipt — pages may not reach Leo [S1-B4]"
+    if result == "UNKNOWN":
+        return "red", "alert channel UNKNOWN — no external delivery receipt [S1-B4]"
     if age_h > 36:
         return "red", f"alert-delivery heartbeat stale ({age_h:.0f}h — channel unproven) [S1-B4]"
+    if result not in ("GREEN", "OK"):
+        return "red", f"alert-delivery receipt unrecognised ({result!r}) — channel unproven [S1-B4]"
     return "green", f"alert channel delivery-verified ({age_h:.0f}h ago)"
 
 
@@ -1397,7 +1319,6 @@ def checks() -> tuple[Check, ...]:
         Check("host_hygiene", check_host_hygiene),
         Check("cron_log_error_scan", check_cron_log_errors),
         Check("disk_pressure", check_disk_pressure),
-        Check("devops_custodian_runner", check_devops_custodian_runner),
         Check("container_roster", check_container_roster),
         Check("backup_freshness", check_backup_freshness),
         Check("tailscale_key_expiry", check_tailscale_key_expiry),
@@ -1405,24 +1326,69 @@ def checks() -> tuple[Check, ...]:
         Check("cloudways_auth", check_cloudways_auth),
         Check("backup_verify", check_backup_verify),
         Check("offsite_freshness", check_offsite_freshness),
-        Check("alert_delivery", check_alert_delivery),
+        # The ONE journey wired today: alert_delivery reads a real Telegram
+        # message_id receipt (W-1 #2, the reference witness). Every other check
+        # above is a diagnostic — it explains failures, it does not grant green.
+        Check("alert_delivery", check_alert_delivery, journey=True),
     )
 
 
 def run_suite(suite: tuple[Check, ...] | None = None) -> int:
+    """Run the baseline as a three-state gate (W-1 external-witness invariant).
+
+    JOURNEYS grant GREEN — each reads an external receipt and yields GREEN /
+    UNKNOWN (no fresh receipt — amber) / RED (affirmative failure). DIAGNOSTICS
+    (the former 27 proxies) explain WHY a journey failed; a diagnostic that raises
+    is a real infra failure and still blocks, but a passing diagnostic no longer by
+    itself means the system is healthy — only a witnessed journey does.
+
+    Exit gate (what CI and the close key on): RED (1) on any RED journey or any RED
+    diagnostic. AMBER/UNKNOWN journeys are reported loudly but do NOT block — a
+    journey without a live driver is honestly UNKNOWN, not a failure, and blocking
+    on it would brick the close before that driver lands. Set WITNESS_STRICT=1 to
+    make UNKNOWN block too, once every journey has a driver. GREEN is printed only
+    when every journey is witnessed GREEN and no diagnostic is RED.
+    """
+    import os as _os
+
     suite = suite or checks()
     print("KAI GREEN BASELINE — START")
-    failed: list[str] = []
+    diag_failed: list[str] = []
+    journeys: list[tuple[str, str]] = []  # (name, verdict)
     for check in suite:
         try:
             detail = check.probe()
-            print(f"GREEN [{check.name}] {detail}")
+            if check.journey:
+                verdict = "UNKNOWN" if detail.startswith("WARN") else "GREEN"
+                journeys.append((check.name, verdict))
+                print(f"{verdict} [journey:{check.name}] {detail}")
+            else:
+                print(f"GREEN [{check.name}] {detail}")
         except Exception as exc:
-            failed.append(check.name)
-            print(f"RED [{check.name}] {exc}")
-    if failed:
-        print("KAI GREEN BASELINE — RED: " + ", ".join(failed))
+            if check.journey:
+                journeys.append((check.name, "RED"))
+                print(f"RED [journey:{check.name}] {exc}")
+            else:
+                diag_failed.append(check.name)
+                print(f"RED [{check.name}] {exc}")
+
+    j_red = [n for n, v in journeys if v == "RED"]
+    j_unknown = [n for n, v in journeys if v == "UNKNOWN"]
+    j_green = [n for n, v in journeys if v == "GREEN"]
+    if journeys:
+        print(f"JOURNEYS WITNESSED — {len(j_green)} green · "
+              f"{len(j_unknown)} unknown · {len(j_red)} red "
+              f"(green granted by journeys only; {len(suite) - len(journeys)} diagnostics)")
+
+    # A RED journey or a RED diagnostic (real infra failure) blocks.
+    blocking = j_red + diag_failed
+    if blocking:
+        print("KAI GREEN BASELINE — RED: " + ", ".join(blocking))
         return 1
+    # No RED, but a journey could not be witnessed => AMBER, honestly not green.
+    if j_unknown:
+        print("KAI GREEN BASELINE — AMBER: unwitnessed journey(s) " + ", ".join(j_unknown))
+        return 1 if _os.environ.get("WITNESS_STRICT") == "1" else 0
     print("KAI GREEN BASELINE — GREEN")
     return 0
 
