@@ -266,6 +266,53 @@ def call_council(council_channel, text, thread_ts=""):
     raise BackendError(f"unreachable retry exhaustion: {last}")  # defensive; loop always returns/raises
 
 
+# ── Async advisor answer-of-record (AR-3 / P-2) ──────────────────────────────
+# Hermes advisors (sky/roads) run async on the mini (~90s): council-api returns an
+# ack immediately and appends the real answer to /vault/60_Council/<advisor>/dm_log.jsonl
+# (the dashboard answer of record). The Buzz DM bridge tails that log to deliver a
+# ready-notify with the answer back to Leo — the one surface the dashboard can't cover.
+ADVISOR_DM_LOG_DIR = os.environ.get("ADVISOR_DM_LOG_DIR", "/vault/60_Council")
+
+
+def latest_dm_log_ts(advisor):
+    """Watermark: ts (iso) of the last dm_log entry for advisor, or '' if none. Captured
+    BEFORE an async turn so poll_async_answer only delivers a NEWER entry."""
+    p = os.path.join(ADVISOR_DM_LOG_DIR, advisor, "dm_log.jsonl")
+    try:
+        with open(p, encoding="utf-8") as f:
+            for ln in reversed(f.readlines()):
+                ln = ln.strip()
+                if ln:
+                    return json.loads(ln).get("ts", "")
+    except Exception:
+        pass
+    return ""
+
+
+def poll_async_answer(advisor, message, since_ts, timeout=360, interval=3):
+    """Block (run under asyncio.to_thread) until the async Hermes answer of record for THIS
+    turn lands in dm_log.jsonl — a new entry (ts > since_ts) whose message matches — then
+    return its reply. Returns None on timeout. Same-format ISO-8601 UTC ts compare
+    lexicographically, so string > is a valid recency test."""
+    p = os.path.join(ADVISOR_DM_LOG_DIR, advisor, "dm_log.jsonl")
+    want = (message or "").strip()
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with open(p, encoding="utf-8") as f:
+                for ln in reversed(f.readlines()):
+                    ln = ln.strip()
+                    if not ln:
+                        continue
+                    e = json.loads(ln)
+                    if e.get("ts", "") > since_ts and (e.get("message") or "").strip() == want:
+                        return e.get("reply")
+        except Exception:
+            pass
+        time.sleep(interval)
+    return None
+
+
 def backend_reply(cfg, text, thread_ts=""):
     if cfg["backend"] == "echo":
         # KAI-1142: round-trip liveness echo. Deliberately NO council call — this backend

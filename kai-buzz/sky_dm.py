@@ -83,6 +83,7 @@ async def run():
             if sender_hex == SKY_PUB_HEX:
                 continue    # skip our own self-copies
             ab.log("sky-dm", f"<< {sender_hex[:8]}: {text[:80]}")
+            since_ts = await asyncio.to_thread(ab.latest_dm_log_ts, "sky")
             try:
                 reply = await asyncio.to_thread(ab.call_council, "sky", text, "sky-dm:" + sender_hex[:16])
             except ab.BackendError:
@@ -94,6 +95,20 @@ async def run():
                 ab.log("sky-dm", f">> {reply[:100]}")
             except Exception as e:
                 ab.log("sky-dm", f"reply send failed: {e}")
+            # AR-3/P-2 ready-notify: Sky runs async on the mini (~90s). The ack
+            # went out above; wait for the answer of record in dm_log, then DM it over Buzz.
+            # Defaults snapshot the loop vars so a later message cannot corrupt an in-flight task.
+            async def _deliver_async_answer(_r=uw.sender(), _m=text, _since=since_ts, _ack=reply):
+                ans = await asyncio.to_thread(ab.poll_async_answer, "sky", _m, _since)
+                if ans and ans.strip() and ans.strip() != _ack.strip():
+                    try:
+                        await send_dm(ws, _r, ans)
+                        ab.log("sky-dm", f">> [ready] {ans[:100]}")
+                    except Exception as e:
+                        ab.log("sky-dm", f"ready-notify send failed: {e}")
+                elif ans is None:
+                    ab.log("sky-dm", "ready-notify: no async answer landed before timeout")
+            asyncio.create_task(_deliver_async_answer())
 
 
 if __name__ == "__main__":
