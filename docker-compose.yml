@@ -153,6 +153,30 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+  kai-voice-tts:
+    build: ./kai-voice-tts
+    container_name: kai-voice-tts
+    restart: unless-stopped
+    user: "1000:1000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    volumes:
+      - /home/leo/vault:/vault:rw
+      - /home/leo/kai-system/shared:/shared:ro
+      - /home/leo/kai-system/voice-models:/models:rw
+    environment:
+      - PYTHONPATH=/shared
+      - KOKORO_MODELS_DIR=/models
+      - KOKORO_VOICE=af_sarah
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8006/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
   kai-web:
     build: ./kai-web
     container_name: kai-web
