@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { ADVISORS, getAdvisor } from '../lib/advisors'
+import ProactiveDigest from '../components/ProactiveDigest'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1395,6 +1396,10 @@ export default function Today() {
   return (
     <div style={{ height: '100%', background: 'var(--bg-screen)', overflowY: 'auto' }}>
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+        {/* P-4a morning digest — proactive finding-cards, tap-to-approve. Self-hides when empty. */}
+        <ProactiveDigest />
+
         <div className="kai-card" style={{ padding: 20 }}>
 
           {/* Greeting row with inline token badge */}

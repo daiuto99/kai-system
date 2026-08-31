@@ -108,6 +108,13 @@ export const api = {
   getSystemActivity: (limit = 200) => get(`${BASE}/system/activity?limit=${limit}`),
   getCurrencyState: () => get(`${BASE}/currency/state`),
 
+  // Proactive queue (P-4a) — the morning digest's PULL surface. Custodian Findings
+  // are bridged to silent finding-cards in the T2 queue; the digest reads the pending
+  // ones and taps resolve them via the existing /t2/respond (approve → true, dismiss → false).
+  getProactiveQueue: () => get(`${BASE}/t2/queue?kind=finding`),
+  respondProactive: (action_id, approved, notes = '') =>
+    post(`${BASE}/t2/respond`, { action_id, approved, user_id: 'leo', notes }),
+
   // Generic helpers — auto-prefix /api for worker routes. Callers like WordPress.jsx
   // use api.get('/wordpress/sites') → fetch('/api/wordpress/sites').
   get:   (path) => get(`${BASE}${path}`),

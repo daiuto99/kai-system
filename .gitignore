@@ -24,3 +24,6 @@ langfuse-client.env
 
 # faster-whisper model cache (KAI-1283 voice layer) — weights are downloaded, not vendored
 voice-models/
+logs/devops_disk_remediation.jsonl
+logs/provision_audit.jsonl
+logs/wp_credential_rotation.jsonl
