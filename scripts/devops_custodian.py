@@ -51,6 +51,7 @@ _ROSTER = [
     ("devops_security_custodian", "SecurityCustodian"),  # security surface (Phase 2, KAI-52)
     ("devops_fleet_custodian", "FleetCustodian"),        # fleet/host (Phase 2, KAI-53)
     ("devops_currency_custodian", "CurrencyCustodian"),  # dependency + WP currency (CUR-4)
+    ("devops_inventory_custodian", "InventoryCustodian"),  # built-blindness drift, between closes (KAI-1298 P3)
 ]
 
 
