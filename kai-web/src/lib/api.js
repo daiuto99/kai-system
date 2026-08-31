@@ -100,6 +100,9 @@ export const api = {
   // Usage / cost
   getTokenUsage: () => get(`${BASE}/token-usage`),
   getAnthropicBilling: (days = 30) => get(`${BASE}/anthropic/billing?days=${days}`),
+  // Financial view — provider registry × live spend × access status (KAI-1283).
+  // Served by the orchestrator; nginx proxies /orchestrator/ → kai-orchestrator:8003.
+  getFinancial: () => get('/orchestrator/financial'),
   getSystemActivity: (limit = 200) => get(`${BASE}/system/activity?limit=${limit}`),
   getCurrencyState: () => get(`${BASE}/currency/state`),
 

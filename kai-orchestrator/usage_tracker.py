@@ -27,32 +27,81 @@ logger = logging.getLogger(__name__)
 
 USAGE_PATH = Path("/vault/00_System/token_usage.json")
 
-# Cost per provider/model (USD per 1M tokens in/out).
-COSTS: dict[str, tuple[float, float]] = {
-    # Claude 4.7 family
+# ── Pricing: single source of truth ─────────────────────────────────────────
+# KAI-1283: paid per-token + per-call rates live in ONE authored home,
+# provider_registry.json. This module loads them from there at import. The
+# hardcoded tables below are a FALLBACK, used only when the registry is
+# unreadable; a drift-guard test (tests/test_pricing_registry_drift.py) asserts
+# the fallback mirrors the registry so the safety net can never silently
+# diverge from the source.
+REGISTRY_PATH = Path("/vault/00_System/provider_registry.json")
+
+# Self-hosted models are structurally free (local inference) — not a price that
+# can drift, so they live here rather than in the paid registry.
+_SELF_HOSTED_ZERO: dict[str, tuple[float, float]] = {
+    "llama3.2":      (0.0, 0.0),
+    "llama3.1:8b":   (0.0, 0.0),
+    "qwen2.5:3b":    (0.0, 0.0),
+    "qwen2.5:7b":    (0.0, 0.0),
+    "gemma3:4b":     (0.0, 0.0),
+}
+
+# Fallback paid rates — MUST mirror provider_registry.json token_per_1m
+# (drift-guarded). Only consulted if the registry can't be read.
+_FALLBACK_PAID: dict[str, tuple[float, float]] = {
     "claude-opus-4-7":               (15.0, 75.0),
     "claude-opus-4-7-20260115":      (15.0, 75.0),
-    # Claude 4.6 family
     "claude-sonnet-4-6":             (3.0, 15.0),
     "claude-opus-4-6":               (15.0, 75.0),
-    # Claude 4.5 family
     "claude-sonnet-4-5":             (3.0, 15.0),
     "claude-haiku-4-5":              (0.80, 4.0),
     "claude-haiku-4-5-20251001":     (0.80, 4.0),
-    # OpenAI
     "gpt-4o":                        (2.50, 10.0),
     "gpt-4o-mini":                   (0.15, 0.60),
     "o4-mini":                       (1.10, 4.40),
-    # Ollama (self-hosted)
-    "llama3.2":                      (0.0, 0.0),
-    "llama3.1:8b":                   (0.0, 0.0),
-    "qwen2.5:3b":                    (0.0, 0.0),
-    "gemma3:4b":                     (0.0, 0.0),
 }
+_FALLBACK_PER_CALL: dict[str, float] = {"tavily/search": 0.008}
 
-PER_CALL_COSTS: dict[str, float] = {
-    "tavily/search":  0.008,
-}
+
+def _paid_from_registry() -> tuple[dict, dict] | None:
+    """Load paid per-token (input, output) + per-call rates from the provider
+    registry. Returns None on any read/shape error so the caller falls back to
+    the hardcoded tables — pricing must never break on a bad registry file."""
+    try:
+        reg = json.loads(REGISTRY_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    paid: dict[str, tuple[float, float]] = {}
+    per_call: dict[str, float] = {}
+    for pid, p in (reg.get("providers") or {}).items():
+        for model, r in (p.get("token_per_1m") or {}).items():
+            try:
+                paid[model] = (float(r["input"]), float(r["output"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+        for unit, usd in (p.get("per_call_usd") or {}).items():
+            try:
+                per_call[f"{pid}/{unit}"] = float(usd)
+            except (TypeError, ValueError):
+                continue
+    return (paid, per_call) if paid else None
+
+
+def _build_costs() -> tuple[dict, dict]:
+    loaded = _paid_from_registry()
+    if loaded is None:
+        logger.warning(
+            "usage_tracker: provider_registry unreadable — using fallback price tables"
+        )
+        paid, per_call = dict(_FALLBACK_PAID), dict(_FALLBACK_PER_CALL)
+    else:
+        paid, per_call = loaded
+    # Self-hosted $0 models are always present; registry paid rates are authoritative.
+    return {**_SELF_HOSTED_ZERO, **paid}, per_call
+
+
+# Cost per provider/model (USD per 1M tokens in/out) — registry-sourced at import.
+COSTS, PER_CALL_COSTS = _build_costs()
 
 
 def _load(path: Path) -> dict:

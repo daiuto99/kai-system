@@ -708,12 +708,13 @@ def reviews_summary():
 
 @app.get("/cost-summary")
 def cost_summary():
-    """Cost aggregation from token_usage.json (by advisor/model) + fixed costs config."""
+    """Cost aggregation from token_usage.json (by advisor/model) + fixed costs
+    derived from the provider registry (single source of truth, KAI-1283)."""
     import json as _json
     from datetime import date as _date
 
     usage_path = Path("/vault/00_System/token_usage.json")
-    config_path = Path("/vault/00_System/pricing_config.json")
+    registry_path = Path("/vault/00_System/provider_registry.json")
 
     today = _date.today().isoformat()
     this_month = today[:7]
@@ -725,12 +726,12 @@ def cost_summary():
         except Exception as e:
             log.warning("cost-summary: token_usage.json read error: %s", e)
 
-    pricing: dict = {}
-    if config_path.exists():
+    registry: dict = {}
+    if registry_path.exists():
         try:
-            pricing = _json.loads(config_path.read_text())
+            registry = _json.loads(registry_path.read_text())
         except Exception as e:
-            log.warning("cost-summary: pricing_config.json read error: %s", e)
+            log.warning("cost-summary: provider_registry.json read error: %s", e)
 
     today_day = next((d for d in usage_data.get("days", []) if d.get("date") == today), {})
 
@@ -768,7 +769,21 @@ def cost_summary():
             e["input"] += v.get("input", 0)
             e["output"] += v.get("output", 0)
 
-    fixed_monthly = pricing.get("fixed_monthly", {})
+    # Fixed/recurring monthly cost — derived from the provider registry (single
+    # source, KAI-1283): every non-metered provider, its monthly figure (annual
+    # amortised to /12), keyed by provider id.
+    fixed_monthly: dict = {}
+    for pid, p in (registry.get("providers") or {}).items():
+        if p.get("billing_model") == "metered":
+            continue
+        monthly = p.get("monthly_usd")
+        if monthly is None and p.get("annual_usd") is not None:
+            monthly = round(p["annual_usd"] / 12.0, 2)
+        fixed_monthly[pid] = {
+            "label": p.get("label"),
+            "usd": monthly or 0.0,
+            "note": p.get("billing_note"),
+        }
     fixed_total = sum(v.get("usd", 0) for v in fixed_monthly.values() if isinstance(v, dict))
     month_total = round(month_cost + fixed_total, 2)
 
@@ -819,6 +834,187 @@ def cost_summary():
                 usage_data.get("total", {}).get("cache_creation", 0),
             ),
         },
+    }
+
+
+@app.get("/financial")
+def financial():
+    """KAI-1283 — the trustworthy financial view. Joins the authored provider
+    registry (billing model, price tables, caps, reset dates, account/credential)
+    with live month-to-date spend (token_usage.json) and per-provider access
+    status (credential presence). Every figure carries a verified_at stamp so the
+    dashboard can warn on anything older than 24h. The registry is the single
+    authored home; this endpoint never invents a cap — an unset cap surfaces as a
+    visible warning, not a fabricated number."""
+    import json as _json
+    from datetime import date as _date, datetime as _dt, timezone as _tz
+
+    registry_path = Path("/vault/00_System/provider_registry.json")
+    usage_path = Path("/vault/00_System/token_usage.json")
+    secrets_dir = Path("/kai-system/secrets")
+
+    now = _dt.now(_tz.utc)
+    stamp = now.isoformat(timespec="seconds")
+    today = _date.today()
+    this_month = today.isoformat()[:7]
+
+    registry: dict = {}
+    reg_error = None
+    if registry_path.exists():
+        try:
+            registry = _json.loads(registry_path.read_text())
+        except Exception as e:
+            reg_error = f"{type(e).__name__}: {e}"
+    else:
+        reg_error = "provider_registry.json absent"
+
+    usage_data: dict = {}
+    if usage_path.exists():
+        try:
+            usage_data = _json.loads(usage_path.read_text())
+        except Exception as e:
+            log.warning("financial: token_usage.json read error: %s", e)
+
+    # Month-to-date metered spend, aggregated to top-level provider.
+    # by_model keys are "<provider>/<model>"; split on "/" -> provider bucket.
+    mtd_by_provider: dict = {}
+    for d in usage_data.get("days", []):
+        if not d.get("date", "").startswith(this_month):
+            continue
+        for key, v in d.get("by_model", {}).items():
+            prov = key.split("/", 1)[0]
+            e = mtd_by_provider.setdefault(prov, {"cost_usd": 0.0, "calls": 0})
+            e["cost_usd"] = round(e["cost_usd"] + v.get("cost_usd", 0.0), 6)
+            e["calls"] += v.get("calls", 0)
+
+    def _days_to_reset(reset_day):
+        if not reset_day:
+            return None
+        y, m = today.year, today.month
+        if today.day < reset_day:
+            nxt = _date(y, m, reset_day)
+        else:
+            nm_y, nm_m = (y + 1, 1) if m == 12 else (y, m + 1)
+            nxt = _date(nm_y, nm_m, reset_day)
+        return (nxt - today).days
+
+    def _cred_present(name):
+        if not name:
+            return None
+        return (secrets_dir / f"{name}.txt").exists()
+
+    providers_out = []
+    warnings = []
+    registered = set()
+    total_metered_mtd = 0.0
+    total_fixed_monthly = 0.0
+
+    for pid, p in (registry.get("providers", {}) or {}).items():
+        billing = p.get("billing_model")
+        cred = p.get("credential")
+        present = _cred_present(cred)
+        probe = (p.get("liveness") or {}).get("probe")
+        if probe == "credential_present":
+            if present is True:
+                access = "live"
+            elif present is False:
+                access = "dead-key"
+                warnings.append(f"{pid}: credential '{cred}' missing")
+            else:
+                access = "unknown"
+        elif probe == "assumed_live":
+            access = "assumed-live"
+        else:
+            # e.g. codex OAuth — freshness is owned by the green baseline probe,
+            # not cheaply checkable from inside this container.
+            access = "see-baseline"
+
+        row = {
+            "id": pid,
+            "label": p.get("label"),
+            "billing_model": billing,
+            "account": p.get("account"),
+            "credential": cred,
+            "role": p.get("role"),
+            "access_status": access,
+            "verified_at": stamp,
+        }
+
+        if billing == "metered":
+            registered.add(pid)
+            spend = round(mtd_by_provider.get(pid, {}).get("cost_usd", 0.0), 4)
+            calls = mtd_by_provider.get(pid, {}).get("calls", 0)
+            total_metered_mtd += spend
+            cap_obj = p.get("cap") or {}
+            cap = cap_obj.get("monthly_usd")
+            reset_day = cap_obj.get("reset_day")
+            dtr = _days_to_reset(reset_day)
+            row.update({
+                "spend_mtd_usd": spend,
+                "calls_mtd": calls,
+                "cap_usd": cap,
+                "reset_day": reset_day,
+                "days_to_reset": dtr,
+            })
+            if cap is None:
+                row["cap_status"] = "unset"
+                row["headroom_usd"] = None
+                row["headroom_pct"] = None
+                warnings.append(
+                    f"{pid}: spend cap unset — headroom + countdown unavailable "
+                    f"(author it in provider_registry.json from the {cap_obj.get('source', 'console')})"
+                )
+            else:
+                headroom = round(cap - spend, 4)
+                pct = (headroom / cap) if cap else None
+                row["cap_status"] = "over" if headroom < 0 else ("tight" if (pct is not None and pct < 0.1) else "ok")
+                row["headroom_usd"] = headroom
+                row["headroom_pct"] = round(100 * pct, 1) if pct is not None else None
+                if headroom < 0:
+                    warnings.append(f"{pid}: OVER CAP by ${abs(headroom):.2f} — resets in {dtr}d")
+                elif row["cap_status"] == "tight":
+                    warnings.append(f"{pid}: <10% headroom (${headroom:.2f}) — resets in {dtr}d")
+        else:
+            monthly = p.get("monthly_usd")
+            if monthly is None and p.get("annual_usd") is not None:
+                monthly = round(p["annual_usd"] / 12.0, 2)
+            monthly = monthly or 0.0
+            total_fixed_monthly += monthly
+            row["monthly_usd"] = round(monthly, 2)
+            row["billing_note"] = p.get("billing_note")
+
+        providers_out.append(row)
+
+    # Drift signal: any provider with real MTD spend that the registry doesn't cover.
+    unregistered = [
+        {"provider": prov, "spend_mtd_usd": round(v["cost_usd"], 4)}
+        for prov, v in mtd_by_provider.items()
+        if prov not in registered and v.get("cost_usd", 0) > 0
+    ]
+    if unregistered:
+        warnings.append(
+            f"{len(unregistered)} provider(s) have MTD spend but are absent from the registry: "
+            + ", ".join(u["provider"] for u in unregistered)
+        )
+    if reg_error:
+        warnings.insert(0, f"provider registry unreadable ({reg_error}) — figures are spend-only, no caps/access")
+
+    providers_out.sort(key=lambda r: (r.get("billing_model") != "metered", -(r.get("spend_mtd_usd") or 0)))
+
+    return {
+        "ok": reg_error is None,
+        "verified_at": stamp,
+        "month": this_month,
+        "registry_version": registry.get("schema_version"),
+        "registry_updated": registry.get("updated"),
+        "totals": {
+            "metered_mtd_usd": round(total_metered_mtd, 2),
+            "fixed_monthly_usd": round(total_fixed_monthly, 2),
+            "combined_note": "metered_mtd is month-to-date actual; fixed_monthly is full-month recurring — different time bases, not a single settled total.",
+        },
+        "providers": providers_out,
+        "unregistered_spend": unregistered,
+        "warnings": warnings,
     }
 
 
