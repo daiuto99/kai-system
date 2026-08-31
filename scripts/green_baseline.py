@@ -532,10 +532,37 @@ def check_container_roster() -> str:
     service or a restart-loop (kai-tailscale rc=5) read as "Up" to every check.
     Enumerate all compose-managed containers (buzz/kai-system/plane): RED if any
     service that should be up is not running (a one-shot that exited 0, e.g.
-    plane-migrator, is NOT a failure); WARN on elevated RestartCount (>=3)."""
+    plane-migrator, is NOT a failure).
+
+    WARN on RESTART RATE, not lifetime count (KAI, 2026-08-31): a running container
+    with rc>=3 is "hot" only while restarts are still happening — a real flap cannot
+    stay continuously up past STABLE_S. This cleared the standing tailscale rc=5 WARN
+    (5 restarts from a 10-day-old network rebind, stable since) that fired every boot,
+    and stops a "recreated + fixed" service from re-alarming on a stale count. Uptime
+    is read from StartedAt (the rate signal); unknown uptime stays conservative."""
+    import re as _re
     import subprocess as _sp
+    from datetime import datetime as _dt, timezone as _tz
 
     PROJECTS = {"buzz", "kai-system", "plane"}
+    STABLE_S = 3600  # continuously up this long ⇒ not actively flapping, whatever rc is
+
+    def _age(started: str):
+        """Seconds since last (re)start from docker StartedAt; None if unknown."""
+        if not started or started.startswith("0001-01-01"):
+            return None
+        s = started.strip().replace("Z", "+00:00")
+        m = _re.match(r"(.*\.\d{6})\d*(\+\d{2}:\d{2})$", s)
+        if m:
+            s = m.group(1) + m.group(2)
+        try:
+            d = _dt.fromisoformat(s)
+        except ValueError:
+            return None
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=_tz.utc)
+        return (_dt.now(_tz.utc) - d).total_seconds()
+
     try:
         out = _sp.run(
             ["docker", "ps", "-a", "--format",
@@ -550,7 +577,8 @@ def check_container_roster() -> str:
         return "WARN no compose-managed containers found [S1-B2]"
 
     try:
-        fmt = "{{.Name}}|{{.State.Status}}|{{.State.ExitCode}}|{{.HostConfig.RestartPolicy.Name}}|{{.RestartCount}}"
+        fmt = ("{{.Name}}|{{.State.Status}}|{{.State.ExitCode}}|"
+               "{{.HostConfig.RestartPolicy.Name}}|{{.RestartCount}}|{{.State.StartedAt}}")
         insp = _sp.run(["docker", "inspect", "-f", fmt, *names],
                        capture_output=True, text=True, timeout=20).stdout
     except Exception:
@@ -559,16 +587,19 @@ def check_container_roster() -> str:
     down, hot, checked = [], [], 0
     for line in insp.splitlines():
         parts = line.strip().lstrip("/").split("|")
-        if len(parts) != 5:
+        if len(parts) != 6:
             continue
-        name, status, exit_code, policy, rc = parts
+        name, status, exit_code, policy, rc, started = parts
         checked += 1
         if status != "running":
             expects_up = policy in ("always", "unless-stopped")
             if expects_up or exit_code != "0":
                 down.append(f"{name}={status}({exit_code})")
         elif rc.isdigit() and int(rc) >= 3:
-            hot.append(f"{name} rc={rc}")
+            age = _age(started)
+            if age is None or age < STABLE_S:  # still restarting recently → a live flap
+                hot.append(f"{name} rc={rc}")
+            # else: stable past the window → historical/stale count, not looping
 
     if down:
         raise RuntimeError(f"{len(down)} managed container(s) down: " + ", ".join(down[:6]))

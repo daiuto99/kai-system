@@ -11,23 +11,59 @@ Contract (§1):
     but flapping at a high RestartCount)                    recent logs — restarting
                                                             into a loop is not a fix)
 
+Crash-loop is judged on restart RATE, not lifetime count (KAI, 2026-08-31). A high
+`RestartCount` is only a loop while restarts are still happening: a genuinely
+flapping container cannot stay continuously up past STABLE_UPTIME_S. So a running
+container with a high LIFETIME count that has held for the stability window is
+cleared — it recovered, was fixed, or the count is stale from a long-ago blip.
+This killed two standing false positives: kai-tailscale (rc=5 from a 10-day-old
+network rebind, stable since) and any "recreated + fixed" service (whose count
+reset masked, rather than proved, recovery). `StartedAt` is the rate signal and
+needs no persistent state. Unknown uptime stays conservative (still structural).
+
 Runs host-side as `leo` (has Docker access); the sandboxed kai-scheduler watchdog
 stays a detector and must not be breached (§2.1).
 """
 from __future__ import annotations
 
+import re
 import subprocess
 from datetime import datetime, timezone
 
 # Compose projects whose services DevOps owns (same set green_baseline gates).
 PROJECTS = {"buzz", "kai-system", "plane"}
-# A RestartCount at/above this is flapping — a restart won't hold, so it is a
-# STRUCTURAL problem (investigate the crash), never another auto-restart.
+# A RestartCount at/above this is a candidate flap — but only a live one counts
+# (see STABLE_UPTIME_S). A restart won't hold while it is actively looping, so that
+# case is STRUCTURAL (investigate the crash), never another auto-restart.
 CRASH_LOOP_RC = 5
+# A container continuously up at least this long is NOT actively flapping, however
+# high its lifetime RestartCount — docker restart backoff means a real loop restarts
+# within minutes and can never accumulate this much uptime between restarts.
+STABLE_UPTIME_S = 3600
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _uptime_s(started_at: str):
+    """Seconds since the container's last (re)start, parsed from docker's StartedAt
+    (RFC3339, nanosecond precision). None when unparseable or never-started — the
+    caller treats None as 'unknown' and stays conservative."""
+    if not started_at or started_at.startswith("0001-01-01"):
+        return None
+    s = started_at.strip().replace("Z", "+00:00")
+    # docker emits nanoseconds; datetime.fromisoformat only takes microseconds
+    m = re.match(r"(.*\.\d{6})\d*(\+\d{2}:\d{2})$", s)
+    if m:
+        s = m.group(1) + m.group(2)
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - dt).total_seconds()
 
 
 # ── enumeration (reuses the proven check_container_roster approach) ─────────────
@@ -41,35 +77,42 @@ def _managed_names() -> list[str]:
             if len(ln.split("\t")) >= 2 and ln.split("\t")[1] in PROJECTS]
 
 
-def _inspect(names: list[str]) -> list[tuple[str, str, str, str, int]]:
-    """(name, status, exit_code, restart_policy, restart_count) per container."""
+def _inspect(names: list[str]) -> list[tuple]:
+    """(name, status, exit_code, restart_policy, restart_count, uptime_s) per container.
+    uptime_s is seconds since the last (re)start, or None if unknown."""
     if not names:
         return []
     fmt = ("{{.Name}}|{{.State.Status}}|{{.State.ExitCode}}|"
-           "{{.HostConfig.RestartPolicy.Name}}|{{.RestartCount}}")
+           "{{.HostConfig.RestartPolicy.Name}}|{{.RestartCount}}|{{.State.StartedAt}}")
     insp = subprocess.run(["docker", "inspect", "-f", fmt, *names],
                           capture_output=True, text=True, timeout=20).stdout
     rows = []
     for line in insp.splitlines():
         parts = line.strip().lstrip("/").split("|")
-        if len(parts) != 5:
+        if len(parts) != 6:
             continue
-        name, status, exit_code, policy, rc = parts
-        rows.append((name, status, exit_code, policy, int(rc) if rc.isdigit() else 0))
+        name, status, exit_code, policy, rc, started = parts
+        rows.append((name, status, exit_code, policy,
+                     int(rc) if rc.isdigit() else 0, _uptime_s(started)))
     return rows
 
 
 # ── pure classification (unit-tested) ──────────────────────────────────────────
 
-def classify_container(status: str, exit_code: str, policy: str, rc: int):
+def classify_container(status: str, exit_code: str, policy: str, rc: int, uptime_s=None):
     """Return (disposition|None, reason). None == healthy (no Finding).
 
     A one-shot that exited 0 (e.g. plane-migrator) is healthy, not down.
-    A flapping/crash-looping container is STRUCTURAL — restarting it again is
-    not a remediation."""
+    A container actively crash-looping is STRUCTURAL — restarting it again is not a
+    remediation. Lifetime RestartCount alone does NOT prove a loop: a running
+    container that has held past STABLE_UPTIME_S is cleared however high its count
+    (recovered/fixed/stale). uptime_s=None means unknown → stay conservative."""
     expects_up = policy in ("always", "unless-stopped")
     if status == "running":
         if rc >= CRASH_LOOP_RC:
+            if uptime_s is not None and uptime_s >= STABLE_UPTIME_S:
+                return None, (f"healthy — {rc} lifetime restarts but stable "
+                              f"{int(uptime_s // 3600)}h (not looping)")
             return "structural", f"running but flapping (RestartCount={rc}) — restart is not holding"
         return None, "healthy"
     # not running:
@@ -96,8 +139,8 @@ class ServicesCustodian:
                 proposed_action="investigate docker daemon / socket access on the host",
                 dedup_key="services-roster-unavailable", detail={})]
         findings = []
-        for name, status, exit_code, policy, rc in rows:
-            disp, reason = classify_container(status, exit_code, policy, rc)
+        for name, status, exit_code, policy, rc, uptime_s in rows:
+            disp, reason = classify_container(status, exit_code, policy, rc, uptime_s)
             if disp is None:
                 continue
             sev = "crit" if status != "running" else "warn"
@@ -117,6 +160,7 @@ class ServicesCustodian:
                     proposed_action=f"investigate {name} crash-loop (see recent logs) and fix the root cause; do not auto-restart into the loop",
                     dedup_key=f"services-crashloop-{name}",
                     detail={"name": name, "status": status, "rc": rc,
+                            "uptime_s": round(uptime_s) if uptime_s is not None else None,
                             "recent_logs": _recent_logs(name)}))
         return findings
 
