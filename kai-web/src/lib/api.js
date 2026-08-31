@@ -103,6 +103,8 @@ export const api = {
   // Financial view — provider registry × live spend × access status (KAI-1283).
   // Served by the orchestrator; nginx proxies /orchestrator/ → kai-orchestrator:8003.
   getFinancial: () => get('/orchestrator/financial'),
+  // Presence — voice signal bus state for the live indicator (KAI-1283 voice layer).
+  getPresence: () => get('/orchestrator/presence'),
   getSystemActivity: (limit = 200) => get(`${BASE}/system/activity?limit=${limit}`),
   getCurrencyState: () => get(`${BASE}/currency/state`),
 

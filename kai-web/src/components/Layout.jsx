@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import TopNav from './TopNav'
 import BottomNav from './BottomNav'
 import CaptureModal from './CaptureModal'
+import Presence from './Presence'
 
 const PAGE_LABELS = {
   '/today': 'Today',
@@ -59,9 +60,12 @@ export default function Layout({ children }) {
           background: 'var(--bg-card)',
           borderBottom: '1px solid var(--border)',
         }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: '0.02em', color: 'var(--text-primary)' }}>
             KAI{(() => { const label = Object.entries(PAGE_LABELS).find(([k]) => pathname === k || pathname.startsWith(k + '/')); return label ? ' — ' + label[1] : ''; })()}
           </span>
+            <Presence />
+          </div>
           <button
             onClick={() => setCaptureOpen(true)}
             style={{

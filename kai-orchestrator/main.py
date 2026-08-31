@@ -1360,3 +1360,55 @@ def run_capability_endpoint(name: str, body: dict, request: Request):
     except Exception as e:
         log.exception("capability endpoint error: %s %s", name, e)
         return {"ok": False, "error": str(e)}
+
+
+# ── Presence (KAI-1283 P-3 voice layer) ──────────────────────────────────────
+# The voice signal bus rendered to the surface. The STT/TTS services write state
+# transitions (idle/listening/thinking/speaking) to the file bus; the dashboard
+# and kiosk poll GET /presence to *feel* KAI live. Import is lazy + fail-soft so a
+# missing /shared mount can never take down the orchestrator — presence is cosmetic.
+def _signal_bus():
+    """Lazy import of the shared signal_bus module; None if unavailable."""
+    import sys  # local: /shared is not on the base path, and a top-level import would E402
+    if "/shared" not in sys.path:
+        sys.path.insert(0, "/shared")
+    try:
+        import signal_bus  # noqa: PLC0415
+        return signal_bus
+    except Exception as e:  # noqa: BLE001
+        log.warning("presence: signal_bus import unavailable: %s", e)
+        return None
+
+
+@app.get("/presence")
+def presence():
+    """Current conversational presence state for the dashboard + kiosk.
+
+    Always 200 with a valid state — a missing bus module or absent file degrades to
+    idle, never an error the surface has to handle."""
+    sb = _signal_bus()
+    if sb is None:
+        return {"state": "idle", "detail": None, "source": None, "seq": 0,
+                "stale": False, "available": False}
+    out = dict(sb.read_state())
+    out["available"] = True
+    return out
+
+
+@app.post("/presence")
+async def set_presence(request: Request):
+    """Set presence state. Used by the voice services (and manual tests). Body:
+    {"state": "listening|thinking|speaking|idle|error", "detail"?: str, "source"?: str}.
+    Tailscale-gated via the dashboard origin; NOT exposed on the public kiosk origin."""
+    sb = _signal_bus()
+    if sb is None:
+        raise HTTPException(status_code=503, detail="signal_bus unavailable")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    state = (body or {}).get("state")
+    if not state:
+        raise HTTPException(status_code=400, detail="'state' is required")
+    rec = sb.set_state(state, (body or {}).get("detail"), (body or {}).get("source"))
+    return {"ok": True, **rec}

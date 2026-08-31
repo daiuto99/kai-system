@@ -126,6 +126,33 @@ services:
       retries: 3
       start_period: 10s
 
+  kai-voice-stt:
+    build: ./kai-voice-stt
+    container_name: kai-voice-stt
+    restart: unless-stopped
+    user: "1000:1000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    volumes:
+      - /home/leo/vault:/vault:rw
+      - /home/leo/kai-system/shared:/shared:ro
+      - /home/leo/kai-system/voice-models:/models:rw
+    environment:
+      - PYTHONPATH=/shared
+      - WHISPER_MODEL=base
+      - WHISPER_COMPUTE=int8
+      - COUNCIL_API_URL=http://kai-council-api:8002
+    secrets:
+      - kai_worker_auth
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8005/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
   kai-web:
     build: ./kai-web
     container_name: kai-web

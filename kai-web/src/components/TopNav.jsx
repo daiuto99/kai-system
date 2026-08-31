@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import Presence from './Presence'
 
 const NAV_ITEMS = [
   { to: '/today',      label: 'Today',       icon: <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
@@ -102,6 +103,7 @@ export default function TopNav({ onCapture }) {
 
       {/* Right — Capture + Architecture + Theme + Settings */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Presence showLabel />
         <IconBtn onClick={onCapture} title="Capture">
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
         </IconBtn>
