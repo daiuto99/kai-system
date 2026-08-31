@@ -109,6 +109,17 @@ fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  proactive queue: Finding->pull-card bridge + producer (P-4a)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+# The proactive PULL queue is built by two host-runnable pure units (no container):
+# shared/proactive_queue.py (Finding->card bridge: leo-facing filter, code-composed
+# card, dedup, notify=False deferred-push) and scripts/proactive_producer.py (leo-facing
+# allowlist + idempotent produce). Both carry offline --selftest gates.
+python3 shared/proactive_queue.py --selftest || FAIL=1
+python3 scripts/proactive_producer.py --selftest || FAIL=1
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  whole-repo guards"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 python3 -m pytest -v --tb=short -m whole_repo \

@@ -43,6 +43,13 @@ class T2ActionRequest(BaseModel):
     gate_id: str = ""
     callback_url: str = ""
     kind: str = ""
+    # P-4a (proactive queue): a stable identity so the Finding→card producer never
+    # double-posts the same finding (dedup on re-run). Empty for legacy/gate cards.
+    dedup_key: str = ""
+    # P-4a: DEFERRED-PUSH (Leo, 2026-08-31). notify=False creates the card SILENTLY —
+    # a pull-only item, no Telegram/DM push — until Leo is actively using the system.
+    # Defaults True so every existing caller (gates, advisors) is unchanged.
+    notify: bool = True
 
 
 class T2RespondRequest(BaseModel):
@@ -53,46 +60,65 @@ class T2RespondRequest(BaseModel):
 
 
 @router.get("/t2/queue")
-def get_t2_queue():
-    return {"queue": _t2_load()}
+def get_t2_queue(kind: str = ""):
+    """The queue. Optional ?kind= filters to one card kind — P-4a's proactive PULL
+    view is GET /t2/queue?kind=finding (the digest reads only pending finding-cards)."""
+    queue = _t2_load()
+    if kind:
+        queue = [e for e in queue if e.get("kind") == kind]
+    return {"queue": queue}
 
 
 @router.post("/t2/queue")
 def create_t2_action(req: T2ActionRequest):
-    queue = _t2_load()
-    action_id = str(uuid.uuid4())[:8]
-    entry = {
-        "id": action_id,
-        "action": req.action,
-        "detail": req.detail,
-        "advisor": req.advisor,
-        "status": "pending",
-        "created_at": _dt.now().isoformat(),
-        # slack_ts / slack_channel_id: retired-Slack-named vestige fields, ALWAYS None
-        # since AR-5.3 rerouted T2 notifications to Telegram (below). Kept as inert keys
-        # to avoid a data migration of existing queue entries; removal deferred (KAI-1243).
-        "slack_ts": None,
-        "slack_channel_id": None,
-        "gate_id": req.gate_id,
-        "callback_url": req.callback_url,
-        "kind": req.kind,
-    }
+    with _T2_LOCK:
+        queue = _t2_load()
 
-    # AR-5.3: rerouted to Telegram (sole surface). T2 request notification.
-    try:
-        from tg_alert import tg_alert
-        tg_alert(
-            f"T2 Action Request — {action_id}\n"
-            f"Advisor: {req.advisor.upper()}\n"
-            f"Action: {req.action}"
-            + (f"\nDetail: {req.detail}" if req.detail else "")
-        )
-    except Exception as e:
-        logger.exception("T2 Telegram post error: %s", e)
+        # P-4a dedup: a proactive finding-card carries a stable dedup_key. If one is
+        # already PENDING for that key, return it instead of double-posting — so the
+        # producer is safe to re-run every sweep. (Legacy/gate cards carry no key.)
+        if req.kind == "finding" and req.dedup_key:
+            for e in queue:
+                if (e.get("kind") == "finding" and e.get("status") == "pending"
+                        and e.get("dedup_key") == req.dedup_key):
+                    return {"ok": True, "id": e["id"], "entry": e, "deduped": True}
 
-    queue.append(entry)
-    _t2_save(queue)
-    return {"ok": True, "id": action_id, "entry": entry}
+        action_id = str(uuid.uuid4())[:8]
+        entry = {
+            "id": action_id,
+            "action": req.action,
+            "detail": req.detail,
+            "advisor": req.advisor,
+            "status": "pending",
+            "created_at": _dt.now().isoformat(),
+            # slack_ts / slack_channel_id: retired-Slack-named vestige fields, ALWAYS None
+            # since AR-5.3 rerouted T2 notifications to Telegram (below). Kept as inert keys
+            # to avoid a data migration of existing queue entries; removal deferred (KAI-1243).
+            "slack_ts": None,
+            "slack_channel_id": None,
+            "gate_id": req.gate_id,
+            "callback_url": req.callback_url,
+            "kind": req.kind,
+            "dedup_key": req.dedup_key,
+        }
+
+        # AR-5.3: rerouted to Telegram (sole surface). T2 request notification.
+        # P-4a: notify=False creates SILENTLY (deferred-push) — pull-only, no ping.
+        if req.notify:
+            try:
+                from tg_alert import tg_alert
+                tg_alert(
+                    f"T2 Action Request — {action_id}\n"
+                    f"Advisor: {req.advisor.upper()}\n"
+                    f"Action: {req.action}"
+                    + (f"\nDetail: {req.detail}" if req.detail else "")
+                )
+            except Exception as e:
+                logger.exception("T2 Telegram post error: %s", e)
+
+        queue.append(entry)
+        _t2_save(queue)
+        return {"ok": True, "id": action_id, "entry": entry}
 
 
 @router.post("/t2/respond")
