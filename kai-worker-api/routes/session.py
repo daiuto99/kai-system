@@ -200,26 +200,33 @@ def session_brief():
                 brief["sprint_status"] = m.group(3).lower().replace(" ", "_")
                 break
 
-    # 3. Latest vault session file — recent decisions
+    # 3. Latest vault session file — last_session label only.
     session_dir = VAULT_PATH / "60_Council" / "sessions" / "kai"
     if session_dir.exists():
         files = sorted(session_dir.glob("*.md"), key=os.path.getmtime, reverse=True)
         if files:
-            try:
-                lines = files[0].read_text().splitlines()
-                brief["last_session"] = brief["last_session"] or files[0].stem
-                in_decisions = False
-                for line in lines:
-                    if line.startswith("## Decisions"):
-                        in_decisions = True
-                    elif line.startswith("## ") and in_decisions:
-                        break
-                    elif in_decisions and line.startswith("- "):
-                        brief["recent_decisions"].append(line[2:].strip()[:80])
-                        if len(brief["recent_decisions"]) >= 4:
-                            break
-            except Exception:
-                pass
+            brief["last_session"] = brief["last_session"] or files[0].stem
+
+    # 3b. Recent decisions — read the DECISIONS STORE, not the session file.
+    # The close writes the session file's "## Decisions" section as a literal
+    # "- (none recorded)" placeholder; the real decisions live in
+    # 60_Council/decisions/YYYY-MM.md (one "## <date> — <title>" per decision,
+    # newest appended at the bottom). Reading the placeholder is why the brief
+    # reported 0 decisions despite decision commits. (session/brief degraded-fields fix)
+    try:
+        dec_dir = VAULT_PATH / "60_Council" / "decisions"
+        for mf in (sorted(dec_dir.glob("*.md"), reverse=True) if dec_dir.exists() else []):
+            titles = []
+            for line in mf.read_text().splitlines():
+                if line.startswith("## "):
+                    title = re.sub(r"^\d{4}-\d{2}-\d{2}\s*[—-]{1,2}\s*", "", line[3:].strip())
+                    if title and "(none recorded)" not in title.lower():
+                        titles.append(title[:80])
+            if titles:
+                brief["recent_decisions"] = list(reversed(titles))[:4]
+                break
+    except Exception:
+        pass
 
     # 4. Close manifest — last_close field
     # Fix 2026-05-19: brief now reads the close manifest written by close_engine.py
@@ -282,15 +289,20 @@ def session_brief():
                 "overall": wm.get("overall", "unknown"),
             }
             brief["warmboot_required"] = wb_stale
-            # Plane is authoritative for next-sprint. SOTU "What's next" prose
-            # goes stale the moment a sprint ships (e.g. close didn't rewrite it).
-            # If warmboot derived a next_sprint, override the SOTU-parsed values.
+            # next_sprint = the NEXT-sprint pointer (a distinct field), kept as-is.
             ns = wm.get("next_sprint")
             if ns:
-                brief["sprint"] = ns.get("name", brief["sprint"])[:80]
-                # Map Plane state_group → brief contract: backlog/unstarted → planned
-                brief["sprint_status"] = "planned"
                 brief["next_sprint"] = ns
+            # Authoritative CURRENT sprint: plan.json active_stage, written into the
+            # warmboot manifest by sync_plane_state.py. Brief reads it here from the
+            # close/warmboot-written VAULT manifest — NOT a /workspace mirror (HARDEN-2).
+            # It overrides the SOTU "What's next" prose (block 1), which is the top
+            # open ticket and goes stale the moment a sprint ships — the reason the
+            # brief was reporting a ticket name as the sprint. (brief degraded-fields fix)
+            act = wm.get("active_stage")
+            if act and act.get("id"):
+                brief["sprint"] = f"{act['id']} — {act.get('title', '')}".strip(" —")[:80]
+                brief["sprint_status"] = "active"
         except Exception:
             pass
     # warmboot_required stays True if manifest is missing or parse failed

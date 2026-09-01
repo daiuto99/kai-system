@@ -365,44 +365,57 @@ def bulk_update_plane_issues(body: BulkIssueUpdate):
         token = _plane_token()
         if not token:
             raise HTTPException(status_code=500, detail="Plane API token not configured")
-        pid = body.project_id or KAI_PROJECT_ID
 
-        # Resolve state once.
-        state_id = None
-        if body.state is not None or body.state_group is not None:
-            state_map_raw = _req(f"projects/{pid}/states/")
-            states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
+        # HARDEN-7b: resolve project + state PER issue (state UUIDs are project-scoped)
+        # so a batch may span projects and an id outside KAI no longer 404s against the
+        # KAI default. body.project_id, when given, pins all ids (fast path). State maps
+        # are cached per project so a same-project batch fetches states once.
+        _state_cache: dict[str, list] = {}
+
+        def _resolve_state_id(pid: str):
+            if body.state is None and body.state_group is None:
+                return None
+            if pid not in _state_cache:
+                raw = _req(f"projects/{pid}/states/")
+                _state_cache[pid] = raw.get("results", raw) if isinstance(raw, dict) else raw
+            states = _state_cache[pid]
+            sid = None
             if body.state is not None:
                 want = body.state.lower()
-                state_id = next((s["id"] for s in states if s.get("name", "").lower() == want), None)
-            if state_id is None and body.state_group is not None:
+                sid = next((s["id"] for s in states if s.get("name", "").lower() == want), None)
+            if sid is None and body.state_group is not None:
                 want = body.state_group.lower()
-                state_id = next((s["id"] for s in states if s.get("group", "").lower() == want), None)
-            if state_id is None:
+                sid = next((s["id"] for s in states if s.get("group", "").lower() == want), None)
+            if sid is None:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"state '{body.state}' / group '{body.state_group}' not found in project",
+                    detail=f"state '{body.state}' / group '{body.state_group}' not found in project {pid}",
                 )
-
-        payload_base = {}
-        if state_id is not None:
-            payload_base["state"] = state_id
-        if body.priority is not None:
-            payload_base["priority"] = body.priority
+            return sid
 
         results = []
         for issue_id in body.ids:
             try:
+                pid = body.project_id or _issue_project_id(issue_id)
+                state_id = _resolve_state_id(pid)
+                payload = {}
+                if state_id is not None:
+                    payload["state"] = state_id
+                if body.priority is not None:
+                    payload["priority"] = body.priority
                 url = f"{PLANE_BASE}/projects/{pid}/issues/{issue_id}/"
                 req = ur.Request(
                     url,
-                    data=json.dumps(payload_base).encode(),
+                    data=json.dumps(payload).encode(),
                     headers={"X-API-Key": token, "Content-Type": "application/json"},
                     method="PATCH",
                 )
                 with ur.urlopen(req, timeout=10) as resp:
                     res = json.loads(resp.read())
                 results.append({"id": issue_id, "ok": True, "name": res.get("name", "")[:80]})
+            except HTTPException as he:
+                # per-id resolution failure (bad state / not found) must not abort the batch
+                results.append({"id": issue_id, "ok": False, "error": str(he.detail)})
             except Exception as e:
                 results.append({"id": issue_id, "ok": False, "error": f"{type(e).__name__}: {e}"})
 

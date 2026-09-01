@@ -402,6 +402,24 @@ def warmboot():
     sop_count = print_sops()
     wb["active_sops"] = sop_count
 
+    # Authoritative CURRENT sprint: plan.json active_stage (the authored SSOT
+    # pointer). Written into the warmboot manifest so /session/brief derives its
+    # `sprint`/`sprint_status` from this close/warmboot-written VAULT surface
+    # (HARDEN-2), never a /workspace mirror. The legacy next_sprint derivation
+    # above keys off `[SPRINT] N —` ticket names that the active_stage model
+    # retired, so it is null in practice; active_stage is the real current sprint.
+    try:
+        plan_path = Path("/home/leo/sonicink/docs/plan/plan.json")
+        if plan_path.exists():
+            plan = json.loads(plan_path.read_text())
+            active = plan.get("active_stage")
+            stage = next((s for s in plan.get("stages", []) if s.get("id") == active), None)
+            if active and stage:
+                wb["active_stage"] = {"id": active, "title": stage.get("title", "")}
+                print(f"\n[ACTIVE SPRINT] {active} — {stage.get('title', '')}")
+    except Exception as e:
+        print(f"  [WARN] Could not read active_stage from plan.json: {e}")
+
     if wb["overall"] != "fail":
         wb["overall"] = "partial" if partial else "ok"
 
