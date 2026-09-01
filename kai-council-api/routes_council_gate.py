@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import asyncio
+import contextvars
 import re
 import tempfile
 import threading
@@ -782,7 +783,7 @@ def _process_gate(req: GateRequest):
             # First-token check (not substring) so a body containing the word
             # STRUCTURAL inside a ROUTINE verdict doesn't falsely escalate.
             first_token = (kai_assessment.split() or [""])[0].rstrip(",.;:—-").upper()
-            if first_token == "ROUTINE":
+            if first_token == "ROUTINE" and not _REVIEW_FALLBACK_USED.get():
                 resolution = {"approved": True, "notes": kai_assessment, "advisor": "devops"}
                 _update_gate(req.gate_id, status="resolved", resolution=resolution)
                 _persist_gate_record(req.gate_id, gate_type, brief, resolution)
@@ -1045,7 +1046,10 @@ def _kai_validate_brief(produced_brief: str) -> tuple[bool, str]:
             "Be strict. Leo relies on this check so he only sees briefs that are ready."
         )
         reply = _gate_review_llm("kai", message, "gate:kai:brief-validation")  # KAI-1085 single-shot
-        approved = reply.strip().upper().startswith("APPROVED")
+        approved = (
+            reply.strip().upper().startswith("APPROVED")
+            and not _REVIEW_FALLBACK_USED.get()  # fallback reviewer never auto-approves
+        )
         return approved, reply
     except Exception as e:
         logger.exception("KAI brief validation failed: %s", e)
@@ -1216,32 +1220,106 @@ _GATE_REVIEW_MODEL = "claude-sonnet-4-6"
 _GATE_REVIEW_TOKEN_BUDGET = 120_000
 
 
+# A gate review produced by the LOCAL fallback reviewer (a weaker 7b model) may keep
+# human-decided gates MOVING during a cloud outage, but must NEVER drive an AUTONOMOUS
+# approval — those stay reserved for the pinned cloud reviewer. This flag is set per
+# review call and read at the auto-approve decision points; a fallback-sourced verdict
+# is forced to pending_leo instead (BUG 91dbcb0a, Codex verify hardening).
+_REVIEW_FALLBACK_USED: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
+    "_REVIEW_FALLBACK_USED", default=False
+)
+
+
+_GATE_REVIEW_FALLBACK_MODEL = "qwen-mid"  # local reviewer via kai-litellm -> kai-mini (worker fallback)
+
+
 def _gate_review_llm(persona_advisor: str, message: str, trigger: str) -> str:
-    """Single-shot council review (KAI-1085). Raises ReviewerUnavailable on no verdict."""
-    from router import _run_agentic_loop
-    from persona import load_persona
-    from council_config import _track_usage
+    """Single-shot council review (KAI-1085), resilient to a cloud-reviewer outage.
+
+    Primary reviewer is the pinned cloud model. If it is unavailable — Anthropic
+    quota/outage, or an empty/over-budget verdict — fall back to a LOCAL single-shot
+    review via kai-litellm (qwen-mid -> kai-mini, worker fallback) so a single-vendor
+    outage cannot deny every governed gate closed and take the whole draft pipeline
+    down with it (BUG 91dbcb0a). Raises ReviewerUnavailable only when BOTH the cloud
+    and the local reviewer fail — the caller then fails closed (never auto-approves).
+    """
+    _REVIEW_FALLBACK_USED.set(False)  # default: this review came from the cloud reviewer
     try:
+        from persona import load_persona
         system = load_persona(persona_advisor)
         messages = [{"role": "user", "content": message}]
-        reply, in_tok, out_tok, cr_tok, cc_tok = _run_agentic_loop(
-            messages, [], _GATE_REVIEW_MODEL, system, persona_advisor,
-            turn_token_budget=_GATE_REVIEW_TOKEN_BUDGET,
+    except Exception as setup_err:
+        # Setup failure (persona load) fails CLOSED — the caller denies, never approves.
+        logger.exception("Gate review setup failed for %s: %s", persona_advisor, setup_err)
+        raise ReviewerUnavailable(f"{persona_advisor} gate review setup failed") from setup_err
+
+    # 1. Primary — pinned cloud model (single-shot Anthropic agentic loop, tools=[]).
+    try:
+        return _gate_review_cloud(persona_advisor, system, messages, trigger)
+    except Exception as cloud_err:
+        logger.warning(
+            "Gate review cloud reviewer unavailable for %s (%s); trying local fallback",
+            persona_advisor, cloud_err,
         )
-        try:
-            _track_usage(persona_advisor, in_tok, out_tok, "anthropic", _GATE_REVIEW_MODEL,
-                         trigger_source=trigger, cache_read_tokens=cr_tok,
-                         cache_creation_tokens=cc_tok)
-        except Exception as exc:
-            logger.warning("gate review usage tracking failed: %s", exc)
-        if not reply.strip() or reply.startswith("over_budget:"):
-            raise ReviewerUnavailable(f"{persona_advisor} gate review returned no verdict")
-        return reply
-    except Exception as e:
-        logger.exception("Gate review call failed for %s: %s", persona_advisor, e)
-        if isinstance(e, ReviewerUnavailable):
-            raise
-        raise ReviewerUnavailable(f"{persona_advisor} gate review failed") from e
+
+    # 2. Fallback — local single-shot review via kai-litellm (structurally free).
+    try:
+        return _gate_review_local(persona_advisor, system, messages, trigger)
+    except Exception as local_err:
+        logger.exception(
+            "Gate review local fallback also failed for %s: %s", persona_advisor, local_err
+        )
+        raise ReviewerUnavailable(
+            f"{persona_advisor} gate review unavailable (cloud + local reviewer both failed)"
+        ) from local_err
+
+
+def _gate_review_cloud(persona_advisor: str, system: str, messages: list, trigger: str) -> str:
+    """Pinned cloud reviewer. Raises on a no/over-budget verdict so the caller falls back."""
+    from router import _run_agentic_loop
+    reply, in_tok, out_tok, cr_tok, cc_tok = _run_agentic_loop(
+        messages, [], _GATE_REVIEW_MODEL, system, persona_advisor,
+        turn_token_budget=_GATE_REVIEW_TOKEN_BUDGET,
+    )
+    try:
+        from council_config import _track_usage
+        _track_usage(persona_advisor, in_tok, out_tok, "anthropic", _GATE_REVIEW_MODEL,
+                     trigger_source=trigger, cache_read_tokens=cr_tok,
+                     cache_creation_tokens=cc_tok)
+    except Exception as exc:
+        logger.warning("gate review usage tracking failed: %s", exc)
+    if not reply.strip() or reply.startswith("over_budget:"):
+        raise ReviewerUnavailable(f"{persona_advisor} cloud gate review returned no verdict")
+    return reply
+
+
+def _gate_review_local(persona_advisor: str, system: str, messages: list, trigger: str) -> str:
+    """Local fallback reviewer via kai-litellm (qwen-mid). The verdict is parsed
+    identically; a provenance footer is APPENDED (never prefixed) so _extract_verdict
+    still reads the model's VERDICT: header while the audit shows the review came from
+    the local reviewer rather than the pinned cloud model."""
+    from providers import _call_litellm
+    reply, in_tok, out_tok = _call_litellm(
+        _GATE_REVIEW_FALLBACK_MODEL, system, messages, max_tokens=2048,
+    )
+    try:
+        from council_config import _track_usage
+        _track_usage(persona_advisor, in_tok, out_tok, "litellm", _GATE_REVIEW_FALLBACK_MODEL,
+                     trigger_source=f"{trigger}:local-fallback")
+    except Exception as exc:
+        logger.warning("gate review (local) usage tracking failed: %s", exc)
+    # Mirror the cloud guard exactly (empty or an over-budget sentinel == "no verdict").
+    # Verdict-PRESENCE is deliberately NOT enforced here: callers use heterogeneous verdict
+    # formats (VERDICT: / APPROVED / ROUTINE) and every auto-approve branch requires a
+    # POSITIVE token, so a verdict-less reply can never auto-approve — fail-closed holds
+    # downstream via _extract_verdict's logged fallback + the positive-keyword checks.
+    if not reply.strip() or reply.startswith("over_budget:"):
+        raise ReviewerUnavailable(f"{persona_advisor} local gate review returned no verdict")
+    _REVIEW_FALLBACK_USED.set(True)  # a fallback verdict may inform, but never auto-approve
+    return (
+        f"{reply.rstrip()}\n\n"
+        f"[reviewer: local fallback ({_GATE_REVIEW_FALLBACK_MODEL}) — cloud reviewer unavailable]"
+    )
 
 
 def _call_advisor(advisor: str, message: str, thread_id: str) -> str:

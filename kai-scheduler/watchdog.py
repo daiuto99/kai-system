@@ -546,6 +546,7 @@ from fleet_eval import fleet_verdict, compute_reboots, maint_suppresses_page
 
 FLEET_STATE_FILE = Path("/vault/_fleet_state.json")
 FLEET_REBOOTS_SEEN_FILE = Path("/vault/_fleet_reboots_seen.json")
+FLEET_RECOVERY_PENDING_FILE = Path("/vault/_fleet_recovery_pending.json")  # a812b567
 FLEET_MAINT_FILE = Path("/vault/_fleet_maint.json")
 _FLEET_MAINT_SCHEMA = "kai.fleet_maint.v1"
 
@@ -620,6 +621,19 @@ def surface_fleet_reboots() -> None:
         except Exception as e:
             log.warning("fleet reboot surface failed: %s", e)
             return  # do NOT advance the seen-map if the send failed — retry next cycle
+        # a812b567 — a freshly-rebooted host enters post-reboot recovery verification
+        # (verify_post_reboot_recovery re-alerts until its services are confirmed back).
+        try:
+            from fleet_eval import seed_recovery_pending
+            _pend = _read_json(FLEET_RECOVERY_PENDING_FILE)
+            _pend, _newly = seed_recovery_pending(_pend, fresh, int(time.time()))
+            if _newly:
+                import json as _pjson
+                _ptmp = FLEET_RECOVERY_PENDING_FILE.with_suffix(".pend.tmp")
+                _ptmp.write_text(_pjson.dumps(_pend, indent=2))
+                _ptmp.replace(FLEET_RECOVERY_PENDING_FILE)
+        except Exception as _se:
+            log.warning("recovery-pending seed failed: %s", _se)
     try:
         import json as _json
         tmp = FLEET_REBOOTS_SEEN_FILE.with_suffix(".tmp")
@@ -627,6 +641,48 @@ def surface_fleet_reboots() -> None:
         tmp.replace(FLEET_REBOOTS_SEEN_FILE)  # atomic
     except Exception as e:
         log.warning("fleet reboot seen-map write failed: %s", e)
+
+
+def verify_post_reboot_recovery() -> None:
+    """a812b567 — after a detected reboot (seeded into the recovery-pending map by
+    surface_fleet_reboots), VERIFY the host's services actually came back and RE-ALERT
+    until they do — bypassing the time-snooze so a post-reboot outage can never go silent
+    for hours (the 2026-08-05 worker-api 7h outage where its own healthcheck read
+    'healthy' and repeat alerts were snoozed). Recovery is COMPLETE when the STRICT
+    off-host fleet verdict is OK (every expected host reachable + ssh) AND no container is
+    restarting/exited-nonzero. Fail-soft: never raises into the scheduler."""
+    try:
+        pending = _read_json(FLEET_RECOVERY_PENDING_FILE)
+        if not pending:
+            return
+        from fleet_eval import compute_recovery, fleet_verdict
+        now = int(time.time())
+        state = _read_json(FLEET_STATE_FILE)
+        hosts_ok, detail = fleet_verdict(state, now)
+        bad = _fleet_bad_containers() if hosts_ok else {}
+        recovered_ok = hosts_ok and not bad
+        updated, to_clear, to_alert = compute_recovery(pending, recovered_ok, now)
+        try:
+            from tg_alert import tg_alert
+            if to_alert:
+                reason = detail if not hosts_ok else (
+                    "containers unhealthy: "
+                    + ", ".join(f"{n} ({r})" for n, r in sorted(bad.items())))
+                tg_alert("[DevOps] post-reboot recovery INCOMPLETE — host(s) "
+                         f"{', '.join(to_alert)} rebooted but the fleet is not fully "
+                         f"back: {reason}. Re-alerting until resolved.")
+            if to_clear:
+                tg_alert(f"[DevOps] post-reboot recovery COMPLETE — {', '.join(to_clear)} "
+                         f"back and all services healthy ({detail}).")
+        except Exception as e:
+            log.warning("post-reboot recovery alert send failed: %s", e)
+            return  # do NOT persist the state advance if the send failed — retry next cycle
+        tmp = FLEET_RECOVERY_PENDING_FILE.with_suffix(".tmp")
+        import json as _json
+        tmp.write_text(_json.dumps(updated, indent=2))
+        tmp.replace(FLEET_RECOVERY_PENDING_FILE)  # atomic
+    except Exception as e:
+        log.warning("post-reboot recovery verify failed: %s", e)
 
 
 # ── Fleet-wide container alarm (KAI-14155ea7 / M-R1) ──────────────────────────
@@ -1374,6 +1430,11 @@ def run_watchdog_checks():
         surface_fleet_reboots()
     except Exception as e:
         log.error("fleet reboot surface failed: %s", e)
+    # a812b567 — verify services actually came back after a reboot; re-alert until resolved
+    try:
+        verify_post_reboot_recovery()
+    except Exception as e:
+        log.error("post-reboot recovery verify failed: %s", e)
 
     # Container warning triage (KAI-465) — scrape log warnings, classify, file Plane bugs
     try:

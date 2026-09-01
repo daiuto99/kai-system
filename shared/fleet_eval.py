@@ -286,3 +286,53 @@ def maint_suppresses_page(state: dict, now_epoch: int, muted,
     if all(n in muted_set for n in problem):
         return True, problem
     return False, problem
+
+
+def seed_recovery_pending(pending: dict, fresh_reboots: list, now_epoch: int) -> tuple[dict, list]:
+    """Add each freshly-rebooted host to the post-reboot recovery-pending map.
+
+    Idempotent: a host already pending is left untouched (its since/last_alerted
+    survive). Returns (updated_pending, newly_added_hosts_sorted)."""
+    updated = dict(pending) if isinstance(pending, dict) else {}
+    newly = []
+    for ev in (fresh_reboots or []):
+        h = ev.get("host") if isinstance(ev, dict) else None
+        if h and h not in updated:
+            updated[h] = {"since": now_epoch, "boot_epoch": ev.get("new_boot_epoch")}
+            newly.append(h)
+    return updated, sorted(newly)
+
+
+def compute_recovery(pending: dict, recovered_ok: bool, now_epoch: int,
+                     realert_sec: int = 1800) -> tuple[dict, list, list]:
+    """Decide post-reboot recovery transitions (pure).
+
+    pending: {host: {"since": epoch, "boot_epoch": int, "last_alerted": epoch?}}
+    recovered_ok: True iff the fleet is fully back NOW (strict fleet_verdict OK AND no
+                  restarting/exited-nonzero container) — supplied by the watchdog.
+
+    When recovered_ok, ALL pending hosts CLEAR at once (a fully-healthy fleet means every
+    rebooted host is back). While incomplete, a pending host RE-ALERTS whenever its last
+    alert is older than realert_sec (or it never alerted) — BYPASSING the global
+    _should_alert time-snooze so a post-reboot outage can never go silent, while pacing
+    re-alerts to avoid per-cycle spam (fix for the 2026-08-05 7h silent worker-api outage).
+
+    Returns (updated_pending, to_clear, to_alert)."""
+    if not pending or not isinstance(pending, dict):
+        return {}, [], []
+    if recovered_ok:
+        return {}, sorted(pending.keys()), []
+    updated, to_alert = {}, []
+    for h, rec in pending.items():
+        rec = dict(rec) if isinstance(rec, dict) else {}   # malformed record -> coerce, never throw
+        try:
+            last = int(rec.get("last_alerted", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            last = 0
+        if last < 0 or last > now_epoch:   # a corrupt/future stamp must NEVER suppress alerts
+            last = 0
+        if now_epoch - last >= realert_sec:
+            rec["last_alerted"] = now_epoch
+            to_alert.append(h)
+        updated[h] = rec
+    return updated, [], sorted(to_alert)

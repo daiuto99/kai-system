@@ -386,3 +386,68 @@ def test_fleet_degradations_empty_on_lost_visibility():
     st = _state({"kai-worker": _HH(), "kai-mini": _HH()}, updated=NOW - 10_000)
     st["self_host"] = "kai-worker"
     assert fe.fleet_degradations(st, NOW) == {}
+
+
+# ── a812b567: post-reboot recovery gate (pure logic) ─────────────────────────
+def test_seed_recovery_pending_adds_new_and_is_idempotent():
+    fresh = [{"host": "kai-worker", "new_boot_epoch": 200}]
+    pend, newly = fe.seed_recovery_pending({}, fresh, NOW)
+    assert newly == ["kai-worker"] and pend["kai-worker"]["boot_epoch"] == 200
+    pend["kai-worker"]["last_alerted"] = NOW      # already pending -> untouched
+    pend2, newly2 = fe.seed_recovery_pending(pend, fresh, NOW + 5)
+    assert newly2 == [] and pend2["kai-worker"]["last_alerted"] == NOW
+
+
+def test_compute_recovery_clears_all_when_recovered():
+    pend = {"kai-worker": {"since": NOW, "boot_epoch": 200}}
+    updated, to_clear, to_alert = fe.compute_recovery(pend, True, NOW + 60)
+    assert updated == {} and to_clear == ["kai-worker"] and to_alert == []
+
+
+def test_compute_recovery_realerts_when_incomplete_then_paces_but_never_silent():
+    pend = {"kai-worker": {"since": NOW, "boot_epoch": 200}}   # never alerted
+    updated, to_clear, to_alert = fe.compute_recovery(pend, False, NOW + 60)
+    assert to_alert == ["kai-worker"] and to_clear == []
+    assert updated["kai-worker"]["last_alerted"] == NOW + 60
+    # too soon -> paced (no per-cycle spam)
+    _u2, _c2, a2 = fe.compute_recovery(updated, False, NOW + 160)
+    assert a2 == []
+    # past the re-alert window -> alerts AGAIN (bypasses snooze; never goes silent)
+    _u3, _c3, a3 = fe.compute_recovery(updated, False, NOW + 60 + 1801)
+    assert a3 == ["kai-worker"]
+
+
+def test_compute_recovery_empty_is_noop():
+    assert fe.compute_recovery({}, False, NOW) == ({}, [], [])
+
+
+def test_compute_recovery_realert_boundary_exact():
+    pend = {"h": {"since": NOW, "boot_epoch": 1, "last_alerted": NOW}}
+    # 1799s later -> paced (no alert); exactly 1800s -> re-alert (never silent past window)
+    assert fe.compute_recovery(pend, False, NOW + 1799)[2] == []
+    assert fe.compute_recovery(pend, False, NOW + 1800)[2] == ["h"]
+
+
+def test_compute_recovery_malformed_state_never_throws():
+    # A corrupted pending file must NOT throw (a throw is swallowed fail-soft and goes
+    # permanently silent — the exact outage class this fix kills).
+    assert fe.compute_recovery("not-a-dict", False, NOW) == ({}, [], [])
+    upd, clr, al = fe.compute_recovery({"h": "garbage", "h2": {"last_alerted": "nope"}}, False, NOW)
+    assert al == ["h", "h2"]              # both re-alert (coerced last_alerted -> 0)
+    assert isinstance(upd["h"], dict)
+    # seed also tolerates a non-dict pending
+    p, n = fe.seed_recovery_pending("bad", [{"host": "x", "new_boot_epoch": 9}], NOW)
+    assert n == ["x"] and p["x"]["boot_epoch"] == 9
+
+
+def test_compute_recovery_infinity_last_alerted_never_throws():
+    # JSON 1e999 -> float(inf); int(inf) raises OverflowError. Must be caught, not go silent.
+    upd, clr, al = fe.compute_recovery({"h": {"last_alerted": float("inf")}}, False, NOW)
+    assert al == ["h"] and isinstance(upd["h"], dict)
+
+
+def test_compute_recovery_future_last_alerted_still_realerts():
+    # A corrupt FUTURE last_alerted must not suppress alerts forever (never-silent).
+    assert fe.compute_recovery({"h": {"last_alerted": NOW + 10**12}}, False, NOW)[2] == ["h"]
+    assert fe.compute_recovery({"h": {"last_alerted": 1e100}}, False, NOW)[2] == ["h"]
+    assert fe.compute_recovery({"h": {"last_alerted": -5}}, False, NOW)[2] == ["h"]

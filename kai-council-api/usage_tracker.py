@@ -44,6 +44,10 @@ _SELF_HOSTED_ZERO: dict[str, tuple[float, float]] = {
     "qwen2.5:3b":    (0.0, 0.0),
     "qwen2.5:7b":    (0.0, 0.0),
     "gemma3:4b":     (0.0, 0.0),
+    # LiteLLM aliases that route to the self-hosted models above (BUG 91dbcb0a:
+    # the council gate local-fallback reviewer tracks usage by the alias).
+    "qwen-mid":        (0.0, 0.0),
+    "qwen-mid-worker": (0.0, 0.0),
 }
 
 # Fallback paid rates — MUST mirror provider_registry.json token_per_1m
