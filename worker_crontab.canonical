@@ -15,6 +15,7 @@
 */15 * * * * cd /home/leo/kai-system && /usr/bin/python3 scripts/devops_custodian.py >> /home/leo/kai-system/logs/devops_custodian.cron.log 2>&1 # KAI-46 DevOps custodian runner (disk plug-in + dispatcher + meta-monitor; supersedes KAI-44 standalone cron)
 17 * * * * /usr/bin/python3 /home/leo/sonicink/scripts/kai/publish_gate_audit.py --scan >> $HOME/.kai_mode_audit/publish_gate_cron.log 2>&1 # kai_publish_gate_audit
 0 2 * * * /home/leo/kai-system/backup.sh >> /home/leo/backups/backup.log 2>&1
+0 8 * * * /home/leo/kai-system/scripts/offsite_sync.sh >> /home/leo/backups/backup.log 2>&1 # offsite self-heal re-run — a mini asleep at 02:06 that is awake by morning self-heals without waiting a full day (nap-tolerant, KAI-1176 class; bug 1550719f)
 0 3 * * * docker exec kai-orchestrator /app/backup.sh >> /home/leo/kai-system/logs/orchestrator_backup.log 2>&1
 7 13 * * * docker exec kai-scheduler python3 /app/telegram_inbound_probe.py >> /home/leo/kai-system/logs/telegram_inbound_probe.log 2>&1 # telegram_inbound_probe KAI-1111
 40 13 * * * cd /home/leo/kai-system && PATH=/usr/bin:/bin /usr/bin/python3 scripts/alert_delivery_heartbeat.py >> /home/leo/kai-system/logs/alert_delivery_heartbeat.log 2>&1 # alert_delivery_heartbeat S1-B4
