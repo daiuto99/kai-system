@@ -40,7 +40,12 @@ def _plane_req(path: str) -> dict:
 
 def _load_processed() -> set:
     if PROCESSED_FILE.exists():
-        return set(json.loads(PROCESSED_FILE.read_text()))
+        try:
+            return set(json.loads(PROCESSED_FILE.read_text()))
+        except (json.JSONDecodeError, ValueError):
+            # empty/corrupt processed file: reset to empty and rewrite (C1 hygiene)
+            PROCESSED_FILE.write_text("[]")
+            return set()
     return set()
 
 
