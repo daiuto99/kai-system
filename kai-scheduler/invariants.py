@@ -1167,6 +1167,92 @@ def inv_all_closed_issues_have_td() -> tuple[bool, str]:
         return False, f"Plane closed-issues check error: {type(e).__name__}: {e}"
 
 
+def inv_leo_facing_has_zerostress_note() -> tuple[bool, str]:
+    """HARDEN-12 (L13 gate) — sample recent CLOSED Plane issues tagged `leo-facing`;
+    each must carry a `zero-stress:` review note (an issue comment) affirming the change
+    added no steps to Leo's flow. Converts L13 (Zero-Added-Stress) from the last
+    honor-system law into a RUNNING check.
+
+    Deliberately THIN and honest about it: L13's real subject — whether a feature adds
+    friction to Leo's flow — is a UX property that cannot be mechanically measured. This
+    checks the presence of the review NOTE, i.e. that a human affirmed zero-added-stress
+    at close. It is a discipline prompt, not a UX proof (a rubber-stamped note passes).
+    That is strictly better than the prior state: L13 was the last law whose enforcement
+    column claimed a 'design review gate' that did not run at all.
+
+    Passes vacuously until `leo-facing` tickets exist and are closed — same shape as the
+    other practice-discipline invariants. NOTE: Plane's server-side state filter is
+    broken (ignored); filtering is client-side. Dormant (pass) if the label is undefined.
+    """
+    _AUTO_SKIP_PREFIXES = ("[INV] ", "[BUG] System health watchdog")
+    _MARKER = "zero-stress:"
+
+    token = _load_secret("plane_api_token")
+    if not token:
+        return False, "plane_api_token not mounted — cannot check leo-facing issues"
+    try:
+        # Resolve the leo-facing label id; dormant (pass) until the label is defined.
+        r_l = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/labels/",
+            headers={"X-API-Key": token}, timeout=10,
+        )
+        r_l.raise_for_status()
+        leo_ids = {lb["id"] for lb in r_l.json().get("results", [])
+                   if lb.get("name", "").strip().lower() == "leo-facing"}
+        if not leo_ids:
+            return True, "ok — `leo-facing` label not defined yet (L13 gate dormant)"
+
+        # done/cancelled state ids (client-side filter — Plane state param is ignored)
+        r_s = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/states/",
+            headers={"X-API-Key": token}, timeout=10,
+        )
+        r_s.raise_for_status()
+        done_ids = {s["id"] for s in r_s.json().get("results", [])
+                    if s["group"] in ("done", "cancelled")}
+        if not done_ids:
+            return True, "ok — no done/cancelled states found"
+
+        r2 = httpx.get(
+            f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}/issues/",
+            headers={"X-API-Key": token},
+            params={"per_page": 50, "order_by": "-updated_at"}, timeout=15,
+        )
+        r2.raise_for_status()
+        issues = r2.json().get("results", [])
+
+        leo_done = [
+            i for i in issues
+            if i.get("state") in done_ids
+            and leo_ids & set(i.get("labels", []) or [])
+            and not any(i["name"].startswith(p) for p in _AUTO_SKIP_PREFIXES)
+        ][:5]
+        if not leo_done:
+            return True, "ok — no closed leo-facing issues in recent window"
+
+        missing: list[str] = []
+        for iss in leo_done:
+            r_c = httpx.get(
+                f"{_PLANE_API}/workspaces/{_PLANE_WS}/projects/{_KAI_PROJECT}"
+                f"/issues/{iss['id']}/comments/",
+                headers={"X-API-Key": token}, timeout=8,
+            )
+            comments = r_c.json().get("results", []) if r_c.status_code == 200 else []
+            blob = " ".join(
+                (c.get("comment_stripped") or c.get("comment_html") or "") for c in comments
+            ).lower()
+            if _MARKER not in blob:
+                missing.append(f"KAI-{iss.get('sequence_id', '?')}")
+
+        if missing:
+            return False, (f"{len(missing)} closed leo-facing issue(s) missing a "
+                           f"`zero-stress:` review note (L13): {', '.join(missing[:3])}")
+        return True, (f"ok — {len(leo_done)} closed leo-facing issue(s), "
+                      "all carry a zero-stress note")
+    except Exception as e:
+        return False, f"leo-facing L13 check error: {type(e).__name__}: {e}"
+
+
 def inv_session_saves_current() -> tuple[bool, str]:
     """S5-3 — session_close_log.json must exist and last entry must be <48h old.
     Stale close log means sessions are not being saved per procedure.
@@ -1379,6 +1465,7 @@ INVARIANTS = [
     # S5-3 batch 2: session hygiene + practice discipline
     ("no_override_without_ack",       "No Unacked Override",       inv_no_override_without_ack),
     ("all_closed_issues_have_td",     "Closed Issues Have TD",     inv_all_closed_issues_have_td),
+    ("leo_facing_zerostress_note",    "L13 Zero-Added-Stress Note", inv_leo_facing_has_zerostress_note),
     ("session_saves_current",         "Session Saves Current",     inv_session_saves_current),
     ("plan_doc_current",              "Plan Doc Current",          inv_plan_doc_current),
     ("workspace_sync_current",        "Workspace Sync Current",    inv_workspace_sync_current),
