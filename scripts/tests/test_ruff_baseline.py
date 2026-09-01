@@ -9,6 +9,13 @@ sys.path.insert(0, str(SCRIPTS))
 
 from check_ruff_baseline import verify, write_baseline
 
+import pytest
+
+# Same dormancy as test_green_baseline: ci.sh runs this only via `pytest -m
+# whole_repo`; without this marker the test was silently deselected.
+# [test-wiring:green-baseline-dormant fix]
+pytestmark = pytest.mark.whole_repo
+
 
 class RuffBaselineTests(unittest.TestCase):
     def test_existing_finding_passes_and_new_finding_fails(self):

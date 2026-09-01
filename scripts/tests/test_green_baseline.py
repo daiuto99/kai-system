@@ -10,6 +10,14 @@ import unittest
 from contextlib import redirect_stdout
 from unittest import mock
 
+import pytest
+
+# ci.sh runs this file only through `pytest -m whole_repo`; without this marker all
+# tests here were silently deselected (0 collected / 95 deselected) — the green
+# baseline suite was dormant in CI. Module-level pytestmark applies to the unittest
+# TestCase classes too. [test-wiring:green-baseline-dormant fix]
+pytestmark = pytest.mark.whole_repo
+
 
 MODULE = Path(__file__).parents[1] / "green_baseline.py"
 SPEC = importlib.util.spec_from_file_location("green_baseline", MODULE)
