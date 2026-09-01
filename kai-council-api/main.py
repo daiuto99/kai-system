@@ -10,7 +10,6 @@ import router as council_router
 import history
 import insights
 from models_api import models_router
-import routes_orchestrate
 import routes_bug_workflow
 import routes_council_gate
 import routes_function_map
@@ -87,7 +86,6 @@ app.include_router(council_router.router)
 app.include_router(history.router)
 app.include_router(insights.router)
 app.include_router(models_router)
-app.include_router(routes_orchestrate.router)
 app.include_router(routes_bug_workflow.router)
 app.include_router(routes_council_gate.router)
 app.include_router(routes_function_map.router)

@@ -14,7 +14,7 @@ def load_persona(advisor: str, channel: str = None, property: str = None) -> str
     assembly logic now lives in kai-orchestrator/context_service.py as
     tier5_standing_context(); this is a thin client of that Memory Service
     endpoint, keeping the same string-return contract for callers
-    (graphs/nodes.py, graphs/bug_nodes.py, internal_persona_check).
+    (graphs/bug_nodes.py, internal_persona_check).
     """
     try:
         params = {"advisor": advisor}

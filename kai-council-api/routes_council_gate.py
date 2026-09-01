@@ -665,81 +665,8 @@ def _capture_gate_learning(gate_id: str, gate_type: str, approved: bool, notes: 
         insights_file.write_text(existing + entry_text)
         logger.info("Gate learning captured for %s", gate_id)
 
-        # Creative gate distillation — extract taste rules into BUILD_PROFILE
-        if gate_type == "creative_gate":
-            _distill_creative_taste(gate_id, approved, notes)
     except Exception as e:
         logger.warning("Gate learning capture failed: %s", e)
-
-
-def _distill_creative_taste(gate_id: str, approved: bool, notes: str):
-    """Extract 1-3 taste rules from Leo's creative gate decision and append to BUILD_PROFILE."""
-    try:
-        gate_entry = _GATES_STORE.get(gate_id, {})
-        approved_brief = gate_entry.get("approved_brief", "")
-        brief = gate_entry.get("brief", {})
-        if not approved_brief:
-            logger.info("Distillation skipped for %s — no approved_brief stored", gate_id)
-            return
-
-        action = "APPROVED" if approved else "REJECTED"
-        notes_section = f"Leo's notes: {notes}" if notes else "No additional notes."
-
-        from graphs.graph import get_graph
-        graph = get_graph()
-        message = (
-            f"[Creative Taste Distillation — {action}]\n\n"
-            f"Leo just {action.lower()} a creative brief for: {brief.get('title', 'unknown')}\n"
-            f"{notes_section}\n\n"
-            f"The brief that was {'approved' if approved else 'rejected'}:\n{approved_brief}\n\n"
-            "Extract 1-3 concrete taste rules from this decision. Rules must be:\n"
-            "- Written as imperative sentences (e.g. 'Use editorial serif typefaces — no grotesque defaults')\n"
-            "- Specific — not vague principles\n"
-            "- Tied to what Leo accepted or rejected, not general advice\n"
-            "- Scoped to the property if property-specific, or general if broadly applicable\n\n"
-            "Format your response as:\n"
-            "RULE: <rule text> [property: <name> or general]\n"
-            "(one RULE: line per rule, 1-3 rules total)\n\n"
-            "Nothing else — just the RULE lines."
-        )
-        state = {
-            "channel": "kai", "message": message, "user_id": "gate-engine",
-            "thread_ts": f"distill-{gate_id[:8]}", "attachments": [], "privacy_mode": False,
-            "history": [], "target_advisor": "kai", "routing_reason": "taste distillation",
-            "advisor_reply": "", "final_reply": "", "model_used": "",
-            "input_tokens": 0, "output_tokens": 0, "audit_log": [],
-        }
-        result = graph.invoke(state, config={"configurable": {"thread_id": f"distill-{gate_id[:8]}"}})
-        rules_text = result.get("final_reply", "").strip()
-
-        if not rules_text or "RULE:" not in rules_text:
-            logger.info("Distillation produced no rules for %s", gate_id)
-            return
-
-        # Append rules to BUILD_PROFILE under Compiled Taste Notes
-        build_profile_path = _BUILD_PROFILES["creative"]
-        if not build_profile_path.exists():
-            logger.warning("BUILD_PROFILE not found — distillation rules not saved")
-            return
-
-        profile = build_profile_path.read_text()
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        new_entries = f"\n### {ts} — Gate `{gate_id[:8]}` ({action})\n"
-        for line in rules_text.splitlines():
-            if line.strip().startswith("RULE:"):
-                rule = line.strip()[5:].strip()
-                new_entries += f"- {rule}\n"
-
-        if "*(No entries yet" in profile:
-            profile = profile.replace("*(No entries yet — populated after first creative gate approve/reject cycle)*", new_entries.strip())
-        else:
-            profile = profile + "\n" + new_entries
-
-        build_profile_path.write_text(profile)
-        logger.info("Taste distillation written to BUILD_PROFILE for gate %s", gate_id)
-
-    except Exception as e:
-        logger.warning("Creative taste distillation failed for %s: %s", gate_id, e)
 
 
 # ── Gate processing ───────────────────────────────────────────────────────────
