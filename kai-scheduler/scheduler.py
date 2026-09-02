@@ -323,7 +323,26 @@ def telegram_poll_loop():
                 if text == "/start":
                     tg_send(token, chat_id,
                             "🤖 *KAI online.*\n\nSend a message or use an advisor prefix:\n"
-                            "/beats /coach /sky /roads /tech /dev /ops")
+                            "/beats /coach /sky /roads /tech /dev /ops\n\n"
+                            "Emergency: /recover — restart the Buzz app tier to bring the primary back online.")
+                    continue
+                if (text.split(maxsplit=1)[0].lower() if text else "") in ("/recover", "/heal"):
+                    # Emergency-line job #1: recover the primary (Buzz) without the keyboard.
+                    # Reuses the BasicAuth-gated worker-api endpoint — no local docker access here.
+                    log.info("Telegram /recover from @%s (%s)", username, chat_id)
+                    tg_send(token, chat_id, "🔧 Recovering Buzz — restarting the app tier…")
+                    try:
+                        r = httpx.post(f"{WORKER_API}/system/recover", timeout=90, auth=worker_auth())
+                        data = r.json()
+                        rows = "\n".join(
+                            f"  • {a.get('service')}: {a.get('before')} → {a.get('after')} ({a.get('action')})"
+                            for a in data.get("actions", []))
+                        head = ("✅ Buzz recovery complete" if data.get("ok")
+                                else "⚠️ Buzz recovery — some services errored")
+                        tg_send(token, chat_id, f"{head}:\n{rows or '  (no services acted on)'}")
+                    except Exception as e:
+                        log.error("Telegram /recover error: %s", type(e).__name__)
+                        tg_send(token, chat_id, f"⚠️ Recovery request failed: {type(e).__name__}")
                     continue
                 advisor = "kai"
                 message = text

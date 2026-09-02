@@ -157,6 +157,10 @@ _session_context: dict = {}
 from fastapi import Request as _Request
 from pydantic import BaseModel as _BaseModel
 
+import docker as docker_sdk  # noqa: E402 — Buzz recovery restarts app-tier containers
+from buzz_recovery import recover_buzz, BUZZ_RECOVERY_SERVICES  # noqa: E402
+
+
 class _SessionContextPayload(_BaseModel):
     pct: float
     session_start_iso: str
@@ -237,3 +241,33 @@ def run_backup():
 def backup_trigger_status():
     """Check if a backup trigger is pending."""
     return {"pending": BACKUP_TRIGGER.exists()}
+
+
+class _RecoverRequest(_BaseModel):
+    # default target is the whole Buzz app tier; scoped to it server-side regardless
+    services: list[str] | None = None
+    only_if_down: bool = False
+
+
+@router.post("/system/recover")
+def system_recover(payload: _RecoverRequest | None = None):
+    """Emergency recovery: restart the Buzz app-tier containers to bring the
+    primary back online. BasicAuth-gated (global worker-api auth) so the
+    scheduler's existing credential reaches it — the on-demand twin of the
+    autonomous services-custodian sweep. Scoped to BUZZ_RECOVERY_SERVICES
+    server-side; an arbitrary container name can never be restarted here."""
+    payload = payload or _RecoverRequest()
+    try:
+        client = docker_sdk.DockerClient.from_env()
+    except Exception as e:
+        logger.exception("system_recover: docker client unavailable")
+        return {"ok": False, "error": f"docker unavailable: {type(e).__name__}", "actions": []}
+    actions = recover_buzz(client, payload.services, payload.only_if_down)
+    ok = bool(actions) and all(not (a["action"] or "").startswith("error") for a in actions)
+    logger.info("system_recover: ok=%s actions=%s", ok, actions)
+    return {
+        "ok": ok,
+        "actions": actions,
+        "tier": list(BUZZ_RECOVERY_SERVICES),
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
