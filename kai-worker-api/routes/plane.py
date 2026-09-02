@@ -1,5 +1,6 @@
 import logging
 import urllib.request as ur
+from concurrent.futures import ThreadPoolExecutor
 from urllib.error import HTTPError
 import json
 import html
@@ -12,7 +13,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-PLANE_BASE = "http://172.17.0.1:8090/api/v1/workspaces/sonicink"
+PLANE_BASE = "http://plane-proxy:8090/api/v1/workspaces/sonicink"
 KAI_PROJECT_ID = "78c49227-82d4-477d-a920-66b08cb91c56"
 
 def _plane_token():
@@ -67,7 +68,7 @@ def _req_paged(path):
     out, cursor, guard = [], None, 0
     sep = "&" if "?" in path else "?"
     while True:
-        d = _req(path + sep + "per_page=100" + (f"&cursor={cursor}" if cursor else ""))
+        d = _req(path + sep + "per_page=500" + (f"&cursor={cursor}" if cursor else ""))  # KAI-1321: 500 vs 100 collapses the 1330-issue KAI project from ~14 sequential pages to 3
         if isinstance(d, dict) and "results" in d:
             out += d["results"]
             if d.get("next_page_results") and d.get("next_cursor"):
@@ -86,6 +87,61 @@ def _parked_label_ids(pid):
     raw = _req(f"projects/{pid}/labels/?per_page=100")
     labels = raw.get("results", raw) if isinstance(raw, dict) else raw
     return {label["id"] for label in labels if label.get("name") == PARKED_LABEL}
+
+def _process_project(p, include_done, include_parked):
+    """Fetch + client-side-filter one project's issues; return a project dict or None.
+
+    Extracted from get_plane_issues (KAI-1321) so the per-project N+1 fanout
+    (states + labels + paginated issues, each a blocking Plane call) can run
+    across projects CONCURRENTLY instead of serially. Within a project the
+    calls stay ordered; only the cross-project blocking is removed.
+    """
+    state_map_raw = _req(f"projects/{p['id']}/states/?per_page=50")
+    states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
+    state_map = {s["id"]: s for s in states}
+    labels_raw = _req(f"projects/{p['id']}/labels/?per_page=100")
+    labels_list = labels_raw.get("results", labels_raw) if isinstance(labels_raw, dict) else labels_raw
+    label_name = {label["id"]: label["name"] for label in labels_list}
+    parked_label_ids = set() if include_parked else _parked_label_ids(p["id"])
+    issues = _req_paged(f"projects/{p['id']}/issues/")
+    matched = []
+    parked_excluded = 0
+    for i in issues:
+        s = state_map.get(i.get("state", ""), {})
+        is_closed = s.get("group") in ("completed", "cancelled")
+        if is_closed and not include_done:
+            continue
+        if parked_label_ids:
+            ilabels = {
+                label if isinstance(label, str) else label.get("id")
+                for label in (i.get("labels") or [])
+            }
+            if parked_label_ids & ilabels:
+                parked_excluded += 1
+                continue
+        matched.append({
+            "id": i["id"],
+            "name": i["name"],
+            "state": s.get("name", "?"),
+            "state_group": s.get("group", "?"),
+            "priority": i.get("priority", "none"),
+            "created_at": i.get("created_at", ""),
+            "labels": [
+                label_name.get(label if isinstance(label, str) else label.get("id"))
+                for label in (i.get("labels") or [])
+                if label_name.get(label if isinstance(label, str) else label.get("id"))
+            ],
+        })
+    if matched or parked_excluded:
+        return {
+            "id": p["id"],
+            "name": p["name"],
+            "identifier": p["identifier"],
+            "issues": matched,
+            "parked_excluded": parked_excluded,
+        }
+    return None
+
 
 @router.get("/plane/issues")
 def get_plane_issues(
@@ -111,54 +167,18 @@ def get_plane_issues(
         all_projects = projects_raw.get("results", projects_raw) if isinstance(projects_raw, dict) else projects_raw
         if project_id:
             all_projects = [p for p in all_projects if p["id"] == project_id]
+        # Per-project fanout runs CONCURRENTLY (KAI-1321): projects no longer
+        # block each other, collapsing the serial N+1 (~12-15s) toward the
+        # slowest single project. Order is preserved so the response stays
+        # stable for the NEXT-UP derivation that reads this route.
         out = []
-        for p in all_projects:
-            # States — per_page=50 ensures we get all states (Plane projects rarely exceed 10)
-            state_map_raw = _req(f"projects/{p['id']}/states/?per_page=50")
-            states = state_map_raw.get("results", state_map_raw) if isinstance(state_map_raw, dict) else state_map_raw
-            state_map = {s["id"]: s for s in states}
-            labels_raw = _req(f"projects/{p['id']}/labels/?per_page=100")
-            labels_list = labels_raw.get("results", labels_raw) if isinstance(labels_raw, dict) else labels_raw
-            label_name = {label["id"]: label["name"] for label in labels_list}
-            parked_label_ids = set() if include_parked else _parked_label_ids(p["id"])
-            # Issues — server-side state filter is broken; fetch ALL (paginated) and filter client-side
-            issues = _req_paged(f"projects/{p['id']}/issues/")
-            matched = []
-            parked_excluded = 0
-            for i in issues:
-                s = state_map.get(i.get("state", ""), {})
-                is_closed = s.get("group") in ("completed", "cancelled")
-                if is_closed and not include_done:
-                    continue
-                if parked_label_ids:
-                    ilabels = {
-                        label if isinstance(label, str) else label.get("id")
-                        for label in (i.get("labels") or [])
-                    }
-                    if parked_label_ids & ilabels:
-                        parked_excluded += 1
-                        continue
-                matched.append({
-                    "id": i["id"],
-                    "name": i["name"],
-                    "state": s.get("name", "?"),
-                    "state_group": s.get("group", "?"),
-                    "priority": i.get("priority", "none"),
-                    "created_at": i.get("created_at", ""),
-                    "labels": [
-                        label_name.get(label if isinstance(label, str) else label.get("id"))
-                        for label in (i.get("labels") or [])
-                        if label_name.get(label if isinstance(label, str) else label.get("id"))
-                    ],
-                })
-            if matched or parked_excluded:
-                out.append({
-                    "id": p["id"],
-                    "name": p["name"],
-                    "identifier": p["identifier"],
-                    "issues": matched,
-                    "parked_excluded": parked_excluded,
-                })
+        if all_projects:
+            with ThreadPoolExecutor(max_workers=min(len(all_projects), 8)) as ex:
+                results = list(ex.map(
+                    lambda p: _process_project(p, include_done, include_parked),
+                    all_projects,
+                ))
+            out = [r for r in results if r is not None]
         return {"projects": out}
     except Exception as e:
         logger.error(f"Plane issues error: {e}")

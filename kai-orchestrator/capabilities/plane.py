@@ -6,7 +6,7 @@ from models import CapabilityResult
 from transports.base import safe_request
 from . import capability
 
-_PLANE_BASE = os.environ.get("PLANE_API_URL", "http://host.docker.internal:8090/api/v1")
+_PLANE_BASE = os.environ.get("PLANE_API_URL", "http://plane-proxy:8090/api/v1")
 _PLANE_WS   = "sonicink"
 
 _STATE_ALIASES = {

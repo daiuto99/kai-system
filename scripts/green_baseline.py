@@ -106,12 +106,15 @@ def check_worker_auth_fails_closed() -> str:
 
 
 def check_plane() -> str:
-    # note (63497d2f): /plane/issues does a serial N+1 fanout (per-project
-    # states+labels+paginated issues, client-side state filter because Plane's
-    # server-side filter is broken) -> an inherent ~12-15s at ~134 open issues.
-    # A single-shot timeout=15 straddled that ceiling and flaked plane_reachable
-    # RED, blocking the close CI gate ~3/5 runs. Bumped to 30s (NOT silent -- this
-    # note is the record); services_up independently RED-flags a dead plane-api.
+    # note (63497d2f -> KAI-1321): /plane/issues did a SERIAL N+1 fanout
+    # (per-project states+labels+paginated issues, client-side state filter
+    # because Plane's server-side filter is broken) -> ~12-15s, and a timeout=15
+    # straddled that ceiling and flaked plane_reachable RED ~3/5 CI runs.
+    # KAI-1321 fixed the root cause: the per-project fanout now runs concurrently
+    # and pagination uses per_page=500 (the KAI project holds 1330 issues -> 3
+    # pages not 14), bringing the fetch to ~5-6s. The 30s timeout is kept as
+    # conservative headroom (~5x margin); services_up independently RED-flags a
+    # dead plane-api.
     body = _request(f"{WORKER_API}/plane/issues?include_done=false", auth=_worker_auth(), timeout=30)
     return f"Plane reachable ({parse_plane_open_issues(body.decode())} open issue(s))"
 

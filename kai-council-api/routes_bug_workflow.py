@@ -15,7 +15,7 @@ from graphs.bug_graph import get_bug_graph
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-PLANE_BASE    = "http://172.17.0.1:8090/api/v1/workspaces/sonicink"
+PLANE_BASE    = "http://plane-proxy:8090/api/v1/workspaces/sonicink"
 KAI_PID       = "78c49227-82d4-477d-a920-66b08cb91c56"
 PROCESSED_FILE = Path("/vault/00_System/bug_workflow_processed.json")
 POLL_INTERVAL  = 300  # 5 minutes

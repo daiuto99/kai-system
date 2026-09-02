@@ -49,7 +49,6 @@ LAN_ALLOWED_PORTS = frozenset({
     22,    # SSH administration
     3001,  # kai-web nginx authenticated application origin
     8080,  # kai-web nginx Cloudflare webhook/kiosk origin
-    8090,  # Plane app proxy, Cloudflare-tunnel origin, login-gated; loopback migration tracked
     22000, # Syncthing sync transport, device-ID mutual-TLS, active Mac↔worker vault mirror on LAN (KAI-814; tailnet migration tracked)
 })
 # Tailscale adds authenticated control planes and the vault mirror transports.
@@ -78,7 +77,7 @@ _violation_issue_refs: dict[str, dict] = {}  # key → {sequence_id, issue_id}
 _issue_refs_restored = False
 
 # Plane constants (mirrors triage.py)
-_PLANE_API = "http://host.docker.internal:8090/api/v1"
+_PLANE_API = "http://plane-proxy:8090/api/v1"
 _PLANE_WS  = "sonicink"
 _KAI_PROJECT = "78c49227-82d4-477d-a920-66b08cb91c56"
 _plane_backlog_state_id: str | None = None

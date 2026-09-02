@@ -9,7 +9,7 @@ from worker_auth import worker_auth
 
 log = logging.getLogger(__name__)
 
-PLANE_API   = "http://host.docker.internal:8090/api/v1"
+PLANE_API   = "http://plane-proxy:8090/api/v1"
 PLANE_WS    = "sonicink"
 COUNCIL_API = "http://kai-council-api:8002"
 KAI_PROJECT  = "78c49227-82d4-477d-a920-66b08cb91c56"

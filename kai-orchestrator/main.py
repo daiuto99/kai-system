@@ -23,7 +23,7 @@ _COUNCIL_API_URL       = os.environ.get("COUNCIL_API_URL",           "http://kai
 _ORCHESTRATOR_HANDLES_WP = True  # permanently true — wp_state_machine deleted 2026-05-17
 
 # Plane config (host-gateway for in-container access to host Plane service)
-_PLANE_BASE    = os.environ.get("PLANE_API_URL", "http://host.docker.internal:8090/api/v1")
+_PLANE_BASE    = os.environ.get("PLANE_API_URL", "http://plane-proxy:8090/api/v1")
 _PLANE_WS      = "sonicink"
 _PLANE_BUG_PID = "9d36a2f8-f00e-4a68-9055-69c647ee1361"   # Bugs project
 _PLANE_BACKLOG = "ba26fb93-8826-4763-8f84-908ed11af231"   # Backlog state

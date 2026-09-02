@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
 # Plane PM
 PLANE_API_TOKEN = open("/run/secrets/plane_api_token").read().strip().split("\n")[0]
-PLANE_BASE_URL = "http://172.18.0.1:8090/api/v1"
+PLANE_BASE_URL = "http://plane-proxy:8090/api/v1"
 PLANE_WORKSPACE = "sonicink"
 from council_config import ORCHESTRATOR_URL as _ORCH_URL
 
