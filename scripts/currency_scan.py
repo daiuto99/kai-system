@@ -18,6 +18,7 @@ not-checked, never a faked pass, and never a live CVE SaaS in the hot path.
 from __future__ import annotations
 
 import json
+import os
 import re
 import socket
 import ssl
@@ -26,9 +27,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+# __file__ is absent when the scanner is streamed to a fleet node via
+# `ssh <node> python3 - --emit-layers` (CUR-6) — fall back to the known root.
+try:
+    ROOT = Path(__file__).resolve().parents[1]
+except NameError:
+    ROOT = Path(os.environ.get("KAI_SYSTEM_ROOT", str(Path.home() / "kai-system")))
 sys.path.insert(0, str(ROOT / "shared"))  # /shared convention (matches worker-api PYTHONPATH)
-import findings  # Findings Contract — enforce cause-or-not-yet-diagnosed before publishing
+# NOTE: `findings` is imported lazily inside main() — the fleet-node
+# --emit-layers path never enforces the contract, so it must not require it.
 STATE_DIR = ROOT / "shared" / "currency"
 STATE_FILE = STATE_DIR / "freshness_state.json"
 TLS_CONFIG = STATE_DIR / "tls_endpoints.json"  # optional: ["host:port", ...]
@@ -560,7 +567,82 @@ def read_npm_deps(lockfile=None) -> dict:
             "components": [comp]}
 
 
+# ---------------------------------------------------------------------------
+# CUR-6 — fleet currency. The worker is not the only host: extend the SAME
+# readers to other nodes (kai-mini, Ubuntu) with NO second copy of the code
+# and NO persistent deploy — we stream THIS script to the node's python3 over
+# SSH and run it in --emit-layers mode. Additive `fleet` key; the worker's own
+# host/layers/rollup are untouched. A node that is unreachable or errors reads
+# not-checked with its reason (honesty rule), never a faked pass.
+# ---------------------------------------------------------------------------
+FLEET_NODES_DEFAULT = [{"name": "kai-mini", "ssh": "kai-mini"}]
+FLEET_NODES_CONFIG = STATE_DIR / "fleet_nodes.json"  # optional override: [{"name","ssh"}]
+FLEET_EMIT_LAYERS = ("os_apt", "container_images")   # host-local layers a node self-reports
+
+# Layers a fleet node reports about ITSELF (host-local, no injected runner needed —
+# the whole script runs natively on the node in --emit-layers mode).
+_LAYER_READERS = {"os_apt": read_os_apt, "container_images": read_container_images}
+
+
+def _fleet_nodes() -> list:
+    """Configured fleet nodes: the optional JSON override, else the default."""
+    try:
+        if FLEET_NODES_CONFIG.exists():
+            data = json.loads(FLEET_NODES_CONFIG.read_text())
+            if isinstance(data, list):
+                nodes = [n for n in data if isinstance(n, dict) and n.get("name") and n.get("ssh")]
+                if nodes:
+                    return nodes
+    except Exception:
+        pass
+    return FLEET_NODES_DEFAULT
+
+
+def emit_layers() -> dict:
+    """Fleet-node mode: report ONLY this host's own local layers as JSON.
+    No state file, no findings contract, no fleet recursion — this is what runs
+    on a remote node when the worker streams the scanner to its python3."""
+    return {
+        "host": socket.gethostname(),
+        "generated_at": now_iso(),
+        "layers": {name: _LAYER_READERS[name]() for name in FLEET_EMIT_LAYERS},
+    }
+
+
+def read_fleet_nodes(script_text=None, runner=None) -> dict:
+    """For each configured fleet node, stream THIS scanner to the node's python3
+    in --emit-layers mode over SSH and fold its layers under `fleet`. Report-only
+    and fail-closed to unreachable/not-checked on any SSH or parse failure."""
+    run = runner or (lambda argv, stdin=None, timeout=180: subprocess.run(
+        argv, input=stdin, text=True, capture_output=True, timeout=timeout, check=False))
+    if script_text is None:
+        try:
+            script_text = Path(__file__).read_text()
+        except (NameError, OSError):
+            return {}
+    out: dict = {}
+    for node in _fleet_nodes():
+        name, target = node["name"], node["ssh"]
+        checked = now_iso()
+        try:
+            r = run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                     target, "python3", "-", "--emit-layers"], stdin=script_text, timeout=180)
+            if r.returncode != 0:
+                out[name] = {"reachable": False, "checked_at": checked,
+                             "detail": f"ssh/emit failed rc={r.returncode}: {(r.stderr or '').strip()[:160]}"}
+                continue
+            payload = json.loads(r.stdout)
+            out[name] = {"reachable": True, "checked_at": checked,
+                         "host": payload.get("host", name),
+                         "layers": payload.get("layers", {})}
+        except Exception as exc:
+            out[name] = {"reachable": False, "checked_at": checked,
+                         "detail": f"{type(exc).__name__}: {str(exc)[:160]}"}
+    return out
+
+
 def main():
+    import findings  # lazy: the fleet-node --emit-layers path never needs the contract
     layers = {
         "os_apt": read_os_apt(),
         "container_images": read_container_images(),
@@ -579,8 +661,9 @@ def main():
     state = {
         "generated_at": now_iso(),
         "host": HOST,
-        "scanner": "currency_scan.py (CUR-1 + CUR-3 wp_fleet + CUR-2 py_deps/npm_deps)",
+        "scanner": "currency_scan.py (CUR-1 + CUR-3 wp_fleet + CUR-2 py_deps/npm_deps + CUR-6 fleet)",
         "layers": layers,
+        "fleet": read_fleet_nodes(),  # CUR-6: additive, report-only — worker layers/rollup untouched
         "rollup": {
             "fresh": counts[FRESH],
             "stale": counts[STALE],
@@ -597,4 +680,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--emit-layers" in sys.argv[1:]:
+        # Fleet-node mode: emit only this host's local layers (no write, no fleet recursion).
+        print(json.dumps(emit_layers(), indent=2))
+    else:
+        main()
