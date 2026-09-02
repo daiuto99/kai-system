@@ -509,7 +509,7 @@
       "service": "kai-worker-api",
       "filename": "/app/routes/calendar.py",
       "code": "E401",
-      "row": 156,
+      "row": 157,
       "column": 9
     },
     {
@@ -593,14 +593,14 @@
       "service": "kai-worker-api",
       "filename": "/app/routes/oura.py",
       "code": "E741",
-      "row": 33,
+      "row": 34,
       "column": 13
     },
     {
       "service": "kai-worker-api",
       "filename": "/app/routes/oura.py",
       "code": "E741",
-      "row": 45,
+      "row": 46,
       "column": 13
     },
     {

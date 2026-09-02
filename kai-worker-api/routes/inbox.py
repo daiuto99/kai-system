@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from config import VAULT_PATH
 import httpx
 from watchdog import _worker_auth
+from safe_http import safe_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -104,7 +105,7 @@ def _process_file(path: Path):
                 "user_id": "inbox-watcher",
                 "history": [],
             }, auth=_worker_auth())
-        result = r.json() if r.status_code == 200 else {"reply": f"Council error {r.status_code}"}
+        result = safe_json(r) if r.status_code == 200 else {"reply": f"Council error {r.status_code}"}
     except Exception as e:
         logger.exception("inbox: council call failed: %s", e)
         path.rename(FAILED_DIR / filename)

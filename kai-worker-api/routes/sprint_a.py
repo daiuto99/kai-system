@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Request
+from safe_http import safe_body
 
 import sprint_a_handlers as handlers
 
@@ -28,11 +29,7 @@ async def expire_stale_endpoint(request: Request):
     Default expiry_hours=24. A truthy notify_channel enables the summary alert;
     the summary is delivered through the notify gateway (single voice).
     """
-    body = {}
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
+    body = await safe_body(request)
     expiry_hours = int(body.get("expiry_hours", 24))
     notify = bool(body.get("notify_channel", True))
 

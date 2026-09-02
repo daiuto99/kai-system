@@ -3,10 +3,11 @@ import logging
 import re
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 from zoneinfo import ZoneInfo
-_ET = ZoneInfo("America/New_York")
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from config import VAULT_PATH
+from safe_http import safe_json
+_ET = ZoneInfo("America/New_York")
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -161,7 +162,7 @@ def _gcal_via_n8n(days: int) -> dict:
             return {"events": [], "error": "calendar not configured"}
         url = entry["webhook_url"] if isinstance(entry, dict) else entry
         r = _hx.post(url, json={"days": days}, timeout=30)
-        raw = r.json()
+        raw = safe_json(r)
         items = raw if isinstance(raw, list) else raw.get("events", [])
         events = []
         for e in items:

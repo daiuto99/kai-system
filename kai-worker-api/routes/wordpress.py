@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Body, Header
 from routes._destructive_audit import DestructiveRequest, audit_before
 from pydantic import BaseModel, Field
 from wp_write_guard import WorkflowOnlyWriteViolation, assert_canonical_caller
+from safe_http import json_or_error as _safe_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -52,19 +53,6 @@ def _atomic_write_json(path: Path, data) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2))
     os.replace(tmp, path)
-
-
-def _safe_json(response):
-    # Returns parsed JSON, or an error dict with body preview if the response
-    # body is non-JSON (e.g., origin returned an HTML error page).
-    try:
-        return response.json()
-    except (ValueError, json.JSONDecodeError):
-        return {
-            "_error": "non_json_response",
-            "_status_code": response.status_code,
-            "_body_preview": response.text[:200],
-        }
 
 
 # Secrets-dir fallback chain — covers all containers (council/orchestrator mount

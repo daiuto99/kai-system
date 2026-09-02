@@ -2,6 +2,7 @@ import logging
 from datetime import date as _date, timedelta as _td
 from pathlib import Path
 from fastapi import APIRouter
+from safe_http import safe_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -28,7 +29,7 @@ def oura_today():
     try:
         r = httpx.get(f"{base}/daily_readiness", params={"start_date": yesterday, "end_date": today},
                       headers=headers, timeout=15)
-        data = r.json().get("data", [])
+        data = safe_json(r).get("data", [])
         if data:
             l = data[-1]
             c = l.get("contributors", {})
@@ -40,7 +41,7 @@ def oura_today():
     try:
         r = httpx.get(f"{base}/daily_sleep", params={"start_date": yesterday, "end_date": today},
                       headers=headers, timeout=15)
-        data = r.json().get("data", [])
+        data = safe_json(r).get("data", [])
         if data:
             l = data[-1]
             c = l.get("contributors", {})

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Header
 from pydantic import BaseModel
 import httpx as _tghttpx
 from watchdog import _worker_auth
-from safe_http import safe_json
+from safe_http import safe_json, safe_body
 from redact import redact, redact_obj
 
 logger = logging.getLogger(__name__)
@@ -199,7 +199,7 @@ async def telegram_webhook(
     if x_telegram_bot_api_secret_token != TELEGRAM_SECRET:
         raise HTTPException(403, "Invalid token")
 
-    body = await request.json()
+    body = await safe_body(request)
 
     # Inline-keyboard button click. AR-5.2 gate approvals use `gate:*`
     # callback data; everything else is a Sprint-A clarification choice.

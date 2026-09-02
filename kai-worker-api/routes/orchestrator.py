@@ -9,6 +9,7 @@ import os
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from safe_http import safe_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -63,7 +64,7 @@ def devops_self_modify(req: DevopsSelfModifyRequest):
         logger.error("Orchestrator non-200: %s %s", r.status_code, r.text)
         raise HTTPException(502, f"orchestrator returned {r.status_code}: {r.text[:200]}")
 
-    body = r.json()
+    body = safe_json(r)
     if "error" in body:
         raise HTTPException(400, body["error"])
 
@@ -87,11 +88,10 @@ def devops_self_modify(req: DevopsSelfModifyRequest):
 # orchestrator network (port 8003 isn't host-mapped), hand-crafting the run JSON,
 # then polling the DB to find the open gate id. These three authed endpoints put
 # launch + gate-resolve on the worker-api the dashboard already talks to.
-# safe_json (imported locally, defined outside routes/) keeps this free of the
-# bare-.json() the L3 guard tracks.
+# safe_json is defined outside routes/, so parsing here stays free of the
+# bare-.json() the L3 guard forbids.
 
 def _orchestrator_post(path: str, payload: dict) -> dict:
-    from safe_http import safe_json
     try:
         with httpx.Client(timeout=ORCHESTRATOR_TIMEOUT_S) as client:
             r = client.post(f"{ORCHESTRATOR_URL}{path}", json=payload)
@@ -111,7 +111,6 @@ def _orchestrator_post(path: str, payload: dict) -> dict:
 
 
 def _orchestrator_get(path: str) -> dict:
-    from safe_http import safe_json
     try:
         with httpx.Client(timeout=ORCHESTRATOR_TIMEOUT_S) as client:
             r = client.get(f"{ORCHESTRATOR_URL}{path}")

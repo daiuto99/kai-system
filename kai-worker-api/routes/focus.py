@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from config import VAULT_PATH, load_secret
 from focus import run_focus_brief, get_todoist_tasks
+from safe_http import safe_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,7 +55,7 @@ def focus_today():
                 timeout=15.0,
             )
             r.raise_for_status()
-            raw = r.json().get("results", [])
+            raw = safe_json(r).get("results", [])
 
         relevant = [t for t in raw if t.get("due") and t["due"]["date"] <= today_str]
         relevant.sort(key=lambda t: (t.get("priority", 4), t.get("due", {}).get("date", "9999")))
@@ -107,7 +108,7 @@ def get_stoic_quote():
     try:
         r = _hx.get("https://api.quotable.io/random?tags=stoicism&maxLength=130", timeout=3)
         if r.status_code == 200:
-            d = r.json()
+            d = safe_json(r)
             if d.get("content") and d.get("author"):
                 return {"content": d["content"], "author": d["author"]}
     except Exception as e:
@@ -134,7 +135,7 @@ def get_weather():
         with _httpx.Client(timeout=10) as client:
             r = client.get(url)
             r.raise_for_status()
-            d = r.json()
+            d = safe_json(r)
 
         weather_id = d["weather"][0]["id"]
         if weather_id == 800:
@@ -184,7 +185,7 @@ def get_quote():
         with _httpx.Client(timeout=10) as client:
             r = client.get("https://api.quotable.io/random?maxLength=150")
             r.raise_for_status()
-            d = r.json()
+            d = safe_json(r)
         quote = {"content": d["content"], "author": d["author"]}
     except Exception as e:
         logger.exception("quote fetch error: %s", e)
