@@ -621,6 +621,10 @@ def update_wp_task(task_id: str, updates: dict):
 WP_BRAND_RESULT_FILE = VAULT_PATH / "00_System" / "wp_brand_consistency_result.json"
 WP_PROPERTIES_DIR = VAULT_PATH / "60_Council" / "properties"
 WP_DRIFT_STATE_FILE = VAULT_PATH / "00_System" / "wp_drift_state.json"
+# WP-20.6 — per-server Cloudways backup POLICY, written host-side by
+# scripts/wp_backup_scan.py (the board never calls the Cloudways API itself; it
+# only reads this on-disk state, preserving the WP-20.3/.4 read-only invariant).
+WP_BACKUP_STATE_FILE = VAULT_PATH / "00_System" / "wp_backup_state.json"
 
 
 def _load_drift_state() -> dict:
@@ -631,6 +635,43 @@ def _load_drift_state() -> dict:
         except Exception:
             return {}
     return {}
+
+
+def _load_backup_state() -> dict:
+    """Per-server Cloudways backup-policy scan (WP-20.6). Read-only, never raises."""
+    if WP_BACKUP_STATE_FILE.exists():
+        try:
+            return json.loads(WP_BACKUP_STATE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def _backup_row(site: dict, state: dict) -> dict:
+    """The MAINTAIN `backup` cell for one property, mapped to its Cloudways server
+    by cloudways_server_id. Honest: if the scan is absent/errored or the server is
+    not in it, report not_checked WITH the reason — never a faked freshness. The
+    Cloudways API exposes backup POLICY only, so last_run stays not_exposed_by_api."""
+    servers = (state or {}).get("servers") or {}
+    sid = str(site.get("cloudways_server_id") or "")
+    srv = servers.get(sid)
+    if not srv:
+        if not state:
+            reason = "no backup scan yet — run scripts/wp_backup_scan.py"
+        elif state.get("error"):
+            reason = f"backup scan error: {state['error']}"
+        else:
+            reason = f"server {sid or '?'} not present in latest backup scan"
+        return {"status": "not_checked", "detail": reason}
+    return {
+        "status": srv.get("status", "not_checked"),
+        "backup_time": srv.get("backup_time"),
+        "backup_retention": srv.get("backup_retention"),
+        "local_backups": srv.get("local_backups"),
+        "last_run": srv.get("last_run", "not_exposed_by_api"),
+        "as_of": state.get("generated_at"),
+        "detail": srv.get("detail", ""),
+    }
 
 
 def _read_build_profile(slug: str) -> dict:
@@ -682,11 +723,12 @@ def wordpress_health():
       - brand_sync     : LIVE  — last wp_brand_consistency run + file date
       - drift          : not_tracked  — detector is inline at write chokepoint; no persisted per-property result yet (WP-20.2b)
       - standards_floor: manual_gate  — WCAG/perf/security/content via LSE gate; no automated checker exists
-      - backup         : not_wired    — Cloudways backup freshness not yet integrated
+      - backup         : LIVE  — per-server Cloudways backup POLICY (WP-20.6); last-run time is not exposed by the Cloudways API, so freshness of the last run stays not-automated (never faked)
     """
     sites = _load_sites()
     brand_map, brand_as_of = _brand_sync_map()
     drift_state = _load_drift_state()
+    backup_state = _load_backup_state()
     rows = []
     for slug, v in sites.items():
         bp = _read_build_profile(slug)
@@ -718,19 +760,18 @@ def wordpress_health():
                  "detail": "no drift scan run yet — click Scan (WP-20.2b, live homepage read)"}
             ),
             "standards_floor": _standards_row(ds),
-            "backup": {"status": "not_wired",
-                       "detail": "Cloudways backup-freshness blocked — API token stale (403); needs key refresh (bug f4a0f291)"},
+            "backup": _backup_row(v, backup_state),
         })
     return {
         "properties": rows,
         "count": len(rows),
         "legend": {
-            "live": ["brand_profile", "brand_sync", "drift", "standards_floor (security+content)"],
-            "not_automated": ["standards_floor (WCAG/CWV)", "backup"],
+            "live": ["brand_profile", "brand_sync", "drift", "standards_floor (security+content)", "backup (policy)"],
+            "not_automated": ["standards_floor (WCAG/CWV)", "backup (last-run time — not exposed by Cloudways API)"],
         },
-        "note": ("MAINTAIN board (WP-20.6a + drift WP-20.2b). Read-only. Drift is a live "
-                 "homepage scan (click Scan). standards_floor security+content is computed from the same live scan (WCAG/CWV stay manual); backup is blocked on a stale Cloudways key — "
-                 "shown honestly as not-automated, never faked."),
+        "note": ("MAINTAIN board (WP-20.6a + drift WP-20.2b + backup WP-20.6). Read-only. Drift is a live "
+                 "homepage scan (click Scan). standards_floor security+content is computed from the same live scan (WCAG/CWV stay manual). backup is a live per-server Cloudways backup-POLICY reading "
+                 "(scripts/wp_backup_scan.py); the Cloudways API exposes no last-completed-backup timestamp, so last-run freshness stays not-automated — shown honestly, never faked."),
     }
 
 

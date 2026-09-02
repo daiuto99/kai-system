@@ -142,42 +142,142 @@ def read_os_apt() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# container_images — installed image age per running container.
-# Registry-latest comparison is NOT-CHECKED in CUR-1 (needs a registry pull;
-# added in a later phase). We report real installed age, honestly labelled.
+# container_images — installed image age per running container, plus a real
+# registry-latest currency reading (was NOT-CHECKED in CUR-1).
+# For each running container we compare the LOCALLY-installed image digest
+# (RepoDigests manifest-list sha) against the upstream registry's current
+# manifest-list digest via `docker buildx imagetools` — the LIST digest, NOT
+# the per-platform digest `docker manifest inspect --verbose` returns (which
+# would false-positive every multi-arch image). Honesty rule holds: locally
+# built compose images (no upstream registry) are n/a, and any registry read
+# that fails is not-checked with its reason — never a faked pass, never a
+# false stale. Image bumps stay gated (Leo approves) — this only reads drift.
 # ---------------------------------------------------------------------------
-def read_container_images() -> dict:
+def _digest_sha(ref_with_digest: str):
+    """Extract the sha256:… part from a `repo@sha256:…` reference, else None."""
+    if not ref_with_digest or "@" not in ref_with_digest:
+        return None
+    sha = ref_with_digest.rsplit("@", 1)[1].strip()
+    return sha if sha.startswith("sha256:") else None
+
+
+def _local_repo_digest(image: str, runner=_run):
+    """The installed image's manifest-list digest (from RepoDigests), or None
+    for a purely local build that was never pulled from a registry."""
+    code, out, _ = runner(["docker", "image", "inspect", image, "--format", "{{json .RepoDigests}}"], timeout=20)
+    if code != 0 or not out:
+        return None
+    try:
+        digests = json.loads(out)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(digests, list) or not digests:
+        return None
+    return _digest_sha(digests[0])
+
+
+def _remote_manifest_digest(ref: str, runner=_run):
+    """Upstream current manifest-LIST digest for a tag, via buildx imagetools.
+    Returns (digest, err): digest is a sha256:… string on success, else None
+    with err carrying the reason (auth/no-such-repo/network)."""
+    code, out, err = runner(
+        ["docker", "buildx", "imagetools", "inspect", ref, "--format", "{{.Manifest.Digest}}"],
+        timeout=25,
+    )
+    out = (out or "").strip()
+    if code == 0 and out.startswith("sha256:"):
+        return out, ""
+    return None, (err or out or "buildx imagetools inspect failed").splitlines()[0][:200]
+
+
+def _looks_local_build(ref: str) -> bool:
+    """True when a reference has no registry domain — a compose-local build
+    (e.g. `kai-system-…`, `buzz-relay:tag`). Real registries carry a domain
+    (`ghcr.io/…`) and Docker-Hub short names (`postgres:17`) resolve remotely,
+    so they never reach this branch. Used only to label a FAILED remote read as
+    n/a rather than a spurious not-checked-with-error."""
+    repo = ref.split("@", 1)[0]
+    # strip a trailing :tag (but not a registry :port, which precedes a '/')
+    if ":" in repo.rsplit("/", 1)[-1]:
+        repo = repo.rsplit(":", 1)[0]
+    first = repo.split("/", 1)[0]
+    has_domain = "." in first or ":" in first or first == "localhost"
+    return not has_domain and "/" not in repo
+
+
+def read_container_images(runner=_run) -> dict:
     checked = now_iso()
     try:
-        code, out, err = _run(["docker", "ps", "--format", "{{.Names}}\t{{.Image}}"], timeout=25)
+        code, out, err = runner(["docker", "ps", "--format", "{{.Names}}\t{{.Image}}"], timeout=25)
         if code != 0:
             return {"status": NOT_CHECKED, "checked_at": checked,
                     "detail": f"docker ps failed: {err[:160]}", "components": []}
+        image_cache: dict = {}  # image ref -> resolved reading (one network call per unique image)
+
+        def resolve(image: str) -> dict:
+            if image in image_cache:
+                return image_cache[image]
+            local = _local_repo_digest(image, runner)
+            remote, rerr = _remote_manifest_digest(image, runner)
+            if remote:
+                current = (local is not None and local == remote)
+                res = {
+                    "latest": remote,
+                    "current": current,
+                    "status": FRESH if current else STALE,
+                }
+                if not current:
+                    res["cause"] = (
+                        f"newer image published upstream for {image} "
+                        f"(installed {(local or 'unknown')[:19]}… vs registry {remote[:19]}…)"
+                    )
+            elif _looks_local_build(image):
+                res = {"latest": None, "current": None, "status": NOT_CHECKED,
+                       "applicable": False,
+                       "note": "local-build image — no upstream registry to compare"}
+            else:
+                res = {"latest": None, "current": None, "status": NOT_CHECKED,
+                       "note": f"registry read failed: {rerr}"}
+            res["local_digest"] = local
+            image_cache[image] = res
+            return res
+
         comps = []
         for line in out.splitlines():
             if "\t" not in line:
                 continue
             name, image = line.split("\t", 1)
-            c2, created, _ = _run(["docker", "image", "inspect", image, "--format", "{{.Created}}"], timeout=20)
+            c2, created, _ = runner(["docker", "image", "inspect", image, "--format", "{{.Created}}"], timeout=20)
             age = _age_days(created) if c2 == 0 else None
-            comps.append({
+            r = resolve(image)
+            comp = {
                 "name": name,
                 "image": image,
                 "installed_age_days": age,
-                "latest": None,               # registry comparison: not yet a live reader
-                "current": None,              # unknown until registry check lands
-                "risk_tier": "gated",         # image bumps are gated (Leo approves)
-                "status": NOT_CHECKED,
-                "note": "installed age only; registry-latest comparison not yet implemented",
+                "risk_tier": "gated",  # image bumps are gated (Leo approves)
                 "checked_at": checked,
-            })
+            }
+            comp.update(r)
+            comps.append(comp)
+
+        stale = [c for c in comps if c["status"] == STALE]
+        fresh = [c for c in comps if c["status"] == FRESH]
+        checkable = len(stale) + len(fresh)
+        local_builds = sum(1 for c in comps if c.get("applicable") is False)
+        if stale:
+            status = STALE
+        elif fresh:
+            status = FRESH
+        else:
+            status = NOT_CHECKED  # nothing had an upstream registry to compare
         oldest = max((c["installed_age_days"] or 0) for c in comps) if comps else 0
-        return {
-            "status": NOT_CHECKED,  # honest: no registry reader yet, so currency is unknown
-            "checked_at": checked,
-            "detail": f"{len(comps)} running container(s); oldest image {oldest}d old; registry comparison not-checked",
-            "components": comps,
-        }
+        detail = (f"{len(comps)} running container(s); {len(stale)} stale / {checkable} compared · "
+                  f"{local_builds} local-build (n/a); oldest image {oldest}d old")
+        layer = {"status": status, "checked_at": checked, "detail": detail, "components": comps}
+        if stale:  # verified cause travels with the layer (Findings Contract)
+            layer["cause"] = f"{len(stale)} image(s) behind upstream: " + \
+                ", ".join(sorted({c["image"] for c in stale}))[:240]
+        return layer
     except Exception as exc:
         return {"status": NOT_CHECKED, "checked_at": checked,
                 "detail": f"reader error: {type(exc).__name__}: {exc}", "components": []}
