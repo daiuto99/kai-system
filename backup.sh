@@ -55,19 +55,16 @@ else
 fi
 rm -f "$SKIP_TMP"
 
-# Git-authoritative stores — bare sonicink repo + kai-system (compact, cloneable
-# git bundles). Added 2026-07-18 to close the backup gap (these were unbacked). Keep 7 days.
+# Git-authoritative store — bare sonicink repo bundle (compact, cloneable). This is
+# the SOLE off-worker copy of sonicink history (it is NOT on GitHub). kai-system is
+# intentionally NOT bundled: it lives on GitHub (daiuto99/kai-system), so an offsite
+# bundle is redundant (dropped 2026-09-03, c2-security). Keep 7 days.
 GIT_BK="$BACKUP_DIR/git"
 mkdir -p "$GIT_BK"
 if git -C /mnt/storage/git/sonicink.git bundle create "$GIT_BK/sonicink_${TIMESTAMP}.bundle" --all >> "$LOG" 2>&1; then
     echo "[$TIMESTAMP] sonicink bare repo bundled: $GIT_BK/sonicink_${TIMESTAMP}.bundle" >> "$LOG"
 else
     echo "[$TIMESTAMP] WARNING: sonicink bare-repo bundle FAILED" >> "$LOG"
-fi
-if git -C /home/leo/kai-system bundle create "$GIT_BK/kai-system_${TIMESTAMP}.bundle" --all >> "$LOG" 2>&1; then
-    echo "[$TIMESTAMP] kai-system bundled: $GIT_BK/kai-system_${TIMESTAMP}.bundle" >> "$LOG"
-else
-    echo "[$TIMESTAMP] WARNING: kai-system bundle FAILED" >> "$LOG"
 fi
 find "$GIT_BK" -name "*.bundle" -mtime +7 -delete
 
@@ -110,6 +107,36 @@ else
     echo "[$TIMESTAMP] WARNING: buzz-postgres backup FAILED" >> "$LOG"
 fi
 find "$BACKUP_DIR/buzz/" -name "buzz_*.sql.gz" -mtime +7 -delete || true
+
+# --- Host config (not in git): crontab, live compose, package list, samba conf.
+# GitHub holds kai-system code+in-repo config; this captures host-level config so a
+# bare-metal rebuild is possible (2026-09-03, c2-security — Leo: system+config must
+# be backed up). ---
+CFG="$BACKUP_DIR/config"
+mkdir -p "$CFG"
+crontab -l > "$CFG/crontab.txt" 2>/dev/null || echo "(no crontab)" > "$CFG/crontab.txt"
+cp "$HOME/kai-system/docker-compose.yml" "$CFG/docker-compose.yml" 2>/dev/null || true
+dpkg-query -W -f='${Package} ${Version}
+' > "$CFG/dpkg-packages.txt" 2>/dev/null || true
+cp /etc/samba/smb.conf "$CFG/smb.conf" 2>/dev/null || true
+echo "[$TIMESTAMP] host config captured -> $CFG" >> "$LOG"
+
+# --- Secrets (ENCRYPTED). Plaintext secrets must NEVER leave in a backup; encrypt
+# with a Leo-placed key so the offsite copy is useless without it. The key lives in
+# ~/.kai/secrets (NOT inside the backed-up tree) and is never itself backed up.
+# Skips cleanly until Leo arms it via scp (2026-09-03, c2-security). ---
+SECKEY="$HOME/.kai/secrets/offsite_backup_key"
+if [ -f "$SECKEY" ]; then
+    SEC_ENC="$CFG/secrets_${TIMESTAMP}.tar.gz.enc"
+    if tar czf - -C "$HOME/kai-system" secrets 2>>"$LOG" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass "file:$SECKEY" -out "$SEC_ENC" 2>>"$LOG"; then
+        echo "[$TIMESTAMP] secrets encrypted -> $SEC_ENC ($(du -sh "$SEC_ENC"|cut -f1))" >> "$LOG"
+    else
+        echo "[$TIMESTAMP] WARNING: secrets encryption FAILED" >> "$LOG"
+    fi
+    find "$CFG" -name 'secrets_*.tar.gz.enc' -mtime +7 -delete 2>/dev/null || true
+else
+    echo "[$TIMESTAMP] secrets capture skipped — no offsite_backup_key placed (Leo arms via scp)" >> "$LOG"
+fi
 
 # --- Offsite transport (S1-B3, audit #01 Track 3). STAGED-DISABLED until offsite.env
 # enables it (a GATE). No-op + logs when disabled; never aborts the local backup. ---

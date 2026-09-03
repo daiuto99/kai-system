@@ -41,7 +41,7 @@ AUTONOMY_POLICIES: dict[str, dict] = {
     "wordpress.purge_varnish": {"classification": "mutating", "rule": "requires_approval", "reason": "Changes public cache state"},
     "wordpress.set_front_page": {"classification": "mutating", "rule": "never", "reason": "Draft-only rule (Leo 2026-07-26): setting a live homepage is a publish action — disabled until Leo lifts it"},
     "wordpress.set_option":  {"classification": "mutating", "rule": "requires_approval", "reason": "Changes WordPress configuration"},
-    "hostops.place_secret": {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
+    "hostops.place_secret": {"classification": "destructive", "rule": "requires_approval", "reason": "Places a named secret onto a host — a credential mutation. ALWAYS gated, never autonomous; the human gate binds the exact (site, secret_name) per approval and the capability fails closed on any autonomous authorization (matches place_fleet_secret; closes the gate_id=null self-authorization + unreconciled-audit hole, c2-security 2026-09-03)."},
     "hostops.deploy_plugin": {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
     "hostops.provision":    {"classification": "mutating", "rule": "contextual", "reason": "Delegates to org-model autonomy"},
     "hostops.publish_post": {"classification": "mutating", "rule": "contextual", "reason": "Live WordPress publish — routed through org-model; the 'publish' high-risk threshold forces approval, so it is NEVER autonomous (JARVIS §9 drafts-only floor)"},

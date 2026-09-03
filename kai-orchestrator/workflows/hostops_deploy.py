@@ -137,6 +137,14 @@ class HostopsDeployWorkflow(Workflow):
         # created.  Autonomous work therefore never reaches the council/T2 path.
         from policy.autonomy import check_policy
         action, reason = check_policy(f"hostops.{op}", "workflow", ctx)
+        if op == "place_secret" and action == "allow":
+            # Defence against org-model drift: a secret placement must NEVER be
+            # autonomously authorized. Fail closed even if policy would allow
+            # (mirrors place_fleet_secret; c2-security 2026-09-03).
+            return CapabilityResult(
+                ok=False, status="failed_permanent",
+                error={"type": "autonomous_place_secret_forbidden"},
+            )
         if action == "allow":
             return self._skip(f"autonomous: {reason}")
 
@@ -187,10 +195,13 @@ class HostopsDeployWorkflow(Workflow):
         site = ctx.get("site", "")
         secret_name = ctx.get("secret_name", "")
 
-        from policy.autonomy import check_policy
-        policy_action, _ = check_policy("hostops.place_secret", "workflow", ctx)
         gate_id = engine.find_resolved_hostops_gate(self.job_id, "place_secret", site)
-        if policy_action != "allow" and not gate_id:
+        # Secret placement is a credential mutation — ALWAYS human-gated, never
+        # autonomous, regardless of any org-model policy decision (matches
+        # place_fleet_secret). Fail closed if no approved gate is bound; this
+        # closes the gate_id=null self-authorization + unreconciled-audit hole
+        # (c2-security 2026-09-03).
+        if not gate_id:
             return CapabilityResult(
                 ok=False, status="failed_permanent", error={"type": "gate_required"},
             )

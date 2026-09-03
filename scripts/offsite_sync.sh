@@ -33,6 +33,29 @@ if [ "${OFFSITE_ENABLED:-0}" != "1" ]; then
     exit 0
 fi
 
+# --- Arming gate (KAI c2-security 2026-09-03, BUG: offsite gate self-authorized) ---
+# Enabling offsite is a Leo-authorized action. Even with OFFSITE_ENABLED=1, an
+# automated session must not silently arm the transport. Require a Leo-placed arm
+# token whose SHA-256 matches the git-tracked expected value (scripts/offsite_arm.sha256).
+# The token preimage is known only to Leo (placed via scp), so automation cannot forge
+# it. Permissive (legacy) until the expected hash is configured, then strict fail-closed.
+ARM_TOKEN="$HOME/.kai/secrets/offsite_arm_token"
+ARM_SHA_FILE="$HOME/kai-system/scripts/offsite_arm.sha256"
+EXPECTED_SHA="$( [ -f "$ARM_SHA_FILE" ] && tr -d '[:space:]' < "$ARM_SHA_FILE" || true )"
+if [ -z "$EXPECTED_SHA" ]; then
+    log "WARN arm-gate not yet configured (no offsite_arm.sha256) — running under LEGACY authorization pending Leo arm"
+elif [ ! -f "$ARM_TOKEN" ]; then
+    log "arm-gate: token absent — offsite NOT authorized by Leo; refusing (fail-closed)"
+    echo "FAIL $(date +%Y%m%d_%H%M%S) arm-token-absent" > "$STAMP"
+    exit 1
+elif [ "$(sha256sum "$ARM_TOKEN" | awk '{print $1}')" != "$EXPECTED_SHA" ]; then
+    log "arm-gate: token hash mismatch — refusing (fail-closed)"
+    echo "FAIL $(date +%Y%m%d_%H%M%S) arm-token-mismatch" > "$STAMP"
+    exit 1
+else
+    log "arm-gate OK — offsite authorized by Leo token"
+fi
+
 : "${OFFSITE_USER:?offsite.env missing OFFSITE_USER}"
 : "${OFFSITE_HOST:?offsite.env missing OFFSITE_HOST}"
 : "${OFFSITE_DIR:?offsite.env missing OFFSITE_DIR}"

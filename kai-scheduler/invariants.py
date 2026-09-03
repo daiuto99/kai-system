@@ -50,6 +50,7 @@ LAN_ALLOWED_PORTS = frozenset({
     3001,  # kai-web nginx authenticated application origin
     8080,  # kai-web nginx Cloudflare webhook/kiosk origin
     22000, # Syncthing sync transport, device-ID mutual-TLS, active Mac↔worker vault mirror on LAN (KAI-814; tailnet migration tracked)
+    445,   # Samba (media + core-files) — Leo-ratified LAN media share, temp until NAS; NetBIOS 139 disabled (c2-security 2026-09-03)
 })
 # Tailscale adds authenticated control planes and the vault mirror transports.
 TAILNET_ALLOWED_PORTS = LAN_ALLOWED_PORTS | frozenset({
@@ -62,6 +63,7 @@ TAILNET_ALLOWED_PORTS = LAN_ALLOWED_PORTS | frozenset({
     3000,   # buzz-relay Nostr app port — tailnet wss (tailscale-serve :443) + nginx :3002; LAN bind removed (bf39ec79)
     3002,   # buzz-hostproxy nginx NIP-29 host-rewrite -> relay; loopback+tailnet, LAN removed (bf39ec79)
     443,    # tailscale-serve HTTPS (ts.net cert) — Leo's Buzz app ingress on the tailnet (bf39ec79)
+    3010,   # langfuse-web observability UI — self-hosted, Tailscale-only (KAI-963; c2-security 2026-09-03)
 })
 
 # Kill switch — INVARIANT_RUNNER_ENABLED=false skips all checks entirely (kill-switch-first)

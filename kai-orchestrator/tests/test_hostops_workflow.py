@@ -309,3 +309,14 @@ def test_fleet_exec_fails_closed_without_resolved_gate(monkeypatch):
     monkeypatch.setattr("engine.engine.find_resolved_hostops_gate", lambda *a, **k: None)
     result = _fleet_wf()._step_place_fleet_secret({"host": "kai-mini", "secret_name": "todoist_api_key"})
     assert result.error["type"] == "gate_required"
+
+
+def test_place_secret_gate_fails_closed_if_org_model_would_autoapprove(monkeypatch):
+    # place_secret is requires_approval; if policy ever drifts to allow, the gate
+    # step must refuse — a secret placement is never autonomous (c2-security).
+    monkeypatch.setattr("policy.autonomy.check_policy", lambda *a: ("allow", "drifted"))
+    result = _wf()._run_gate(
+        "place_secret_gate", {"id": "s1"},
+        {"site": "site-a", "secret_name": "publish_gate"})
+    assert not result.ok
+    assert result.error["type"] == "autonomous_place_secret_forbidden"
