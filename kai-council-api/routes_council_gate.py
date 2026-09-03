@@ -29,8 +29,9 @@ import threading
 from pathlib import Path
 from datetime import datetime, timezone
 
+import hmac
 import httpx
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 import function_map as fm
 from council_config import WORKER_URL, _worker_auth, ORCHESTRATOR_URL
@@ -611,9 +612,42 @@ def gate_state(gate_id: str):
     }
 
 
-@router.post("/council/gate/{gate_id}/resolve")
+_GATE_RESOLVE_SECRET_FILES = (
+    Path("/run/secrets/gate_resolve_secret"),
+    Path("/home/leo/kai-system/secrets/gate_resolve_secret.txt"),
+)
+
+
+def _gate_resolve_secret() -> str:
+    for _p in _GATE_RESOLVE_SECRET_FILES:
+        try:
+            _s = _p.read_text().strip()
+        except OSError:
+            continue
+        if _s:
+            return _s
+    return ""
+
+
+def _require_gate_resolve_auth(request: Request) -> None:
+    """C2 [SEC] 453162cc — dedicated credential at the resolve boundary.
+    The approval adapters (Telegram/Buzz/worker-api/probe) hold
+    gate_resolve_secret; the broad web basic-auth does NOT. Identity is no
+    longer trusted from the transport adapter alone. Fail closed."""
+    expected = _gate_resolve_secret()
+    if not expected:
+        raise HTTPException(status_code=503, detail="gate-resolve auth misconfigured")
+    supplied = request.headers.get("X-KAI-Gate-Resolve", "")
+    if not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="gate-resolve authorization required")
+
+
+@router.post("/council/gate/{gate_id}/resolve",
+             dependencies=[Depends(_require_gate_resolve_auth)])
 def resolve_gate(gate_id: str, req: GateResolve):
-    """Resolve a pending gate — called when Leo approves or rejects via Slack."""
+    """Resolve a pending gate — called when Leo approves or rejects via Slack.
+    Dedicated-credential auth (C2 [SEC] 453162cc) runs as a route dependency so
+    the HTTP boundary is guarded while direct callers/tests keep this signature."""
     entry = _GATES_STORE.get(gate_id)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"Gate {gate_id} not found")

@@ -14,7 +14,7 @@ import json
 import re
 from pathlib import Path
 
-PRIVACY_ADVISORS = {"ember", "doc"}
+from privacy_tiers import PRIVACY_ADVISORS  # SSOT (P5 af5245bd)
 
 # All registered WordPress blogs — sourced from vault/00_System/wordpress_sites.json
 # at module load. Kept as a sorted tuple so unit tests are deterministic.

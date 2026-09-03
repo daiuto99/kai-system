@@ -93,6 +93,15 @@ def _allowed_gate_chat_ids() -> set[str]:
     return {ln.strip() for ln in p.read_text().splitlines() if ln.strip()}
 
 
+def _gate_resolve_secret() -> str:
+    """C2 [SEC] 453162cc — dedicated gate-resolve credential (compose file-secret)."""
+    try:
+        with open("/run/secrets/gate_resolve_secret") as _f:
+            return _f.read().strip()
+    except OSError:
+        return ""
+
+
 def _handle_gate_callback(cbq: dict) -> None:
     """AR-5.2: Telegram inline approve/reject for a council gate.
 
@@ -119,6 +128,7 @@ def _handle_gate_callback(cbq: dict) -> None:
             f"{COUNCIL_API}/council/gate/{gate_id}/resolve",
             json={"approved": approved, "notes": "via Telegram", "resolver": "leo"},
             timeout=30,
+            headers={"X-KAI-Gate-Resolve": _gate_resolve_secret()},
             auth=_worker_auth(),
         )
         if r.status_code == 200:

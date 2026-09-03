@@ -52,6 +52,7 @@ services:
       - oura_token
       - kai_worker_auth
       - github_webhook_secret
+      - gate_resolve_secret
       - plane_api_token
       - redeploy_token
       - wp_write_token
@@ -114,6 +115,7 @@ services:
       - cloudways_ssh_key
       - kai_worker_auth
       - orchestrator_capability_auth
+      - gate_resolve_secret
       - telegram_bot_token
       - telegram_allowed_chat_ids
     depends_on:
@@ -196,6 +198,7 @@ services:
   kai-qdrant:
     image: qdrant/qdrant:latest
     container_name: kai-qdrant
+    user: "1000:1000"  # N3 394272f4 qdrant: drop root
     restart: unless-stopped
     ports:
       - "127.0.0.1:6333:6333"
@@ -203,6 +206,7 @@ services:
       - qdrant-data:/qdrant/storage
     environment:
       - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__STORAGE__SNAPSHOTS_PATH=/qdrant/storage/snapshots  # N3: writable by non-root
     healthcheck:
       disable: true
   kai-code-server:
@@ -223,6 +227,7 @@ services:
 
   kai-litellm:
     image: ghcr.io/berriai/litellm:main-latest
+    user: "1000:1000"  # N3 394272f4: drop root
     container_name: kai-litellm
     restart: unless-stopped
     ports:
@@ -352,6 +357,7 @@ services:
       - healthchecks_url
       - kai_worker_auth
       - orchestrator_capability_auth
+      - gate_resolve_secret
     depends_on:
       docker-socket-proxy:
         condition: service_healthy
@@ -510,6 +516,7 @@ services:
     secrets:
       - litellm_master_key
       - kai_web_password
+      - gate_resolve_secret
 
   # KAI-1029: durable openai-compat backend for Leo's NATIVE Buzz advisor agents
   # (kai/sky/roads/beats/coach). Replaces the host nohup shim that a cleanup sweep
@@ -635,6 +642,8 @@ secrets:
     file: ./secrets/github_webhook_secret.txt
   orchestrator_capability_auth:
     file: ./secrets/orchestrator_capability_auth.txt
+  gate_resolve_secret:
+    file: ./secrets/gate_resolve_secret.txt
   wp_alexadaiuto_kai_app_password:
     file: ./secrets/wp_alexadaiuto_kai_app_password.txt
   wp_anthonydaiuto_kai_app_password:

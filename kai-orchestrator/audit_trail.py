@@ -4,7 +4,9 @@ import re
 
 from db import get_conn
 
-_TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+# 4bfbdbff: ':' is the reserved task/:consult: namespace separator and is
+# excluded here so a caller-supplied id cannot forge a specialist-consult prefix.
+_TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 def _json(value, default):

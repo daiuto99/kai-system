@@ -75,10 +75,20 @@ def _council_get(path: str) -> dict:
         return json.loads(r.read())
 
 
+def _gate_resolve_secret() -> str:
+    """C2 [SEC] 453162cc — dedicated gate-resolve credential (compose file-secret)."""
+    try:
+        with open("/run/secrets/gate_resolve_secret") as _f:
+            return _f.read().strip()
+    except OSError:
+        return ""
+
+
 def _council_resolve(gate_id: str, approved: bool, notes: str) -> dict:
     body = json.dumps({"approved": approved, "notes": notes, "resolver": "leo"}).encode()
     req = urllib.request.Request(f"{COUNCIL_BASE}/gate/{gate_id}/resolve", data=body, method="POST",
-        headers={"Authorization": f"Basic {_basic_auth()}", "Content-Type": "application/json"})
+        headers={"Authorization": f"Basic {_basic_auth()}", "Content-Type": "application/json",
+                 "X-KAI-Gate-Resolve": _gate_resolve_secret()})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read())
 

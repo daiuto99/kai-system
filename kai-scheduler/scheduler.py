@@ -117,6 +117,15 @@ def _answer_callback(token: str, callback_query_id: object, text: str = "") -> N
         log.warning("answerCallbackQuery failed: %s", type(e).__name__)
 
 
+def _gate_resolve_secret() -> str:
+    """C2 [SEC] 453162cc — dedicated gate-resolve credential (compose file-secret)."""
+    try:
+        with open("/run/secrets/gate_resolve_secret") as _f:
+            return _f.read().strip()
+    except OSError:
+        return ""
+
+
 def _handle_gate_callback(token: str, cbq: dict, allowed: "frozenset[int]") -> None:
     data = cbq.get("data") or ""
     parts = data.split(":", 2)
@@ -138,6 +147,7 @@ def _handle_gate_callback(token: str, cbq: dict, allowed: "frozenset[int]") -> N
         r = httpx.post(
             f"{COUNCIL_API}/council/gate/{gate_id}/resolve",
             json={"approved": approved, "notes": "via Telegram", "resolver": "leo"},
+            headers={"X-KAI-Gate-Resolve": _gate_resolve_secret()},
             auth=worker_auth(),
             timeout=30,
         )

@@ -100,8 +100,13 @@ def _consult_specialist(specialist_id: str, question: str, context: str,
         return {"error": f"Specialist '{specialist_id}' not found. Available: {available}"}
 
     user_msg = question if not context else f"Context: {context}\n\nQuestion: {question}"
-    consult_device = (f"task:{audit_task_id}:consult:{specialist_id}"
-                      if audit_task_id else f"consult:{specialist_id}")
+    # Audit-trail namespace hardening (4bfbdbff): ':' is the reserved
+    # task/:consult: separator; a colon in audit_task_id would let a crafted id
+    # collide with another task's specialist-consult prefix. Only build the
+    # task-scoped device from a colon-free id; otherwise fall back to the plain one.
+    _safe_task_id = audit_task_id if (audit_task_id and ":" not in audit_task_id) else None
+    consult_device = (f"task:{_safe_task_id}:consult:{specialist_id}"
+                      if _safe_task_id else f"consult:{specialist_id}")
     assemble_body = {
         "key": {"advisor": specialist_id, "device": consult_device,
                 "place": None, "thread": None},
@@ -1490,10 +1495,41 @@ TOOL_REGISTRY = {
 }
 
 
+_TOOL_AUDIT_DIR = VAULT_PATH / "00_System" / "tool_audit"
+
+
+def _audit_tool_invocation(tool_name, advisor, tool_input, status, duration_ms, error_class=None):
+    """C2 [SEC] 8ceef85a — durable per-invocation audit for the ACTIVE council tool path.
+    L18-safe: records tool, advisor, INPUT KEY NAMES ONLY (never values), status and
+    timing — enough to mechanically enumerate every tool invocation from the audit
+    trail, with no secret material. Append-only daily JSONL. Fail-open: an audit-write
+    failure NEVER breaks tool execution."""
+    try:
+        _TOOL_AUDIT_DIR.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "ts": _dt2.utcnow().isoformat() + "Z",
+            "advisor": advisor,
+            "tool": tool_name,
+            "input_keys": sorted(tool_input.keys()) if isinstance(tool_input, dict) else [],
+            "status": status,
+            "duration_ms": duration_ms,
+        }
+        if error_class:
+            rec["error_class"] = error_class
+        audit_file = _TOOL_AUDIT_DIR / (_d2.today().isoformat() + ".jsonl")
+        with open(audit_file, "a") as fh:
+            fh.write(json.dumps(rec) + "\n")
+    except Exception as _e:
+        logger.warning("tool audit write failed (non-fatal): %s", _e)
+
+
 def execute_tool(tool_name: str, tool_input: dict, advisor: str = "kai") -> dict:
     handler = TOOL_REGISTRY.get(tool_name)
     if not handler:
+        _audit_tool_invocation(tool_name, advisor, tool_input, "unknown_tool", 0)
         return {"error": f"Unknown tool: {tool_name}"}
+    _t0 = _dt2.utcnow()
+    _status, _errcls = "ok", None
     try:
         # Bug 48f85706/aec2d486: this shared client makes every council→worker
         # tool call; the worker authenticates all routes. Attach the worker
@@ -1501,7 +1537,14 @@ def execute_tool(tool_name: str, tool_input: dict, advisor: str = "kai") -> dict
         # also used for kai-orchestrator calls (no auth middleware) which simply
         # ignore the header — same internal trust domain.
         with httpx.Client(timeout=15, auth=_worker_auth()) as client:
-            return handler(client, tool_name, tool_input, advisor)
+            result = handler(client, tool_name, tool_input, advisor)
+        if isinstance(result, dict) and result.get("error"):
+            _status = "error"
+        return result
     except Exception as e:
         logger.exception("execute_tool %s: %s", tool_name, e)
+        _status, _errcls = "exception", type(e).__name__
         return {"error": str(e)}
+    finally:
+        _audit_tool_invocation(tool_name, advisor, tool_input, _status,
+                               int((_dt2.utcnow() - _t0).total_seconds() * 1000), _errcls)

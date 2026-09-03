@@ -55,6 +55,7 @@ sys.path.insert(0, str(ROOT / "shared"))  # /shared convention (notify_gateway l
 COUNCIL_BASE = "http://localhost:3001/council/council"
 WEB_USER = "kai"                                   # BUZZ_WEB_USER in docker-compose.yml
 WEB_PW_FILE = ROOT / "secrets" / "kai_web_password.txt"
+GATE_RESOLVE_SECRET_FILE = ROOT / "secrets" / "gate_resolve_secret.txt"
 REQUEST_TIMEOUT_SEC = 30
 SCHEMA = "kai.approval_probe.v1"
 GATE_ID_PREFIX = "synthetic-approval-probe-"
@@ -135,6 +136,7 @@ def _post(path: str, body: dict) -> tuple[int, dict]:
     req = urllib.request.Request(f"{COUNCIL_BASE}{path}", data=data, method="POST", headers={
         "Authorization": _auth_header(),
         "Content-Type": "application/json",
+        "X-KAI-Gate-Resolve": GATE_RESOLVE_SECRET_FILE.read_text().strip(),
     })
     with _OPENER.open(req, timeout=REQUEST_TIMEOUT_SEC) as r:
         status = getattr(r, "status", None) or getattr(r, "code", 200)

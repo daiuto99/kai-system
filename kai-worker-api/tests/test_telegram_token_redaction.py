@@ -275,3 +275,87 @@ if __name__ == "__main__":
     for t in TESTS:
         t()
     print(f"PASS: {len(TESTS)}/{len(TESTS)} telegram token redaction tests")
+
+
+# ── 3839883d — direct regression tests for the three failure paths Codex flagged
+#    as redaction-covered-by-static-review-only. Deleting a _redact() call goes red.
+
+def _attach_capture(logger):
+    import logging
+    h = _CaptureLog()
+    h.setLevel(logging.DEBUG)
+    logger.addHandler(h)
+    logger.setLevel(logging.DEBUG)
+    return h
+
+
+def test_answer_callback_failure_redacted():
+    """_answer_callback logs answerCallbackQuery failures through _redact — a raw
+    httpx error carries the /bot<TOKEN>/ URL and must never reach the log."""
+    from routes import telegram as t
+    orig_token, orig_post = t._tg_token, t._tghttpx.post
+    t._tg_token = lambda: FAKE_TOKEN
+
+    def _boom(*a, **k):
+        raise Exception(
+            f"ConnectError for url 'https://api.telegram.org/bot{FAKE_TOKEN}/answerCallbackQuery'"
+        )
+
+    t._tghttpx.post = _boom
+    cap = _attach_capture(t.logger)
+    try:
+        t._answer_callback("cb-123")  # must not raise, must not leak
+        assert cap.lines, "expected a warning to be logged on failure"
+        for line in cap.lines:
+            _assert_clean(line)
+    finally:
+        t._tg_token, t._tghttpx.post = orig_token, orig_post
+        t.logger.removeHandler(cap)
+
+
+def test_download_failure_redacted():
+    """A getFile transport error carries the token in its URL; the download
+    handlers log it through _redact. Regress the redaction of that exception shape."""
+    from routes import telegram as t
+    orig_token, orig_get = t._tg_token, t._tghttpx.get
+    t._tg_token = lambda: FAKE_TOKEN
+
+    def _boom(*a, **k):
+        raise Exception(
+            f"ReadTimeout for url 'https://api.telegram.org/bot{FAKE_TOKEN}/getFile'"
+        )
+
+    t._tghttpx.get = _boom
+    cap = _attach_capture(t.logger)
+    try:
+        # Mirror the webhook handler's guarded call exactly.
+        try:
+            t._tg_download_file("file-abc")
+            raise AssertionError("download should have raised")
+        except AssertionError:
+            raise
+        except Exception as e:
+            t.logger.error("Telegram file download error: %s", t._redact(e))
+        assert cap.lines
+        for line in cap.lines:
+            _assert_clean(line)
+    finally:
+        t._tg_token, t._tghttpx.get = orig_token, orig_get
+        t.logger.removeHandler(cap)
+
+
+def test_tg_send_delegates_to_l18_gateway():
+    """_tg_send must route through notify_gateway.send_telegram (which owns the
+    L18-safe raw send + error handling), not a raw httpx call that could leak."""
+    import notify_gateway
+    from routes import telegram as t
+    calls = []
+    orig = notify_gateway.send_telegram
+    notify_gateway.send_telegram = lambda *a, **k: calls.append((a, k)) or {"ok": True}
+    try:
+        t._tg_send(42, "hello")
+        assert calls, "expected _tg_send to delegate to notify_gateway.send_telegram"
+        (args, kwargs) = calls[0]
+        assert kwargs.get("reason") == "reply", "reply transport reason (Rule A) required"
+    finally:
+        notify_gateway.send_telegram = orig

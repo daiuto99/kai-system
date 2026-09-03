@@ -549,7 +549,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     raw_reply = ""
 
     # Privacy mode: ember/doc always local, or explicit flag
-    PRIVACY_ADVISORS = {"ember", "doc"}
+    from privacy_tiers import PRIVACY_ADVISORS  # SSOT (P5 af5245bd)
     _force_privacy = advisor in PRIVACY_ADVISORS or req.privacy_mode
 
     # Determine provider/model with complexity routing

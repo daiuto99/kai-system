@@ -39,7 +39,6 @@ ACTIONS = [
 ]
 
 ADVISORS = ["kai", "beats", "sky", "roads", "coach", "ember", "doc", "creative", "dev"]
-PRIVACY_ADVISORS = {"ember", "doc"}
 
 PROMPT = """You are parsing a single message Leo dropped into his parking lot.
 Your job is to extract Leo's INTENT — what does he want done with this — before any capture/classification happens.
