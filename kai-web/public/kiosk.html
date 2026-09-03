@@ -519,7 +519,7 @@
       const statusCls = { succeeded: 'succeeded', failed: 'failed', running: 'running', pending: 'pending' }[j.status] || 'pending';
       return `
         <div class="job-row">
-          <span class="job-name">${escHtml(j.title || j.type)}</span>
+          <span class="job-name">${escHtml(j.type)}</span>
           <span class="job-status-tag ${statusCls}">${escHtml(j.status)}</span>
         </div>
       `;

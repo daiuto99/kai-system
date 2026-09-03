@@ -502,6 +502,28 @@ def list_jobs(limit: int = 20, status: str = ""):
     return {"jobs": jobs, "count": len(jobs)}
 
 
+@app.get("/kiosk/jobs")
+def list_jobs_kiosk(limit: int = 6):
+    """Redacted recent-jobs list for the PUBLIC (tailnet, no-auth) kiosk origin.
+
+    Closes KAI N-S2 (C2): the kiosk's jobs panel needs ONLY a generic activity
+    label + status. This endpoint exposes exactly that — the job `type` (a generic
+    capability category) and `status`, nothing else. It never returns ids, the
+    `inputs` blob (turn_ids/advisors), the inputs-derived title, timestamps, or
+    error text, so the unauthenticated :8080/kiosk-api/jobs origin cannot leak
+    internal job data. The authenticated dashboard keeps using /jobs (untouched).
+    """
+    limit = max(1, min(limit, 20))
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT type, status FROM jobs ORDER BY created_at DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    conn.close()
+    jobs = [{"type": r["type"], "status": r["status"]} for r in rows]
+    return {"jobs": jobs, "count": len(jobs)}
+
+
 @app.get("/audit/tasks/{task_id}")
 def audit_task_trail(task_id: str):
     """Read-only M-D audit composition for one task-scoped conversation/job."""

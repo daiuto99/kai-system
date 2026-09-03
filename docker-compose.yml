@@ -255,7 +255,7 @@ services:
       - "100.78.94.80:5678:5678"
     volumes:
       - ./n8n-data:/home/node/.n8n
-      - /home/leo/vault:/vault:rw
+      - /home/leo/vault:/vault:ro   # KAI N2 (C2): n8n external-reaching; RO — never writes vault
     env_file:
       - .env
     environment:

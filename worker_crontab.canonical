@@ -25,3 +25,4 @@
 17 6 * * 1 cd /home/leo/kai-system && PATH=/usr/bin:/bin /usr/bin/python3 scripts/currency_scan.py >> /home/leo/kai-system/logs/currency_scan.log 2>&1 # CUR-4 weekly currency scan
 */30 * * * * cd /home/leo/kai-system && /usr/bin/python3 scripts/proactive_producer.py >> /home/leo/kai-system/logs/proactive_producer.cron.log 2>&1 # P-4a proactive-queue producer (Finding->silent pull-card; notify=False deferred-push)
 0 * * * * cd /home/leo/kai-system && bash ensure_all_cron.sh --heal >> /home/leo/kai-system/logs/ensure_all_cron.log 2>&1 # ensure_all_cron self-heal (BUG 5cbe2b4a)
+0 */6 * * * /home/leo/kai-system/scripts/vault_snapshot.sh >> /home/leo/kai-system/logs/vault_snapshot.log 2>&1 # KAI N2 vault recovery snapshot (C2)
