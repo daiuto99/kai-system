@@ -1,0 +1,466 @@
+{
+  "ts": "20260904T200030",
+  "issues": {
+    "545671ed-edad-4b2f-980c-94044d248794": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [],
+      "name": "[PLAN] Encode revised autonomy-sorted plan -> live board; then Phase-1 #1 (Buzz card + caps on SPRINT)",
+      "proj": "KAI"
+    },
+    "bbc788da-4fa7-4ba5-bb04-e62721fc234a": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "88def795-c519-46d8-a40c-463665de9097"
+      ],
+      "name": "[C2][SEC] Turn-gate v2: move blocker-card authority to non-agent-writable worker state",
+      "proj": "KAI"
+    },
+    "40ae826d-ffc5-4c77-9788-586521576496": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [],
+      "name": "[DevOps] security/credential_registry warn \u2014 credential-surface drift \u2014 register the unregistered secret, or restore a missing runtime-critical credential [devops-structural:security-credential_registry]",
+      "proj": "KAI"
+    },
+    "4ea2b908-3bcf-42d9-99d2-3f4bdf8263fb": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "764b9220-e79e-4491-aa29-af9ca16878c7"
+      ],
+      "name": "[DevOps] security/cloudways_auth warn \u2014 Cloudways API token failing \u2014 rotate via the KAI-984 authorized-execution rail (Leo-authorized) [devops-structural:security-cloudways_auth]",
+      "proj": "KAI"
+    },
+    "bd635178-3e20-4f4c-b154-3941e16308fe": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "5334acb8-fa04-40ee-ba77-a707bb1d47b3"
+      ],
+      "name": "[BUG] n8n.sonicink.space down \u2014 tunnel ingress targets kai-n8n:5678 but container is host-mode (unresolvable)",
+      "proj": "KAI"
+    },
+    "9f78dd2c-ef50-40c3-b470-c7c99fde4ab7": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "5334acb8-fa04-40ee-ba77-a707bb1d47b3"
+      ],
+      "name": "[BUG] kai-worker-api/safe_request.py is dead code \u2014 imported by nothing",
+      "proj": "KAI"
+    },
+    "5157d95e-f791-42d2-8dfc-cf940835d53e": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "[C3] Complete dashboard redesign",
+      "proj": "KAI"
+    },
+    "47935981-b43e-4fea-98e1-90fa7a6a62f3": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d5505c28-6415-4c83-ad55-902ee5dd19b1"
+      ],
+      "name": "[P-4a] Statistical control bands for queued signals",
+      "proj": "KAI"
+    },
+    "6fce55ea-76ff-4b6b-8d6b-cc307119ffb2": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d5505c28-6415-4c83-ad55-902ee5dd19b1"
+      ],
+      "name": "[P-4a] Tech-scout custodian \u2014 proactive tech/dependency findings into the queue",
+      "proj": "KAI"
+    },
+    "e01a0ed3-c5a1-4e81-acc5-67cfc1876f9d": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d5505c28-6415-4c83-ad55-902ee5dd19b1"
+      ],
+      "name": "[P-4a] Flip daily_brief live \u2014 scheduled morning digest delivery",
+      "proj": "KAI"
+    },
+    "2d80e0c6-c7f6-46c6-98d0-706258e2a85e": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d5505c28-6415-4c83-ad55-902ee5dd19b1"
+      ],
+      "name": "[P-4a] Extend custodian Finding->queue beyond infra \u2014 WP maintenance, content calendar, inbox",
+      "proj": "KAI"
+    },
+    "40844d87-05e3-4f32-9198-004293226c17": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ead1fdef-b7e9-489d-8c01-85d24545e0b5"
+      ],
+      "name": "[P-1] brand_drift false-flags pre-normalization colors",
+      "proj": "KAI"
+    },
+    "c7b81a27-498e-4dde-93c9-3377d7988622": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "3fff7370-5330-4293-b0e2-3b33231aa4aa"
+      ],
+      "name": "[P-1] Homepage visual layer - hero oversized-71 mark + callout ember rail",
+      "proj": "KAI"
+    },
+    "b29cff9c-17da-4903-a344-8a05760775db": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ead1fdef-b7e9-489d-8c01-85d24545e0b5"
+      ],
+      "name": "[P-1] the71c site-chrome buildout - header with 71 logo + self-hosted brand fonts",
+      "proj": "KAI"
+    },
+    "c26775ff-c98b-4435-a5c2-67e8d6238b9d": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ead1fdef-b7e9-489d-8c01-85d24545e0b5"
+      ],
+      "name": "[P-1] Generator font-normalizer emits malformed font-family CSS",
+      "proj": "KAI"
+    },
+    "9e0dfabf-32b3-4fec-beb8-121ddd990c4b": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "[P-3] Financial view on the dashboard \u2014 ALL API pricing, spend, limits, and access status, current and trustworthy",
+      "proj": "KAI"
+    },
+    "b843dd6f-fa9a-4eaa-ac6f-42a84e473c4d": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "3fff7370-5330-4293-b0e2-3b33231aa4aa"
+      ],
+      "name": "[BACKLOG] Imagery approach decision \u2014 hosted generator vs Apple-Silicon box vs drop",
+      "proj": "KAI"
+    },
+    "e7545a18-a2de-4a2b-a993-3e0dc1271819": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d9d059da-e008-4b96-948b-afe0f97af29b"
+      ],
+      "name": "[BOOT] Sprint-scoped unlock as the default cadence",
+      "proj": "KAI"
+    },
+    "703cc5b0-421b-4263-bdf3-af09353aad7c": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d9d059da-e008-4b96-948b-afe0f97af29b"
+      ],
+      "name": "[BOOT] session_boot.py one-command boot + SessionStart hook",
+      "proj": "KAI"
+    },
+    "1d735fb9-2ea2-4888-acaa-be627ba0833d": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "df2b9d04-af02-46c4-9d18-7a45d5b48f8d"
+      ],
+      "name": "[P-4] Warm-session pipe-drain hygiene for long-lived SDK sessions",
+      "proj": "KAI"
+    },
+    "ae1d0206-279b-4b5a-a398-987852122608": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d9d059da-e008-4b96-948b-afe0f97af29b"
+      ],
+      "name": "[P-4] Async close \u2014 background close engine + Buzz notify + republish-pending flag",
+      "proj": "KAI"
+    },
+    "a4b81f17-cce0-4370-a036-46beae0b5aad": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d9d059da-e008-4b96-948b-afe0f97af29b"
+      ],
+      "name": "[P-4] Overnight autonomous sprint runner",
+      "proj": "KAI"
+    },
+    "b66fd038-846f-419b-b4e7-c2b03b360a52": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ead1fdef-b7e9-489d-8c01-85d24545e0b5"
+      ],
+      "name": "[P-1] Production run #1 \u2014 first real business page through the governed chain on a live property",
+      "proj": "KAI"
+    },
+    "4f6b2102-c9ea-47bf-a9bc-5df46f2b908b": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d9d059da-e008-4b96-948b-afe0f97af29b"
+      ],
+      "name": "[P-4] Throughput metrics layer \u2014 the close measures the system, not just verifies it",
+      "proj": "KAI"
+    },
+    "1d6f467b-ab6d-4c2d-9583-5a34cdbb51b4": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d9d059da-e008-4b96-948b-afe0f97af29b"
+      ],
+      "name": "[P-4] Process-eval suite \u2014 regression-gate changes to CLAUDE.md/hooks/skills",
+      "proj": "KAI"
+    },
+    "68f9845b-2644-4da2-a3ed-ab11fdaf01d6": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ad442ad9-6e52-4776-b38f-ea4bfd53c917"
+      ],
+      "name": "[INFRA] Media SMB unreachable over Tailscale \u2014 Samba won't bind tailscale0; needs hosts-allow rework",
+      "proj": "KAI"
+    },
+    "5c988b22-8cfd-4a59-8960-d25355270067": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "60eaf153-6f67-4966-8627-c9b28b16d4a1"
+      ],
+      "name": "[BRAINSTORM] Dedicated subagents running MVP projects simultaneously",
+      "proj": "KAI"
+    },
+    "3d90ed66-6d6f-4e35-92b2-7af464513a38": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "[BUG] advisor_dm_probe (KAI-1110) leaves KAI_NOTIFY_DEDUP unset \u2014 dedup write PermissionError on host, re-pages every 15min during a sustained outage",
+      "proj": "KAI"
+    },
+    "92c06bce-ec40-4b72-83ef-2a88607e759b": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ead1fdef-b7e9-489d-8c01-85d24545e0b5"
+      ],
+      "name": "[CLEANUP] the71c.com stale drafts (20/21/22) + verify what published page 15 is serving",
+      "proj": "KAI"
+    },
+    "4d552f7c-c982-4716-8cbd-ff8e1595ad4e": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ad442ad9-6e52-4776-b38f-ea4bfd53c917"
+      ],
+      "name": "[CUR-6] Fleet expansion \u2014 extend readers to 71-kai-mini (post-Linux-reimage) and M4 (macOS softwareupdate)",
+      "proj": "KAI"
+    },
+    "caa4b3ae-ac10-420d-97ae-0a3807638789": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "3fff7370-5330-4293-b0e2-3b33231aa4aa"
+      ],
+      "name": "[CREATIVE] Per-property brand guides + logo sets for the WP fleet (7 properties) \u2014 via Creative Gate",
+      "proj": "KAI"
+    },
+    "db12a8b2-9605-4003-ba5d-bcce6882d545": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "60eaf153-6f67-4966-8627-c9b28b16d4a1"
+      ],
+      "name": "[TEST] Tesla Bluetooth read-aloud: does it surface Telegram/Buzz notifications or only SMS? (decides KAI in-car path)",
+      "proj": "KAI"
+    },
+    "d89fb379-ce6d-473c-a635-43619b1478ce": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "60eaf153-6f67-4966-8627-c9b28b16d4a1"
+      ],
+      "name": "[RESEARCH] How Grok (Tesla in-car AI) plays into KAI \u2014 in-car access path; prioritized over/replaces CarPlay",
+      "proj": "KAI"
+    },
+    "4f5ce06e-3f3f-4e8d-8d84-4a6ac3a1f9d9": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ad442ad9-6e52-4776-b38f-ea4bfd53c917"
+      ],
+      "name": "[FLEET] F2 - Relocate both minis to the worker",
+      "proj": "KAI"
+    },
+    "4adfafc8-4f04-44f3-9e65-8628985b7e6b": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ad442ad9-6e52-4776-b38f-ea4bfd53c917"
+      ],
+      "name": "[FLEET] F1 - LiteLLM routing re-point (M4-MLX -> Intel-CPU -> worker)",
+      "proj": "KAI"
+    },
+    "e223df76-76df-47fd-88d6-9973935a65de": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ad442ad9-6e52-4776-b38f-ea4bfd53c917"
+      ],
+      "name": "[FLEET] B1 - M4 -> headless always-on substrate (macOS, config-only, NO wipe)",
+      "proj": "KAI"
+    },
+    "6438a062-d35d-4218-88fd-61907c802251": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ad442ad9-6e52-4776-b38f-ea4bfd53c917"
+      ],
+      "name": "[FLEET] A1 - Desktop role: M4 -> MacBook Pro",
+      "proj": "KAI"
+    },
+    "e8004209-d96d-47a7-a9e5-29ad1e511132": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ad442ad9-6e52-4776-b38f-ea4bfd53c917"
+      ],
+      "name": "[FLEET-EPIC] M4 + Intel-mini fleet cutover & relocation",
+      "proj": "KAI"
+    },
+    "f0b5ee25-9859-43de-b359-fccf888d9026": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "60eaf153-6f67-4966-8627-c9b28b16d4a1"
+      ],
+      "name": "[KAI][EVALUATE] Conversational quality check-in \u2014 did the voice de-conflict hold over real turns?",
+      "proj": "KAI"
+    },
+    "2460ab30-8b27-49dd-bcd2-2ad82a0d8a47": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "[COMMS] Telegram emergency read-only info surface \u2014 pull system state while away until back at keyboard",
+      "proj": "KAI"
+    },
+    "a0daf10a-3675-4e74-a940-5841e552d12e": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "[DASHBOARD] All Anthropic Charges panel \u2014 Build vs Run via Admin Cost/Usage API",
+      "proj": "KAI"
+    },
+    "5cf592c5-13ca-4494-a760-8894c2c12170": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "[BUG] Buzz council context is a budgeted summary, not the full recent thread",
+      "proj": "KAI"
+    },
+    "3ba4cabd-86db-4eaf-9802-26b588a27a38": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d9d059da-e008-4b96-948b-afe0f97af29b"
+      ],
+      "name": "[KAI] Agenda-holding \u2014 run a multi-step flow without losing the thread",
+      "proj": "KAI"
+    },
+    "e0d19f7c-5d1c-423c-8050-25b21678a223": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "[AR-5] Prove remote/away approval round-trip for authorized provisioning \u2014 Buzz primary, Telegram backup",
+      "proj": "KAI"
+    },
+    "38fc2953-7a08-4cdf-9314-c21745811229": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "[COMMS P3] Substance + DevOps/system activity onto the System tab; Telegram pure thin transport",
+      "proj": "KAI"
+    },
+    "cd8c49d1-fd1d-4050-bb8a-ca7dfd43d319": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "[COMMS P2] Reachability \u2014 keyboard-first / away-escalation (30m) + fix Telegram tap round-trip",
+      "proj": "KAI"
+    },
+    "79b067fb-81a7-4fb7-8f04-444c405b9f92": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "AR-5.1: Telegram relief \u2014 notify() chokepoint, reroute loud alerts, kill kai-slack-bot, clear stale hostops records",
+      "proj": "KAI"
+    },
+    "71aec9f3-d374-4511-b4f2-778dbaef7cdb": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "88def795-c519-46d8-a40c-463665de9097"
+      ],
+      "name": "[DEVOPS][SECURITY] Network & Perimeter Threat Monitoring \u2014 robust standing program (Ubiquiti + host IDS; dedicated sensor box TBD)",
+      "proj": "KAI"
+    },
+    "0416d8eb-bcd8-46f8-8d24-452601d111c6": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ead1fdef-b7e9-489d-8c01-85d24545e0b5"
+      ],
+      "name": "Content pipeline: draft+visuals -> on-brand rewrite -> placement -> gate (v1 the71company)",
+      "proj": "KAI"
+    },
+    "ae1f5b0a-83cf-4c54-b368-4f383bb67f53": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "ad442ad9-6e52-4776-b38f-ea4bfd53c917"
+      ],
+      "name": "[ARCHITECTURE] KAI accelerator node \u2014 transition M4 mac-mini vs purchase M4 Pro mini (64GB)",
+      "proj": "KAI"
+    },
+    "bed6500b-8dab-4377-99d6-0c48781c6dad": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d9d059da-e008-4b96-948b-afe0f97af29b"
+      ],
+      "name": "AR-5: Session-continuity spine handover to Hermes; KAI keeps plan/board/facts only (F1 step 4)",
+      "proj": "KAI"
+    },
+    "bd1bb116-ee44-450a-a82d-64bd838f9b51": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "d9d059da-e008-4b96-948b-afe0f97af29b"
+      ],
+      "name": "AR-4: Hermes skills/learning layer from override-tracking; cancel the unbuilt bespoke learning subsystem (F1 step 3)",
+      "proj": "KAI"
+    },
+    "f2a35920-6b3f-420f-9174-c0784b011f78": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "[AUTONOMY follow-up] Route autonomous-action FYI to a Leo-visible surface, not #devops",
+      "proj": "KAI"
+    },
+    "602ddb51-3b6b-489c-984e-1cf255cf0dd7": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "88def795-c519-46d8-a40c-463665de9097"
+      ],
+      "name": "[AUDIT][PROC] Worker mode-lock Layer-1 gate not installed (report-only)",
+      "proj": "KAI"
+    },
+    "e9ad1421-cd36-4624-af48-6210b010a83f": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "df2b9d04-af02-46c4-9d18-7a45d5b48f8d"
+      ],
+      "name": "Tier 3 allowlist gap: registry specialist wordpress absent from _VALID_COLLECTIONS \u2014 recall silently skips; add collection + allowlist entry together at WP seeding",
+      "proj": "KAI"
+    },
+    "37aac430-9c0e-4f20-8761-753fac5f83b7": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "df2b9d04-af02-46c4-9d18-7a45d5b48f8d"
+      ],
+      "name": "[PROCESS] Decision-record prerequisites must reach Leo BEFORE the build session that needs them",
+      "proj": "KAI"
+    },
+    "c2e0e3b7-6c5e-422d-b564-aaa162f1286b": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "e157f811-4137-4e18-af2a-6f6aab546942"
+      ],
+      "name": "Cross-surface conversation continuity \u2014 one conversation visible from web, Slack, and Telegram",
+      "proj": "KAI"
+    },
+    "0326310e-6b8a-47d1-87a7-214aac029c96": {
+      "pid": "78c49227-82d4-477d-a920-66b08cb91c56",
+      "label_ids": [
+        "a5a49c8e-fe5d-439f-b9bb-2d5fcd8f413c",
+        "60eaf153-6f67-4966-8627-c9b28b16d4a1"
+      ],
+      "name": "EVALUATE: Unify project scoping \u2014 memory accepts free-form projects diverging from Plane finite project list",
+      "proj": "KAI"
+    }
+  }
+}
