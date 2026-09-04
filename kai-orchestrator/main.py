@@ -3,7 +3,7 @@ import json, logging, os, threading, time, hmac, sqlite3
 from datetime import datetime, timedelta, timezone
 import time as _time
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from db import init_db, get_conn, new_id, now_iso
 from engine import engine
 from learning.aggregator import start_learning_loop, run_aggregation
@@ -343,7 +343,39 @@ def get_job(job_id: str):
         "steps": [redact_row(dict(s)) for s in steps],
     }
 
-@app.post("/gates/{gate_id}/resolve")
+
+_GATE_RESOLVE_SECRET_FILES = (
+    Path("/run/secrets/gate_resolve_secret"),
+    Path("/home/leo/kai-system/secrets/gate_resolve_secret.txt"),
+)
+
+
+def _gate_resolve_secret() -> str:
+    for _p in _GATE_RESOLVE_SECRET_FILES:
+        try:
+            _s = _p.read_text().strip()
+        except OSError:
+            continue
+        if _s:
+            return _s
+    return ""
+
+
+def _require_gate_resolve_auth(request: Request) -> None:
+    """C2 [SEC] 8ae14701 phase-2 — dedicated credential at the orchestrator
+    resolve/override boundary, mirroring the council-api phase-1 guard
+    (453162cc). kai-orchestrator :8003 is internal-Docker-only, but identity
+    is no longer trusted from the transport adapter alone. Fail closed."""
+    expected = _gate_resolve_secret()
+    if not expected:
+        raise HTTPException(status_code=503, detail="gate-resolve auth misconfigured")
+    supplied = request.headers.get("X-KAI-Gate-Resolve", "")
+    if not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="gate-resolve authorization required")
+
+
+@app.post("/gates/{gate_id}/resolve",
+          dependencies=[Depends(_require_gate_resolve_auth)])
 def resolve_gate(gate_id: str, body: dict):
     info = engine.resolve_gate(gate_id, body)
     if info is None:
@@ -365,7 +397,8 @@ def get_gate_state(gate_id: str):
         "resolved_at": gate["resolved_at"],
     }
 
-@app.post("/jobs/{job_id}/steps/{step_id}/override")
+@app.post("/jobs/{job_id}/steps/{step_id}/override",
+          dependencies=[Depends(_require_gate_resolve_auth)])
 def override_step(job_id: str, step_id: str, body: dict):
     """High-friction step override. Requires reason ≥ 50 chars. Posts a notify ack.
     If the same step_name has been overridden ≥5 times in 7 days, auto-files a Plane BUG.

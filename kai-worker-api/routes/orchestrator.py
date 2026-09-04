@@ -18,6 +18,20 @@ ORCHESTRATOR_URL = os.environ.get("ORCHESTRATOR_URL",
                                   "http://kai-orchestrator:8003")
 ORCHESTRATOR_TIMEOUT_S = 30
 
+
+def _gate_resolve_secret() -> str:
+    """C2 [SEC] 8ae14701 phase-2 — dedicated credential for the orchestrator
+    gate-resolve/override boundary (mirrors the council-api phase-1 guard)."""
+    for _p in ("/run/secrets/gate_resolve_secret",
+               "/home/leo/kai-system/secrets/gate_resolve_secret.txt"):
+        try:
+            _s = open(_p).read().strip()
+        except OSError:
+            continue
+        if _s:
+            return _s
+    return ""
+
 _TARGET_ROOT_ALLOWLIST = {"/kai-system", "/workspace"}
 
 
@@ -94,7 +108,8 @@ def devops_self_modify(req: DevopsSelfModifyRequest):
 def _orchestrator_post(path: str, payload: dict) -> dict:
     try:
         with httpx.Client(timeout=ORCHESTRATOR_TIMEOUT_S) as client:
-            r = client.post(f"{ORCHESTRATOR_URL}{path}", json=payload)
+            r = client.post(f"{ORCHESTRATOR_URL}{path}", json=payload,
+                            headers={"X-KAI-Gate-Resolve": _gate_resolve_secret()})
     except httpx.RequestError as e:
         logger.exception("Orchestrator unreachable")
         raise HTTPException(502, f"orchestrator unreachable: {e}")

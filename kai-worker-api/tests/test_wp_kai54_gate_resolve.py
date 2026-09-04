@@ -39,8 +39,9 @@ class _FakeClient:
         self.calls.append(("GET", url))
         return self._get
 
-    def post(self, url, json=None):
+    def post(self, url, json=None, headers=None):
         self.calls.append(("POST", url, json))
+        self.last_headers = headers or {}
         return self._post
 
 
@@ -81,6 +82,8 @@ class ResolveBuildGate(unittest.TestCase):
         self.assertEqual(method, "POST")
         self.assertTrue(url.endswith("/gates/gate-abc/resolve"))
         self.assertEqual(body, {"approved": True, "advisor": "leo", "notes": "ship it"})
+        # C2 [SEC] 8ae14701: resolve proxy must carry the gate-resolve credential
+        self.assertIn("X-KAI-Gate-Resolve", fake.last_headers)
         self.assertEqual(res, {"ok": True, "gate_id": "gate-abc", "job_id": "job-1"})
 
     def test_upstream_400_is_not_masqueraded_as_502(self):

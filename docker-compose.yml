@@ -449,6 +449,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     secrets:
+      - gate_resolve_secret
       - wpscan_api_token
       - cloudways_ssh_key
       # AR-2 (KAI-929): mini SSH key for hostops.place_fleet_secret; mounts at

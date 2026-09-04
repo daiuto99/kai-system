@@ -887,6 +887,20 @@ def wordpress_drift_scan():
 _ORCH_URL = os.environ.get("ORCHESTRATOR_URL", "http://kai-orchestrator:8003")
 
 
+def _gate_resolve_secret() -> str:
+    """C2 [SEC] 8ae14701 phase-2 — dedicated credential for the orchestrator
+    gate-resolve/override boundary (mirrors the council-api phase-1 guard)."""
+    for _p in ("/run/secrets/gate_resolve_secret",
+               "/home/leo/kai-system/secrets/gate_resolve_secret.txt"):
+        try:
+            _s = open(_p).read().strip()
+        except OSError:
+            continue
+        if _s:
+            return _s
+    return ""
+
+
 class BuildDraftRequest(BaseModel):
     # KAI-1087 — every governed build must trace to a Plane ticket (plane-discipline).
     # Required + non-empty: fail fast at the edge (422) rather than a confusing dev-gate NOT READY.
@@ -1048,7 +1062,8 @@ def resolve_build_gate(gate_id: str, req: GateResolveRequest):
     error, not a silent no-op)."""
     try:
         with httpx.Client(timeout=30) as client:
-            r = client.post(f"{_ORCH_URL}/gates/{gate_id}/resolve", json=req.dict())
+            r = client.post(f"{_ORCH_URL}/gates/{gate_id}/resolve", json=req.dict(),
+                            headers={"X-KAI-Gate-Resolve": _gate_resolve_secret()})
     except httpx.RequestError as e:
         logger.exception("orchestrator unreachable for gate resolve")
         raise HTTPException(502, f"orchestrator unreachable: {e}")

@@ -27,6 +27,7 @@ import re
 import tempfile
 import threading
 from pathlib import Path
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 
 import hmac
@@ -1354,9 +1355,20 @@ def _persist_gate_record(gate_id: str, gate_type: str, brief: dict, resolution: 
 
 
 def _fire_callback(callback_url: str, resolution: dict):
-    """POST resolution back to the orchestrator callback URL."""
+    """POST resolution back to the orchestrator callback URL.
+
+    C2 [SEC] 8ae14701 phase-2: when the callback targets the orchestrator,
+    send the dedicated gate-resolve credential so the (now-guarded) resolve
+    boundary accepts it. Only attached for the kai-orchestrator host so the
+    secret is never leaked to an arbitrary callback_url."""
+    headers = {}
     try:
-        r = httpx.post(callback_url, json=resolution, timeout=10)
+        if urlparse(callback_url).hostname == "kai-orchestrator":
+            headers["X-KAI-Gate-Resolve"] = _gate_resolve_secret()
+    except Exception:
+        pass
+    try:
+        r = httpx.post(callback_url, json=resolution, timeout=10, headers=headers)
         if r.status_code == 200:
             logger.info("Gate callback OK: %s", callback_url)
         else:

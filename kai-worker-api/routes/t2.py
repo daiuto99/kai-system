@@ -20,6 +20,20 @@ _T2_LOCK = threading.RLock()
 _ORCHESTRATOR_URL = "http://kai-orchestrator:8003"
 
 
+def _gate_resolve_secret() -> str:
+    """C2 [SEC] 8ae14701 phase-2 — dedicated credential for the orchestrator
+    gate-resolve/override boundary (mirrors the council-api phase-1 guard)."""
+    for _p in ("/run/secrets/gate_resolve_secret",
+               "/home/leo/kai-system/secrets/gate_resolve_secret.txt"):
+        try:
+            _s = open(_p).read().strip()
+        except OSError:
+            continue
+        if _s:
+            return _s
+    return ""
+
+
 def _t2_load() -> list:
     if T2_QUEUE_FILE.exists():
         return json.loads(T2_QUEUE_FILE.read_text())
@@ -145,7 +159,8 @@ def respond_t2_action(req: T2RespondRequest):
                 if req.approved:
                     resolution["advisor"] = req.user_id
                 try:
-                    response = httpx.post(resolve_url, json=resolution, timeout=15)
+                    response = httpx.post(resolve_url, json=resolution, timeout=15,
+                                          headers={"X-KAI-Gate-Resolve": _gate_resolve_secret()})
                     response.raise_for_status()
                     orchestrator_response = safe_json(response, default={"body": response.text})
                 except httpx.HTTPError as exc:
