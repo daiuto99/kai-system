@@ -27,11 +27,33 @@ ADVISOR_SHIM_TIMEOUT = int(os.environ.get("ADVISOR_SHIM_TIMEOUT", "300"))
 
 def _run_hermes_async(advisor: str, message: str, user_id: str) -> None:
     """Run the advisor Hermes profile on the mini (local, ~90s) and append the reply
-    to /vault/60_Council/<advisor>/dm_log.jsonl so it surfaces on the dashboard."""
+    to /vault/60_Council/<advisor>/dm_log.jsonl so it surfaces on the dashboard.
+
+    [C3/KAI-bc55d9a4] The mini-run advisor gets ONLY the raw message here — the
+    Tier-3 recall the sync cloud path assembles never reached it, so an async
+    advisor could not use its own ingested knowledge. Fetch that advisor's
+    curated <knowledge> block (side-effect-free) from the Memory Service and
+    prepend it, so the specialist answers from its knowledge base. A failed or
+    empty fetch degrades to the raw message — knowledge is additive, never a
+    hard dependency of the turn."""
     reply = None
     try:
+        shim_message = message
+        try:
+            kr = httpx.get(f"{ORCHESTRATOR_URL}/context/knowledge",
+                           params={"advisor": advisor, "q": message}, timeout=10)
+            if kr.status_code == 200:
+                ktext = (kr.json() or {}).get("knowledge_text") or ""
+                if ktext:
+                    shim_message = (
+                        f"{ktext}\n\n"
+                        "Use the curated knowledge above where it is relevant to the "
+                        f"message. Message from {user_id}: {message}"
+                    )
+        except Exception as exc:
+            logger.warning("hermes-async knowledge fetch failed advisor=%s: %s", advisor, exc)
         r = httpx.post(f"{ADVISOR_SHIM_URL}/advisor",
-                       json={"advisor": advisor, "message": message},
+                       json={"advisor": advisor, "message": shim_message},
                        timeout=ADVISOR_SHIM_TIMEOUT)
         r.raise_for_status()
         reply = (r.json().get("reply") or "").strip()
@@ -501,6 +523,13 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     # the Tier 4 cache-shaping follow-on, out of scope for the Tier 5 increment.
     if _package.get("facts_text"):
         system_prompt += f"\n\n{_package['facts_text']}"
+    # [C3/KAI-bc55d9a4] Curated domain knowledge — the advisor's OWN ingested
+    # collection, split out of Tier-3 recall and marked trust="curated" so the
+    # advisor may state it authoritatively. Placed with the trusted content
+    # (after verified facts, before untrusted recall): this is what lets an
+    # advisor actually USE its knowledge instead of refusing it as untrusted.
+    if _package.get("knowledge_text"):
+        system_prompt += f"\n\n{_package['knowledge_text']}"
     # Tier 3 semantic recall (CONTEXT_SPEC §5/§10) — assembled server-side by
     # context_service.assemble(), already relevance-gated, budget-capped, and
     # wrapped in <recalled trust="untrusted"> provenance markers. Replaces the

@@ -600,6 +600,18 @@ def context_assemble(body: dict):
     return {"ok": True, "package": package}
 
 
+@app.get("/context/knowledge")
+def context_knowledge(advisor: str, q: str = ""):
+    """[C3/KAI-bc55d9a4] Side-effect-free curated-knowledge fetch — the advisor's
+    own <knowledge trust="curated"> block for query `q`, with no conversation or
+    assembly-log writes. The async advisor path (kai-council-api
+    _run_hermes_async) calls this so a mini-run advisor gets its ingested
+    knowledge, which the raw-message shim path never delivered. Internal only
+    (compose-network)."""
+    import context_service
+    return {"ok": True, **context_service.curated_knowledge(advisor, q)}
+
+
 @app.get("/context/persona")
 def context_persona(advisor: str, channel: str = None, property: str = None):
     """§3/§13 Tier 5 — lightweight persona-only load (no ConversationKey,

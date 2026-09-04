@@ -893,6 +893,80 @@ def check_alert_delivery() -> str:
     return detail
 
 
+def knowledge_use_verdict(result, age_h, failing_since_age_h=None):
+    """[C3/KAI-bc55d9a4] Pure verdict for the advisor knowledge-use journey.
+    `result`/`age_h`: token + age of ~/backups/.knowledge_heartbeat, which the
+    heartbeat writes ONLY on a witnessed GREEN (freshness IS the signal).
+    `failing_since_age_h`: hours since the current unbroken failing streak began
+    (from the .knowledge_heartbeat.last sibling), or None.
+
+    GREEN when an advisor was witnessed surfacing a codeword that lived nowhere
+    but its own curated collection within the freshness window. RED when the last
+    GREEN is older than 48h — a persistent break must block, not pass as amber
+    (Codex F2). A single flaky miss does NOT flip this (the heartbeat retries and
+    leaves the recent GREEN fresh). The never-GREEN blind spot is closed too: if
+    there is NO GREEN stamp but the heartbeat has been failing for >48h, that is a
+    broken-from-birth recall path and also RED. WARN only within the initial grace
+    window (fresh deploy, first run pending, or short failing streak)."""
+    if result == "GREEN" and age_h is not None:
+        if age_h > 48:
+            return "red", f"advisor knowledge-use NOT witnessed in {age_h:.0f}h — curated-knowledge recall path likely broken [C3]"
+        return "green", f"advisor knowledge-use witnessed ({age_h:.0f}h ago) [C3]"
+    # No valid GREEN stamp.
+    if failing_since_age_h is not None and failing_since_age_h > 48:
+        return "red", f"advisor knowledge-use never witnessed GREEN and failing for {failing_since_age_h:.0f}h — recall path broken from the start [C3]"
+    return "warn", "knowledge-use journey has not yet witnessed GREEN (within grace window) [C3]"
+
+
+def check_knowledge_use() -> str:
+    """[C3/KAI-bc55d9a4] The daily knowledge_journey_heartbeat runs the
+    advisor_knowledge journey and stamps ~/backups/.knowledge_heartbeat. See
+    knowledge_use_verdict."""
+    import time as _time
+    from pathlib import Path as _Path
+
+    stamp = None
+    for base in (_Path.home() / "backups", _Path("/home/leo/backups")):
+        cand = base / ".knowledge_heartbeat"
+        if cand.exists():
+            stamp = cand
+            break
+
+    result, age_h = None, None
+    if stamp is not None:
+        try:
+            result = stamp.read_text().strip().split()[0]
+        except Exception:
+            result = None
+        age_h = (_time.time() - stamp.stat().st_mtime) / 3600
+
+    # Failing-streak age from the .last sibling's failing_since= token (closes the
+    # never-GREEN blind spot, Codex F2).
+    failing_since_age_h = None
+    for base in (_Path.home() / "backups", _Path("/home/leo/backups")):
+        cand = base / ".knowledge_heartbeat.last"
+        if cand.exists():
+            try:
+                import datetime as _dt
+                for tok in cand.read_text().split():
+                    if tok.startswith("failing_since="):
+                        fs = _dt.datetime.fromisoformat(tok.split("=", 1)[1])
+                        if fs.tzinfo is None:
+                            fs = fs.replace(tzinfo=_dt.timezone.utc)
+                        failing_since_age_h = (_dt.datetime.now(_dt.timezone.utc) - fs).total_seconds() / 3600
+                        break
+            except Exception:
+                failing_since_age_h = None
+            break
+
+    sev, detail = knowledge_use_verdict(result, age_h, failing_since_age_h)
+    if sev == "red":
+        raise RuntimeError(detail)
+    if sev == "warn":
+        return "WARN " + detail
+    return detail
+
+
 _RAIL_CANARY_SCRIPT = r"""
 import os, sys
 BASE = "/run/hostops-payload-secrets"
@@ -1370,6 +1444,11 @@ def checks() -> tuple[Check, ...]:
         # message_id receipt (W-1 #2, the reference witness). Every other check
         # above is a diagnostic — it explains failures, it does not grant green.
         Check("alert_delivery", check_alert_delivery, journey=True),
+        # [C3/KAI-bc55d9a4] advisor_knowledge: a real advisor surfaced a codeword
+        # that existed nowhere but its own curated Qdrant collection — proof the
+        # curated-knowledge recall path delivers an advisor's knowledge into
+        # inference. Amber (not blocking) until its heartbeat has run.
+        Check("advisor_knowledge", check_knowledge_use, journey=True),
     )
 
 

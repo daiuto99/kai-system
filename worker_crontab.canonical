@@ -19,6 +19,7 @@
 0 3 * * * docker exec kai-orchestrator /app/backup.sh >> /home/leo/kai-system/logs/orchestrator_backup.log 2>&1
 7 13 * * * docker exec kai-scheduler python3 /app/telegram_inbound_probe.py >> /home/leo/kai-system/logs/telegram_inbound_probe.log 2>&1 # telegram_inbound_probe KAI-1111
 40 13 * * * cd /home/leo/kai-system && PATH=/usr/bin:/bin /usr/bin/python3 scripts/alert_delivery_heartbeat.py >> /home/leo/kai-system/logs/alert_delivery_heartbeat.log 2>&1 # alert_delivery_heartbeat S1-B4
+50 13 * * * cd /home/leo/kai-system && PATH=/usr/bin:/bin /usr/bin/python3 scripts/knowledge_journey_heartbeat.py >> /home/leo/kai-system/logs/knowledge_journey_heartbeat.log 2>&1 # knowledge_journey_heartbeat C3
 0 14 * * * cd /home/leo/kai-system && PATH=/usr/bin:/bin /usr/bin/python3 scripts/approval_round_trip_probe.py >> /home/leo/kai-system/logs/approval_round_trip_probe.log 2>&1 # approval_round_trip_probe KAI-1112
 20 15 * * * cd /home/leo/kai-system && PATH=/usr/bin:/bin /usr/bin/python3 scripts/wp_governed_pipeline_probe.py >> /home/leo/kai-system/logs/wp_governed_pipeline_probe.log 2>&1 # wp_governed_pipeline_probe KAI-1113
 0 4 * * 0 cd /home/leo/kai-system && bash scripts/verify_backups.sh >> /home/leo/backups/backup.log 2>&1  # S1-B3 weekly backup verify

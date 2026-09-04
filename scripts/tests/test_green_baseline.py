@@ -44,6 +44,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "tailscale_key_expiry", "public_tls", "cloudways_auth", "backup_verify",
                 "offsite_freshness",
                 "alert_delivery",
+                "advisor_knowledge",
             ],
         )
 
