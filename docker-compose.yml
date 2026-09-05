@@ -35,6 +35,11 @@ services:
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
       - /home/leo/kai-system/shared:/shared:ro
+      # F2/bbc788da: root-owned named volume for turn-gate blocker authority
+      # (ledger + one-shot claim + yield bound). NOT a host bind under /home/leo,
+      # so a worker-run session as `leo` cannot write it without sudo (there is
+      # none) — reachable only via the authenticated /turn-gate/blocker/* API.
+      - turngate-data:/data/turngate
     environment:
       - PYTHONPATH=/shared
       - DOCKER_HOST=tcp://docker-socket-proxy:2375
@@ -591,6 +596,7 @@ volumes:
   ollama_data:
   tailscale-data:
   orchestrator-data:
+  turngate-data:
 
 secrets:
   anthropic_api_key:
