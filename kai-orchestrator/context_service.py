@@ -97,6 +97,17 @@ _VALID_COLLECTIONS = {
     # production memory namespace.
     "m0smoke", "m0isolation",
 }
+
+# [KAI-e9ad1421] Registry specialists that intentionally have NO production
+# Qdrant collection yet, and therefore no _VALID_COLLECTIONS entry. Tier 3
+# recall for these is a documented, deliberate no-op — not drift. The pairing
+# rule: a name leaves this waiver in the SAME change that seeds its collection
+# and adds its allowlist entry. tests/test_e9ad_allowlist_drift.py fails if a
+# registry specialist ever has a live collection without an allowlist entry, or
+# is neither allowlisted nor waived here, so the gap can no longer be forgotten.
+_UNSEEDED_SPECIALISTS = frozenset({
+    "wordpress",  # seeded by WP Foundation / M-E, not before
+})
 # §5/§4.2: "advisor's collection + shared collections" — no shared collection
 # has been named by Leo/architecture yet, so this stays empty until one is.
 # Extension point only; adding a name here is a spec-visible decision, not an
