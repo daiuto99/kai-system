@@ -12,10 +12,36 @@ import json
 from pathlib import Path
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
+
+import notify_gateway as ng
 
 router = APIRouter()
 
 _LOG = Path("/vault/00_System/notify_log.jsonl")
+
+
+class NotifyRequest(BaseModel):
+    """Autonomous-action FYI. `channel` is legacy — callers historically passed
+    'devops'; operational/DevOps activity is KAI's to log, so it lands on the
+    dashboard System tab (the Leo-visible surface) regardless."""
+    text: str
+    channel: str = "dashboard"
+    source: str = "autonomous"
+    kind: str = "alert"
+
+
+@router.post("/notify")
+def post_notify(body: NotifyRequest):
+    """Autonomous-action FYI sink. Routes through the single notify gateway to the
+    dashboard System tab — the Leo-visible surface — NOT the retired #devops Slack
+    channel. Replaces a dead /notify (404) that made sprint_watchdog, the async
+    close-complete FYI, and sprint_runner all fail SILENTLY. L18: the gateway logs
+    only a truncated title + decision metadata (never a token or bot URL)."""
+    res = ng.notify(ng.Event(
+        source=body.source, kind=body.kind, title=body.text,
+        audience="dashboard", provenance="real"))
+    return {"ok": True, "decision": res.decision, "destination": res.destination}
 
 
 def _tail_lines(path: Path, n: int) -> list[str]:

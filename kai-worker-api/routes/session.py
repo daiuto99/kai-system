@@ -15,6 +15,20 @@ router = APIRouter()
 MANIFEST_PATH = VAULT_PATH / "00_System" / "session_close_log.json"
 WARMBOOT_MANIFEST_PATH = VAULT_PATH / "00_System" / "session_warmboot_log.json"
 NEXT_ACTION_PATH = VAULT_PATH / "00_System" / "next_action.json"
+# Async-close: set true by trigger_close(background=True) — the one close path with
+# NO model present to republish the Leo-facing artifact live — and cleared by
+# POST /session/republish-done once a model session republishes it (UPDATE STATE
+# LAW step 4). session_boot reads brief.artifact_republish_pending and warns.
+REPUBLISH_PENDING_PATH = VAULT_PATH / "00_System" / "artifact_republish_pending.json"
+
+
+def _read_republish_pending() -> bool:
+    """True while a detached close has left the Leo-facing State & Plan artifact
+    un-republished. Fail-safe: any read/parse error reads as 'not pending'."""
+    try:
+        return bool(json.loads(REPUBLISH_PENDING_PATH.read_text()).get("pending"))
+    except Exception:
+        return False
 
 # HARDEN-2: these are the exact wiki artifacts step_vault_wiki_sync writes and
 # content-verifies through the vault API. The brief must never read a workspace
@@ -135,6 +149,7 @@ def session_brief():
         "warmboot_required": True,
         "next_action": None,
         "next_action_guard": None,
+        "artifact_republish_pending": _read_republish_pending(),
     }
 
     # 1. StateOfTheUnion.md
@@ -399,6 +414,19 @@ def trigger_close(issue_id: str, background: bool = False):
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
+        # A detached close has no model to republish the Leo-facing artifact — leave
+        # the pending flag so the next model session's boot warns + republishes it.
+        try:
+            REPUBLISH_PENDING_PATH.parent.mkdir(parents=True, exist_ok=True)
+            REPUBLISH_PENDING_PATH.write_text(json.dumps({
+                "pending": True,
+                "since": datetime.utcnow().isoformat() + "Z",
+                "issue_id": issue_id,
+                "note": "detached close launched — republish the Leo-facing State & "
+                        "Plan artifact, then POST /session/republish-done",
+            }, indent=2))
+        except Exception:
+            pass
         return {"ok": True, "mode": "background", "message": "manual_close.py launched in background"}
 
     try:
@@ -416,5 +444,21 @@ def trigger_close(issue_id: str, background: bool = False):
         }
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "timeout", "detail": "manual_close.py exceeded 300s"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/session/republish-done")
+def republish_done():
+    """Clear the artifact-republish-pending flag after a model session republishes
+    the Leo-facing State & Plan artifact (UPDATE STATE LAW step 4). Idempotent —
+    safe to call whether or not a flag was pending."""
+    try:
+        REPUBLISH_PENDING_PATH.parent.mkdir(parents=True, exist_ok=True)
+        REPUBLISH_PENDING_PATH.write_text(json.dumps({
+            "pending": False,
+            "cleared_at": datetime.utcnow().isoformat() + "Z",
+        }, indent=2))
+        return {"ok": True, "pending": False}
     except Exception as e:
         return {"ok": False, "error": str(e)}
