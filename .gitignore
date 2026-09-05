@@ -27,3 +27,4 @@ voice-models/
 logs/devops_disk_remediation.jsonl
 logs/provision_audit.jsonl
 logs/wp_credential_rotation.jsonl
+logs/*.state
