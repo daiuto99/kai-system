@@ -5,10 +5,11 @@ import os
 from datetime import datetime as _dt2, date as _d2
 from pathlib import Path
 import httpx
-from council_config import WORKER_URL, VAULT_PATH, _worker_auth
+from council_config import WORKER_URL, VAULT_PATH, _worker_auth, ORCHESTRATOR_URL as _ORCH_URL
 from knowledge_layer import _write_session_summary, _write_decision, _log_mission_deliverable
 from usage_tracker import track_api_call
 import function_map as fm
+import agenda as _agenda
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,6 @@ N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
 PLANE_API_TOKEN = open("/run/secrets/plane_api_token").read().strip().split("\n")[0]
 PLANE_BASE_URL = "http://plane-proxy:8090/api/v1"
 PLANE_WORKSPACE = "sonicink"
-from council_config import ORCHESTRATOR_URL as _ORCH_URL
 
 
 def _capability_auth_headers() -> dict[str, str]:
@@ -351,6 +351,28 @@ def _h_mission(client, tool_name, ti, advisor):
         with open(changelog, "a") as f:
             f.write(entry)
         return {"ok": True}
+
+
+def _h_agenda(client, tool_name, ti, advisor):
+    """Durable conversational agenda (KAI-3ba4cabd) — hold a multi-step flow across
+    turns. One active agenda per advisor; the current item is re-injected into the
+    system prompt every turn by router.council_message via agenda.render_block."""
+    if tool_name == "start_agenda":
+        a = _agenda.start(advisor, ti["title"], ti.get("items") or [])
+        return {"ok": True, "title": a["title"], "items": len(a["items"]),
+                "current": a["items"][0]["label"]}
+    if tool_name == "advance_agenda":
+        a = _agenda.advance(advisor, ti.get("answer"))
+        if a["status"] == "complete":
+            return {"ok": True, "status": "complete",
+                    "message": "All agenda items done — the flow is finished."}
+        cur = a["items"][a["current"]]["label"]
+        done = sum(1 for it in a["items"] if it["status"] == "done")
+        return {"ok": True, "status": "active", "done": done,
+                "total": len(a["items"]), "next_item": cur}
+    if tool_name == "abandon_agenda":
+        _agenda.abandon(advisor)
+        return {"ok": True, "status": "abandoned"}
 
 
 def _h_calendar(client, tool_name, ti, advisor):
@@ -1413,6 +1435,10 @@ TOOL_REGISTRY = {
     "start_mission": _h_mission,
     "complete_mission": _h_mission,
     "log_action": _h_mission,
+    # Conversational agenda (KAI-3ba4cabd — hold a multi-step flow across turns)
+    "start_agenda": _h_agenda,
+    "advance_agenda": _h_agenda,
+    "abandon_agenda": _h_agenda,
     # Calendar
     "get_calendar": _h_calendar,
     "create_event": _h_calendar,

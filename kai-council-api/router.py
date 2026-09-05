@@ -11,6 +11,7 @@ from complexity import _classify_complexity, _get_advisor_config
 import function_map as fm
 from insights import extract_and_strip_insights, append_insights_to_vault
 from execute_tool import execute_tool
+import agenda as _agenda
 from providers import get_anthropic_client, _call_ollama, _call_litellm
 import os
 from datetime import datetime, timezone
@@ -161,6 +162,9 @@ KAI_TOOLS = [
     {"name": "start_mission", "description": "Record the start of an autonomous mission.", "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "scope": {"type": "array", "items": {"type": "string"}}, "notes": {"type": "string"}}, "required": ["name", "scope"]}},
     {"name": "complete_mission", "description": "Mark the current mission complete and compile the review briefing.", "input_schema": {"type": "object", "properties": {"built": {"type": "array", "items": {"type": "object"}}, "decisions": {"type": "array", "items": {"type": "string"}}}, "required": ["built"]}},
     {"name": "log_action", "description": "Log a governance action.", "input_schema": {"type": "object", "properties": {"action": {"type": "string"}, "tier": {"type": "integer"}, "approved_by": {"type": "string"}}, "required": ["action", "tier", "approved_by"]}},
+    {"name": "start_agenda", "description": "Begin a structured multi-step conversational flow you must drive to completion one item at a time — e.g. a red/yellow/green scan across the life pillars, an onboarding interview, any ordered checklist you ask the user through. Call this the MOMENT such a flow begins, with the ordered item labels. The current item is then shown to you every turn under <active_agenda>; ask ONLY it, then call advance_agenda when answered. This is how you hold the thread without the user reminding you.", "input_schema": {"type": "object", "properties": {"title": {"type": "string", "description": "Short name of the flow, e.g. 'RYG pillar scan'."}, "items": {"type": "array", "items": {"type": "string"}, "description": "Ordered item labels to ask through, one per turn."}}, "required": ["title", "items"]}},
+    {"name": "advance_agenda", "description": "Record the current agenda item's answer and move to the next one. Call this as soon as the user answers the current item, BEFORE you reply. When the last item is answered the agenda closes itself and returns status 'complete' — only then wrap up the flow.", "input_schema": {"type": "object", "properties": {"answer": {"type": "string", "description": "The user's answer/outcome for the current item (optional but recommended)."}}}},
+    {"name": "abandon_agenda", "description": "Drop the active agenda when the user cancels or changes their mind about the flow.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "get_calendar", "description": "Get upcoming calendar events across the next N days.", "input_schema": {"type": "object", "properties": {"days": {"type": "integer"}, "calendar_id": {"type": "string"}}}},
     {"name": "create_event", "description": "Create a Google Calendar event.", "input_schema": {"type": "object", "properties": {"title": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"}, "description": {"type": "string"}, "location": {"type": "string"}, "calendar_id": {"type": "string"}}, "required": ["title", "start", "end"]}},
     {"name": "save_session", "description": "Save a structured summary of the current conversation session.", "input_schema": {"type": "object", "properties": {"title": {"type": "string"}, "topics": {"type": "array", "items": {"type": "string"}}, "decisions": {"type": "array", "items": {"type": "string"}}, "actions": {"type": "array", "items": {"type": "string"}}, "context": {"type": "string"}, "channel": {"type": "string"}}, "required": ["title", "topics"]}},
@@ -511,6 +515,13 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
 
     if _package.get("summary"):
         system_prompt += f"\n\n<conversation_summary>\n{_package['summary']}\n</conversation_summary>"
+
+    # Conversational agenda (KAI-3ba4cabd) — if a multi-step flow is active for this
+    # advisor, re-inject the current item every turn so the thread is held by the
+    # environment, not the model's memory. Fail-open (render_block never raises): an
+    # agenda glitch degrades to no-block, never breaks the turn. Volatile by design —
+    # appended after the cache breakpoint since it changes each turn.
+    system_prompt += _agenda.render_block(advisor)
     # Tier 4 verified facts (CONTEXT_SPEC §5/§10) — placed before Tier 3 recall
     # so a registry fact reads as authoritative ahead of a conflicting recalled
     # snippet; facts_text carries its own <trust_rubric> stating that precedence
