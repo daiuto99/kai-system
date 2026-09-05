@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import subprocess
 import sys
@@ -36,6 +37,11 @@ class Check:
     # grant green. This is the whole fix: green now means "a party outside the code
     # under test confirmed it," not "27 signals the system produced look fine."
     journey: bool = False
+    # [F4] preflight_only checks are selectable by the --preflight gate but EXCLUDED
+    # from the default/always-on baseline (CI, close, session-start). deploy_path_commit
+    # is one: uncommitted kai-system work is NORMAL mid-session, so it must never block
+    # the close — but a machine about to run UNATTENDED must have a clean, committed tree.
+    preflight_only: bool = False
 
 
 def _command(*args: str, timeout: int = 8) -> str:
@@ -1413,6 +1419,115 @@ def check_jobs_secret_leak() -> str:
     return detail
 
 
+# ── [F4] pre-flight readiness gate ────────────────────────────────────────────────
+# The subset of diagnostics that must ALL be green before an unattended sprint run
+# may start (verifier health, disk, credentials, containers, clean base, backups
+# tested, authoritative-deploy-path committed). These are machine-FITNESS checks,
+# not witnessed journeys — a pre-flight proves the host can safely run, so any RED
+# blocks the run. Wired into sprint_runner via `green_baseline.py --preflight`.
+PREFLIGHT_NAMES: tuple[str, ...] = (
+    "services_up",
+    "session_brief",
+    "codex_verifier_auth",
+    "disk_pressure",
+    "credential_registry",
+    "secret_permissions",
+    "container_roster",
+    "source_drift",
+    "pinned_base",
+    "host_hygiene",
+    "backup_freshness",
+    "backup_verify",
+    "deploy_path_commit",
+)
+
+DEPLOY_ROOT = Path(os.environ.get("KAI_DEPLOY_ROOT", "/home/leo/kai-system"))
+
+
+def check_deploy_path_commit() -> str:
+    """F4 readiness — the authoritative kai-system deploy root has NO uncommitted
+    tracked drift. This is the MEG 4.1 foot-gun: code deployed + running on the worker
+    but never committed, so a close/rebuild silently reverts or loses it (it has bitten
+    three times). RED on modified/staged tracked files (real drift); WARN on untracked
+    files or local-ahead-of-origin (committed but unpushed)."""
+    root = DEPLOY_ROOT
+    if not (root / ".git").exists():
+        raise RuntimeError(f"deploy root {root} is not a git repo")
+    porcelain = _command("git", "-C", str(root), "status", "--porcelain")
+    # NB: _command strips the combined output, so column offsets are unreliable on the
+    # first/last line — split on whitespace (status token, then path) instead of slicing.
+    parsed = [l.split(maxsplit=1) for l in porcelain.splitlines() if l.strip()]
+    tracked = [p for p in parsed if p and p[0] != "??"]
+    untracked = [p for p in parsed if p and p[0] == "??"]
+    if tracked:
+        raise RuntimeError(
+            f"{len(tracked)} uncommitted tracked change(s) in deploy root {root} "
+            f"(deployed-but-uncommitted drift, MEG 4.1): "
+            + ", ".join((p[1] if len(p) > 1 else p[0]) for p in tracked[:5]))
+    warns = []
+    if untracked:
+        warns.append(f"{len(untracked)} untracked file(s)")
+    try:
+        counts = _command("git", "-C", str(root), "rev-list",
+                          "--left-right", "--count", "@{upstream}...HEAD")
+        parts = counts.split()
+        ahead = parts[1] if len(parts) >= 2 else "0"
+        if ahead != "0":
+            warns.append(f"{ahead} commit(s) ahead of origin (unpushed)")
+    except Exception:
+        pass
+    branch = _command("git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD")
+    base = f"deploy root clean on {branch}"
+    return ("WARN " + base + " — " + "; ".join(warns)) if warns else base
+
+
+def _image_is_floating(ref: str) -> bool:
+    """True if an image reference is NOT reproducibly pinned. A @sha256 digest is pinned;
+    otherwise the tag (the part after the last colon of the final path segment, so a
+    registry host:port is not mistaken for a tag) must be present and not ``latest``."""
+    ref = ref.strip().strip('"').strip("'")
+    if "@sha256:" in ref:
+        return False
+    last = ref.rsplit("/", 1)[-1]
+    if ":" not in last:
+        return True
+    return last.rsplit(":", 1)[1] == "latest"
+
+
+COMPOSE = Path(os.environ.get("KAI_COMPOSE", "/home/leo/kai-system/docker-compose.yml"))
+
+
+def check_pinned_base() -> str:
+    """F4 readiness — the container base is pinned, not floating. A ``:latest`` or
+    untagged image means an unattended rebuild can silently pull a different image than
+    what was tested. WARN (not RED): some upstreams only ship ``:latest`` — the point is
+    visibility before an unattended run, not blocking it."""
+    if not COMPOSE.exists():
+        raise RuntimeError(f"compose file {COMPOSE} not found")
+    floating = []
+    for line in COMPOSE.read_text().splitlines():
+        st = line.strip()
+        if st.startswith("image:"):
+            ref = st.split(":", 1)[1].strip()
+            if _image_is_floating(ref):
+                floating.append(ref.strip('"').strip("'"))
+    total = sum(1 for l in COMPOSE.read_text().splitlines() if l.strip().startswith("image:"))
+    if floating:
+        return (f"WARN {len(floating)}/{total} image(s) floating (unpinned): "
+                + ", ".join(floating[:6]))
+    return f"all {total} compose image(s) pinned"
+
+
+def _preflight_suite() -> "tuple[Check, ...]":
+    """Resolve PREFLIGHT_NAMES against the live registry, preserving order. Fails loud
+    if a name drifts out of the registry — a silently-shrunk gate is worse than none."""
+    by_name = {c.name: c for c in checks()}
+    missing = [n for n in PREFLIGHT_NAMES if n not in by_name]
+    if missing:
+        raise SystemExit(f"pre-flight references unknown check(s): {', '.join(missing)}")
+    return tuple(by_name[n] for n in PREFLIGHT_NAMES)
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -1427,6 +1542,8 @@ def checks() -> tuple[Check, ...]:
         Check("credential_registry", check_credential_registry),
         Check("jobs_secret_leak", check_jobs_secret_leak),
         Check("source_drift", check_source_drift),
+        Check("deploy_path_commit", check_deploy_path_commit, preflight_only=True),
+        Check("pinned_base", check_pinned_base, preflight_only=True),
         Check("fleet_visibility", check_fleet),
         Check("codex_verifier_auth", check_codex_verifier_auth),
         Check("hostops_rail_canary", check_hostops_rail_canary),
@@ -1470,7 +1587,7 @@ def run_suite(suite: tuple[Check, ...] | None = None) -> int:
     """
     import os as _os
 
-    suite = suite or checks()
+    suite = suite if suite is not None else tuple(c for c in checks() if not c.preflight_only)
     print("KAI GREEN BASELINE — START")
     diag_failed: list[str] = []
     journeys: list[tuple[str, str]] = []  # (name, verdict)
@@ -1513,4 +1630,7 @@ def run_suite(suite: tuple[Check, ...] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    if "--preflight" in sys.argv[1:]:
+        print("KAI PRE-FLIGHT (F4) — unattended-run readiness gate")
+        sys.exit(run_suite(_preflight_suite()))
     sys.exit(run_suite())

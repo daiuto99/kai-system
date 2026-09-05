@@ -36,6 +36,7 @@ class GreenBaselineTests(unittest.TestCase):
                 "plane_reachable", "qdrant_up", "litellm_models",
                 "qwen_mid_route_and_fallback", "buzz_shim_backend", "secret_permissions",
                 "credential_registry", "jobs_secret_leak", "source_drift",
+                "deploy_path_commit", "pinned_base",
                 "fleet_visibility", "codex_verifier_auth", "hostops_rail_canary",
                 "host_hygiene",
                 "cron_log_error_scan",
@@ -786,6 +787,88 @@ class ThreeStateHeadline(unittest.TestCase):
         ])
         self.assertEqual(rc, 1)
         self.assertIn("KAI GREEN BASELINE — RED: diag", out)
+
+
+class F4PreflightGateTests(unittest.TestCase):
+    """[F4] the pre-flight readiness gate: a named subset the unattended runner keys on."""
+
+    def test_deploy_path_commit_is_preflight_only(self):
+        # It must NOT ship in the always-on baseline (uncommitted mid-session work is
+        # normal — blocking it there would deadlock the close, which is the committer).
+        default = [c.name for c in baseline.checks() if not c.preflight_only]
+        self.assertIn("deploy_path_commit",
+                      [c.name for c in baseline.checks()])
+        self.assertNotIn("deploy_path_commit", default)
+
+    def test_default_run_suite_excludes_preflight_only(self):
+        # run_suite() with no explicit suite is the close/CI/session-start gate.
+        red = baseline.Check("deploy_path_commit", lambda: (_ for _ in ()).throw(
+            RuntimeError("drift")), preflight_only=True)
+        good = baseline.Check("ok", lambda: "fine")
+        # patch checks() to just these two; default run must skip the preflight_only RED
+        orig = baseline.checks
+        try:
+            baseline.checks = lambda: (good, red)
+            self.assertEqual(baseline.run_suite(), 0)          # RED excluded -> green
+            self.assertEqual(baseline.run_suite((good, red)), 1)  # explicit -> RED blocks
+        finally:
+            baseline.checks = orig
+
+    def test_preflight_suite_resolves_named_subset_in_order(self):
+        names = [c.name for c in baseline._preflight_suite()]
+        self.assertEqual(names, list(baseline.PREFLIGHT_NAMES))
+        self.assertIn("deploy_path_commit", names)
+        self.assertIn("codex_verifier_auth", names)
+
+    def test_preflight_names_all_exist_in_registry(self):
+        registry = {c.name for c in baseline.checks()}
+        for n in baseline.PREFLIGHT_NAMES:
+            self.assertIn(n, registry, f"preflight names a check not in registry: {n}")
+
+
+class DeployPathCommitTests(unittest.TestCase):
+    """[F4] deploy_path_commit — clean is green, untracked is a WARN, tracked drift REDs."""
+
+    def _repo(self):
+        import subprocess, tempfile, os
+        d = tempfile.mkdtemp()
+        subprocess.run(["git", "-C", d, "init", "-q"], check=True)
+        subprocess.run(["git", "-C", d, "config", "user.email", "t@t"], check=True)
+        subprocess.run(["git", "-C", d, "config", "user.name", "t"], check=True)
+        open(os.path.join(d, "a.txt"), "w").write("x")
+        subprocess.run(["git", "-C", d, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", d, "commit", "-qm", "init"], check=True)
+        return d
+
+    def _run(self, d):
+        old = baseline.DEPLOY_ROOT
+        try:
+            baseline.DEPLOY_ROOT = baseline.Path(d)
+            return baseline.check_deploy_path_commit()
+        finally:
+            baseline.DEPLOY_ROOT = old
+
+    def test_clean_tree_is_green(self):
+        self.assertNotIn("WARN", self._run(self._repo()))
+
+    def test_untracked_only_warns_not_reds(self):
+        import os
+        d = self._repo()
+        open(os.path.join(d, "new.txt"), "w").write("y")
+        self.assertTrue(self._run(d).startswith("WARN"))
+
+    def test_tracked_drift_reds(self):
+        import os
+        d = self._repo()
+        open(os.path.join(d, "a.txt"), "w").write("changed")
+        with self.assertRaises(RuntimeError):
+            self._run(d)
+
+    def test_non_git_dir_reds(self):
+        import tempfile
+        with self.assertRaises(RuntimeError):
+            self._run(tempfile.mkdtemp())
+
 
 
 if __name__ == "__main__":
