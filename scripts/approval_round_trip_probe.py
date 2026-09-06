@@ -252,6 +252,7 @@ def _page_leo(result: dict, consecutive: int, dry_run: bool) -> tuple[str, bool]
         # from this host-cron context — point it at the host vault (same physical file as the
         # container bind mount) before the module reads _LOG_PATH at import.
         os.environ.setdefault("KAI_NOTIFY_LOG", str(_vault_dir() / "00_System" / "notify_log.jsonl"))
+        os.environ.setdefault("KAI_NOTIFY_DEDUP", str(_vault_dir() / "00_System" / "notify_dedup.json"))
         from notify_gateway import notify, Event
         bucket = _now().strftime("%Y-%m-%dT%H")  # hour-bucketed dedup: at most one page/hour
         res = notify(Event(

@@ -147,6 +147,7 @@ def _page_leo(reason: str, consecutive: int, restart_detail: str, dry_run: bool)
         # Same host-vault audit-log redirect as advisor_dm_probe: notify_gateway defaults
         # its Rule-A audit log to the container path (/vault/...), unwritable from host cron.
         os.environ.setdefault("KAI_NOTIFY_LOG", str(_vault_dir() / "00_System" / "notify_log.jsonl"))
+        os.environ.setdefault("KAI_NOTIFY_DEDUP", str(_vault_dir() / "00_System" / "notify_dedup.json"))
         from notify_gateway import notify, Event
         bucket = _now().strftime("%Y-%m-%dT%H")  # at most one autoheal page per hour if it flaps
         res = notify(Event(

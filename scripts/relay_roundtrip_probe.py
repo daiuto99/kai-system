@@ -132,6 +132,7 @@ def _page_leo(result: dict, consecutive: int, dry_run: bool) -> str:
         # notify_gateway's audit log defaults to the container vault path; point it at the host
         # vault (same physical file as the container bind mount) before the module reads it.
         os.environ.setdefault("KAI_NOTIFY_LOG", str(_vault_dir() / "00_System" / "notify_log.jsonl"))
+        os.environ.setdefault("KAI_NOTIFY_DEDUP", str(_vault_dir() / "00_System" / "notify_dedup.json"))
         from notify_gateway import notify, Event
         bucket = _now().strftime("%Y-%m-%dT%H")  # hour-bucketed dedup: persistent, not spammy
         res = notify(Event(
