@@ -55,6 +55,29 @@ def _run_brand_drift(site: str, property: str, content: str) -> dict:
             _log.warning("brand-drift content_bug filing failed for %s: %s", slug, e)
     return report
 
+
+def _written_content(resp_data: dict, submitted: str) -> str:
+    """The content WordPress actually STORED, for the brand check.
+
+    KAI-40844d87 / page 37: `_run_brand_drift` ran on the pre-write string, so
+    the report warned on two foreign_color blues WP's own save-time
+    sanitization had already dropped — colors that were never on the page that
+    shipped. A write response comes back in edit context, so `content.raw` is
+    the authoritative post-normalization body; `rendered` is the next-best
+    surface, and the submitted body is the fail-safe when WP echoes neither
+    (the check must still run, just on what we know).
+    """
+    content = (resp_data or {}).get("content")
+    if isinstance(content, dict):
+        for field in ("raw", "rendered"):
+            value = content.get(field)
+            if isinstance(value, str) and value.strip():
+                return value
+    elif isinstance(content, str) and content.strip():
+        return content
+    return submitted
+
+
 TRANSPORTS = {
     "wp_rest_kai_route": wp_rest_kai_route,
     "ssh_php_eval": ssh_php_eval,
@@ -198,11 +221,6 @@ def create_page(site: str, title: str, content: str, status: str = "draft",
         return CapabilityResult(ok=False, status="failed_permanent",
             error={"type": "empty_content",
                    "detail": "create_page refuses a contentless write"})
-    # WP-20.2 — brand-drift check on the authored content BEFORE the write. Draft
-    # creation still proceeds (drafts are iterative; live overwrite is guarded by
-    # WP-20.4) but drift is recorded in the result (audit trail, §5.4) and, when
-    # blocking, filed as a content_bug to Creative.
-    brand_drift_report = _run_brand_drift(site, property, content)
     marker = uuid.uuid4().hex[:12]
     tagged_content = f"{content}\n<!-- kai-marker:{marker} -->"
     r = safe_request(
@@ -213,6 +231,14 @@ def create_page(site: str, title: str, content: str, status: str = "draft",
         verify=False,
     )
     if r.ok and r.data:
+        # WP-20.2 — brand-drift check on the content that actually SHIPPED. It runs
+        # after the write because WP normalizes/sanitizes on save (KAI-40844d87):
+        # checking the pre-write string warned about colors WP had stripped. The
+        # check never blocked the write (drafts are iterative; live overwrite is
+        # guarded by WP-20.4) — it is the audit trail (§5.4) and, when blocking,
+        # files a content_bug to Creative.
+        brand_drift_report = _run_brand_drift(
+            site, property, _written_content(r.data, tagged_content))
         return CapabilityResult(ok=True, status="succeeded",
             # KAI-41 — echo the WP page status (draft/publish) the server actually
             # set, so drafts-only is confirmable from the result itself instead of
@@ -355,8 +381,6 @@ def update_page(site: str, page_id: int, content: str, title: str = None,
                    "detail": "EDIT is drafts-only; editing a published/live page requires "
                              "the guarded publish workflow (WP-20.4), not this path."})
 
-    # Brand-drift on the edited content BEFORE the write (same as create_page).
-    brand_drift_report = _run_brand_drift(site, property, content)
     marker = uuid.uuid4().hex[:12]
     tagged_content = f"{content}\n<!-- kai-marker:{marker} -->"
     payload = {"content": tagged_content, "status": "draft", "template": "kai-blank"}
@@ -369,6 +393,10 @@ def update_page(site: str, page_id: int, content: str, title: str = None,
         verify=False,
     )
     if r.ok and r.data:
+        # Brand-drift on the content WP actually stored, same as create_page
+        # (KAI-40844d87).
+        brand_drift_report = _run_brand_drift(
+            site, property, _written_content(r.data, tagged_content))
         return CapabilityResult(ok=True, status="succeeded",
             # KAI-41 — echo the WP page status (draft/publish) the server actually
             # set, so drafts-only is confirmable from the result itself instead of

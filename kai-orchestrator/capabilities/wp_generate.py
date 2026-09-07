@@ -295,7 +295,95 @@ def _render(section: dict, style: str | None, *, error: str | None = None) -> st
     return markup
 
 
-_FONT_DECL_RX = re.compile(r"font-family\s*:\s*([^;{}<]*)", re.IGNORECASE)
+# A declaration value runs to the next `;` — EXCEPT that HTML-entity quotes
+# (`&quot;`, `&#039;`) carry a `;` of their own. Page 37 (the71c run #1): the
+# old `[^;{}<]*` truncated `font-family:&quot;Bricolage Grotesque&quot;,...`
+# after `&quot`, so no brand family was ever seen, every declaration was forced
+# to the body face, and the orphaned remainder dangled behind it
+# (`font-family:'IBM Plex Sans';Bricolage Grotesque&quot;, sans-serif;`).
+# Entities are matched as a unit so the whole stack is captured.
+_FONT_DECL_RX = re.compile(
+    r"font-family\s*:\s*((?:&[#0-9a-zA-Z]+;|[^;{}<])*)", re.IGNORECASE)
+
+# Quote tokens that may appear inside a captured value: raw, or entity-encoded
+# (WP/Gutenberg inline styles routinely carry the entity forms).
+_QUOTES = (
+    ('"', "double"), ("&quot;", "double"), ("&#34;", "double"),
+    ("&#x22;", "double"),
+    ("'", "single"), ("&apos;", "single"), ("&#39;", "single"),
+    ("&#039;", "single"), ("&#x27;", "single"),
+)
+
+
+def _quote_at(val: str, i: int):
+    """If a quote token starts at val[i], return (kind, length); else None."""
+    for tok, kind in _QUOTES:
+        if val.startswith(tok, i):
+            return kind, len(tok)
+    return None
+
+
+def _split_value(val: str):
+    """Split a captured value into (body, tail).
+
+    `tail` is an UNCLOSED quote and everything after it — that quote is the
+    HTML attribute's own delimiter, which the regex swallowed because the
+    declaration had no trailing `;` (e.g. `style="font-family:'X', serif"`).
+    It must be handed back verbatim or the attribute loses its closer. A
+    BALANCED pair of quotes (the common `&quot;X&quot;, serif` case) is part of
+    the value, NOT a tail — the old "first double-quote wins" heuristic got
+    that backwards and emitted invalid CSS.
+    """
+    open_kind = None
+    open_at = -1
+    i = 0
+    while i < len(val):
+        q = _quote_at(val, i)
+        if q:
+            kind, ln = q
+            if open_kind is None:
+                open_kind, open_at = kind, i
+            elif open_kind == kind:
+                open_kind = None
+            i += ln
+            continue
+        i += 1
+    if open_kind is not None:
+        return val[:open_at], val[open_at:]
+    return val, ""
+
+
+def _split_families(body: str):
+    """Split a font stack on commas that sit OUTSIDE quotes."""
+    parts, cur = [], []
+    open_kind = None
+    i = 0
+    while i < len(body):
+        q = _quote_at(body, i)
+        if q:
+            kind, ln = q
+            if open_kind is None:
+                open_kind = kind
+            elif open_kind == kind:
+                open_kind = None
+            cur.append(body[i:i + ln])
+            i += ln
+            continue
+        if body[i] == "," and open_kind is None:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(body[i])
+        i += 1
+    parts.append("".join(cur))
+    return parts
+
+
+def _family_key(token: str) -> str:
+    """Casing/slug/quote-insensitive key for one family name."""
+    for tok, _kind in _QUOTES:
+        token = token.replace(tok, "")
+    return re.sub(r"[^a-z]", "", token.lower())
 
 
 def _normalize_fonts(markup: str, fonts: list[str]) -> str:
@@ -310,22 +398,31 @@ def _normalize_fonts(markup: str, fonts: list[str]) -> str:
     the display/body/mono contract order, else fonts[0]) — by contract the
     brand faces are the ONLY families a generated page may carry, so forcing
     conformance is the generator doing its job, not masking drift (the
-    detector still judges every other content path)."""
+    detector still judges every other content path).
+
+    Page 37 (2026-09-07): the rewrite ITSELF emitted invalid CSS whenever the
+    value carried double quotes, raw or entity-encoded — see `_FONT_DECL_RX`
+    and `_split_value`. Output is now always exactly one well-formed
+    declaration plus the attribute's own closing delimiter.
+    """
     if not fonts:
         return markup
-    canon = {re.sub(r"[^a-z]", "", f.lower()): f for f in fonts}
+    canon = {_family_key(f): f for f in fonts}
     body_face = fonts[1] if len(fonts) > 1 else fonts[0]
 
     def fix(m: "re.Match[str]") -> str:
-        val = m.group(1)
-        qi = val.find('"')
-        tail = val[qi:] if qi != -1 else ""
-        body = val[:qi] if qi != -1 else val
-        for tok in body.split(","):
-            key = re.sub(r"[^a-z]", "", tok.strip().strip("'").lower())
+        body, tail = _split_value(m.group(1))
+        family = body_face
+        for tok in _split_families(body):
+            key = _family_key(tok)
             if key in canon:
-                return f"font-family:'{canon[key]}'" + tail
-        return f"font-family:'{body_face}'" + tail
+                family = canon[key]
+                break
+        # Never quote with the delimiter we are handing back, or the attribute
+        # would terminate early.
+        tq = _quote_at(tail, 0) if tail else None
+        q = '"' if tq and tq[0] == "single" else "'"
+        return f"font-family:{q}{family}{q}" + tail
 
     return _FONT_DECL_RX.sub(fix, markup)
 

@@ -7,6 +7,7 @@
 3. wp_generate render ladder: trimmed per-section style, empty replies are
    retryable, final attempt drops the guide entirely.
 """
+import re
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -168,3 +169,59 @@ def test_normalize_fonts_canonicalizes_brand_declarations():
     out3 = g._normalize_fonts(
         "style=\"font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif\">", fonts)
     assert out3 == "style=\"font-family:'IBM Plex Sans'\">"
+
+
+def test_normalize_fonts_emits_valid_css_for_quoted_stacks():
+    """KAI-c26775ff / page 37: the normalizer itself emitted malformed CSS.
+
+    `&quot;` carries a `;`, which truncated the old capture regex mid-entity —
+    no brand family was ever seen, every declaration was forced to the body
+    face, and the orphaned remainder dangled behind it
+    (`font-family:'IBM Plex Sans';Bricolage Grotesque&quot;, sans-serif;`).
+    Raw double quotes hit the same bug via the `first double-quote is a tail`
+    heuristic. Every quoting shape must yield exactly ONE valid declaration.
+    """
+    import capabilities.wp_generate as g
+    fonts = ["Bricolage Grotesque", "IBM Plex Sans", "IBM Plex Mono"]
+
+    # entity-encoded double quotes (the page-37 shape)
+    out = g._normalize_fonts(
+        '<h2 style="font-family: &quot;Bricolage Grotesque&quot;, sans-serif;">x</h2>',
+        fonts)
+    assert out == '<h2 style="font-family:\'Bricolage Grotesque\';">x</h2>'
+
+    # raw double quotes inside a double-quoted attribute
+    out = g._normalize_fonts(
+        '<h2 style="font-family: \"Bricolage Grotesque\", sans-serif;">x</h2>',
+        fonts)
+    assert out == '<h2 style="font-family:\'Bricolage Grotesque\';">x</h2>'
+
+    # entity-encoded single quotes
+    out = g._normalize_fonts(
+        '<span style="font-family:&#039;IBM Plex Mono&#039;, monospace;">c</span>',
+        fonts)
+    assert out == '<span style="font-family:\'IBM Plex Mono\';">c</span>'
+
+    # single-quoted attribute: the emitted family must NOT be single-quoted or
+    # the attribute would terminate early.
+    out = g._normalize_fonts(
+        "<h2 style='font-family: \"Bricolage Grotesque\", sans-serif'>x</h2>",
+        fonts)
+    assert out == "<h2 style='font-family:\"Bricolage Grotesque\"'>x</h2>"
+
+    # the malformed page-37 signature must never appear again
+    for shape in (
+        '<h2 style="font-family: &quot;Bricolage Grotesque&quot;, sans-serif;">x</h2>',
+        '<h2 style="font-family: \"Bricolage Grotesque\", sans-serif;">x</h2>',
+        '<p style="font-family:&quot;IBM Plex Sans&quot;">y</p>',
+    ):
+        res = g._normalize_fonts(shape, fonts)
+        assert res.count("font-family") == 1
+        assert "&quot;" not in res and "&#039;" not in res
+        assert "sans-serif" not in res and "monospace" not in res
+        # the style attribute must parse: exactly one balanced quoted family
+        # and nothing dangling after it.
+        decl = re.search(r'style="([^"]*)"', res).group(1)
+        assert re.fullmatch(
+            r"font-family:'(?:Bricolage Grotesque|IBM Plex Sans|"
+            r"IBM Plex Mono)';?", decl), decl
