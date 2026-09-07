@@ -33,6 +33,28 @@ for p in (str(_KAI_ROOT), str(_KAI_ROOT / "shared"), str(_KAI_ROOT / "scripts"))
     if p not in sys.path:
         sys.path.insert(0, p)
 
+# notify_gateway resolves its audit-log + dedup paths at MODULE-IMPORT time and
+# defaults them to the CONTAINER vault (/vault), which host cron cannot write.
+# This runner is host-side (see docstring), and its dispatcher lazily imports the
+# gateway (shared/devops_ownership.py::_live_notify_dashboard) — so point both at
+# the host vault (same physical files as the container bind mount) BEFORE any
+# import that could pull the gateway in. Without this every custodian finding
+# PermissionError'd out of the audit log that feeds /system/activity, i.e. the
+# custodian's own work was invisible on the dashboard. Same defect class as the
+# host-run probes fixed under KAI-3d90ed66; this was the last live instance.
+_VAULT_CANDIDATES = (Path("/home/leo/vault"), Path("/vault"))
+
+
+def _vault_dir() -> Path:
+    for c in _VAULT_CANDIDATES:
+        if c.exists():
+            return c
+    return _VAULT_CANDIDATES[0]
+
+
+os.environ.setdefault("KAI_NOTIFY_LOG", str(_vault_dir() / "00_System" / "notify_log.jsonl"))
+os.environ.setdefault("KAI_NOTIFY_DEDUP", str(_vault_dir() / "00_System" / "notify_dedup.json"))
+
 from devops_ownership import (  # noqa: E402
     AUTO, DECISION, STRUCTURAL, Deps, DecisionOutcome, Finding,
     default_deps, run_custodians,
