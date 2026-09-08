@@ -45,8 +45,9 @@ def _worker_auth() -> tuple[str, str] | None:
     logger.warning("worker_auth: no kai_worker_auth credential found — worker calls will 401")
     return None
 
-TIER1_MAX_TURNS = 10
-TIER1_CHAR_CAP = 3000 * 4    # §6: 3,000-token ceiling, char/4 estimate (real tokenizer is §15 open Q2)
+TIER1_MAX_TURNS = 40  # KAI-1024: raised 10->40 so long Buzz/advisor threads keep
+                      # real verbatim recall instead of riding the lossy Tier-2 summary
+TIER1_CHAR_CAP = 8000 * 4    # §6: 8,000-token ceiling (KAI-1024: was 3,000 — too lossy for long Buzz threads), char/4 estimate (real tokenizer is §15 open Q2)
 TIER2_CHAR_CAP = 400 * 4     # §6: 400-token ceiling for the rolling summary
 COMPACTION_TRIGGER_TURNS = 10  # §5 Tier 2 mechanics: fold evicted turns once this many accumulate
 
