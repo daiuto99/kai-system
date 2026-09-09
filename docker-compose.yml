@@ -30,7 +30,12 @@ services:
         max-file: "5"
     ports:
       # Mac session tooling reaches this control plane over Tailscale only.
-      - "100.78.94.80:8001:8001"
+      # KAI_TAILNET_IP is the single source of truth for the primary host's tailnet IP
+      # (MIG-3 indirection): defaults to the worker's IP so behavior is unchanged; the
+      # cutover flips it to the mini's IP in .env and recreates the stack. Containers can't
+      # resolve the `kai-worker` MagicDNS name (docker DNS doesn't serve it), so these are
+      # tailnet-IP bindings, not name lookups — hence a value var, not a hostname.
+      - "${KAI_TAILNET_IP:-100.78.94.80}:8001:8001"
     volumes:
       - /home/leo/vault:/vault:rw
       - /home/leo/sonicink:/workspace:ro
@@ -220,7 +225,7 @@ services:
     restart: unless-stopped
     ports:
       # Leo's remote IDE is a Tailscale control plane, never a LAN service.
-      - "100.78.94.80:8443:8080"
+      - "${KAI_TAILNET_IP:-100.78.94.80}:8443:8080"
     volumes:
       - /home/leo:/home/coder:rw
       - /home/leo/kai-system:/home/coder/kai-system:rw
@@ -262,7 +267,7 @@ services:
     ports:
       # Docker callers and the Cloudflare tunnel use kai-n8n:5678; Leo's OAuth
       # recovery/editor path is a Tailscale-only control plane.
-      - "100.78.94.80:5678:5678"
+      - "${KAI_TAILNET_IP:-100.78.94.80}:5678:5678"
     volumes:
       - ./n8n-data:/home/node/.n8n
       - /home/leo/vault:/vault:ro   # KAI N2 (C2): n8n external-reaching; RO — never writes vault
@@ -335,7 +340,7 @@ services:
     environment:
       - TZ=America/New_York
       - DOCKER_HOST=tcp://docker-socket-proxy:2375
-      - EXTERNAL_SCAN_HOST_IPS=192.168.68.30,100.78.94.80
+      - EXTERNAL_SCAN_HOST_IPS=192.168.68.30,${KAI_TAILNET_IP:-100.78.94.80}
       # KAI-1004: import the shared notify() gateway (single Telegram chokepoint).
       - PYTHONPATH=/shared
     volumes:
@@ -501,7 +506,7 @@ services:
     restart: always
     environment:
       - BUZZ_AGENT_DIR=/agent
-      - CONNECT_URL=ws://100.78.94.80:3002
+      - CONNECT_URL=ws://${KAI_TAILNET_IP:-100.78.94.80}:3002
       - BUZZ_MEDIA_URL=http://buzz-relay:3000/media/upload
       - RELAY_TAG=wss://kai-worker.tail7f43c5.ts.net
       - RELAY_URL=ws://buzz-relay:3000
@@ -534,7 +539,7 @@ services:
     restart: always
     ports:
       - "127.0.0.1:4001:4001"
-      - "100.78.94.80:4001:4001"
+      - "${KAI_TAILNET_IP:-100.78.94.80}:4001:4001"
     environment:
       - BUZZ_COUNCIL_URL=http://kai-web/council/message
       - LITELLM_URL=http://kai-litellm:4000/v1/chat/completions
@@ -570,7 +575,7 @@ services:
       - buzz-net
     ports:
       - "127.0.0.1:3000:3000"
-      - "100.78.94.80:3000:3000"
+      - "${KAI_TAILNET_IP:-100.78.94.80}:3000:3000"
     volumes:
       - buzz-relay-data:/var/lib/buzz
 

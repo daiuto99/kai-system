@@ -43,7 +43,7 @@ EXTERNAL_SCAN_ROUTES: tuple[tuple[str, str, str], ...] = (
 )
 HOST_SCAN_IPS_ENV = "EXTERNAL_SCAN_HOST_IPS"
 LAN_SCAN_IP = "192.168.68.30"
-TAILNET_SCAN_IP = "100.78.94.80"
+TAILNET_SCAN_IP = os.environ.get("KAI_TAILNET_IP", "100.78.94.80")  # MIG-3: follows the primary host at cutover
 # LAN has only SSH plus the nginx origins that Cloudflare reaches on this host.
 LAN_ALLOWED_PORTS = frozenset({
     22,    # SSH administration

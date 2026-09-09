@@ -27,7 +27,7 @@ services:
         condition: service_healthy
     ports:
       # Mac/session tooling reaches the Langfuse UI + ingestion API over Tailscale only.
-      - "100.78.94.80:3010:3000"
+      - "${KAI_TAILNET_IP:-100.78.94.80}:3010:3000"
     env_file:
       - langfuse.env
     logging:

@@ -21,7 +21,7 @@ from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 SECRETS = ROOT / "secrets"
-WORKER_API = "http://100.78.94.80:8001"
+WORKER_API = f"http://{os.environ.get('KAI_TAILNET_IP', '100.78.94.80')}:8001"  # MIG-3: env-overridable so P3 can baseline the mini
 LITELLM_CONTAINER = "kai-litellm"
 
 
