@@ -191,6 +191,37 @@ def sign_event(pk, kind, tags, content, created=None):
     return {"id": eid, "pubkey": pub, "created_at": created, "kind": kind, "tags": tags, "content": content, "sig": sig}
 
 
+def build_giftwrap_now(sender_keys, receiver_pub, text):
+    """Build a NIP-17/59 DM gift-wrap stamped at ~NOW instead of nostr_sdk's default
+    up-to-2-day PAST randomization — and return it as a JSON dict ready to publish as
+    ['EVENT', wrap].
+
+    WHY (bug 5de64f3f): the 2026-08-30 buzz-relay HEAD upgrade (KAI-1295) enforces a tight
+    created_at window and REJECTS the spec's randomized-past gift-wrap timestamp with
+    'invalid: event timestamp too far from server time'. That silently broke EVERY Buzz DM
+    (all advisors + approval pointers) — 0/10 accepted, measured. nostr_sdk's convenience
+    gift_wrap() gives no control over the timestamp, so we compose the three NIP-59 layers
+    by hand (rumor kind14 -> seal kind13 signed by sender -> wrap kind1059 signed by a fresh
+    ephemeral key), each with custom_created_at(now). Verified end-to-end: relay-accepted
+    (drift 0) AND receiver-decryptable (round-trip through a controlled keypair). The only
+    trade-off is losing the send-time obfuscation of the past-randomization, which is
+    acceptable on a private members-only relay (and is what any client must do to pass this
+    relay's window)."""
+    from nostr_sdk import (EventBuilder, Timestamp, Kind, Tag, Keys,
+                           nip44_encrypt, Nip44Version)
+    now = Timestamp.now()
+    rumor = EventBuilder.private_msg_rumor(receiver_pub, text).build(sender_keys.public_key())
+    seal_ct = nip44_encrypt(sender_keys.secret_key(), receiver_pub, rumor.as_json(), Nip44Version.V2)
+    seal = EventBuilder(Kind(13), seal_ct).custom_created_at(now).sign_with_keys(sender_keys)
+    eph = Keys.generate()
+    wrap_ct = nip44_encrypt(eph.secret_key(), receiver_pub, seal.as_json(), Nip44Version.V2)
+    wrap = (EventBuilder(Kind(1059), wrap_ct)
+            .tags([Tag.public_key(receiver_pub)])
+            .custom_created_at(now)
+            .sign_with_keys(eph))
+    return json.loads(wrap.as_json())
+
+
 def get_channel(chan_file):
     p = os.path.join(AGENT_DIR, chan_file)
     if os.path.exists(p):

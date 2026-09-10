@@ -12,7 +12,7 @@ import asyncio, json, time, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "libs"))
 import websockets
 import agents_bridge as ab
-from nostr_sdk import Keys, NostrSigner, PublicKey, EventBuilder, Event, UnwrappedGift, gift_wrap
+from nostr_sdk import Keys, NostrSigner, PublicKey, EventBuilder, Event, UnwrappedGift
 
 GIFT_WRAP_KIND = 1059
 LOOKBACK = 172800  # 2 days — NIP-17 gift-wrap created_at is randomized into the past
@@ -30,9 +30,8 @@ INTRO = ("Hey — it's Sky, now as a direct message instead of a channel. Messag
 
 
 async def _wrap_json(receiver_pub, text):
-    rumor = EventBuilder.private_msg_rumor(receiver_pub, text).build(SKY_KEYS.public_key())
-    wrap = await gift_wrap(SKY_SIGNER, receiver_pub, rumor, [])
-    return json.loads(wrap.as_json())
+    # now-stamped NIP-59 wrap so the buzz-relay's tight created_at window accepts it (5de64f3f)
+    return ab.build_giftwrap_now(SKY_KEYS, receiver_pub, text)
 
 
 async def run():

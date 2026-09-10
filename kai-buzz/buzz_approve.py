@@ -182,6 +182,19 @@ def compose_batch_card(pending, prefix: str = "") -> str:
     return "\n".join(lines)
 
 
+# ── DM push pointer (bug 5de64f3f) ─────────────────────────────────────────────
+# A kind-9 card posted to the kai-approvals CHANNEL does NOT push-notify — it scrolls
+# out of view unseen (a go-live gate nearly stranded this way, MIG-3). A NIP-17 DM,
+# by contrast, lands on ANY Buzz app (phone/mac/iPad/PC) whether Leo's Mac is open or
+# asleep — the same surface the advisor DMs use. So every time a card is posted or
+# re-nudged we also DM Leo this short pointer; he resolves in the channel as before.
+# Telegram stays the secondary lifeline (only when Buzz/the poller is down).
+def compose_dm_pointer(total: int) -> str:
+    """One-line push pointer DM'd to Leo when approval cards are (re)posted."""
+    n = max(0, int(total))
+    return (f"\U0001f510 {n} approval{'' if n == 1 else 's'} pending on Buzz — "
+            "open #kai-approvals to approve/reject.")
+
 
 async def run():
     pk = ab.load_or_create_key(KEY_FILE)
@@ -232,6 +245,35 @@ async def run():
             open_gates.add(gid); kind_of[gid] = "gate"
         return order
 
+    # NIP-17 DM push to Leo — the surface that actually notifies (bug 5de64f3f). Sent
+    # AS the KAI DM identity (kai_dm.key) so it lands in Leo's existing KAI direct line
+    # on any Buzz app. Best-effort: a DM failure NEVER blocks the channel card or the
+    # Telegram-dead lifeline (nostr_sdk/key loaded lazily so --selftest stays offline).
+    _dm_send = None
+    try:
+        from nostr_sdk import Keys, PublicKey
+        _dm_keys = Keys.parse(open(os.path.join(ab.AGENT_DIR, "kai_dm.key")).read().strip())
+        _leo_pub = PublicKey.parse(ab.LEO_PUBKEY)
+
+        async def _dm_send(text):  # noqa: F811 — bound only when deps/key are present
+            # now-stamped NIP-59 wrap (shared helper) so the relay accepts it (5de64f3f)
+            ev = ab.build_giftwrap_now(_dm_keys, _leo_pub, text)
+            async with send_lock:
+                await ws.send(json.dumps(["EVENT", ev]))
+        ab.log("approvals", "DM push enabled — NIP-17 pointer to Leo")
+    except Exception as e:
+        ab.log("approvals", f"!! DM push unavailable ({type(e).__name__}: {e}) — channel-only")
+
+    async def notify_leo(total: int) -> None:
+        """Push a one-line DM pointer so a (re)posted card actually surfaces on Leo's
+        phone/mac/iPad/PC. Best-effort — the channel card already went out regardless."""
+        if _dm_send and total > 0:
+            try:
+                await _dm_send(compose_dm_pointer(total))
+                ab.log("approvals", f">> DM push sent ({total} pending)")
+            except Exception as e:
+                ab.log("approvals", f"!! DM push failed: {e}")
+
     async with websockets.connect(ab.CONNECT_URL, max_size=2 ** 20) as ws:
         await ab.authenticate(ws, pk)
         async with send_lock:
@@ -257,10 +299,13 @@ async def run():
         async def poller():
             while True:
                 await asyncio.to_thread(_beat)   # prove liveness BEFORE work each cycle
+                posted = False        # any card newly posted / re-nudged this cycle → DM push
+                gate_count = ml_count = 0
                 try:
                     data = await asyncio.to_thread(_council_get, "/gate/pending")
                     pend = [g for g in data.get("pending", [])
                             if g.get("gate_id") and not (_ONLY_GATE and g.get("gate_id") != _ONLY_GATE)]
+                    gate_count = len(pend)
                     live = {g["gate_id"] for g in pend}
                     if len(pend) >= 2:
                         # P-3: one card, N items — aggregate instead of N separate cards.
@@ -270,6 +315,7 @@ async def run():
                             prefix = "🔁 (still waiting on you) " if (due and sig == batch["sig"]) else ""
                             await prompt_batch(pend, prefix=prefix)
                             batch["sig"] = sig; batch["last"] = time.time()
+                            posted = True
                             ab.log("approvals", f">> batch card sent ({len(pend)} items)")
                         for gid in live:
                             last_prompt.pop(gid, None)   # batch owns these ids
@@ -281,11 +327,13 @@ async def run():
                             if last is None:
                                 await prompt_gate(g)
                                 last_prompt[gid] = time.time()
+                                posted = True
                                 ab.log("approvals", f">> prompt sent for {gid}")
                             elif (time.time() - last) >= _RENUDGE_SECONDS:
                                 # Re-nudge on Buzz first — Telegram is only the Buzz-dead lifeline.
                                 await prompt_gate(g, prefix="🔁 (still waiting on you) ")
                                 last_prompt[gid] = time.time()
+                                posted = True
                                 ab.log("approvals", f">> re-nudged {gid}")
                     for gid in [k for k in last_prompt
                                 if kind_of.get(k, "gate") == "gate" and k not in live]:
@@ -309,16 +357,26 @@ async def run():
                             if last is None:
                                 await prompt_unlock(item)
                                 last_prompt[rid] = time.time()
+                                posted = True
                                 ab.log("approvals", f">> unlock prompt sent for {rid}")
-                            elif (time.time() - last) >= _RENUDGE_SECONDS:
-                                await prompt_unlock(item, prefix="🔁 (still waiting on you) ")
-                                last_prompt[rid] = time.time()
-                                ab.log("approvals", f">> re-nudged unlock {rid}")
+                            # NO re-nudge for unlocks (bug: in-session `YES` arms the LOCAL
+                            # window but never resolves the worker request, so a re-nudge nags
+                            # about an unlock already granted — the exact "(still waiting)" loop
+                            # Leo hit). Prompt ONCE; the council's 30-min Telegram escalation
+                            # covers a genuinely-away miss. Proper fix (YES → resolve the request)
+                            # needs the protected UserPromptSubmit hook = Leo's hand (tracked).
+                        ml_count = len(ml_live)
                         for rid in [k for k in last_prompt
                                     if kind_of.get(k) == "modelock" and k not in ml_live]:
                             last_prompt.pop(rid, None); kind_of.pop(rid, None)
                     except Exception as ex:
                         ab.log("approvals", f"!! mode_lock poll error: {ex}")
+
+                # Push surface (bug 5de64f3f): a channel card doesn't notify, so whenever a
+                # card was posted or re-nudged this cycle, DM Leo one pointer with the TOTAL
+                # pending (gates + unlocks). Best-effort; the channel card already went out.
+                if posted:
+                    await notify_leo(gate_count + ml_count)
                 await asyncio.sleep(POLL_SECONDS)
 
         async def listener():
@@ -518,6 +576,12 @@ def _selftest():
     assert "Deploy X" in _card and "Rotate Y" in _card
     assert "approve 1" in _card and "approve 2" in _card
     assert "abc123de" in _card  # id8 shown for the power path
+    # DM push pointer (bug 5de64f3f): the notify surface, singular/plural, count-safe
+    assert "1 approval pending" in compose_dm_pointer(1)
+    assert "3 approvals pending" in compose_dm_pointer(3)
+    assert "kai-approvals" in compose_dm_pointer(2)
+    assert "0 approvals pending" in compose_dm_pointer(0)
+
     assert parse_decision("allow") == (None, "allow", "")
     assert parse_decision("session") == (None, "session", "")
     assert parse_decision("deny") == (None, "deny", "")
