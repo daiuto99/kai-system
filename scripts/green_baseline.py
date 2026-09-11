@@ -1629,8 +1629,107 @@ def run_suite(suite: tuple[Check, ...] | None = None) -> int:
     return 0
 
 
+# ── KAI-1412 boot-cost pass: TTL cache of the GREEN verdict ────────────────────
+# SessionStart runs this suite on every session open (~25 worker probes). Repeated
+# opens within a short window re-pay that cost for an unchanged system. Cache a
+# GREEN verdict on worker disk with a ~10min TTL: on a hit, print a one-line
+# confirmation + a single folded ATTENTION line (the baseline WARNs) instead of
+# re-running the probes. ONLY green is cached — a RED/AMBER always re-runs live so
+# breakage is caught fresh. The close/CI gate (ci.sh) passes --no-cache so it never
+# trusts a cached verdict, and --preflight (unattended-run gate) is always live.
+import time as _time
+
+_CACHE_DIR = Path(os.path.expanduser("~/.kai/state"))
+_BASELINE_CACHE = _CACHE_DIR / "green_baseline_cache.json"
+_BASELINE_TTL_S = 600
+
+
+def _extract_warns(text: str) -> list:
+    """Pull the WARN advisories out of a baseline run for the folded ATTENTION line.
+    A WARN prints as `GREEN [check] WARN ...` or `UNKNOWN [journey:x] WARN ...`; keep
+    `check: <warn text>` so the fold stays owner-attributable."""
+    warns = []
+    for ln in text.splitlines():
+        if " WARN" not in ln:
+            continue
+        m = re.match(r"^\S+ \[([^\]]+)\]\s+(.*)$", ln.strip())
+        if m:
+            warns.append("%s: %s" % (m.group(1), m.group(2).strip()))
+        else:
+            warns.append(ln.strip())
+    return warns
+
+
+def _attention_line(warns: list):
+    if not warns:
+        return None
+    return "ATTENTION (%d) — %s" % (len(warns), " \u00b7 ".join(warns))
+
+
+def _read_baseline_cache():
+    try:
+        d = json.loads(_BASELINE_CACHE.read_text())
+        age = _time.time() - float(d.get("ts", 0))
+        if 0 <= age <= _BASELINE_TTL_S and d.get("exit_code") == 0:
+            return d, age
+    except Exception:
+        pass
+    return None, None
+
+
+def _write_baseline_cache(exit_code: int, warns: list) -> None:
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        _BASELINE_CACHE.write_text(json.dumps(
+            {"ts": _time.time(), "exit_code": exit_code, "warns": warns}))
+    except Exception:
+        pass
+
+
+def _run_cached() -> int:
+    """Default CLI path: serve a fresh GREEN verdict from cache, else run live and
+    cache a green result. Fails OPEN to a live run on any cache error."""
+    cached, age = _read_baseline_cache()
+    if cached is not None:
+        print("\u2713 baseline green (cached %dm ago)" % int(age // 60))
+        att = _attention_line(cached.get("warns") or [])
+        if att:
+            print(att)
+        return 0
+    import io as _io
+
+    class _Tee:
+        def __init__(self):
+            self.buf = _io.StringIO()
+
+        def write(self, s):
+            sys.__stdout__.write(s)
+            self.buf.write(s)
+            return len(s)
+
+        def flush(self):
+            sys.__stdout__.flush()
+
+    tee = _Tee()
+    old = sys.stdout
+    sys.stdout = tee
+    try:
+        code = run_suite()
+    finally:
+        sys.stdout = old
+    warns = _extract_warns(tee.buf.getvalue())
+    att = _attention_line(warns)
+    if att:
+        print(att)
+    if code == 0:
+        _write_baseline_cache(code, warns)
+    return code
+
+
 if __name__ == "__main__":
     if "--preflight" in sys.argv[1:]:
         print("KAI PRE-FLIGHT (F4) — unattended-run readiness gate")
         sys.exit(run_suite(_preflight_suite()))
-    sys.exit(run_suite())
+    if "--no-cache" in sys.argv[1:]:
+        sys.exit(run_suite())
+    sys.exit(_run_cached())

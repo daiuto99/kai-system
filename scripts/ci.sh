@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-python3 scripts/green_baseline.py
+python3 scripts/green_baseline.py --no-cache  # KAI-1412: close/CI gate is always LIVE, never a cached verdict
 
 SERVICES=(
     "kai-worker-api:kai-worker-api"

@@ -871,5 +871,62 @@ class DeployPathCommitTests(unittest.TestCase):
 
 
 
+class BaselineCacheTests(unittest.TestCase):
+    """KAI-1412 boot-cost pass: TTL verdict cache + WARN fold."""
+
+    def test_extract_warns_keeps_check_and_text(self):
+        text = (
+            "GREEN [services_up] 4 up\n"
+            "GREEN [codex_verifier_auth] WARN codex OAuth EXPIRED 1d ago [KAI-1159]\n"
+            "UNKNOWN [journey:alert_delivery] WARN no receipt\n"
+            "KAI GREEN BASELINE — GREEN\n"
+        )
+        warns = baseline._extract_warns(text)
+        self.assertEqual(len(warns), 2)
+        self.assertTrue(warns[0].startswith("codex_verifier_auth: WARN codex OAuth"))
+        self.assertTrue(warns[1].startswith("journey:alert_delivery: WARN"))
+
+    def test_attention_line_none_when_empty(self):
+        self.assertIsNone(baseline._attention_line([]))
+        self.assertIn("ATTENTION (2)", baseline._attention_line(["a: x", "b: y"]))
+
+    def test_cache_roundtrip_and_ttl(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cache.json"
+            with mock.patch.object(baseline, "_BASELINE_CACHE", p), \
+                 mock.patch.object(baseline, "_CACHE_DIR", Path(d)):
+                baseline._write_baseline_cache(0, ["x: warn"])
+                got, age = baseline._read_baseline_cache()
+                self.assertIsNotNone(got)
+                self.assertEqual(got["warns"], ["x: warn"])
+                self.assertLess(age, 5)
+
+    def test_cache_expires_past_ttl(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cache.json"
+            p.write_text(json.dumps(
+                {"ts": time.time() - (baseline._BASELINE_TTL_S + 60),
+                 "exit_code": 0, "warns": []}))
+            with mock.patch.object(baseline, "_BASELINE_CACHE", p):
+                got, _ = baseline._read_baseline_cache()
+                self.assertIsNone(got)
+
+    def test_only_green_is_served_from_cache(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cache.json"
+            p.write_text(json.dumps({"ts": time.time(), "exit_code": 1, "warns": []}))
+            with mock.patch.object(baseline, "_BASELINE_CACHE", p):
+                got, _ = baseline._read_baseline_cache()
+                self.assertIsNone(got)
+
+    def test_corrupt_cache_fails_open(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cache.json"
+            p.write_text("{not json")
+            with mock.patch.object(baseline, "_BASELINE_CACHE", p):
+                got, _ = baseline._read_baseline_cache()
+                self.assertIsNone(got)
+
+
 if __name__ == "__main__":
     unittest.main()
