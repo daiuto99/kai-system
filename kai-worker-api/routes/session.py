@@ -272,6 +272,9 @@ def session_brief():
                 "overall": cm.get("overall", "unknown"),
                 "failed_steps": failed,
                 "stale": stale,
+                # Ticket 2 (03bae2dd): the structured handoff boot renders above
+                # NEXT UP (next step + guardrail + kickoff doc). None when absent.
+                "handoff": cm.get("handoff"),
                 "plan_reconcile": {
                     "ran": recon is not None,
                     "status": (recon or {}).get("status", "missing"),
