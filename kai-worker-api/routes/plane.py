@@ -125,6 +125,7 @@ def _process_project(p, include_done, include_parked):
             "state": s.get("name", "?"),
             "state_group": s.get("group", "?"),
             "priority": i.get("priority", "none"),
+            "sequence_id": i.get("sequence_id"),
             "created_at": i.get("created_at", ""),
             "labels": [
                 label_name.get(label if isinstance(label, str) else label.get("id"))
