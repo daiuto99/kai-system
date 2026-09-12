@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,6 +54,93 @@ _TAXONOMY = frozenset({
 # Only classes with a mechanical, non-forgeable client-side target check may
 # suppress the default-deny (mirrors check_context.py:_STOP_SUPPRESSING).
 _STOP_SUPPRESSING = frozenset({"lock_asset", "credential_move", "destructive_host_op"})
+
+# INV3 (server-authoritative, KAI-1361): the claim endpoint previously delegated
+# target verification ENTIRELY to the client (register_blocker.py). That client is
+# a tamper-locked asset, but pure delegation still meant a weak client check — or an
+# agent POSTing to /register directly — could mint a blocker on a file it fabricated
+# THIS session (`touch /tmp/x` -> destructive_host_op; `mkdir /tmp/secrets` ->
+# credential_move) to buy a yield. The worker cannot stat the agent's local
+# filesystem (the target may live on another host), so it applies a HOST-AGNOSTIC
+# LEXICAL policy at register time: a path-based blocker whose target normalizes under
+# an ephemeral/agent-scratch root is refused a ledger row, and INV1 (in_ledger) then
+# denies the claim. Bounded residual (accepted per the KAI-984 inc3 model): a
+# non-ephemeral path the agent still created is lexically indistinguishable from real
+# state and stays capped by the per-session yield bound (INV4=3).
+_PATH_VERIFIED_CLASSES = frozenset({"destructive_host_op", "credential_move"})
+
+# Ephemeral / agent-writable roots that never host real destructive or credential
+# state. Lexical prefixes (POSIX + macOS TMPDIR); matched on the normalized path.
+_EPHEMERAL_ROOTS = (
+    "/tmp/", "/private/tmp/", "/var/tmp/", "/private/var/tmp/",
+    "/dev/shm/", "/private/var/folders/", "/var/folders/",
+    # /run/user/<uid> is a per-user tmpfs (XDG_RUNTIME_DIR) the agent owns and can
+    # write; the legit Docker secret store /run/secrets/ is deliberately NOT here.
+    "/run/user/",
+    # World-writable volatile lock/shm dirs (FHS). /var/lock -> /run/lock and
+    # /run/shm -> /dev/shm on most distros, but match the literal strings too.
+    "/run/lock/", "/var/lock/", "/run/shm/",
+)
+# Scratch markers that can appear deeper in a path (Claude scratchpad, caches).
+_EPHEMERAL_MARK_RE = re.compile(r"/(?:claude-\d+|scratchpad|\.cache|\.pytest_cache)(?:/|$)")
+_SECRETS_COMPONENT_RE = re.compile(r"(?:^|/)secrets?(?:/|$)")
+
+
+def _norm_target(target: str) -> str:
+    """Lexical normalization only (NO filesystem access — the target may be on a
+    different host). Expands a leading ~ and collapses ./.. so a traversal like
+    '/x/../../tmp/y' cannot smuggle an ephemeral root past the prefix check."""
+    t = (target or "").strip()
+    if t.startswith("~"):
+        t = os.path.expanduser(t)
+    if not t:
+        return t
+    # normpath keeps a leading '//' (POSIX), which would let '//tmp/x' dodge the
+    # '/tmp/' prefix check though the OS resolves it to /tmp/x — collapse first.
+    t = re.sub(r"^/{2,}", "/", t)
+    norm = os.path.normpath(t)
+    norm = re.sub(r"^/{2,}", "/", norm)
+    # /var/run is a compat symlink to /run on modern distros — fold it so every
+    # /run/* ephemeral entry (/run/user, /run/lock, /run/shm) also covers the
+    # /var/run/* alias without enumerating each twice (Codex KAI-1361 round 5).
+    if norm == "/var/run" or norm.startswith("/var/run/"):
+        norm = "/run" + norm[len("/var/run"):]
+    return norm
+
+
+def _is_ephemeral(norm: str) -> bool:
+    low = norm.lower()
+    p = low if low.endswith("/") else low + "/"
+    if any(p.startswith(root) for root in _EPHEMERAL_ROOTS):
+        return True
+    return bool(_EPHEMERAL_MARK_RE.search(low))
+
+
+def _verify_target_lexical(klass: str, target: str) -> tuple:
+    """Server-authoritative INV3 (mechanical part), host-agnostic. Returns
+    (ok, reason). Only path-based classes are gated here; judgment classes
+    (brand_facing/scope_change), irreversible_external and lock_asset keep their
+    existing handling and are accepted at this layer."""
+    if klass not in _PATH_VERIFIED_CLASSES:
+        return (True, "")
+    norm = _norm_target(target)
+    if not norm:
+        return (False, "empty target")
+    if _is_ephemeral(norm):
+        return (False, "target '%s' is under an ephemeral/agent-scratch root — a "
+                       "fabricated file cannot mint a %s blocker" % (norm, klass))
+    if klass == "destructive_host_op":
+        if not os.path.isabs(norm):
+            return (False, "destructive_host_op target '%s' must be an absolute host path" % norm)
+        return (True, "")
+    if klass == "credential_move":
+        if not os.path.isabs(norm):
+            return (False, "credential_move target '%s' must be an absolute path — a "
+                           "relative path resolves under the agent's own cwd" % norm)
+        if not _SECRETS_COMPONENT_RE.search(norm):
+            return (False, "credential_move target '%s' has no secrets/ path component" % norm)
+        return (True, "")
+    return (True, "")
 
 # Single uvicorn worker (no --workers): a process-local lock serializes the
 # yield-counter read-modify-write. The O_EXCL claim below is atomic across
@@ -179,6 +267,9 @@ def register_blocker(body: RegisterBody):
         return {"registered": False, "reason": f"'{body.klass}' is not a hard-gate class"}
     if len(body.evidence.strip()) < 20:
         return {"registered": False, "reason": "evidence must be >= 20 chars"}
+    ok, why = _verify_target_lexical(body.klass, body.target)
+    if not ok:
+        return {"registered": False, "reason": "target refused (INV3): " + why}
     row = {
         "action": body.action, "class": body.klass, "target": body.target,
         "evidence": body.evidence, "ticket": body.ticket, "session": body.session,

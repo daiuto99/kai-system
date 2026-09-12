@@ -168,3 +168,148 @@ def test_bound_not_exceeded_when_writes_fail_from_persisted_count():
     finally:
         tg.os.replace = orig
     assert honored_after == 0
+
+
+# --- INV3 lexical target policy (KAI-1361) ---
+def test_inv3_destructive_ephemeral_target_refused():
+    # KAI-1361: an agent can `touch /tmp/x` then register it as a destructive host
+    # op to buy a yield. The server now refuses to ledger an ephemeral target, and
+    # with no ledger row the claim is refused by INV1.
+    _fresh_state()
+    d = _reg(klass="destructive_host_op", target="/tmp/x")
+    assert d["registered"] is False and "INV3" in d["reason"]
+    assert _claim(klass="destructive_host_op", target="/tmp/x")["honored"] is False
+
+
+def test_inv3_credential_move_fabricated_secrets_refused():
+    # `mkdir -p /tmp/secrets && touch /tmp/secrets/x` must not pass credential_move.
+    _fresh_state()
+    d = _reg(klass="credential_move", target="/tmp/secrets/x")
+    assert d["registered"] is False and "INV3" in d["reason"]
+
+
+def test_inv3_traversal_into_ephemeral_refused():
+    # normpath collapses '..' so a traversal cannot smuggle an ephemeral root past
+    # the prefix check.
+    _fresh_state()
+    d = _reg(klass="destructive_host_op", target="/etc/../tmp/x")
+    assert d["registered"] is False and "INV3" in d["reason"]
+
+
+def test_inv3_scratchpad_marker_refused():
+    _fresh_state()
+    d = _reg(klass="destructive_host_op",
+             target="/private/tmp/claude-501/sess/scratchpad/x")
+    assert d["registered"] is False and "INV3" in d["reason"]
+
+
+def test_inv3_real_host_path_still_registers():
+    # a genuine absolute host path (not agent-scratch) is accepted.
+    _fresh_state()
+    assert _reg(klass="destructive_host_op",
+                target="/etc/nginx/nginx.conf")["registered"] is True
+
+
+def test_inv3_real_credential_store_still_registers():
+    # a real secrets store outside ephemeral roots is accepted.
+    _fresh_state()
+    assert _reg(klass="credential_move",
+                target="/home/leo/.kai/secrets/kai_worker_auth.txt")["registered"] is True
+
+
+def test_inv3_destructive_relative_path_refused():
+    # destructive_host_op must be an absolute host path, not a relative one.
+    _fresh_state()
+    d = _reg(klass="destructive_host_op", target="scripts/x.py")
+    assert d["registered"] is False and "INV3" in d["reason"]
+
+
+def test_inv3_credential_move_without_secrets_component_refused():
+    _fresh_state()
+    d = _reg(klass="credential_move", target="/home/leo/config.txt")
+    assert d["registered"] is False and "INV3" in d["reason"]
+
+
+def test_inv3_lock_asset_unaffected_by_lexical_policy():
+    # lock_asset is not a path-verified class; its existing handling is unchanged.
+    _fresh_state()
+    assert _reg(klass="lock_asset", target="scripts/check_context.py")["registered"] is True
+
+
+# --- INV3 bypass regressions (KAI-1361 round 2, Codex) ---
+def test_inv3_double_leading_slash_refused():
+    # Codex: os.path.normpath keeps a leading '//' (POSIX), so '//tmp/x' dodged the
+    # '/tmp/' prefix while the OS resolves it to /tmp/x. Must be refused.
+    _fresh_state()
+    d = _reg(klass="destructive_host_op", target="//tmp/x")
+    assert d["registered"] is False and "INV3" in d["reason"], d
+
+
+def test_inv3_triple_leading_slash_refused():
+    _fresh_state()
+    d = _reg(klass="credential_move", target="///tmp/secrets/x")
+    assert d["registered"] is False and "INV3" in d["reason"], d
+
+
+def test_inv3_uppercase_temp_refused():
+    # Case-insensitive FS (macOS): /TMP/x resolves to /tmp/x. Must be refused.
+    _fresh_state()
+    d = _reg(klass="destructive_host_op", target="/TMP/x")
+    assert d["registered"] is False and "INV3" in d["reason"], d
+
+
+# --- INV3 relative-path regression (KAI-1361 round 3, Codex) ---
+def test_inv3_credential_move_relative_secrets_refused():
+    # Codex round 3: `mkdir -p secrets && touch secrets/x` in the agent cwd yields a
+    # relative target with a secrets/ component. credential_move must be absolute.
+    _fresh_state()
+    d = _reg(klass="credential_move", target="secrets/x")
+    assert d["registered"] is False and "INV3" in d["reason"], d
+
+
+def test_inv3_credential_move_dotslash_relative_refused():
+    _fresh_state()
+    d = _reg(klass="credential_move", target="./secrets/x")
+    assert d["registered"] is False and "INV3" in d["reason"], d
+
+
+# --- INV3 /run/user regression (KAI-1361 round 4, Codex) ---
+def test_inv3_run_user_secrets_refused():
+    # Codex round 4: /run/user/<uid> is an agent-owned tmpfs; a fabricated secrets/
+    # file there must not mint a credential_move blocker.
+    _fresh_state()
+    d = _reg(klass="credential_move", target="/run/user/1000/secrets/x")
+    assert d["registered"] is False and "INV3" in d["reason"], d
+
+
+def test_inv3_run_secrets_docker_store_still_registers():
+    # The real Docker secret store /run/secrets/ must remain acceptable.
+    _fresh_state()
+    d = _reg(klass="credential_move", target="/run/secrets/kai_worker_auth")
+    assert d["registered"] is True, d
+
+
+# --- INV3 lock/shm regression (KAI-1361 round 5, Codex) ---
+def test_inv3_run_lock_refused():
+    _fresh_state()
+    d = _reg(klass="credential_move", target="/run/lock/secrets/x")
+    assert d["registered"] is False and "INV3" in d["reason"], d
+
+
+def test_inv3_var_lock_refused():
+    _fresh_state()
+    d = _reg(klass="destructive_host_op", target="/var/lock/x")
+    assert d["registered"] is False and "INV3" in d["reason"], d
+
+
+# --- INV3 /var/run compat-symlink regression (KAI-1361 round 6, Codex) ---
+def test_inv3_var_run_user_alias_refused():
+    _fresh_state()
+    d = _reg(klass="credential_move", target="/var/run/user/1000/secrets/x")
+    assert d["registered"] is False and "INV3" in d["reason"], d
+
+
+def test_inv3_var_run_lock_alias_refused():
+    _fresh_state()
+    d = _reg(klass="destructive_host_op", target="/var/run/lock/x")
+    assert d["registered"] is False and "INV3" in d["reason"], d

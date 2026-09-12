@@ -63,7 +63,13 @@ class HostopsGateHumanOnlyTests(unittest.TestCase):
                                       side_effect=lambda _u, r: callbacks.append(r)),
                     mock.patch.object(gates, "_persist_gate_record"),
                     mock.patch.object(gates, "_fyi"),
+                    mock.patch.object(gates.httpx, "post") as post,
                 ):
+                    # KAI-1413: mock the T2-queue POST so the test never writes a
+                    # real hostops_gate card into the LIVE /t2/queue (the unmocked
+                    # post here leaked 2 synthetic gates per run -> 1766 by 2026-09).
+                    post.return_value.raise_for_status.return_value = None
+                    post.return_value.json.return_value = {"id": "t2-test"}
                     gates._process_gate(req)
 
                 state = self.store[req.gate_id]
