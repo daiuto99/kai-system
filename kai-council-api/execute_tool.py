@@ -13,8 +13,6 @@ import agenda as _agenda
 
 logger = logging.getLogger(__name__)
 
-# n8n
-N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
 # Plane PM
 PLANE_API_TOKEN = open("/run/secrets/plane_api_token").read().strip().split("\n")[0]
 PLANE_BASE_URL = "http://plane-proxy:8090/api/v1"
@@ -32,53 +30,6 @@ def _capability_auth_headers() -> dict[str, str]:
         return {}
     return {"X-KAI-Capability-Key": secret} if secret else {}
 
-
-
-def _load_n8n_registry() -> dict:
-    if N8N_REGISTRY_FILE.exists():
-        try:
-            return json.loads(N8N_REGISTRY_FILE.read_text())
-        except Exception as e:
-            logger.exception("load_n8n_registry: %s", e)
-    return {}
-
-
-def _save_n8n_registry(registry: dict):
-    N8N_REGISTRY_FILE.write_text(json.dumps(registry, indent=2))
-
-
-def _trigger_n8n(workflow: str, payload: dict) -> dict:
-    registry = _load_n8n_registry()
-    entry = registry.get(workflow)
-    if not entry:
-        return {"error": f"Workflow '{workflow}' not registered. Use list_n8n_workflows or register_n8n_workflow."}
-    webhook_url = entry["webhook_url"] if isinstance(entry, dict) else entry
-    with httpx.Client(timeout=30) as client:
-        r = client.post(webhook_url, json=payload)
-        if r.status_code == 200:
-            try:
-                return {"ok": True, "workflow": workflow, "result": r.json()}
-            except Exception:
-                return {"ok": True, "workflow": workflow, "result": r.text[:2000]}
-        return {"error": f"n8n returned {r.status_code}", "body": r.text[:500]}
-
-
-def _list_n8n_workflows() -> dict:
-    registry = _load_n8n_registry()
-    workflows = []
-    for name, entry in registry.items():
-        if isinstance(entry, dict):
-            workflows.append({"name": name, "description": entry.get("description", ""), "url": entry.get("webhook_url", "")})
-        else:
-            workflows.append({"name": name, "description": "", "url": entry})
-    return {"workflows": workflows, "count": len(workflows)}
-
-
-def _register_n8n_workflow(name: str, webhook_url: str, description: str) -> dict:
-    registry = _load_n8n_registry()
-    registry[name] = {"webhook_url": webhook_url, "description": description}
-    _save_n8n_registry(registry)
-    return {"ok": True, "name": name, "registered": True}
 
 
 def _list_specialists() -> dict:
@@ -292,7 +243,7 @@ def _h_vault(client, tool_name, ti, advisor):
             return {"error": "File not found in workspace: " + ti["path"] + ". Workspace may need a sync."}
         try:
             return r.json()
-        except Exception as e:
+        except Exception:
             return {"error": "workspace/read non-JSON (status " + str(r.status_code) + "): " + r.text[:200]}
     if tool_name == "list_workspace":
         p = ti.get("path", "")
@@ -301,7 +252,7 @@ def _h_vault(client, tool_name, ti, advisor):
             return {"error": "Directory not found in workspace: " + p}
         try:
             return r.json()
-        except Exception as e:
+        except Exception:
             return {"error": "workspace/list non-JSON (status " + str(r.status_code) + "): " + r.text[:200]}
 
 
@@ -378,31 +329,7 @@ def _h_agenda(client, tool_name, ti, advisor):
 def _h_calendar(client, tool_name, ti, advisor):
     if tool_name == "get_calendar":
         days = ti.get("days", 7)
-        gcal_events = []
-        try:
-            r = client.post("http://kai-n8n:5678/webhook/kai-calendar-events",
-                           json={"days": days}, timeout=15)
-            if r.status_code == 200:
-                for ev in r.json():
-                    start = ev.get("start", {})
-                    start_str = start.get("dateTime", start.get("date", "")) if isinstance(start, dict) else str(start)
-                    end = ev.get("end", {})
-                    end_str = end.get("dateTime", end.get("date", "")) if isinstance(end, dict) else str(end)
-                    _day = ""
-                    try:
-                        _dt_parsed = _dt2.fromisoformat(start_str[:10])
-                        _day = _dt_parsed.strftime("%A")
-                    except Exception:
-                        pass
-                    gcal_events.append({
-                        "start": start_str[:16],
-                        "end": end_str[:16],
-                        "summary": ev.get("summary", ""),
-                        "source": "Google",
-                        "day_name": _day,
-                    })
-        except Exception:
-            pass
+        gcal_events = []  # Google source retired with n8n; direct-Google rebuild tracked in KAI-1383
         ics_events = []
         try:
             r2 = client.get(f"{WORKER_URL}/calendar/ics", params={"days": days}, timeout=15)
@@ -488,17 +415,6 @@ def _h_ingest(client, tool_name, ti, advisor):
         )
         return {"status": "ok", "output": result.stdout.strip()}
 
-def _h_n8n(client, tool_name, ti, advisor):
-    if tool_name == "trigger_n8n_workflow":
-        return _trigger_n8n(ti["workflow"], ti.get("payload", {}))
-    if tool_name == "list_n8n_workflows":
-        return _list_n8n_workflows()
-    if tool_name == "register_n8n_workflow":
-        return _register_n8n_workflow(
-            ti["name"], ti["webhook_url"], ti.get("description", "")
-        )
-
-
 def _h_specialists(client, tool_name, ti, advisor):
     if tool_name == "list_specialists":
         return _list_specialists()
@@ -510,17 +426,11 @@ def _h_specialists(client, tool_name, ti, advisor):
 
 
 def _h_email(client, tool_name, ti, advisor):
+    # Gmail was served via n8n (retired). Direct-Gmail rebuild = KAI-1384.
     if tool_name == "read_email":
-        return _trigger_n8n("gmail-read", {
-            "max_results": ti.get("max_results", 10),
-            "query": ti.get("query", "")
-        })
+        return {"error": "Email integration is being rebuilt on a direct Gmail path (KAI-1384); n8n retired.", "emails": []}
     if tool_name == "draft_email":
-        return _trigger_n8n("gmail-draft", {
-            "to": ti["to"],
-            "subject": ti["subject"],
-            "body": ti["body"]
-        })
+        return {"error": "Email drafting is being rebuilt on a direct Gmail path (KAI-1384); n8n retired."}
 
 
 def _h_contacts(client, tool_name, ti, advisor):
@@ -534,19 +444,8 @@ def _h_contacts(client, tool_name, ti, advisor):
         r = client.get(f"{WORKER_URL}/templates", timeout=5)
         return r.json() if r.status_code == 200 else {"error": r.text}
     if tool_name == "lookup_google_contact":
-        query = ti.get("query", "")
-        n8n_url = "https://n8n.sonicink.space/webhook/kai-contacts-lookup"
-        try:
-            logger.warning("[contacts] querying n8n for: %s", query)
-            resp = httpx.post(n8n_url, json={"query": query}, timeout=15)
-            logger.warning("[contacts] status=%s body=%s", resp.status_code, resp.text[:200])
-            data = resp.json()
-            if isinstance(data, list) and data:
-                data = data[0]
-            return data
-        except Exception as e:
-            logger.exception("[contacts] exception: %s", e)
-            return {"error": f"Google Contacts lookup failed: {e}"}
+        # Google Contacts was served via n8n (retired); no direct replacement yet.
+        return {"error": "Google Contacts lookup retired with n8n; no direct integration yet.", "contacts": []}
 
 
 def _h_oura(client, tool_name, ti, advisor):
@@ -1449,10 +1348,6 @@ TOOL_REGISTRY = {
     "ingest_knowledge": _h_ingest,
     "list_knowledge": _h_ingest,
     "clear_knowledge": _h_ingest,
-    # n8n
-    "trigger_n8n_workflow": _h_n8n,
-    "list_n8n_workflows": _h_n8n,
-    "register_n8n_workflow": _h_n8n,
     # Specialists
     "list_specialists": _h_specialists,
     "consult_specialist": _h_specialists,

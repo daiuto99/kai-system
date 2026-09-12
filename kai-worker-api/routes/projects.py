@@ -20,7 +20,6 @@ router = APIRouter()
 PROJECTS_FILE = VAULT_PATH / "00_System" / "projects.json"
 PROJECTS_DIR  = VAULT_PATH / "20_Projects"
 TEMPLATES_PATH = VAULT_PATH / "00_System" / "templates"
-N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
 
 
 def _parse_status_md(path: Path) -> dict:
@@ -43,23 +42,11 @@ def _render_template(content: str, variables: dict) -> str:
     return content
 
 
-def _n8n_draft_email(to: str, subject: str, body: str) -> dict:
-    if not N8N_REGISTRY_FILE.exists():
-        return {"error": "n8n registry not found"}
-    try:
-        registry = json.loads(N8N_REGISTRY_FILE.read_text())
-    except Exception:
-        return {"error": "n8n registry unreadable"}
-    entry = registry.get("gmail-draft")
-    if not entry:
-        return {"error": "gmail-draft workflow not registered"}
-    webhook_url = entry["webhook_url"] if isinstance(entry, dict) else entry
-    try:
-        import httpx as _n8nhx
-        r = _n8nhx.post(webhook_url, json={"to": to, "subject": subject, "body": body}, timeout=30)
-        return {"ok": r.status_code == 200, "status": r.status_code}
-    except Exception as e:
-        return {"error": str(e)}
+def _draft_invite_email(to: str, subject: str, body: str) -> dict:
+    # Gmail drafting was served via the retired automation layer. Direct-Gmail
+    # rebuild = KAI-1384. Project creation still succeeds; invite drafts are
+    # simply skipped until then.
+    return {"error": "email drafting pending direct-Gmail rebuild (KAI-1384)"}
 
 @router.get("/projects")
 def get_projects_v2():
@@ -144,11 +131,16 @@ def patch_project(project_id: str, body: ProjectPatch):
     projects = json.loads(PROJECTS_FILE.read_text())
     for p in projects:
         if p["id"] == project_id:
-            if body.pinned is not None: p["pinned"] = body.pinned
-            if body.status:             p["status"]  = body.status
-            if body.next:               p["next"]    = body.next
-            if body.milestone:          p["milestone"] = body.milestone
-            if body.milestone_pct is not None: p["milestone_pct"] = body.milestone_pct
+            if body.pinned is not None:
+                p["pinned"] = body.pinned
+            if body.status:
+                p["status"] = body.status
+            if body.next:
+                p["next"] = body.next
+            if body.milestone:
+                p["milestone"] = body.milestone
+            if body.milestone_pct is not None:
+                p["milestone_pct"] = body.milestone_pct
             PROJECTS_FILE.write_text(json.dumps(projects, indent=2))
             return {"ok": True, "project": p}
     raise HTTPException(404, "project not found")
@@ -336,7 +328,7 @@ pinned: false
                 f"\n\nLeo will follow up with details on coordination and file sharing.{file_note}"
                 f"\n\n— KAI on behalf of Leo"
             )
-            draft_result = _n8n_draft_email(
+            draft_result = _draft_invite_email(
                 to=email,
                 subject=f"Invitation: {req.name} project",
                 body=body_text,

@@ -30,7 +30,7 @@ VERIFY_SH = Path("/home/leo/kai-system/scripts/verify_backups.sh")
 LOCK = Path("/home/leo/kai-system/logs/.devops_backups_custodian.lock")
 
 # Every store backup.sh writes — a silently-failing one was the audit #01 blind spot.
-STORES = {"plane": "*.sql.gz", "qdrant": "*.snapshot", "n8n": "*.tar.gz", "buzz": "*.sql.gz"}
+STORES = {"plane": "*.sql.gz", "qdrant": "*.snapshot", "buzz": "*.sql.gz"}
 
 
 def _now() -> str:

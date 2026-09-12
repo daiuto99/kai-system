@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import date as _wd
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, Body
 from routes._destructive_audit import DestructiveRequest, audit_before
 from pydantic import BaseModel
 from config import VAULT_PATH
@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 WORKFLOWS_FILE = VAULT_PATH / "00_System" / "workflows.json"
-N8N_REGISTRY_FILE = VAULT_PATH / "00_System" / "n8n_workflows.json"
 SPECIALISTS_FILE = VAULT_PATH / "00_System" / "specialists.json"
 
 
@@ -53,27 +52,6 @@ def delete_workflow_endpoint(workflow_id: str, body: DestructiveRequest = Body(.
     workflows = [w for w in json.loads(WORKFLOWS_FILE.read_text()) if w["id"] != workflow_id]
     WORKFLOWS_FILE.write_text(json.dumps(workflows, indent=2))
     return {"ok": True}
-
-
-@router.get("/n8n/workflows")
-def list_n8n_workflows():
-    if not N8N_REGISTRY_FILE.exists():
-        return {"workflows": {}}
-    return {"workflows": json.loads(N8N_REGISTRY_FILE.read_text())}
-
-
-@router.post("/n8n/workflows")
-def register_n8n_workflow(body: dict):
-    registry = json.loads(N8N_REGISTRY_FILE.read_text()) if N8N_REGISTRY_FILE.exists() else {}
-    name = body.get("name")
-    if not name:
-        raise HTTPException(400, "name required")
-    registry[name] = {
-        "webhook_url": body.get("webhook_url", ""),
-        "description": body.get("description", ""),
-    }
-    N8N_REGISTRY_FILE.write_text(json.dumps(registry, indent=2))
-    return {"ok": True, "name": name}
 
 
 @router.get("/specialists")

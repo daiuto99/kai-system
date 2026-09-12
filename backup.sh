@@ -86,18 +86,6 @@ else
 fi
 ls -1t "$BACKUP_DIR/qdrant/"qdrant_*.snapshot 2>/dev/null | tail -n +3 | xargs -r rm -f || true
 
-# --- n8n (workflows + credentials sqlite bind mount; was UNBACKED — audit #01).
-# tar db+wal+shm; SQLite replays the WAL on restore. Keep 7. ---
-mkdir -p "$BACKUP_DIR/n8n"
-N8N_FILE="$BACKUP_DIR/n8n/n8n_${TIMESTAMP}.tar.gz"
-if tar czf "$N8N_FILE" --ignore-failed-read -C "$HOME/kai-system/n8n-data" \
-        database.sqlite database.sqlite-wal database.sqlite-shm 2>>"$LOG"; then
-    echo "[$TIMESTAMP] n8n sqlite: $N8N_FILE ($(du -sh "$N8N_FILE" | cut -f1))" >> "$LOG"
-else
-    echo "[$TIMESTAMP] WARNING: n8n backup FAILED" >> "$LOG"
-fi
-find "$BACKUP_DIR/n8n/" -name "n8n_*.tar.gz" -mtime +7 -delete || true
-
 # --- buzz-postgres (buzz DB; was UNBACKED — audit #01). pg_dump. Keep 7. ---
 mkdir -p "$BACKUP_DIR/buzz"
 BUZZ_FILE="$BACKUP_DIR/buzz/buzz_${TIMESTAMP}.sql.gz"

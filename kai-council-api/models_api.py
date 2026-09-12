@@ -199,8 +199,6 @@ def get_model_catalog():
         {"function": "Specialist Consult",   "description": "consult_specialist — 10 domain experts",             "provider": "anthropic", "model": advisor_configs.get("kai", {}).get("model", "claude-sonnet-4-6")},
         {"function": "Session Summaries",    "description": "Auto-summarize after 20+ exchanges",                  "provider": "anthropic", "model": advisor_configs.get("kai", {}).get("model", "claude-sonnet-4-6")},
         {"function": "Decision Logging",     "description": "log_decision — vault/60_Council/decisions/",          "provider": "anthropic", "model": advisor_configs.get("kai", {}).get("model", "claude-sonnet-4-6")},
-        {"function": "Gmail Read / Draft",   "description": "read_email, draft_email via n8n OAuth",               "provider": "anthropic", "model": advisor_configs.get("kai", {}).get("model", "claude-sonnet-4-6")},
-        {"function": "n8n Workflow Trigger", "description": "trigger_n8n_workflow — calendar, automations",        "provider": "anthropic", "model": advisor_configs.get("kai", {}).get("model", "claude-sonnet-4-6")},
     ]
     for adv_id, adv_cfg in advisor_configs.items():
         FUNCTION_MAP.append({

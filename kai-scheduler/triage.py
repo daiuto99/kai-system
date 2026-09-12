@@ -238,7 +238,7 @@ def _classify_and_analyze(function_name: str, error: str) -> tuple[str, str, str
             "CATEGORY: <code_bug|infra_bug|content_bug|unknown> — pick the team "
             "that should own it. code_bug = application code in kai-council-api "
             "/ kai-orchestrator / kai-web. infra_bug = containers, deployments, "
-            "scheduler, system health, databases, n8n, monitoring. content_bug "
+            "scheduler, system health, databases, monitoring. content_bug "
             "= copy, design, brand assets. unknown when none fits."
         )
         user_prompt = f"Function: {function_name}\nError: {error[:600]}"

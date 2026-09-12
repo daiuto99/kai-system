@@ -1,22 +1,22 @@
 {
-  "generated_at": "2026-09-07T06:20:27.215487+00:00",
+  "generated_at": "2026-09-12T16:49:23.240223+00:00",
   "host": "71kai",
   "scanner": "currency_scan.py (CUR-1 + CUR-3 wp_fleet + CUR-2 py_deps/npm_deps + CUR-6 fleet)",
   "layers": {
     "os_apt": {
       "status": "stale",
-      "checked_at": "2026-09-07T06:17:01.592828+00:00",
-      "detail": "1 security / 29 regular pending \u00b7 cause: held back by unattended-upgrades policy (it won't install new packages); clearing needs a gated `apt full-upgrade` \u2014 pulls in 2 new package(s) incl docker-ce (restarts containers)",
+      "checked_at": "2026-09-12T16:46:22.805550+00:00",
+      "detail": "1 security / 22 regular pending \u00b7 cause: held back by unattended-upgrades policy (it won't install new packages); clearing needs a gated `apt full-upgrade` \u2014 pulls in 2 new package(s) incl docker-ce (restarts containers)",
       "components": [
         {
           "name": "apt packages",
           "current": false,
           "security_pending": 1,
-          "regular_pending": 29,
+          "regular_pending": 22,
           "auto_upgrades_enforced": true,
           "risk_tier": "auto",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:01.592828+00:00",
+          "checked_at": "2026-09-12T16:46:22.805550+00:00",
           "cause": "held back by unattended-upgrades policy (it won't install new packages); clearing needs a gated `apt full-upgrade` \u2014 pulls in 2 new package(s) incl docker-ce (restarts containers)"
         }
       ],
@@ -24,67 +24,105 @@
     },
     "container_images": {
       "status": "stale",
-      "checked_at": "2026-09-07T06:17:07.182859+00:00",
-      "detail": "42 running container(s); 19 stale / 29 compared \u00b7 13 local-build (n/a); oldest image 927.3d old",
+      "checked_at": "2026-09-12T16:46:28.247916+00:00",
+      "detail": "41 running container(s); 19 stale / 26 compared \u00b7 12 local-build (n/a); oldest image 932.8d old",
       "components": [
         {
-          "name": "kai-worker-api",
-          "image": "kai-system-kai-worker-api",
-          "installed_age_days": 1.6,
+          "name": "kai-scheduler",
+          "image": "kai-system-kai-scheduler",
+          "installed_age_days": 0.0,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": null,
           "current": null,
           "status": "not-checked",
           "applicable": false,
           "note": "local-build image \u2014 no upstream registry to compare",
-          "local_digest": "sha256:5208b8bc964a2435323147fb4a5aa3b651f257aa4a566d9edf536f9b3b29fc19"
-        },
-        {
-          "name": "docker-socket-proxy",
-          "image": "kai-system-docker-socket-proxy",
-          "installed_age_days": 7.3,
-          "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": null,
-          "current": null,
-          "status": "not-checked",
-          "applicable": false,
-          "note": "local-build image \u2014 no upstream registry to compare",
-          "local_digest": "sha256:75af63b410f34345a4cfaa0a513e5a71f9221a5f4c828c2494c95935913b0e6d"
+          "local_digest": "sha256:8daac07468f2c97faee497f0a6e08d1dbab419653a0f10f66ee9904028b16999"
         },
         {
           "name": "kai-council-api",
           "image": "kai-system-kai-council-api",
-          "installed_age_days": 2.2,
+          "installed_age_days": 0.0,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": null,
           "current": null,
           "status": "not-checked",
           "applicable": false,
           "note": "local-build image \u2014 no upstream registry to compare",
-          "local_digest": "sha256:060a5a871da32911fecec0771500775ce16c26ebcf31d6c129f0650112ae7ad9"
+          "local_digest": "sha256:5d62f0bbbcaa107869154f56348521a65b1c5b3069ee560a3e7f2553d6145e93"
+        },
+        {
+          "name": "kai-worker-api",
+          "image": "kai-system-kai-worker-api",
+          "installed_age_days": 0.0,
+          "risk_tier": "gated",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
+          "latest": null,
+          "current": null,
+          "status": "not-checked",
+          "applicable": false,
+          "note": "local-build image \u2014 no upstream registry to compare",
+          "local_digest": "sha256:5d5ffc549924be0b1b4c84814498cb171a9b407dbe1f4e650d7ff7d3ec4b7cc5"
+        },
+        {
+          "name": "docker-socket-proxy",
+          "image": "kai-system-docker-socket-proxy",
+          "installed_age_days": 12.7,
+          "risk_tier": "gated",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
+          "latest": null,
+          "current": null,
+          "status": "not-checked",
+          "applicable": false,
+          "note": "local-build image \u2014 no upstream registry to compare",
+          "local_digest": "sha256:2d0697d6f21a33e494fbf0a7cc3c3f99458a201485f9271e3fbd6e35399769f9"
+        },
+        {
+          "name": "buzz-minio",
+          "image": "minio/minio",
+          "installed_age_days": 369.9,
+          "risk_tier": "gated",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
+          "latest": null,
+          "current": null,
+          "status": "not-checked",
+          "note": "registry read failed: ERROR: pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed",
+          "local_digest": "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+        },
+        {
+          "name": "kai-buzz",
+          "image": "kai-system-kai-buzz",
+          "installed_age_days": 2.2,
+          "risk_tier": "gated",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
+          "latest": null,
+          "current": null,
+          "status": "not-checked",
+          "applicable": false,
+          "note": "local-build image \u2014 no upstream registry to compare",
+          "local_digest": "sha256:4343a0a64b240ba2ec797fcc925ace4f2280a0f1375ab9f1b0127430f4095f8a"
         },
         {
           "name": "kai-orchestrator",
           "image": "kai-system-kai-orchestrator",
-          "installed_age_days": 2.6,
+          "installed_age_days": 4.1,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": null,
           "current": null,
           "status": "not-checked",
           "applicable": false,
           "note": "local-build image \u2014 no upstream registry to compare",
-          "local_digest": "sha256:8f0eba915e35b7cb6ebd2597fd460ab73d950928f22759fae3efecd28d5ca2fd"
+          "local_digest": "sha256:5e2919a748f5e32586976b85cd0ae608e5a87c1f65bbdbefc6abf8b34ebbbf1a"
         },
         {
           "name": "kai-qdrant",
           "image": "qdrant/qdrant:latest",
-          "installed_age_days": 164.4,
+          "installed_age_days": 169.8,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:12364fe851b9f17356fc88189fc06d1b521262e04659ec7345975b00c9246a10",
           "current": false,
           "status": "stale",
@@ -94,60 +132,21 @@
         {
           "name": "kai-litellm",
           "image": "ghcr.io/berriai/litellm:main-latest",
-          "installed_age_days": 169.0,
+          "installed_age_days": 174.4,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": "sha256:32c04b00bc1a720e6d5eeb56a7e72f4e1e7d1e538e779c59b990cbddfd5e27da",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
+          "latest": "sha256:29a0daf2593d5eaee14e76f851c4e6802cc1bf22770691a76d48e9810075ffd0",
           "current": false,
           "status": "stale",
-          "cause": "newer image published upstream for ghcr.io/berriai/litellm:main-latest (installed sha256:7c311546c25e\u2026 vs registry sha256:32c04b00bc1a\u2026)",
+          "cause": "newer image published upstream for ghcr.io/berriai/litellm:main-latest (installed sha256:7c311546c25e\u2026 vs registry sha256:29a0daf2593d\u2026)",
           "local_digest": "sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418befaa32e85dfb0186"
-        },
-        {
-          "name": "kai-scheduler",
-          "image": "kai-system-kai-scheduler",
-          "installed_age_days": 3.7,
-          "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": null,
-          "current": null,
-          "status": "not-checked",
-          "applicable": false,
-          "note": "local-build image \u2014 no upstream registry to compare",
-          "local_digest": "sha256:d37c733ddf75a844e318a212464ebfecaf670766b6c4f4c8f42b3f1fb1fdd258"
-        },
-        {
-          "name": "kai-buzz",
-          "image": "kai-system-kai-buzz",
-          "installed_age_days": 3.7,
-          "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": null,
-          "current": null,
-          "status": "not-checked",
-          "applicable": false,
-          "note": "local-build image \u2014 no upstream registry to compare",
-          "local_digest": "sha256:819a295169f2bfcf11f17ca96b59a91caa04694ddca77fa9d7c077a13fcd12b5"
-        },
-        {
-          "name": "kai-n8n",
-          "image": "kai-n8n:2.16.0-secretless-config",
-          "installed_age_days": 56.4,
-          "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": null,
-          "current": null,
-          "status": "not-checked",
-          "applicable": false,
-          "note": "local-build image \u2014 no upstream registry to compare",
-          "local_digest": "sha256:c40151467ad16a9aa618d350b9bc457fe4f316905b37e045be7b979f571ea3ce"
         },
         {
           "name": "kai-web",
           "image": "kai-system-kai-web",
-          "installed_age_days": 4.4,
+          "installed_age_days": 9.8,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": null,
           "current": null,
           "status": "not-checked",
@@ -158,9 +157,9 @@
         {
           "name": "plane-proxy",
           "image": "makeplane/plane-proxy:stable",
-          "installed_age_days": 173.5,
+          "installed_age_days": 178.9,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:47e651c56749c287710cc26f82dc5d1046a2af76a332aa048ab7adb881cc4cd0",
           "current": false,
           "status": "stale",
@@ -170,9 +169,9 @@
         {
           "name": "kai-voice-stt",
           "image": "kai-system-kai-voice-stt",
-          "installed_age_days": 7.2,
+          "installed_age_days": 12.6,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": null,
           "current": null,
           "status": "not-checked",
@@ -183,9 +182,9 @@
         {
           "name": "kai-voice-tts",
           "image": "kai-system-kai-voice-tts",
-          "installed_age_days": 7.2,
+          "installed_age_days": 12.6,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": null,
           "current": null,
           "status": "not-checked",
@@ -196,9 +195,9 @@
         {
           "name": "buzz-relay",
           "image": "buzz-relay:head-eed74bd",
-          "installed_age_days": 7.5,
+          "installed_age_days": 12.9,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": null,
           "current": null,
           "status": "not-checked",
@@ -209,33 +208,33 @@
         {
           "name": "langfuse-web",
           "image": "docker.langfuse.com/langfuse/langfuse:4",
-          "installed_age_days": 11.0,
+          "installed_age_days": 16.4,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": "sha256:376b96bdd8725e74171a3d0cdd9115c8265d4209df95cb26c47370cb3b32329a",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
+          "latest": "sha256:a5d8d2457702ab7e051bc0788d73871970caebd10aae6635e87cfb736e4067cd",
           "current": false,
           "status": "stale",
-          "cause": "newer image published upstream for docker.langfuse.com/langfuse/langfuse:4 (installed sha256:88555cbf8659\u2026 vs registry sha256:376b96bdd872\u2026)",
+          "cause": "newer image published upstream for docker.langfuse.com/langfuse/langfuse:4 (installed sha256:88555cbf8659\u2026 vs registry sha256:a5d8d2457702\u2026)",
           "local_digest": "sha256:88555cbf8659a755c45843be92ece7e06ca2975dd4a33f2cd9d1f7287df98b25"
         },
         {
           "name": "langfuse-worker",
           "image": "docker.langfuse.com/langfuse/langfuse-worker:4",
-          "installed_age_days": 11.0,
+          "installed_age_days": 16.4,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": "sha256:00bc13c8da68fb77c55bcba0c1c16377f1f360ffb17206dbc708912ce4e3afb5",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
+          "latest": "sha256:5e35e625a214dd868bb22adad90fc52e8f83cc856c3750e47f9a922622c207fb",
           "current": false,
           "status": "stale",
-          "cause": "newer image published upstream for docker.langfuse.com/langfuse/langfuse-worker:4 (installed sha256:6093fc77d81a\u2026 vs registry sha256:00bc13c8da68\u2026)",
+          "cause": "newer image published upstream for docker.langfuse.com/langfuse/langfuse-worker:4 (installed sha256:6093fc77d81a\u2026 vs registry sha256:5e35e625a214\u2026)",
           "local_digest": "sha256:6093fc77d81a9579c53147ac422f6deefbe3e65d8c0edd24253f282aefbf74be"
         },
         {
           "name": "langfuse-postgres",
           "image": "postgres:17",
-          "installed_age_days": 13.2,
+          "installed_age_days": 18.7,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675",
           "current": true,
           "status": "fresh",
@@ -244,9 +243,9 @@
         {
           "name": "langfuse-redis",
           "image": "redis:7",
-          "installed_age_days": 13.2,
+          "installed_age_days": 18.7,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:71da9275c5f3fcb97d0fa0c8c5b36cc995327265420f17a04bfd544f458059f7",
           "current": true,
           "status": "fresh",
@@ -255,9 +254,9 @@
         {
           "name": "langfuse-clickhouse",
           "image": "clickhouse/clickhouse-server:25.12",
-          "installed_age_days": 129.0,
+          "installed_age_days": 134.5,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:8a790dd3468db22b1d4e7b18a176f378ff5ff6053b9c48dd4ea1fa71a24c5ba6",
           "current": true,
           "status": "fresh",
@@ -266,20 +265,21 @@
         {
           "name": "langfuse-minio",
           "image": "minio/minio",
-          "installed_age_days": 364.5,
+          "installed_age_days": 369.9,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
-          "current": true,
-          "status": "fresh",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
+          "latest": null,
+          "current": null,
+          "status": "not-checked",
+          "note": "registry read failed: ERROR: pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed",
           "local_digest": "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
         },
         {
           "name": "buzz-hostproxy",
           "image": "nginx:alpine",
-          "installed_age_days": 76.4,
+          "installed_age_days": 81.9,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3",
           "current": false,
           "status": "stale",
@@ -289,9 +289,9 @@
         {
           "name": "kai-buzz-shim",
           "image": "kai-system-kai-buzz-shim",
-          "installed_age_days": 16.5,
+          "installed_age_days": 21.9,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": null,
           "current": null,
           "status": "not-checked",
@@ -300,22 +300,11 @@
           "local_digest": "sha256:9e275a9b6f550fa816e4a5829aa29a19114c259a738fae9c082a40dd498b7646"
         },
         {
-          "name": "buzz-minio",
-          "image": "minio/minio",
-          "installed_age_days": 364.5,
-          "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
-          "current": true,
-          "status": "fresh",
-          "local_digest": "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
-        },
-        {
           "name": "buzz-postgres",
           "image": "postgres:17-alpine",
-          "installed_age_days": 61.5,
+          "installed_age_days": 67.0,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73",
           "current": false,
           "status": "stale",
@@ -325,9 +314,9 @@
         {
           "name": "buzz-redis",
           "image": "redis:7-alpine",
-          "installed_age_days": 43.1,
+          "installed_age_days": 48.5,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
           "current": false,
           "status": "stale",
@@ -337,9 +326,9 @@
         {
           "name": "cloudflare-tunnel",
           "image": "cloudflare/cloudflared:2026.3.0",
-          "installed_age_days": 181.7,
+          "installed_age_days": 187.1,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:6b599ca3e974349ead3286d178da61d291961182ec3fe9c505e1dd02c8ac31b0",
           "current": true,
           "status": "fresh",
@@ -348,9 +337,9 @@
         {
           "name": "kai-tailscale",
           "image": "tailscale/tailscale:latest",
-          "installed_age_days": 152.5,
+          "installed_age_days": 157.9,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:8c42c4574ab066384fcb72f69e086a2ff1dd3652eb6f56856cee34bcf0d2f680",
           "current": false,
           "status": "stale",
@@ -360,21 +349,21 @@
         {
           "name": "kai-code-server",
           "image": "codercom/code-server:latest",
-          "installed_age_days": 136.4,
+          "installed_age_days": 141.9,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": "sha256:ccd326184d71efc5ebb94155eda7bb30153902342a35dbc8525450d81aa55012",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
+          "latest": "sha256:57ac684d44deb6fa94317b3e8f3e128dd7fb897fffd95b4efcd16f56ce607971",
           "current": false,
           "status": "stale",
-          "cause": "newer image published upstream for codercom/code-server:latest (installed sha256:e6702766518b\u2026 vs registry sha256:ccd326184d71\u2026)",
+          "cause": "newer image published upstream for codercom/code-server:latest (installed sha256:e6702766518b\u2026 vs registry sha256:57ac684d44de\u2026)",
           "local_digest": "sha256:e6702766518b961c7e3c41095c129c7c9a82b041578c53326c52fa363a057727"
         },
         {
           "name": "kai-habitsync",
           "image": "ghcr.io/jofoerster/habitsync:latest",
-          "installed_age_days": 170.0,
+          "installed_age_days": 175.4,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:970f6e141094663b078809e77291ab1951cd5114ecfe7bc711a56d60e93c99cc",
           "current": false,
           "status": "stale",
@@ -384,21 +373,21 @@
         {
           "name": "kai-ollama",
           "image": "ollama/ollama:latest",
-          "installed_age_days": 143.1,
+          "installed_age_days": 148.5,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": "sha256:32931b46719f673c05fdbaa81ccb26da18ea4a1c57590a754874ab28ba269eb2",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
+          "latest": "sha256:684d8674b4315fa18f4f0e973a118ec2652ed96f67563277839985175858e0ba",
           "current": false,
           "status": "stale",
-          "cause": "newer image published upstream for ollama/ollama:latest (installed sha256:d3d553bdfbcc\u2026 vs registry sha256:32931b46719f\u2026)",
+          "cause": "newer image published upstream for ollama/ollama:latest (installed sha256:d3d553bdfbcc\u2026 vs registry sha256:684d8674b431\u2026)",
           "local_digest": "sha256:d3d553bdfbcc7f55dd5ddf42c4cbe3a927aa9bb1802710d35e94656ca5aea02b"
         },
         {
           "name": "kai-mcp-api",
           "image": "kai-system-kai-mcp-api",
-          "installed_age_days": 57.3,
+          "installed_age_days": 62.7,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": null,
           "current": null,
           "status": "not-checked",
@@ -409,9 +398,9 @@
         {
           "name": "plane-live",
           "image": "makeplane/plane-live:stable",
-          "installed_age_days": 153.8,
+          "installed_age_days": 159.3,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:cbb630ccaea24bb9998040cb45c11619a7501e8b6c75d449df2f8fd9b9cddbd0",
           "current": false,
           "status": "stale",
@@ -421,9 +410,9 @@
         {
           "name": "plane-admin",
           "image": "makeplane/plane-admin:stable",
-          "installed_age_days": 153.7,
+          "installed_age_days": 159.1,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:6e1bb1d800d3c7ce84a09f810d5588db8613b35d4464e722a1bec12556ca0ebb",
           "current": false,
           "status": "stale",
@@ -433,9 +422,9 @@
         {
           "name": "plane-space",
           "image": "makeplane/plane-space:stable",
-          "installed_age_days": 153.8,
+          "installed_age_days": 159.3,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:f8f842f05f41a16e9fe8c4f5e17a3bb175338ccdc094620e58ae49764ffbd671",
           "current": false,
           "status": "stale",
@@ -445,9 +434,9 @@
         {
           "name": "plane-web",
           "image": "makeplane/plane-frontend:stable",
-          "installed_age_days": 153.8,
+          "installed_age_days": 159.3,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:22fd2434fb8d6658439f669ab72f999ce0773abe587663da21a77d70bd63ff61",
           "current": false,
           "status": "stale",
@@ -457,9 +446,9 @@
         {
           "name": "plane-beat-worker",
           "image": "makeplane/plane-backend:stable",
-          "installed_age_days": 153.8,
+          "installed_age_days": 159.3,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:90032ce088708889b60c00d491897916f4deb882facda27db59fd10fb68729ef",
           "current": false,
           "status": "stale",
@@ -469,9 +458,9 @@
         {
           "name": "plane-worker",
           "image": "makeplane/plane-backend:stable",
-          "installed_age_days": 153.8,
+          "installed_age_days": 159.3,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:90032ce088708889b60c00d491897916f4deb882facda27db59fd10fb68729ef",
           "current": false,
           "status": "stale",
@@ -481,9 +470,9 @@
         {
           "name": "plane-api",
           "image": "makeplane/plane-backend:stable",
-          "installed_age_days": 153.8,
+          "installed_age_days": 159.3,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:90032ce088708889b60c00d491897916f4deb882facda27db59fd10fb68729ef",
           "current": false,
           "status": "stale",
@@ -493,9 +482,9 @@
         {
           "name": "plane-db",
           "image": "postgres:15.7-alpine",
-          "installed_age_days": 825.4,
+          "installed_age_days": 830.8,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:468d34fefd6338031787c7b8e94078975b3aaf4d66c7ead25c39cd3ba46a15c6",
           "current": true,
           "status": "fresh",
@@ -504,9 +493,9 @@
         {
           "name": "plane-mq",
           "image": "rabbitmq:3.13.6-management-alpine",
-          "installed_age_days": 927.3,
+          "installed_age_days": 932.8,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:611107e29cce05c2acd968325d5dcbde7e2fee404970f1ead75fdb22be2821b3",
           "current": true,
           "status": "fresh",
@@ -515,20 +504,21 @@
         {
           "name": "plane-minio",
           "image": "minio/minio:latest",
-          "installed_age_days": 364.5,
+          "installed_age_days": 369.9,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
-          "latest": "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
-          "current": true,
-          "status": "fresh",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
+          "latest": null,
+          "current": null,
+          "status": "not-checked",
+          "note": "registry read failed: ERROR: pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed",
           "local_digest": "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
         },
         {
           "name": "plane-redis",
           "image": "valkey/valkey:7.2.11-alpine",
-          "installed_age_days": 214.2,
+          "installed_age_days": 219.6,
           "risk_tier": "gated",
-          "checked_at": "2026-09-07T06:17:07.182859+00:00",
+          "checked_at": "2026-09-12T16:46:28.247916+00:00",
           "latest": "sha256:10328d00120dc14fbc87b2ed61b7677ddbb0d011e705361b4788329a0ec69a93",
           "current": true,
           "status": "fresh",
@@ -539,12 +529,66 @@
     },
     "py_deps": {
       "status": "stale",
-      "checked_at": "2026-09-07T06:17:35.743305+00:00",
+      "checked_at": "2026-09-12T16:46:51.815368+00:00",
       "detail": "0/13 python service(s) current; CVE not-checked (offline-OSV matcher not yet built)",
       "components": [
         {
+          "name": "kai-scheduler",
+          "outdated_count": 5,
+          "outdated": [
+            "anyio",
+            "APScheduler",
+            "pip",
+            "pytest",
+            "uv"
+          ],
+          "cve_check": "not-checked",
+          "cve_note": "CVE matching not yet implemented (CUR-2 reads currency only); when built it runs OFFLINE against a pulled OSV feed at /home/leo/kai-system/shared/currency/osv \u2014 never a live CVE SaaS",
+          "current": false,
+          "risk_tier": "gated",
+          "status": "stale",
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
+          "cause": "5 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
+        },
+        {
+          "name": "kai-council-api",
+          "outdated_count": 23,
+          "outdated": [
+            "aiosqlite",
+            "anthropic",
+            "anyio",
+            "fastapi",
+            "jiter",
+            "langchain-core",
+            "langgraph",
+            "langgraph-checkpoint",
+            "langgraph-checkpoint-sqlite",
+            "langgraph-sdk",
+            "langsmith",
+            "packaging",
+            "pip",
+            "pydantic",
+            "pydantic_core",
+            "python-dotenv",
+            "regex",
+            "ruff",
+            "starlette",
+            "tavily-python",
+            "uuid_utils",
+            "uv",
+            "uvicorn"
+          ],
+          "cve_check": "not-checked",
+          "cve_note": "CVE matching not yet implemented (CUR-2 reads currency only); when built it runs OFFLINE against a pulled OSV feed at /home/leo/kai-system/shared/currency/osv \u2014 never a live CVE SaaS",
+          "current": false,
+          "risk_tier": "gated",
+          "status": "stale",
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
+          "cause": "23 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
+        },
+        {
           "name": "kai-worker-api",
-          "outdated_count": 21,
+          "outdated_count": 23,
           "outdated": [
             "anthropic",
             "anyio",
@@ -557,6 +601,7 @@
             "google-auth-oauthlib",
             "googleapis-common-protos",
             "icalendar",
+            "jiter",
             "pip",
             "pydantic_core",
             "python-dotenv",
@@ -564,6 +609,7 @@
             "recurring-ical-events",
             "ruff",
             "starlette",
+            "tzdata",
             "uv",
             "uvicorn",
             "x-wr-timezone"
@@ -573,41 +619,25 @@
           "current": false,
           "risk_tier": "gated",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
-          "cause": "21 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
+          "cause": "23 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
         },
         {
-          "name": "kai-council-api",
-          "outdated_count": 20,
+          "name": "kai-buzz",
+          "outdated_count": 4,
           "outdated": [
-            "aiosqlite",
-            "anthropic",
-            "anyio",
-            "fastapi",
-            "langchain-core",
-            "langgraph",
-            "langgraph-checkpoint",
-            "langgraph-checkpoint-sqlite",
-            "langgraph-sdk",
-            "langsmith",
-            "packaging",
+            "nostr-sdk",
             "pip",
-            "pydantic",
-            "pydantic_core",
-            "python-dotenv",
-            "ruff",
-            "starlette",
-            "tavily-python",
             "uv",
-            "uvicorn"
+            "websockets"
           ],
           "cve_check": "not-checked",
           "cve_note": "CVE matching not yet implemented (CUR-2 reads currency only); when built it runs OFFLINE against a pulled OSV feed at /home/leo/kai-system/shared/currency/osv \u2014 never a live CVE SaaS",
           "current": false,
           "risk_tier": "gated",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
-          "cause": "20 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
+          "cause": "4 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
         },
         {
           "name": "kai-orchestrator",
@@ -625,12 +655,12 @@
           "current": false,
           "risk_tier": "gated",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
           "cause": "6 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
         },
         {
           "name": "kai-litellm",
-          "outdated_count": 135,
+          "outdated_count": 136,
           "outdated": [
             "a2a-sdk",
             "aiobotocore",
@@ -663,47 +693,12 @@
           "current": false,
           "risk_tier": "gated",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
-          "cause": "135 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
-        },
-        {
-          "name": "kai-scheduler",
-          "outdated_count": 5,
-          "outdated": [
-            "anyio",
-            "APScheduler",
-            "pip",
-            "pytest",
-            "uv"
-          ],
-          "cve_check": "not-checked",
-          "cve_note": "CVE matching not yet implemented (CUR-2 reads currency only); when built it runs OFFLINE against a pulled OSV feed at /home/leo/kai-system/shared/currency/osv \u2014 never a live CVE SaaS",
-          "current": false,
-          "risk_tier": "gated",
-          "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
-          "cause": "5 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
-        },
-        {
-          "name": "kai-buzz",
-          "outdated_count": 4,
-          "outdated": [
-            "nostr-sdk",
-            "pip",
-            "uv",
-            "websockets"
-          ],
-          "cve_check": "not-checked",
-          "cve_note": "CVE matching not yet implemented (CUR-2 reads currency only); when built it runs OFFLINE against a pulled OSV feed at /home/leo/kai-system/shared/currency/osv \u2014 never a live CVE SaaS",
-          "current": false,
-          "risk_tier": "gated",
-          "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
-          "cause": "4 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
+          "cause": "136 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
         },
         {
           "name": "kai-voice-stt",
-          "outdated_count": 16,
+          "outdated_count": 18,
           "outdated": [
             "anyio",
             "ctranslate2",
@@ -711,6 +706,7 @@
             "faster-whisper",
             "filelock",
             "huggingface_hub",
+            "onnxruntime",
             "pip",
             "protobuf",
             "pydantic_core",
@@ -719,6 +715,7 @@
             "setuptools",
             "starlette",
             "tokenizers",
+            "tqdm",
             "uvicorn",
             "wheel"
           ],
@@ -727,17 +724,18 @@
           "current": false,
           "risk_tier": "gated",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
-          "cause": "16 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
+          "cause": "18 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
         },
         {
           "name": "kai-voice-tts",
-          "outdated_count": 14,
+          "outdated_count": 15,
           "outdated": [
             "anyio",
             "fastapi",
             "joblib",
             "kokoro-onnx",
+            "onnxruntime",
             "pip",
             "protobuf",
             "pydantic_core",
@@ -754,8 +752,8 @@
           "current": false,
           "risk_tier": "gated",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
-          "cause": "14 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
+          "cause": "15 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
         },
         {
           "name": "kai-buzz-shim",
@@ -768,7 +766,7 @@
           "current": false,
           "risk_tier": "gated",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
           "cause": "1 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
         },
         {
@@ -795,7 +793,7 @@
           "current": false,
           "risk_tier": "gated",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
           "cause": "14 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
         },
         {
@@ -833,7 +831,7 @@
           "current": false,
           "risk_tier": "gated",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
           "cause": "79 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
         },
         {
@@ -871,7 +869,7 @@
           "current": false,
           "risk_tier": "gated",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
           "cause": "79 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
         },
         {
@@ -909,7 +907,7 @@
           "current": false,
           "risk_tier": "gated",
           "status": "stale",
-          "checked_at": "2026-09-07T06:17:35.743305+00:00",
+          "checked_at": "2026-09-12T16:46:51.815368+00:00",
           "cause": "79 package(s) behind latest; report-only \u2014 a pin bump + rebuild is a gated action (CUR-5), never auto-applied"
         }
       ],
@@ -917,32 +915,32 @@
     },
     "npm_deps": {
       "status": "not-checked",
-      "checked_at": "2026-09-07T06:19:22.616714+00:00",
-      "detail": "kai-web: 180 locked dep(s), lockfile 127.5d old; latest/audit not-checked (no npm runtime / no OSV feed)",
+      "checked_at": "2026-09-12T16:48:43.064845+00:00",
+      "detail": "kai-web: 180 locked dep(s), lockfile 133.0d old; latest/audit not-checked (no npm runtime / no OSV feed)",
       "components": [
         {
           "name": "kai-web",
           "locked_deps": 180,
-          "lockfile_age_days": 127.5,
+          "lockfile_age_days": 133.0,
           "latest_check": "not-checked",
           "audit_check": "not-checked",
           "current": null,
           "risk_tier": "gated",
           "status": "not-checked",
           "note": "inventory only \u2014 no npm runtime in the kai-web container or on the host; outdated/audit need npm, CVE needs the offline OSV feed",
-          "checked_at": "2026-09-07T06:19:22.616714+00:00"
+          "checked_at": "2026-09-12T16:48:43.064845+00:00"
         }
       ]
     },
     "tls_certs": {
       "status": "not-checked",
-      "checked_at": "2026-09-07T06:19:22.618546+00:00",
+      "checked_at": "2026-09-12T16:48:43.065744+00:00",
       "detail": "no TLS endpoints configured (worker services are http on tailnet); populate tls_endpoints.json to enable",
       "components": []
     },
     "wp_fleet": {
       "status": "stale",
-      "checked_at": "2026-09-07T06:19:22.618612+00:00",
+      "checked_at": "2026-09-12T16:48:43.065783+00:00",
       "detail": "0/10 sites current; 20 update(s) available fleet-wide",
       "components": [
         {
@@ -952,7 +950,7 @@
           "current": false,
           "risk_tier": "dashboard",
           "status": "stale",
-          "checked_at": "2026-09-07T06:19:22.618612+00:00",
+          "checked_at": "2026-09-12T16:48:43.065783+00:00",
           "cause": "0 core + 2 plugin update(s) available; report-only \u2014 WP updates are never auto-applied"
         },
         {
@@ -962,7 +960,7 @@
           "current": false,
           "risk_tier": "dashboard",
           "status": "stale",
-          "checked_at": "2026-09-07T06:19:22.618612+00:00",
+          "checked_at": "2026-09-12T16:48:43.065783+00:00",
           "cause": "0 core + 2 plugin update(s) available; report-only \u2014 WP updates are never auto-applied"
         },
         {
@@ -972,7 +970,7 @@
           "current": false,
           "risk_tier": "dashboard",
           "status": "stale",
-          "checked_at": "2026-09-07T06:19:22.618612+00:00",
+          "checked_at": "2026-09-12T16:48:43.065783+00:00",
           "cause": "0 core + 2 plugin update(s) available; report-only \u2014 WP updates are never auto-applied"
         },
         {
@@ -982,7 +980,7 @@
           "current": false,
           "risk_tier": "dashboard",
           "status": "stale",
-          "checked_at": "2026-09-07T06:19:22.618612+00:00",
+          "checked_at": "2026-09-12T16:48:43.065783+00:00",
           "cause": "0 core + 2 plugin update(s) available; report-only \u2014 WP updates are never auto-applied"
         },
         {
@@ -992,7 +990,7 @@
           "current": false,
           "risk_tier": "dashboard",
           "status": "stale",
-          "checked_at": "2026-09-07T06:19:22.618612+00:00",
+          "checked_at": "2026-09-12T16:48:43.065783+00:00",
           "cause": "0 core + 2 plugin update(s) available; report-only \u2014 WP updates are never auto-applied"
         },
         {
@@ -1002,7 +1000,7 @@
           "current": false,
           "risk_tier": "dashboard",
           "status": "stale",
-          "checked_at": "2026-09-07T06:19:22.618612+00:00",
+          "checked_at": "2026-09-12T16:48:43.065783+00:00",
           "cause": "0 core + 2 plugin update(s) available; report-only \u2014 WP updates are never auto-applied"
         },
         {
@@ -1012,7 +1010,7 @@
           "current": false,
           "risk_tier": "dashboard",
           "status": "stale",
-          "checked_at": "2026-09-07T06:19:22.618612+00:00",
+          "checked_at": "2026-09-12T16:48:43.065783+00:00",
           "cause": "0 core + 2 plugin update(s) available; report-only \u2014 WP updates are never auto-applied"
         },
         {
@@ -1022,7 +1020,7 @@
           "current": false,
           "risk_tier": "dashboard",
           "status": "stale",
-          "checked_at": "2026-09-07T06:19:22.618612+00:00",
+          "checked_at": "2026-09-12T16:48:43.065783+00:00",
           "cause": "0 core + 2 plugin update(s) available; report-only \u2014 WP updates are never auto-applied"
         },
         {
@@ -1032,7 +1030,7 @@
           "current": false,
           "risk_tier": "dashboard",
           "status": "stale",
-          "checked_at": "2026-09-07T06:19:22.618612+00:00",
+          "checked_at": "2026-09-12T16:48:43.065783+00:00",
           "cause": "0 core + 2 plugin update(s) available; report-only \u2014 WP updates are never auto-applied"
         },
         {
@@ -1042,7 +1040,7 @@
           "current": false,
           "risk_tier": "dashboard",
           "status": "stale",
-          "checked_at": "2026-09-07T06:19:22.618612+00:00",
+          "checked_at": "2026-09-12T16:48:43.065783+00:00",
           "cause": "0 core + 2 plugin update(s) available; report-only \u2014 WP updates are never auto-applied"
         }
       ],
@@ -1052,42 +1050,41 @@
   "fleet": {
     "kai-mini": {
       "reachable": true,
-      "checked_at": "2026-09-07T06:20:27.215642+00:00",
+      "checked_at": "2026-09-12T16:49:23.240516+00:00",
       "host": "kai-mini",
       "layers": {
         "os_apt": {
           "status": "stale",
-          "checked_at": "2026-09-07T06:20:27.834620+00:00",
-          "detail": "1 security / 75 regular pending \u00b7 cause: held back by unattended-upgrades policy (it won't install new packages); clearing needs a gated `apt full-upgrade` \u2014 pulls in 20 new package(s) incl docker-ce (restarts containers)",
+          "checked_at": "2026-09-12T16:49:24.510923+00:00",
+          "detail": "1 security / 77 regular pending \u00b7 cause: held back by unattended-upgrades policy (it won't install new packages); clearing needs a gated `apt full-upgrade` \u2014 pulls in 20 new package(s) incl docker-ce (restarts containers)",
           "components": [
             {
               "name": "apt packages",
               "current": false,
               "security_pending": 1,
-              "regular_pending": 75,
+              "regular_pending": 77,
               "auto_upgrades_enforced": true,
               "risk_tier": "auto",
               "status": "stale",
-              "checked_at": "2026-09-07T06:20:27.834620+00:00",
+              "checked_at": "2026-09-12T16:49:24.510923+00:00",
               "cause": "held back by unattended-upgrades policy (it won't install new packages); clearing needs a gated `apt full-upgrade` \u2014 pulls in 20 new package(s) incl docker-ce (restarts containers)"
             }
           ]
         },
         "container_images": {
-          "status": "not-checked",
-          "checked_at": "2026-09-07T06:20:30.743653+00:00",
-          "detail": "1 running container(s); 0 stale / 0 compared \u00b7 0 local-build (n/a); oldest image 166.3d old",
+          "status": "fresh",
+          "checked_at": "2026-09-12T16:49:36.541551+00:00",
+          "detail": "1 running container(s); 0 stale / 1 compared \u00b7 0 local-build (n/a); oldest image 171.7d old",
           "components": [
             {
               "name": "hermes-601b90b8",
               "image": "nikolaik/python-nodejs:python3.11-nodejs20",
-              "installed_age_days": 166.3,
+              "installed_age_days": 171.7,
               "risk_tier": "gated",
-              "checked_at": "2026-09-07T06:20:30.743653+00:00",
-              "latest": null,
-              "current": null,
-              "status": "not-checked",
-              "note": "registry read failed: ERROR: failed to copy: httpReadSeeker: failed open: unexpected status from GET request to https://registry-1.docker.io/v2/nikolaik/python-nodejs/manifests/sha256:52375b47ef7f7630caa391939ba2e82e42c7e9",
+              "checked_at": "2026-09-12T16:49:36.541551+00:00",
+              "latest": "sha256:8f958bdc1b4a422bfafd97cab4f69836401f616ae985d4b57a53d254f5bcb038",
+              "current": true,
+              "status": "fresh",
               "local_digest": "sha256:8f958bdc1b4a422bfafd97cab4f69836401f616ae985d4b57a53d254f5bcb038"
             }
           ]

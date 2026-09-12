@@ -20,17 +20,6 @@ for store in plane buzz; do
     fi
 done
 
-f=$(ls -1t "$BK/n8n/"*.tar.gz 2>/dev/null | head -1)
-if [ -n "$f" ] && tar tzf "$f" >/dev/null 2>&1; then
-    tmp=$(mktemp -d)
-    tar xzf "$f" -C "$tmp" 2>/dev/null
-    res=$(docker run --rm -v "$tmp":/d:ro alpine sh -c "apk add -q sqlite >/dev/null 2>&1 && sqlite3 /d/database.sqlite 'PRAGMA integrity_check;'" 2>/dev/null | tail -1)
-    if [ "$res" = "ok" ]; then echo "OK   n8n: $(basename "$f") — tar + sqlite integrity ok"; else echo "FAIL n8n: integrity=$res"; fail=1; fi
-    rm -rf "$tmp"
-else
-    echo "FAIL n8n: no or invalid artifact"; fail=1
-fi
-
 f=$(ls -1t "$BK/qdrant/"*.snapshot 2>/dev/null | head -1)
 if [ -n "$f" ] && tar tf "$f" 2>/dev/null | grep -qm1 "\.snapshot"; then
     echo "OK   qdrant: $(basename "$f") — tar valid, holds collection snapshots"

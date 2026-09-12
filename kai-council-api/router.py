@@ -172,9 +172,6 @@ KAI_TOOLS = [
     {"name": "ingest_knowledge", "description": "Ingest files from a knowledge folder into an advisor's memory. Use when Leo says he added notes, a new document, or wants to update what an advisor knows. Defaults to the current advisor's folder.", "input_schema": {"type": "object", "properties": {"advisor": {"type": "string", "description": "Which advisor collection to update (beats, sky, roads, ember, doc, kai, etc.)"}, "path": {"type": "string", "description": "Optional specific file or folder path to ingest. Defaults to ~/vault/60_Council/<advisor>/knowledge"}}, "required": []}},
     {"name": "list_knowledge", "description": "List all advisor knowledge collections and how many items are in each.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "clear_knowledge", "description": "Clear all vectors from an advisor knowledge collection. Use only when explicitly asked to wipe and rebuild.", "input_schema": {"type": "object", "properties": {"advisor": {"type": "string"}}, "required": ["advisor"]}},
-    {"name": "trigger_n8n_workflow", "description": "Trigger an n8n workflow by name.", "input_schema": {"type": "object", "properties": {"workflow": {"type": "string"}, "payload": {"type": "object"}}, "required": ["workflow"]}},
-    {"name": "list_n8n_workflows", "description": "List all registered n8n workflows KAI can trigger.", "input_schema": {"type": "object", "properties": {}}},
-    {"name": "register_n8n_workflow", "description": "Register a new n8n workflow webhook URL.", "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "webhook_url": {"type": "string"}, "description": {"type": "string"}}, "required": ["name", "webhook_url"]}},
     {"name": "list_specialists", "description": "List all specialist personas.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "consult_specialist", "description": "Brief a team member to execute work in their domain. For directors (creative, dev, devops): this is the execution mechanism — not optional input, how work gets produced. Call this instead of doing the work yourself. copywriter=copy/taglines/messaging, designer=UI/web/interface, graphic-designer=visual assets, strategist=positioning/brand strategy, architect=system design, researcher=deep research, pm=planning. For KAI as orchestrator: use this to engage any advisor or specialist. Use list_specialists to see all available.", "input_schema": {"type": "object", "properties": {"specialist": {"type": "string"}, "question": {"type": "string"}, "context": {"type": "string"}}, "required": ["specialist", "question"]}},
     {"name": "read_email", "description": "Read recent emails from Gmail.", "input_schema": {"type": "object", "properties": {"max_results": {"type": "integer"}, "query": {"type": "string"}}}},
@@ -441,7 +438,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
     # Non-interactive sources (scheduler, orchestrator, webhooks) are explicitly labelled;
     # unlabelled traffic defaults to "interactive" so it is never silently exempted from
     # the interactive budget cap (H-1 / S5R-29).
-    _NON_INTERACTIVE = ("scheduler:", "orchestrator:", "webhook:", "n8n:", "cron:")
+    _NON_INTERACTIVE = ("scheduler:", "orchestrator:", "webhook:", "cron:")
     _traffic_type = (
         "alert"
         if req.trigger_source and req.trigger_source.startswith(_NON_INTERACTIVE)

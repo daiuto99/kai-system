@@ -636,9 +636,9 @@ def check_backup_freshness() -> str:
 
     warns = []
     # Every store backup.sh writes must be fresh; a silently-failing
-    # qdrant/n8n/buzz backup was exactly the audit #01 blind spot.
+    # qdrant/buzz backup was exactly the audit #01 blind spot.
     STORES = {"plane": "*.sql.gz", "qdrant": "*.snapshot",
-              "n8n": "*.tar.gz", "buzz": "*.sql.gz"}
+              "buzz": "*.sql.gz"}
     for store, pattern in STORES.items():
         sdir = base / store
         files = list(sdir.glob(pattern)) if sdir.exists() else []
@@ -665,7 +665,7 @@ def check_backup_freshness() -> str:
 
     if warns:
         return "WARN backups: " + "; ".join(warns) + " [S1-B3]"
-    return "backups fresh across plane/qdrant/n8n/buzz, log clean"
+    return "backups fresh across plane/qdrant/buzz, log clean"
 
 
 def expiry_severity(days, warn_days, red_days):
@@ -712,16 +712,16 @@ def check_tailscale_key_expiry() -> str:
 
 
 def check_public_tls() -> str:
-    """S1-B2 (audit #20) — TLS/cert monitoring covered one hostname; the n8n webhook
-    cert could break while the old probe stayed green. Check every public endpoint's
-    cert expiry via a plain ssl socket. RED (raises) <=3d (renewal has failed); WARN
-    <=14d or unreachable."""
+    """S1-B2 (audit #20) — TLS/cert monitoring covered one hostname; a second public
+    hostname's cert could break while the old probe stayed green. Check every public
+    endpoint's cert expiry via a plain ssl socket. RED (raises) <=3d (renewal has
+    failed); WARN <=14d or unreachable."""
     import socket as _socket
     import ssl as _ssl
     import time as _time
     from datetime import datetime as _dt, timezone as _tz
 
-    ENDPOINTS = ["kai.sonicink.space", "n8n.sonicink.space"]
+    ENDPOINTS = ["kai.sonicink.space"]
     ctx = _ssl.create_default_context()
     reds, warns, oks = [], [], []
     for host in ENDPOINTS:
@@ -1538,6 +1538,24 @@ def _preflight_suite() -> "tuple[Check, ...]":
     return tuple(by_name[n] for n in PREFLIGHT_NAMES)
 
 
+def check_calendar_freshness() -> str:
+    """KAI-1383 — the calendar-truth guard. During the n8n-zombie era
+    /calendar/events silently returned empty-with-no-error; this catches the
+    direct-Google path going dead (missing/expired google_calendar_token.json)
+    as a visible WARN. It does NOT block the close — calendar is not close-critical
+    infra, and a legitimately empty week is not a failure. GREEN when the endpoint
+    answers without an error field."""
+    try:
+        body = _request(f"{WORKER_API}/calendar/events?days=7", auth=_worker_auth(), timeout=15)
+        data = json.loads(body)
+    except Exception as exc:
+        return f"WARN calendar: /calendar/events unreachable ({type(exc).__name__}) [KAI-1383]"
+    if data.get("error"):
+        return f"WARN calendar: {data['error']} — direct-Google path may need re-consent [KAI-1383]"
+    events = data.get("events", []) if isinstance(data, dict) else []
+    return f"calendar returns truth ({len(events)} event(s)/7d), direct-Google path live"
+
+
 def checks() -> tuple[Check, ...]:
     return (
         Check("services_up", check_services),
@@ -1567,6 +1585,7 @@ def checks() -> tuple[Check, ...]:
         Check("cloudways_auth", check_cloudways_auth),
         Check("backup_verify", check_backup_verify),
         Check("offsite_freshness", check_offsite_freshness),
+        Check("calendar_freshness", check_calendar_freshness),
         # The ONE journey wired today: alert_delivery reads a real Telegram
         # message_id receipt (W-1 #2, the reference witness). Every other check
         # above is a diagnostic — it explains failures, it does not grant green.

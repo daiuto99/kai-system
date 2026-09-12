@@ -56,7 +56,6 @@ LAN_ALLOWED_PORTS = frozenset({
 TAILNET_ALLOWED_PORTS = LAN_ALLOWED_PORTS | frozenset({
     8001,   # worker-api; Mac /session/brief consumer
     8443,   # code-server remote IDE
-    5678,   # n8n authenticated OAuth recovery/editor control plane
     41641,  # Tailscale WireGuard transport
     55542,  # tailscaled TCP listener on the Tailscale address (live inode 45147)
     4001,   # kai-buzz-shim advisor backend — Leo's native Buzz app over tailnet; LAN bind removed (bf39ec79)
@@ -771,8 +770,7 @@ def inv_internal_worker_auth() -> tuple[bool, str]:
     leg covers only calendar.get_events. kai-slack-bot has no
     inbound HTTP surface to trigger a round trip through (Socket Mode /
     event-driven only — Codex's own review used a direct loader+transport
-    check instead, see internal-auth-codex-review.md); n8n is an explicit,
-    recorded accepted-risk pending S7-9 retirement, not probed here.
+    check instead, see internal-auth-codex-review.md). n8n has been retired.
 
     'Fixed' means 'can't silently un-fix': if a future change disables the
     middleware, this fails on (1); if any caller's credential mount or wiring
@@ -1484,7 +1482,7 @@ INVARIANTS = [
 DEFERRED_INVARIANTS: dict[str, tuple[str, str]] = {
     "google_calendar": (
         "Google Calendar",
-        "Deliberately deferred: n8n OAuth intentionally dead until S7-9 (n8n retirement + calendar transport rebuild)",
+        "Deliberately deferred: direct-Google calendar auth pending (KAI-1383); n8n retired",
     ),
 }
 

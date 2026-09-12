@@ -471,12 +471,13 @@ def _update_location_from_calendar():
         if loc_file.exists():
             current_tz = _j.loads(loc_file.read_text()).get("timezone", current_tz)
 
-        # Fetch gcal events (today + tomorrow)
-        r = httpx.post("http://kai-n8n:5678/webhook/kai-calendar-events",
-                       json={"days": 2}, timeout=15)
+        # Fetch gcal events (today + tomorrow) from the native calendar endpoint
+        # (n8n retired; direct-Google path rebuilt in KAI-1383).
+        r = httpx.get(f"{WORKER_API}/calendar/events", params={"days": 2},
+                      auth=worker_auth(), timeout=15)
         if r.status_code != 200 or not r.content.strip():
             return
-        events = r.json() if isinstance(r.json(), list) else []
+        events = r.json().get("events", []) if isinstance(r.json(), dict) else []
 
         # First event with a non-empty location, sorted by start
         candidates = []
@@ -529,77 +530,6 @@ def _update_location_from_calendar():
     except Exception as e:
         log.debug(f"Calendar location check: {e}")
 
-
-
-def _n8n_oauth_health_job():
-    """KAI-432 / N8N-2: hourly check of n8n + OAuth health, alert #devops on debounced failure."""
-    import json as _json
-    import subprocess
-    from pathlib import Path as _Path
-
-    HEALTH_FILE = _Path("/vault/00_System/n8n_health.json")
-    checks = {}
-    overall_ok = True
-
-    # Check 1: kai-n8n container running
-    try:
-        r = subprocess.run(
-            ["docker", "inspect", "--format", "{{.State.Running}}", "kai-n8n"],
-            capture_output=True, text=True, timeout=10,
-        )
-        running = r.stdout.strip() == "true"
-        checks["container_running"] = running
-        if not running:
-            overall_ok = False
-    except Exception as e:
-        checks["container_running"] = f"error: {e}"
-        overall_ok = False
-
-    # Check 2: internal /healthz reachable
-    try:
-        r = httpx.get("http://kai-n8n:5678/healthz", timeout=5)
-        checks["healthz_internal"] = r.status_code == 200
-        if r.status_code != 200:
-            overall_ok = False
-    except Exception as e:
-        checks["healthz_internal"] = f"error: {type(e).__name__}"
-        overall_ok = False
-
-    # Check 3: external n8n.sonicink.space reachable (Cloudflare tunnel)
-    try:
-        r = httpx.get("https://n8n.sonicink.space/healthz", timeout=10, follow_redirects=True)
-        checks["external_reachable"] = r.status_code in (200, 401, 403)  # auth gate OK
-        if r.status_code >= 500:
-            overall_ok = False
-    except Exception as e:
-        checks["external_reachable"] = f"error: {type(e).__name__}"
-        # External flake is debounced — don't mark overall_ok=False on first miss
-
-    # Persist + debounce
-    now_iso = datetime.now(timezone.utc).isoformat()
-    prev = {}
-    if HEALTH_FILE.exists():
-        try:
-            prev = _json.loads(HEALTH_FILE.read_text())
-        except Exception:
-            prev = {}
-    record = {"checked_at": now_iso, "ok": overall_ok, "checks": checks,
-              "previous_ok": prev.get("ok", True)}
-    HEALTH_FILE.parent.mkdir(parents=True, exist_ok=True)
-    HEALTH_FILE.write_text(_json.dumps(record, indent=2))
-
-    # Alert on TWO consecutive failures
-    if (not overall_ok) and (prev.get("ok") is False):
-        fail_lines = [f"• {k}: {v}" for k, v in checks.items() if v is not True]
-        msg = ("*n8n health check failed twice in a row* — investigate before workflows start dropping silently.\n"
-               + "\n".join(fail_lines)
-               + f"\n\nRecovery: see `scripts/n8n_oauth_recover.md`")
-        telegram_post(msg)
-        log.warning("n8n health: alerted (2x failure) — %s", checks)
-    elif not overall_ok:
-        log.info("n8n health: first failure — debouncing, will alert next tick if still broken")
-    else:
-        log.info("n8n health: ok")
 
 
 def _contract_test_job():
@@ -883,7 +813,6 @@ def main():
     sched.add_job(_inbox_job,                            IntervalTrigger(seconds=60), id="inbox_scan", coalesce=True, max_instances=1)
     sched.add_job(lambda: _tz_check_job(sched),          IntervalTrigger(hours=1),    id="tz_check",   coalesce=True, max_instances=1)
     sched.add_job(_sprint_a_expire_job,                  IntervalTrigger(hours=1),    id="sprint_a_expire", coalesce=True, max_instances=1)
-    sched.add_job(_n8n_oauth_health_job,                 IntervalTrigger(hours=1),    id="n8n_health", coalesce=True, max_instances=1)
     sched.add_job(_heartbeat_job,                        IntervalTrigger(minutes=5),  id="heartbeat",  coalesce=True, max_instances=1)
     sched.add_job(_contract_test_job,                    CronTrigger(hour=4, minute=0, timezone=tz), id="contract_tests", coalesce=True, max_instances=1)
     sched.add_job(_wp_security_scan_job,                 CronTrigger(hour=3, minute=30, timezone=tz), id="wp_security_scan", coalesce=True, max_instances=1)

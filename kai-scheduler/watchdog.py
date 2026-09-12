@@ -991,7 +991,7 @@ OAUTH_SERVICES = {
 # Checks intentionally skipped — not failures, not alerts, not counted in failure state.
 # Remove the key when the deferral is resolved.
 DEFERRED_CHECKS: dict[str, str] = {
-    "google_calendar": "Deliberately deferred — n8n OAuth intentionally dead until S7-9 (n8n retirement + calendar transport rebuild)",
+    "google_calendar": "Deliberately deferred — direct-Google calendar auth pending (KAI-1383); n8n retired",
 }
 
 
@@ -1021,7 +1021,7 @@ ACTION_NEEDED = {
     "telegram":          "Verify Telegram bot token in ~/kai-system/secrets/telegram_bot_token.txt",
     "oura":              "Check Oura token in ~/kai-system/secrets/oura_token.txt",
     "todoist":           "Check Todoist token in ~/kai-system/secrets/todoist_api_token.txt",
-    "google_calendar":   "n8n → Credentials → Google Calendar → re-authenticate (http://100.78.94.80:5678)",
+    "google_calendar":   "Authorize the direct-Google calendar path (google_calendar_token.json) — see KAI-1383.",
     "plane_ce":          "Check: ssh kai 'docker logs kai-plane-web' — container recreate attempted",
     "hostops_reconcile": "Investigate: curl http://kai-orchestrator:8003/hostops/reconcile — review each unreconciled mutation's gate_id against the gates table; a real bypass means a host-op ran without a consumed+bound gate",
     "disk":              "Free space: ssh kai 'df -h' then clear logs/old Docker images",

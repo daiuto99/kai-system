@@ -107,21 +107,6 @@
    "note": "WPScan vuln feed"
   },
   {
-   "name": "n8n_api_key",
-   "criticality": "degraded",
-   "note": "n8n automation API"
-  },
-  {
-   "name": "n8n_basic_auth_password",
-   "criticality": "degraded",
-   "note": "n8n UI basic-auth"
-  },
-  {
-   "name": "n8n_encryption_key",
-   "criticality": "degraded",
-   "note": "n8n credential encryption key"
-  },
-  {
    "name": "oura_token",
    "criticality": "degraded",
    "note": "Oura personal-data integration"

@@ -259,41 +259,6 @@ services:
       retries: 3
       start_period: 20s
 
-  n8n:
-    build: ./n8n
-    image: kai-n8n:2.16.0-secretless-config
-    container_name: kai-n8n
-    restart: unless-stopped
-    ports:
-      # Docker callers and the Cloudflare tunnel use kai-n8n:5678; Leo's OAuth
-      # recovery/editor path is a Tailscale-only control plane.
-      - "${KAI_TAILNET_IP:-100.78.94.80}:5678:5678"
-    volumes:
-      - ./n8n-data:/home/node/.n8n
-      - /home/leo/vault:/vault:ro   # KAI N2 (C2): n8n external-reaching; RO — never writes vault
-    env_file:
-      - .env
-    environment:
-      - N8N_HOST=0.0.0.0
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - N8N_PROXY_HOPS=1
-      - WEBHOOK_URL=https://n8n.sonicink.space
-      - N8N_EDITOR_BASE_URL=https://n8n.sonicink.space
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=kai
-      - N8N_SECURE_COOKIE=false
-      - GENERIC_TIMEZONE=America/New_York
-      - TZ=America/New_York
-    secrets:
-      - n8n_basic_auth_password
-      - n8n_encryption_key
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
 
   cloudflare-tunnel:
     image: cloudflare/cloudflared:2026.3.0
@@ -596,7 +561,6 @@ services:
 volumes:
   buzz-relay-data:
   qdrant-data:
-  n8n_data:
   habitsync_data:
   ollama_data:
   tailscale-data:
@@ -640,10 +604,6 @@ secrets:
     file: ./secrets/litellm_master_key.txt
   codeserver_password:
     file: ./secrets/codeserver_password.txt
-  n8n_basic_auth_password:
-    file: ./secrets/n8n_basic_auth_password.txt
-  n8n_encryption_key:
-    file: ./secrets/n8n_encryption_key.txt
   healthchecks_url:
     file: ./secrets/healthchecks_url.txt
   kai_web_password:

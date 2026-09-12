@@ -131,13 +131,6 @@ META = {
   ],
   "notes": "No compose healthcheck; probe /healthz manually. Bound to 127.0.0.1 only.",
  },
- "n8n": {
-  "role": "n8n automation (:5678) — workflows. Container name is kai-n8n.",
-  "failures": [
-    ("workflows not firing", "n8n down or workflow deactivated", "Check /healthz; verify the workflow is active in the UI."),
-  ],
-  "notes": "Container name kai-n8n (not n8n). Mounts vault RW + ./n8n-data.",
- },
  "docker-socket-proxy": {
   "role": "Read-only docker.sock proxy (:2375 internal) — lets worker-api/scheduler query docker without raw socket access.",
   "failures": [
@@ -146,7 +139,7 @@ META = {
   "notes": "Mounts docker.sock RO. A dependency for kai-worker-api and kai-scheduler.",
  },
  "cloudflare-tunnel": {
-  "role": "Cloudflare tunnel — public ingress for kai.sonicink.space / n8n.sonicink.space.",
+  "role": "Cloudflare tunnel — public ingress for kai.sonicink.space.",
   "manual_health": "docker logs --tail 20 cloudflare-tunnel  # look for 'Registered tunnel connection'",
   "failures": [
     ("public URL 5xx", "tunnel disconnected or upstream API down", "Check tunnel logs for connection; verify worker-api/council-api healthy."),
