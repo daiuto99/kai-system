@@ -1075,15 +1075,25 @@ def check_cloudways_auth() -> str:
     request = urllib.request.Request(
         "https://api.cloudways.com/api/v1/oauth/access_token", data=data, method="POST",
         headers={"User-Agent": "KAI-green-baseline/1.0"})
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            if response.status == 200:
-                return "cloudways API token valid (WP fleet host API reachable) [S1-B5]"
-            return f"WARN cloudways auth returned HTTP {response.status} — check token [S1-B5]"
-    except urllib.error.HTTPError as exc:
-        return f"WARN cloudways API token rejected (HTTP {exc.code}) — rotate token [S1-B5]"
-    except Exception as exc:
-        return f"WARN cloudways auth unreachable ({type(exc).__name__}) — WP fleet host API unverifiable [S1-B5]"
+    # A single transient blip to the Cloudways edge (TimeoutError/URLError) must NOT WARN —
+    # the token is fine, the network wasn't (KAI-1339: the standing warn was one TimeoutError).
+    # Retry transport failures twice with a short backoff before giving up; an HTTP 401/403 is
+    # a real token problem and is returned immediately, never retried.
+    import time as _time
+    last_exc = None
+    for _attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                if response.status == 200:
+                    return "cloudways API token valid (WP fleet host API reachable) [S1-B5]"
+                return f"WARN cloudways auth returned HTTP {response.status} — check token [S1-B5]"
+        except urllib.error.HTTPError as exc:
+            return f"WARN cloudways API token rejected (HTTP {exc.code}) — rotate token [S1-B5]"
+        except Exception as exc:
+            last_exc = exc
+            if _attempt < 2:
+                _time.sleep(1.5)
+    return f"WARN cloudways auth unreachable ({type(last_exc).__name__}) — WP fleet host API unverifiable [S1-B5]"
 
 
 def credential_registry_verdict(registry: dict, present: list[str]) -> tuple[str, str]:
