@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { api } from '../lib/api'
-import { Activity, RefreshCw, ArrowUpRight, EyeOff, Layout, AlertTriangle } from 'lucide-react'
+import { Activity, RefreshCw, ArrowUpRight, EyeOff, Layout, AlertTriangle,
+         HardDrive, GitCommit, ShieldCheck } from 'lucide-react'
 
 // How each gateway decision reads at a glance.
 const DECISION = {
@@ -67,14 +68,17 @@ export default function System() {
             <Activity size={20} className="kai-text-subtle" /> System
           </h1>
           <p className="kai-text-subtle text-sm mt-1">
-            Everything KAI's notification gateway handled — what reached you, what stayed here,
-            and what it suppressed. {data?.count ? `${data.count} recent events.` : ''}
+            Host health, ops state, currency, recent activity — and everything KAI's notification
+            gateway handled. {data?.count ? `${data.count} recent events.` : ''}
           </p>
         </div>
         <button onClick={load} className="btn-ghost flex items-center gap-1.5 text-xs"><RefreshCw size={12} /></button>
       </div>
 
+      <HostHealthBoard />
+      <OpsStateBoard />
       <CurrencyBoard />
+      <GitActivityBoard />
 
       {error && <div className="kai-card px-5 py-4 text-sm text-red-400 my-4">Failed to load: {error}</div>}
 
@@ -188,6 +192,147 @@ function CurrencyBoard() {
       <p className="text-[10px] kai-text-subtle mt-3">
         Source: currency_scan.py (host, read-only, CUR-1). Not-checked means no live reader yet — never a faked pass.
       </p>
+    </div>
+  )
+}
+
+// ── DevOps / system-activity substance (KAI-1006) ──────────────────────────────
+// Each board is self-contained and fail-silent: a failed fetch renders nothing so
+// it can never break the notification feed above it. All read-only, live backend data.
+
+function Metric({ label, value, tone = 'text-zinc-200', sub }) {
+  return (
+    <div className="kai-card px-4 py-3">
+      <div className="kai-text-subtle text-[11px] uppercase tracking-wide">{label}</div>
+      <div className={`text-xl font-semibold mt-1 tabular-nums ${tone}`}>{value}</div>
+      {sub ? <div className="text-[10px] kai-text-subtle mt-0.5">{sub}</div> : null}
+    </div>
+  )
+}
+
+// Host hygiene — disk, memory, load, temperature, uptime, pending updates. Each
+// metric colours against the backend's own thresholds (never a faked green).
+function HostHealthBoard() {
+  const [h, setH] = useState(null)
+  useEffect(() => { api.getSystemHealth().then(setH).catch(() => setH(null)) }, [])
+  if (!h) return null
+  const t = h.thresholds || {}
+  const tone = (v, max) => (max != null && v != null && v >= max) ? 'text-amber-400' : 'text-zinc-200'
+  return (
+    <div className="kai-card px-5 py-4 my-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold flex items-center gap-1.5">
+          <HardDrive size={14} className="kai-text-subtle" /> Host Health
+        </h2>
+        <span className={`text-[11px] tabular-nums ${h.ok ? 'text-emerald-400' : 'text-amber-400'}`}>
+          {h.ok ? 'nominal' : `${(h.alerts || []).length} alert(s)`}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <Metric label="Disk" value={`${h.disk_pct ?? '—'}%`} tone={tone(h.disk_pct, t.disk_pct)}
+                sub={h.disk_free_gb != null ? `${h.disk_free_gb}G free / ${h.disk_total_gb}G` : ''} />
+        <Metric label="Memory" value={`${h.mem_pct ?? '—'}%`} tone={tone(h.mem_pct, t.mem_pct)}
+                sub={h.mem_free_gb != null ? `${h.mem_free_gb}G free / ${h.mem_total_gb}G` : ''} />
+        <Metric label="Load (1m)" value={h.load_1m ?? '—'} />
+        <Metric label="Temp" value={h.temp_c != null ? `${h.temp_c}°C` : '—'} tone={tone(h.temp_c, t.temp_c)} />
+        <Metric label="Uptime" value={h.uptime || '—'} />
+        <Metric label="Updates" value={h.apt_updates ?? '—'} tone={tone(h.apt_updates, t.apt_updates)}
+                sub="pending apt" />
+      </div>
+      {(h.alerts && h.alerts.length > 0) && (
+        <div className="mt-3 space-y-1">
+          {h.alerts.map((a, i) => (
+            <div key={i} className="flex items-center gap-1.5 text-[11px] text-amber-400">
+              <AlertTriangle size={11} /> {a}
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-[10px] kai-text-subtle mt-3">Source: /system/health (host, read-only). Colours track the backend's own thresholds.</p>
+    </div>
+  )
+}
+
+// Ops state — failing invariants + backup freshness. This is exactly the state the
+// scheduler watchdog alerts on; the dashboard now sees it too.
+function OpsStateBoard() {
+  const [o, setO] = useState(null)
+  useEffect(() => { api.getOpsState().then(setO).catch(() => setO(null)) }, [])
+  if (!o) return null
+  const inv = o.failing_invariants || {}
+  const invKeys = Object.keys(inv)
+  const bk = o.backup || {}
+  return (
+    <div className="kai-card px-5 py-4 my-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold flex items-center gap-1.5">
+          <ShieldCheck size={14} className="kai-text-subtle" /> Ops State
+        </h2>
+        <span className={`text-[11px] tabular-nums ${invKeys.length ? 'text-amber-400' : 'text-emerald-400'}`}>
+          {invKeys.length ? `${invKeys.length} failing invariant(s)` : 'invariants clean'}
+        </span>
+      </div>
+      <div className="divide-y divide-white/5">
+        <div className="flex items-start gap-3 py-2.5">
+          <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${bk.status === 'ok' ? 'text-emerald-400 bg-emerald-400/10' : 'text-amber-400 bg-amber-400/10'}`}>
+            backup {bk.status || '?'}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] leading-snug">Backups {o.backup_trigger_pending ? '· trigger pending' : ''}</div>
+            <div className="text-[11px] kai-text-subtle mt-0.5">{bk.detail || '—'}</div>
+          </div>
+        </div>
+        {invKeys.map(k => (
+          <div key={k} className="flex items-start gap-3 py-2.5">
+            <span className="inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap text-amber-400 bg-amber-400/10">
+              {k}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] kai-text-subtle mt-0.5">{inv[k]}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] kai-text-subtle mt-3">Source: /system/ops-state — the same invariants the scheduler watchdog alerts on.</p>
+    </div>
+  )
+}
+
+// Recent git activity — what the system actually shipped, across its repos.
+function GitActivityBoard() {
+  const [g, setG] = useState(null)
+  useEffect(() => { api.getGitActivity().then(setG).catch(() => setG(null)) }, [])
+  const commits = (g && g.commits) || []
+  if (!commits.length) return null
+  const TYPE = {
+    remote: 'text-emerald-400 bg-emerald-400/10',
+    local:  'text-amber-400 bg-amber-400/10',
+    both:   'text-sky-400 bg-sky-400/10',
+  }
+  return (
+    <div className="kai-card px-5 py-4 my-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold flex items-center gap-1.5">
+          <GitCommit size={14} className="kai-text-subtle" /> Recent Activity
+        </h2>
+        <span className="text-[11px] kai-text-subtle tabular-nums">{commits.length} commit(s)</span>
+      </div>
+      <div className="divide-y divide-white/5">
+        {commits.slice(0, 8).map((c, i) => (
+          <div key={c.hash || i} className="flex items-start gap-3 py-2.5">
+            <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${TYPE[c.commit_type] || 'text-zinc-400 bg-zinc-400/10'}`}>
+              {c.short_hash || (c.hash || '').slice(0, 7)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] leading-snug truncate" title={c.message}>{c.message}</div>
+              <div className="text-[11px] kai-text-subtle mt-0.5">
+                <span className="font-mono">{c.repo}</span> · {c.author} · {fmtTime(c.committed_at)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] kai-text-subtle mt-3">Source: /git-activity/latest — commits across kai-system + sonicink.</p>
     </div>
   )
 }

@@ -59,7 +59,12 @@ STORE_PATH = Path(os.environ.get(
 # away/busy, so a pending request stays tappable for an hour rather than the
 # old ~5-min remote-approval window (KAI-999).
 DEFAULT_REQUEST_TTL_S = int(os.environ.get("MODE_LOCK_REQUEST_TTL_S", "3600"))
-DEFAULT_SESSION_TTL_S = int(os.environ.get("MODE_LOCK_SESSION_TTL_S", "3600"))
+DEFAULT_SESSION_TTL_S = int(os.environ.get("MODE_LOCK_SESSION_TTL_S", "5400"))  # 90m — match the in-session YES unlock window (KAI-1355 defect 2)
+# COMMS P2 (KAI-1005): if an unlock stays pending (unacked) past this window while
+# Leo appeared present (Buzz-routed, no immediate Telegram push), escalate it to a
+# tappable Telegram card. The kai-scheduler poll loop drives this via
+# /mode_lock/escalate_internal; the worker guard is idempotent.
+ESCALATE_AFTER_S = int(os.environ.get("MODE_LOCK_ESCALATE_AFTER_S", "720"))  # ~12 min
 
 TELEGRAM_API = "https://api.telegram.org"
 
@@ -283,7 +288,7 @@ def _post_telegram_request(request_id: str, tool: str, target: str, reason: str,
             {"text": "❌ Deny", "callback_data": f"modelock:deny:{request_id}"},
         ],
         [
-            {"text": "🔓 Allow session (1h)", "callback_data": f"modelock:session:{request_id}"},
+            {"text": "🔓 Allow session (90m)", "callback_data": f"modelock:session:{request_id}"},
         ],
     ]
     # KAI-1004: the unlock approval card is a decision only Leo can give — it routes
@@ -440,20 +445,37 @@ def request_approval(req: ApprovalRequest) -> ApprovalResponse:
     # HOW to reach Leo: 'present' = he is at the keyboard, surfaced in-session, NO Telegram push
     # (Telegram is the away-only escalation); 'telegram' (default) = post the card for a remote tap.
     if req.surface != "present":
-        # COMMS emergency-only (ratified 2026-08-05 · KAI-1002 item 2): Buzz is the
-        # PRIMARY unlock-approval surface. When the Buzz poller is alive, the prompt
-        # surfaces on the kai-approvals Buzz channel (it polls /mode_lock/pending) — we
-        # send NO Telegram card. Only when Buzz is DOWN do we reach Telegram, and then
-        # ONLY as a no-button BUZZ-DOWN ALERT — Telegram never carries the unlock. The
-        # in-session `YES` fast path always works regardless.
+        # COMMS P2 reachability (KAI-1005): Buzz is keyboard-first — when the Buzz poller
+        # is alive Leo is at his desk and the prompt surfaces on the kai-approvals Buzz
+        # channel (it polls /mode_lock/pending), so NO Telegram push. When Buzz is DOWN he
+        # is away: escalate to Telegram with the TAPPABLE unlock card (callback_data
+        # modelock:{once,deny,session}:<id>, resolved by the kai-scheduler poll loop ->
+        # /mode_lock/telegram_action_internal). The in-session `YES` fast path always works.
+        # (Supersedes the KAI-1002 no-button BUZZ-DOWN alert: an away Leo needs to *act* on
+        # the unlock, not just be told it is held — the Telegram chat allowlist enforced by
+        # the scheduler is the security gate on who may tap.)
         if _buzz_alive():
             logger.info("mode_lock: Buzz alive — unlock %s routed to Buzz (kai-approvals), no Telegram",
                         request_id)
         else:
-            resp = _post_telegram_alert_held(request_id, req.tool, req.target, req.reason)
-            if not resp.get("ok"):
-                logger.warning("mode_lock: buzz-down alert failed for %s: %s",
-                               request_id, resp.get("error"))
+            resp = _post_telegram_request(request_id, req.tool, req.target,
+                                          req.reason, req.requester)
+            if resp.get("ok"):
+                # Persist the card coordinates so the tap decision can edit it in place.
+                with _store_session() as (data, save):
+                    e = data["requests"].get(request_id)
+                    if e is not None:
+                        e["telegram_chat_id"] = resp.get("chat_id")
+                        e["telegram_message_id"] = resp.get("message_id")
+                        save()
+                logger.info("mode_lock: Buzz down — unlock %s escalated to Telegram "
+                            "(tappable card, msg %s)", request_id, resp.get("message_id"))
+            else:
+                # No token / delivery failure — fall back to the no-button held alert so
+                # Leo at least learns an unlock is pending.
+                logger.warning("mode_lock: telegram card send failed for %s (%s); "
+                               "sending held alert", request_id, resp.get("error"))
+                _post_telegram_alert_held(request_id, req.tool, req.target, req.reason)
 
     return ApprovalResponse(
         request_id=request_id,
@@ -507,7 +529,7 @@ def _decision_render(new_status: str, user: str, requester: str) -> tuple[str, s
     summary = {
         "approved_once":    f"✅ *Allowed once* by {user} — tool will retry now.",
         "denied":           f"❌ *Denied* by {user}.",
-        "approved_session": f"🔓 *Session unlocked (1h)* by {user} — all writes from `{requester}` auto-approved.",
+        "approved_session": f"🔓 *Session unlocked (90m)* by {user} — all writes from `{requester}` auto-approved.",
     }.get(new_status, f"🔐 *{new_status}* by {user}.")
     header = {
         "approved_once":    "🔐 KAI Mode Lock — Approved (once)",
@@ -620,6 +642,46 @@ def telegram_action_internal(body: TelegramAction):
                              snapshot.get("telegram_message_id"),
                              f"{header}\n{summary}")
     return {"ok": True, "status": result["status"], "request_id": body.request_id}
+
+
+class EscalateAction(BaseModel):
+    request_id: str = Field(..., description="mode_lock request id to escalate")
+
+
+@router.post("/mode_lock/escalate_internal")
+def escalate_internal(body: EscalateAction):
+    """Escalate a still-pending unlock to Telegram with the TAPPABLE card once it has
+    gone unacked past ESCALATE_AFTER_S. Idempotent: a request that already carries a
+    Telegram card (immediate Buzz-down escalation, or a prior call) is not re-sent, and
+    a request that is no longer pending is skipped. Docker-network internal only — same
+    trust model as telegram_action_internal; the kai-scheduler poll loop is the only
+    caller and it decides *when* (age >= window). KAI-1005 (COMMS P2 unacked escalation)."""
+    with _store_session() as (data, save):
+        _expire_in_place(data)
+        entry = data["requests"].get(body.request_id)
+        save()
+    if entry is None:
+        return {"ok": False, "error": "unknown_request"}
+    if entry.get("status") != "pending":
+        return {"ok": True, "skipped": "not_pending", "status": entry.get("status")}
+    if entry.get("telegram_message_id"):
+        return {"ok": True, "skipped": "already_escalated"}
+    resp = _post_telegram_request(body.request_id, entry.get("tool", ""),
+                                  entry.get("target", ""), entry.get("reason", ""),
+                                  entry.get("requester", ""))
+    if not resp.get("ok"):
+        logger.warning("mode_lock: unacked escalation of %s failed: %s",
+                       body.request_id, resp.get("error"))
+        return {"ok": False, "error": resp.get("error")}
+    with _store_session() as (data, save):
+        ee = data["requests"].get(body.request_id)
+        if ee is not None:
+            ee["telegram_chat_id"] = resp.get("chat_id")
+            ee["telegram_message_id"] = resp.get("message_id")
+            save()
+    logger.info("mode_lock: unlock %s escalated to Telegram after unack window (msg %s)",
+                body.request_id, resp.get("message_id"))
+    return {"ok": True, "escalated": True, "message_id": resp.get("message_id")}
 
 
 class PresentAction(BaseModel):

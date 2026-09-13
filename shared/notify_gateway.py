@@ -56,7 +56,16 @@ _LOG_PATH = Path(os.environ.get("KAI_NOTIFY_LOG", "/vault/00_System/notify_log.j
 _DEDUP_PATH = Path(os.environ.get("KAI_NOTIFY_DEDUP", "/vault/00_System/notify_dedup.json"))
 _DEDUP_WINDOW_S = int(os.environ.get("KAI_NOTIFY_DEDUP_WINDOW", "3600"))
 
-# The only audiences permitted to reach Leo's Telegram (Rule B).
+# DevOps channel queue (KAI-1006-follow / Leo 2026-09-13). Actionable system
+# messages that need Leo's ACTION route here — a JSONL queue the kai-buzz poller
+# drains to the private #devops Buzz channel + a NIP-17 DM push. This is NOT
+# Telegram (break-glass only) and NOT the dashboard log (silent). Only messages
+# that genuinely need Leo to act belong here; autonomous-fixable issues stay on
+# the dashboard (audience="dashboard").
+_DEVOPS_QUEUE = Path(os.environ.get("KAI_DEVOPS_QUEUE", "/vault/00_System/devops_queue.jsonl"))
+
+# The only audiences permitted to reach Leo's Telegram (Rule B). Telegram is now
+# break-glass only; actionable ops → "devops" (Buzz), never Leo's phone.
 _LEO_AUDIENCES = {"approval", "personal"}
 
 # The org-model-backed autonomy engine (shared/autonomy_decisions.py). Imported
@@ -369,10 +378,35 @@ def _route(event: Event) -> tuple[str, str]:
         except Exception as e:
             log.error("classify failed, routing to dashboard: %s", type(e).__name__)
             return "dashboard", "classify_error_failclosed"
+    # Actionable system message that needs Leo's action → the #devops Buzz channel
+    # (not his phone). Autonomous-fixable ops fall through to the dashboard.
+    if event.audience == "devops":
+        return "devops", "audience:devops"
     # Audience-based routing (Rule B): only approval / personal-consequence reach Leo.
     if event.audience in _LEO_AUDIENCES:
         return "telegram", f"audience:{event.audience}"
     return "dashboard", f"audience:{event.audience}"
+
+
+def _devops_enqueue(event: Event) -> bool:
+    """Append an actionable system message to the #devops queue the kai-buzz poller
+    drains. O_APPEND makes a single JSON line atomic on local fs — no lock needed for
+    the append side. Best-effort: a queue write failure falls back to the dashboard log."""
+    try:
+        _DEVOPS_QUEUE.parent.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "source": event.source,
+            "kind": event.kind,
+            "title": event.title,
+            "text": _format(event),
+        }
+        with open(_DEVOPS_QUEUE, "a") as fh:
+            fh.write(json.dumps(rec) + "\n")
+        return True
+    except Exception as e:
+        log.error("devops enqueue failed (%s) — falling back to dashboard", type(e).__name__)
+        return False
 
 
 def _enforce_cause(event: Event) -> bool:
@@ -438,6 +472,12 @@ def notify(event: Event) -> NotifyResult:
         if ok:
             _dedup_mark(event.dedup_key)
         res = NotifyResult("delivered" if ok else "send_failed", "telegram", ok, reason)
+    elif dest == "devops":
+        # Enqueue for the #devops Buzz channel; fall back to the dashboard log on failure.
+        if _devops_enqueue(event):
+            res = NotifyResult("delivered", "devops", True, reason)
+        else:
+            res = NotifyResult("dashboard_only", "dashboard", False, f"{reason}:enqueue_failed")
     else:
         res = NotifyResult("dashboard_only", "dashboard", False, reason)
 

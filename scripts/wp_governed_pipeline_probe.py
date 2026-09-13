@@ -281,7 +281,7 @@ def _page_leo(result: dict, consecutive: int, dry_run: bool) -> tuple[str, bool]
             kind="alert",
             title=title,
             body=body,
-            audience="personal",
+            audience="dashboard",
             actionable=True,
             provenance="real",
             dedup_key=f"wp_pipeline_probe_down:{bucket}",

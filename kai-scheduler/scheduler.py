@@ -48,6 +48,10 @@ log = logging.getLogger(__name__)
 
 WORKER_API    = "http://kai-worker-api:8001"
 COUNCIL_API   = "http://kai-council-api:8002"
+# COMMS P2 (KAI-1005): unlocks that sit pending (unacked, Buzz-routed) past this window
+# get escalated to a tappable Telegram card. Must match the worker default; the worker
+# guard is idempotent so a small skew is harmless.
+ESCALATE_AFTER_S = int(os.environ.get("MODE_LOCK_ESCALATE_AFTER_S", "720"))  # ~12 min
 # Council's agentic loop can legitimately run past 90s (L9 allows 12 iterations);
 # a short client timeout here turned slow-but-successful replies into "unavailable".
 COUNCIL_TIMEOUT_S = 180
@@ -217,6 +221,41 @@ def _handle_modelock_callback(token: str, cbq: dict, allowed: "frozenset[int]") 
         toast = "Could not reach the worker to resolve the unlock."
 
     _answer_callback(token, cbq.get("id"), text=toast)
+
+
+# ── Unacked-unlock escalation (COMMS P2 · KAI-1005) ────────────────────────────
+
+def _escalate_unacked_unlocks() -> None:
+    """Pull pending mode-lock unlocks; for any that has sat unacked past
+    ESCALATE_AFTER_S, ask the worker to escalate it to a tappable Telegram card. The
+    worker's /mode_lock/escalate_internal is idempotent (skips already-escalated and
+    non-pending requests), so running this every poll cycle is safe. Best-effort —
+    never raises into the poll loop."""
+    try:
+        r = httpx.get(f"{WORKER_API}/mode_lock/pending", auth=worker_auth(), timeout=10)
+        if r.status_code != 200:
+            return
+        pending = r.json().get("pending", [])
+    except Exception as e:
+        log.error("Escalation poll: pending fetch failed: %s", type(e).__name__)
+        return
+    now = datetime.now(timezone.utc)
+    for e in pending:
+        created = e.get("created_at")
+        if not created:
+            continue
+        try:
+            ts = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if (now - ts).total_seconds() < ESCALATE_AFTER_S:
+            continue
+        rid = e.get("id")
+        try:
+            httpx.post(f"{WORKER_API}/mode_lock/escalate_internal",
+                       json={"request_id": rid}, auth=worker_auth(), timeout=10)
+        except Exception as ex:
+            log.error("Escalation of %s failed: %s", rid, type(ex).__name__)
 
 
 # ── Telegram alert helper (operational health alerts only) ─────────────────────
@@ -415,8 +454,12 @@ def telegram_poll_loop():
                         message = message or "[Photo — could not download]"
                 deliver_council_reply(token, chat_id, advisor, message, username, attachments)
 
+            # After draining updates (~every 25s getUpdates cycle), sweep pending
+            # unlocks and escalate any that have gone unacked past the window (KAI-1005).
+            _escalate_unacked_unlocks()
+
         except httpx.TimeoutException:
-            pass
+            _escalate_unacked_unlocks()
         except Exception as e:
             log.error("Telegram poll error: %s", type(e).__name__)
             time.sleep(5)
@@ -727,7 +770,7 @@ def main():
                     kind="alert",
                     title=f"WP security: {len(findings)} finding(s) on the fleet",
                     body="\n".join(lines),
-                    audience="personal",
+                    audience="dashboard",
                     actionable=True,
                     dedup_key="wpsec:" + keys,
                 ))

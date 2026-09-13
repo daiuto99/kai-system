@@ -107,6 +107,11 @@ export const api = {
   getPresence: () => get('/orchestrator/presence'),
   getSystemActivity: (limit = 200) => get(`${BASE}/system/activity?limit=${limit}`),
   getCurrencyState: () => get(`${BASE}/currency/state`),
+  // DevOps / system-activity substance on the System tab (KAI-1006). Read-only,
+  // fail-silent panels that surface host telemetry the backend already exposes.
+  getSystemHealth: () => get(`${BASE}/system/health`),
+  getOpsState: () => get(`${BASE}/system/ops-state`),
+  getGitActivity: () => get(`${BASE}/git-activity/latest`),
 
   // Proactive queue (P-4a) — the morning digest's PULL surface. Custodian Findings
   // are bridged to silent finding-cards in the T2 queue; the digest reads the pending

@@ -29,6 +29,11 @@ KEY_FILE   = "kai.key"                     # KAI owns the approvals channel
 CHAN_FILE  = "approvals_channel.txt"
 CHAN_NAME  = "kai-approvals"
 CHAN_ABOUT = "KAI approval gates — reply `approve` or `reject: reason`."
+# #devops channel (Leo 2026-09-13): actionable system messages route here via the
+# notify() gateway (audience="devops"), which appends to DEVOPS_QUEUE. This poller
+# drains that queue to the channel + a DM push. Read-only surface — no replies parsed.
+DEVOPS_CHAN_FILE = "devops_channel.txt"
+DEVOPS_QUEUE = os.environ.get("KAI_DEVOPS_QUEUE", "/vault/00_System/devops_queue.jsonl")
 # nginx at :3001 strips ONE /council/ prefix, so gate routes (/council/gate/...) need
 # the doubled prefix. The #kai bridge reaches /council/message the same way.
 COUNCIL_BASE  = os.environ.get("BUZZ_COUNCIL_BASE", "http://localhost:3001/council/council")
@@ -196,9 +201,35 @@ def compose_dm_pointer(total: int) -> str:
             "open #kai-approvals to approve/reject.")
 
 
+def _drain_devops_queue() -> list:
+    """Atomically claim queued #devops records: rename the queue aside, read it, remove
+    it. New appends land in a fresh queue for the next cycle so nothing is lost mid-drain.
+    Recovers a prior interrupted drain first. Returns [] if empty; never raises."""
+    work = DEVOPS_QUEUE + ".draining"
+    recs = []
+    try:
+        if not os.path.exists(work):
+            if not os.path.exists(DEVOPS_QUEUE):
+                return []
+            os.rename(DEVOPS_QUEUE, work)
+        with open(work) as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    try:
+                        recs.append(json.loads(line))
+                    except Exception:
+                        continue
+        os.remove(work)
+    except Exception as e:
+        ab.log("approvals", f"!! devops drain error: {type(e).__name__}: {e}")
+    return recs
+
+
 async def run():
     pk = ab.load_or_create_key(KEY_FILE)
     cid = ab.get_channel(CHAN_FILE)
+    devops_cid = ab.get_channel(DEVOPS_CHAN_FILE)
     me = ab.xonly(pk)
     send_lock = asyncio.Lock()
     prompt_map: dict[str, str] = {}   # prompt event id -> gate id (reply binding)
@@ -211,6 +242,13 @@ async def run():
     async def send(text) -> dict:
         ev = ab.sign_event(pk, 9, [["h", cid]], text)
         async with send_lock:  # websockets: at most one concurrent send()
+            await ws.send(json.dumps(["EVENT", ev]))
+        return ev
+
+    async def send_devops(text) -> dict:
+        """Post a system message to the #devops channel (separate from approvals)."""
+        ev = ab.sign_event(pk, 9, [["h", devops_cid]], text)
+        async with send_lock:
             await ws.send(json.dumps(["EVENT", ev]))
         return ev
 
@@ -228,7 +266,7 @@ async def run():
         rid = e.get("request_id")
         ev = await send(f"{prefix}🔓 UNLOCK REQUEST — {e.get('tool', '?')} → {e.get('target') or '(n/a)'}\n"
                         f"{e.get('reason', '')}\n\n"
-                        f"Reply `allow` (once), `session` (1h), or `deny` (or `allow {rid}`).")
+                        f"Reply `allow` (once), `session` (90m), or `deny` (or `allow {rid}`).")
         prompt_map[ev["id"]] = f"modelock:{rid}"
         open_gates.add(rid)
         kind_of[rid] = "modelock"
@@ -371,6 +409,26 @@ async def run():
                             last_prompt.pop(rid, None); kind_of.pop(rid, None)
                     except Exception as ex:
                         ab.log("approvals", f"!! mode_lock poll error: {ex}")
+
+                # #devops channel (Leo 2026-09-13): drain queued system messages (from the
+                # notify() gateway, audience="devops") to the channel + one DM push. These
+                # are read-only alerts that need Leo's action — no reply parsing.
+                try:
+                    devops_recs = await asyncio.to_thread(_drain_devops_queue)
+                    for r in devops_recs:
+                        title = r.get("title") or r.get("kind") or "system"
+                        body = r.get("text") or ""
+                        await send_devops(f"🛠️ {title}\n{body}" if body and body != title else f"🛠️ {title}")
+                        ab.log("approvals", f">> devops msg posted ({r.get('source','?')})")
+                    if devops_recs and _dm_send:
+                        n = len(devops_recs)
+                        try:
+                            await _dm_send(f"🛠️ {n} DevOps item{'s' if n != 1 else ''} need your attention — see #devops.")
+                            ab.log("approvals", f">> devops DM push sent ({n})")
+                        except Exception as e:
+                            ab.log("approvals", f"!! devops DM push failed: {e}")
+                except Exception as e:
+                    ab.log("approvals", f"!! devops post error: {type(e).__name__}: {e}")
 
                 # Push surface (bug 5de64f3f): a channel card doesn't notify, so whenever a
                 # card was posted or re-nudged this cycle, DM Leo one pointer with the TOTAL

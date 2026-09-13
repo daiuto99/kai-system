@@ -176,7 +176,7 @@ def _page_leo(result: dict, consecutive: int, dry_run: bool) -> tuple[bool, str]
             kind="alert",
             title=title,
             body=body,
-            audience="personal",   # personal-consequence -> reaches Leo's Telegram
+            audience="dashboard",   # personal-consequence -> reaches Leo's Telegram
             actionable=True,
             provenance="real",     # the outage is real even though the probe message is synthetic
             dedup_key=f"tg_inbound_down:{bucket}",

@@ -155,7 +155,7 @@ def _page_leo(reason: str, consecutive: int, restart_detail: str, dry_run: bool)
             kind="alert",
             title=title,
             body=body,
-            audience="personal",
+            audience="dashboard",
             actionable=True,
             provenance="real",
             dedup_key=f"buzz_shim_autoheal:{bucket}",
