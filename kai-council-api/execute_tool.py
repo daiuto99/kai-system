@@ -426,11 +426,16 @@ def _h_specialists(client, tool_name, ti, advisor):
 
 
 def _h_email(client, tool_name, ti, advisor):
-    # Gmail was served via n8n (retired). Direct-Gmail rebuild = KAI-1384.
+    # Direct-Gmail read-only path (KAI-1384); n8n retired. read_email is live via
+    # the worker /gmail/messages route. draft_email stays stubbed: C-2 is read-only.
     if tool_name == "read_email":
-        return {"error": "Email integration is being rebuilt on a direct Gmail path (KAI-1384); n8n retired.", "emails": []}
+        params = {"max_results": ti.get("max_results", 10)}
+        if ti.get("query"):
+            params["query"] = ti["query"]
+        r = client.get(f"{WORKER_URL}/gmail/messages", params=params, timeout=20)
+        return r.json() if r.status_code == 200 else {"error": r.text, "emails": []}
     if tool_name == "draft_email":
-        return {"error": "Email drafting is being rebuilt on a direct Gmail path (KAI-1384); n8n retired."}
+        return {"error": "Email drafting is read-only for now (KAI-1384 is read-only ingest); write path is a later ticket."}
 
 
 def _h_contacts(client, tool_name, ti, advisor):

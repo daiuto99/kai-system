@@ -74,6 +74,31 @@ def get_todoist_tasks(secrets_dir: str) -> dict:
     return {"today": today_tasks, "overdue": overdue_tasks}
 
 
+def get_unread_emails(secrets_dir: str) -> list:
+    """Fetch recent unread email (metadata only) from the worker /gmail/messages
+    route (KAI-1384 direct-Gmail read-only path). The worker owns the authorized,
+    self-refreshing token, so reading through it (not the token file) avoids
+    refresh drift. Best-effort: any failure (no worker-auth secret, not yet
+    authorized, network) yields [] so the brief degrades to no Inbox section."""
+    auth = load_secret("kai_worker_auth", secrets_dir)
+    if not auth or ":" not in auth:
+        return []
+    base = os.environ.get("KAI_WORKER_URL", "http://kai-worker-api:8001")
+    user, pw = auth.split(":", 1)
+    try:
+        with httpx.Client() as client:
+            r = client.get(
+                f"{base}/gmail/messages",
+                params={"max_results": 5, "query": "is:unread"},
+                auth=(user, pw),
+                timeout=15.0,
+            )
+            r.raise_for_status()
+            return r.json().get("emails", []) or []
+    except Exception:
+        return []
+
+
 def load_kai_close_notes(vault_path: Path) -> str:
     """Load yesterday's close notes from kai context. Same contract as focus.py."""
     context_file = vault_path / "60_Council" / "kai" / "context.md"
@@ -85,11 +110,30 @@ def load_kai_close_notes(vault_path: Path) -> str:
     return ""
 
 
-def build_brief_text(tasks: dict, close_notes: str, secrets_dir: str) -> str:
-    """Build the Top 3 / Next 5 brief with LOCAL qwen-mid (Ollama). Prompt identical to focus.py."""
+def build_brief_text(tasks: dict, close_notes: str, secrets_dir: str, emails: list | None = None) -> str:
+    """Build the Top 3 / Next 5 brief with LOCAL qwen-mid (Ollama). Prompt identical to focus.py,
+    plus an optional Inbox section fed by KAI-1384 direct-Gmail read-only ingest."""
     today_list = "\n".join(f"- {t}" for t in tasks["today"]) or "- (none)"
     overdue_list = "\n".join(f"- {t}" for t in tasks["overdue"]) or "- (none)"
     close_section = f"Yesterday's close notes:\n{close_notes}" if close_notes else ""
+
+    emails = emails or []
+    if emails:
+        email_lines = "\n".join(
+            f"- {e.get('from', '(unknown)')}: {e.get('subject', '(no subject)')}" for e in emails
+        )
+        email_input = f"Unread email (most recent {len(emails)}):\n{email_lines}"
+        email_rules = (
+            "- Use ONLY the unread email listed above for the Inbox section. NEVER invent senders or subjects.\n"
+        )
+        email_format = (
+            "\n**Inbox** — unread email worth a look (most recent {n}):\n"
+            "(bulleted list of the real unread email above as \"Sender — subject\", or \"None\")\n"
+        ).format(n=len(emails))
+    else:
+        email_input = "Unread email: (none available)"
+        email_rules = ""
+        email_format = ""
 
     prompt = f"""You are KAI, building a concise daily focus brief.
 
@@ -101,6 +145,8 @@ Tasks due today:
 Overdue tasks:
 {overdue_list}
 
+{email_input}
+
 {close_section}
 
 CRITICAL RULES:
@@ -108,7 +154,7 @@ CRITICAL RULES:
 - If there are no tasks due today, write "None" under Top 3 and Next 5 — do not fabricate work.
 - Top 3 = the 3 most important tasks due today (fewer if fewer exist). Next 5 = the remaining
   tasks due today (fewer if fewer exist). Carried over = the overdue tasks verbatim, or "None".
-
+{email_rules}
 Build a brief with exactly this format (fill only from the real tasks above):
 
 **Good morning. Here's your focus for today.**
@@ -121,7 +167,7 @@ Build a brief with exactly this format (fill only from the real tasks above):
 
 **Carried over** — overdue items needing attention:
 (bulleted list of the real overdue tasks, or "None")
-
+{email_format}
 Keep it tight. No preamble. Just the brief."""
 
     with httpx.Client() as client:
@@ -194,7 +240,8 @@ def generate(secrets_dir: str, vault_path: Path) -> dict:
     """Deterministic input pull + brief generation. Returns the envelope dict (no side effects)."""
     tasks = get_todoist_tasks(secrets_dir)
     close_notes = load_kai_close_notes(vault_path)
-    brief = build_brief_text(tasks, close_notes, secrets_dir)
+    emails = get_unread_emails(secrets_dir)
+    brief = build_brief_text(tasks, close_notes, secrets_dir, emails)
     return {
         "schema": SCHEMA,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -202,6 +249,7 @@ def generate(secrets_dir: str, vault_path: Path) -> dict:
         "llm_model": LLM_MODEL,
         "tasks_today": len(tasks["today"]),
         "tasks_overdue": len(tasks["overdue"]),
+        "unread_email": len(emails),
         "sections_present": detect_sections(brief),
         "brief_markdown": brief,
     }

@@ -1,0 +1,1699 @@
+[
+  {
+    "cell": null,
+    "code": "E401",
+    "end_location": {
+      "column": 27,
+      "row": 160
+    },
+    "filename": "/app/dispatch.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "    import secrets\n    import string",
+          "end_location": {
+            "column": 27,
+            "row": 160
+          },
+          "location": {
+            "column": 1,
+            "row": 160
+          }
+        }
+      ],
+      "message": "Split imports"
+    },
+    "location": {
+      "column": 5,
+      "row": 160
+    },
+    "message": "Multiple imports on one line",
+    "name": "multiple-imports-on-one-line",
+    "noqa_row": 160,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-imports-on-one-line"
+  },
+  {
+    "cell": null,
+    "code": "E731",
+    "end_location": {
+      "column": 63,
+      "row": 29
+    },
+    "filename": "/app/harmony.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "def DEFAULT_ASPECT():\n    return {\"statements\": [], \"status\": \"green\"}",
+          "end_location": {
+            "column": 63,
+            "row": 29
+          },
+          "location": {
+            "column": 1,
+            "row": 29
+          }
+        }
+      ],
+      "message": "Rewrite `DEFAULT_ASPECT` as a `def`"
+    },
+    "location": {
+      "column": 1,
+      "row": 29
+    },
+    "message": "Do not assign a `lambda` expression, use a `def`",
+    "name": "lambda-assignment",
+    "noqa_row": 29,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/lambda-assignment"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 13,
+      "row": 219
+    },
+    "filename": "/app/parking_lot.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 16,
+            "row": 219
+          },
+          "location": {
+            "column": 5,
+            "row": 219
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `og_title`"
+    },
+    "location": {
+      "column": 5,
+      "row": 219
+    },
+    "message": "Local variable `og_title` is assigned to but never used",
+    "name": "unused-variable",
+    "noqa_row": 219,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 10,
+      "row": 3
+    },
+    "filename": "/app/routes/calendar.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 4
+          },
+          "location": {
+            "column": 1,
+            "row": 3
+          }
+        }
+      ],
+      "message": "Remove unused import: `re`"
+    },
+    "location": {
+      "column": 8,
+      "row": 3
+    },
+    "message": "`re` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 3,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 25,
+      "row": 3
+    },
+    "filename": "/app/routes/focus.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 4
+          },
+          "location": {
+            "column": 1,
+            "row": 3
+          }
+        }
+      ],
+      "message": "Remove unused import: `pathlib.Path`"
+    },
+    "location": {
+      "column": 21,
+      "row": 3
+    },
+    "message": "`pathlib.Path` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 3,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 53,
+      "row": 8
+    },
+    "filename": "/app/routes/focus.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from focus import run_focus_brief",
+          "end_location": {
+            "column": 53,
+            "row": 8
+          },
+          "location": {
+            "column": 1,
+            "row": 8
+          }
+        }
+      ],
+      "message": "Remove unused import: `focus.get_todoist_tasks`"
+    },
+    "location": {
+      "column": 36,
+      "row": 8
+    },
+    "message": "`focus.get_todoist_tasks` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 8,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 43,
+      "row": 14
+    },
+    "filename": "/app/routes/git_activity.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 14
+    },
+    "message": "Module level import not at top of file",
+    "name": "module-import-not-at-top-of-file",
+    "noqa_row": 14,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "E401",
+    "end_location": {
+      "column": 16,
+      "row": 4
+    },
+    "filename": "/app/routes/habits.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import json\nimport os",
+          "end_location": {
+            "column": 16,
+            "row": 4
+          },
+          "location": {
+            "column": 1,
+            "row": 4
+          }
+        }
+      ],
+      "message": "Split imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 4
+    },
+    "message": "Multiple imports on one line",
+    "name": "multiple-imports-on-one-line",
+    "noqa_row": 4,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-imports-on-one-line"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 12,
+      "row": 1
+    },
+    "filename": "/app/routes/inbox.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unused import: `json`"
+    },
+    "location": {
+      "column": 8,
+      "row": 1
+    },
+    "message": "`json` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 10,
+      "row": 3
+    },
+    "filename": "/app/routes/inbox.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 4
+          },
+          "location": {
+            "column": 1,
+            "row": 3
+          }
+        }
+      ],
+      "message": "Remove unused import: `re`"
+    },
+    "location": {
+      "column": 8,
+      "row": 3
+    },
+    "message": "`re` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 3,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 45,
+      "row": 5
+    },
+    "filename": "/app/routes/location.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from fastapi import APIRouter",
+          "end_location": {
+            "column": 45,
+            "row": 5
+          },
+          "location": {
+            "column": 1,
+            "row": 5
+          }
+        }
+      ],
+      "message": "Remove unused import: `fastapi.HTTPException`"
+    },
+    "location": {
+      "column": 32,
+      "row": 5
+    },
+    "message": "`fastapi.HTTPException` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 5,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "E741",
+    "end_location": {
+      "column": 14,
+      "row": 34
+    },
+    "filename": "/app/routes/oura.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 34
+    },
+    "message": "Ambiguous variable name: `l`",
+    "name": "ambiguous-variable-name",
+    "noqa_row": 34,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/ambiguous-variable-name"
+  },
+  {
+    "cell": null,
+    "code": "E741",
+    "end_location": {
+      "column": 14,
+      "row": 46
+    },
+    "filename": "/app/routes/oura.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 46
+    },
+    "message": "Ambiguous variable name: `l`",
+    "name": "ambiguous-variable-name",
+    "noqa_row": 46,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/ambiguous-variable-name"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 23,
+      "row": 17
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from parking_lot import (\n    capture as pl_capture,\n    enrich_text,\n    gather_capture_context,\n    load_secret,\n)",
+          "end_location": {
+            "column": 2,
+            "row": 19
+          },
+          "location": {
+            "column": 1,
+            "row": 13
+          }
+        }
+      ],
+      "message": "Remove unused import: `parking_lot.write_capture_card`"
+    },
+    "location": {
+      "column": 5,
+      "row": 17
+    },
+    "message": "`parking_lot.write_capture_card` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 17,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "E702",
+    "end_location": {
+      "column": 26,
+      "row": 51
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 25,
+      "row": 51
+    },
+    "message": "Multiple statements on one line (semicolon)",
+    "name": "multiple-statements-on-one-line-semicolon",
+    "noqa_row": 51,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-semicolon"
+  },
+  {
+    "cell": null,
+    "code": "E702",
+    "end_location": {
+      "column": 27,
+      "row": 53
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 26,
+      "row": 53
+    },
+    "message": "Multiple statements on one line (semicolon)",
+    "name": "multiple-statements-on-one-line-semicolon",
+    "noqa_row": 53,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-semicolon"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 35,
+      "row": 53
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 44,
+            "row": 53
+          },
+          "location": {
+            "column": 28,
+            "row": 53
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `fm_done`"
+    },
+    "location": {
+      "column": 28,
+      "row": 53
+    },
+    "message": "Local variable `fm_done` is assigned to but never used",
+    "name": "unused-variable",
+    "noqa_row": 53,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "E702",
+    "end_location": {
+      "column": 43,
+      "row": 53
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 42,
+      "row": 53
+    },
+    "message": "Multiple statements on one line (semicolon)",
+    "name": "multiple-statements-on-one-line-semicolon",
+    "noqa_row": 53,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-semicolon"
+  },
+  {
+    "cell": null,
+    "code": "E702",
+    "end_location": {
+      "column": 43,
+      "row": 67
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 42,
+      "row": 67
+    },
+    "message": "Multiple statements on one line (semicolon)",
+    "name": "multiple-statements-on-one-line-semicolon",
+    "noqa_row": 67,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-semicolon"
+  },
+  {
+    "cell": null,
+    "code": "E701",
+    "end_location": {
+      "column": 34,
+      "row": 76
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 33,
+      "row": 76
+    },
+    "message": "Multiple statements on one line (colon)",
+    "name": "multiple-statements-on-one-line-colon",
+    "noqa_row": 76,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-colon"
+  },
+  {
+    "cell": null,
+    "code": "E702",
+    "end_location": {
+      "column": 47,
+      "row": 76
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 46,
+      "row": 76
+    },
+    "message": "Multiple statements on one line (semicolon)",
+    "name": "multiple-statements-on-one-line-semicolon",
+    "noqa_row": 76,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-semicolon"
+  },
+  {
+    "cell": null,
+    "code": "E702",
+    "end_location": {
+      "column": 36,
+      "row": 78
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 35,
+      "row": 78
+    },
+    "message": "Multiple statements on one line (semicolon)",
+    "name": "multiple-statements-on-one-line-semicolon",
+    "noqa_row": 78,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-semicolon"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 24,
+      "row": 560
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 561
+          },
+          "location": {
+            "column": 1,
+            "row": 560
+          }
+        }
+      ],
+      "message": "Remove unused import: `httpx`"
+    },
+    "location": {
+      "column": 21,
+      "row": 560
+    },
+    "message": "`httpx` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 560,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 14,
+      "row": 565
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 17,
+            "row": 565
+          },
+          "location": {
+            "column": 5,
+            "row": 565
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `item_text`"
+    },
+    "location": {
+      "column": 5,
+      "row": 565
+    },
+    "message": "Local variable `item_text` is assigned to but never used",
+    "name": "unused-variable",
+    "noqa_row": 565,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 9,
+      "row": 570
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 15,
+            "row": 570
+          },
+          "location": {
+            "column": 5,
+            "row": 570
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `tags`"
+    },
+    "location": {
+      "column": 5,
+      "row": 570
+    },
+    "message": "Local variable `tags` is assigned to but never used",
+    "name": "unused-variable",
+    "noqa_row": 570,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "E701",
+    "end_location": {
+      "column": 20,
+      "row": 578
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 19,
+      "row": 578
+    },
+    "message": "Multiple statements on one line (colon)",
+    "name": "multiple-statements-on-one-line-colon",
+    "noqa_row": 578,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-colon"
+  },
+  {
+    "cell": null,
+    "code": "E701",
+    "end_location": {
+      "column": 16,
+      "row": 579
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 579
+    },
+    "message": "Multiple statements on one line (colon)",
+    "name": "multiple-statements-on-one-line-colon",
+    "noqa_row": 579,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-colon"
+  },
+  {
+    "cell": null,
+    "code": "E701",
+    "end_location": {
+      "column": 25,
+      "row": 580
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 24,
+      "row": 580
+    },
+    "message": "Multiple statements on one line (colon)",
+    "name": "multiple-statements-on-one-line-colon",
+    "noqa_row": 580,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-colon"
+  },
+  {
+    "cell": null,
+    "code": "E701",
+    "end_location": {
+      "column": 16,
+      "row": 643
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 643
+    },
+    "message": "Multiple statements on one line (colon)",
+    "name": "multiple-statements-on-one-line-colon",
+    "noqa_row": 643,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-colon"
+  },
+  {
+    "cell": null,
+    "code": "E701",
+    "end_location": {
+      "column": 12,
+      "row": 644
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 11,
+      "row": 644
+    },
+    "message": "Multiple statements on one line (colon)",
+    "name": "multiple-statements-on-one-line-colon",
+    "noqa_row": 644,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-colon"
+  },
+  {
+    "cell": null,
+    "code": "E701",
+    "end_location": {
+      "column": 21,
+      "row": 645
+    },
+    "filename": "/app/routes/parking_lot.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 645
+    },
+    "message": "Multiple statements on one line (colon)",
+    "name": "multiple-statements-on-one-line-colon",
+    "noqa_row": 645,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-colon"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 32,
+      "row": 10
+    },
+    "filename": "/app/routes/projects.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 11
+          },
+          "location": {
+            "column": 1,
+            "row": 10
+          }
+        }
+      ],
+      "message": "Remove unused import: `safe_http.safe_json`"
+    },
+    "location": {
+      "column": 23,
+      "row": 10
+    },
+    "message": "`safe_http.safe_json` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 10,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 17,
+      "row": 2
+    },
+    "filename": "/app/routes/system.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 3
+          },
+          "location": {
+            "column": 1,
+            "row": 2
+          }
+        }
+      ],
+      "message": "Remove unused import: `re`"
+    },
+    "location": {
+      "column": 14,
+      "row": 2
+    },
+    "message": "`re` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 2,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 18,
+      "row": 4
+    },
+    "filename": "/app/routes/system.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 5
+          },
+          "location": {
+            "column": 1,
+            "row": 4
+          }
+        }
+      ],
+      "message": "Remove unused import: `subprocess`"
+    },
+    "location": {
+      "column": 8,
+      "row": 4
+    },
+    "message": "`subprocess` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 4,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 25,
+      "row": 7
+    },
+    "filename": "/app/routes/system.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 8
+          },
+          "location": {
+            "column": 1,
+            "row": 7
+          }
+        }
+      ],
+      "message": "Remove unused import: `pathlib.Path`"
+    },
+    "location": {
+      "column": 21,
+      "row": 7
+    },
+    "message": "`pathlib.Path` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 7,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "E741",
+    "end_location": {
+      "column": 29,
+      "row": 63
+    },
+    "filename": "/app/routes/system.py",
+    "fix": null,
+    "location": {
+      "column": 28,
+      "row": 63
+    },
+    "message": "Ambiguous variable name: `l`",
+    "name": "ambiguous-variable-name",
+    "noqa_row": 63,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/ambiguous-variable-name"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 40,
+      "row": 157
+    },
+    "filename": "/app/routes/system.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 157
+    },
+    "message": "Module level import not at top of file",
+    "name": "module-import-not-at-top-of-file",
+    "noqa_row": 157,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 40,
+      "row": 157
+    },
+    "filename": "/app/routes/system.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 158
+          },
+          "location": {
+            "column": 1,
+            "row": 157
+          }
+        }
+      ],
+      "message": "Remove unused import: `fastapi.Request`"
+    },
+    "location": {
+      "column": 32,
+      "row": 157
+    },
+    "message": "`fastapi.Request` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 157,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 45,
+      "row": 158
+    },
+    "filename": "/app/routes/system.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 158
+    },
+    "message": "Module level import not at top of file",
+    "name": "module-import-not-at-top-of-file",
+    "noqa_row": 158,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 45,
+      "row": 2
+    },
+    "filename": "/app/routes/tasks.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from fastapi import APIRouter, Body",
+          "end_location": {
+            "column": 51,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 2
+          }
+        }
+      ],
+      "message": "Remove unused import: `fastapi.HTTPException`"
+    },
+    "location": {
+      "column": 32,
+      "row": 2
+    },
+    "message": "`fastapi.HTTPException` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 2,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 14,
+      "row": 6
+    },
+    "filename": "/app/routes/tasks.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from services.todoist import (\n    get_today, get_week, get_backlog, create_task, update_task, search_tasks,\n    complete_task as todoist_complete, delete_task, shape_task, move_to_today,\n    get_todoist_projects, create_todoist_project, delete_todoist_project\n)",
+          "end_location": {
+            "column": 2,
+            "row": 9
+          },
+          "location": {
+            "column": 1,
+            "row": 5
+          }
+        }
+      ],
+      "message": "Remove unused import: `services.todoist.get_inbox`"
+    },
+    "location": {
+      "column": 5,
+      "row": 6
+    },
+    "message": "`services.todoist.get_inbox` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 6,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 12,
+      "row": 3
+    },
+    "filename": "/app/routes/telegram.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 4
+          },
+          "location": {
+            "column": 1,
+            "row": 3
+          }
+        }
+      ],
+      "message": "Remove unused import: `hmac`"
+    },
+    "location": {
+      "column": 8,
+      "row": 3
+    },
+    "message": "`hmac` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 3,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 15,
+      "row": 4
+    },
+    "filename": "/app/routes/telegram.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 5
+          },
+          "location": {
+            "column": 1,
+            "row": 4
+          }
+        }
+      ],
+      "message": "Remove unused import: `hashlib`"
+    },
+    "location": {
+      "column": 8,
+      "row": 4
+    },
+    "message": "`hashlib` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 4,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 25,
+      "row": 2
+    },
+    "filename": "/app/routes/wiki.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 3
+          },
+          "location": {
+            "column": 1,
+            "row": 2
+          }
+        }
+      ],
+      "message": "Remove unused import: `pathlib.Path`"
+    },
+    "location": {
+      "column": 21,
+      "row": 2
+    },
+    "message": "`pathlib.Path` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 2,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 15,
+      "row": 63
+    },
+    "filename": "/app/routing_engine.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 18,
+            "row": 63
+          },
+          "location": {
+            "column": 5,
+            "row": 63
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `confidence`"
+    },
+    "location": {
+      "column": 5,
+      "row": 63
+    },
+    "message": "Local variable `confidence` is assigned to but never used",
+    "name": "unused-variable",
+    "noqa_row": 63,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 14,
+      "row": 46
+    },
+    "filename": "/app/services/habitsync.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 17,
+            "row": 46
+          },
+          "location": {
+            "column": 9,
+            "row": 46
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `today`"
+    },
+    "location": {
+      "column": 9,
+      "row": 46
+    },
+    "message": "Local variable `today` is assigned to but never used",
+    "name": "unused-variable",
+    "noqa_row": 46,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "E701",
+    "end_location": {
+      "column": 28,
+      "row": 82
+    },
+    "filename": "/app/services/todoist.py",
+    "fix": null,
+    "location": {
+      "column": 27,
+      "row": 82
+    },
+    "message": "Multiple statements on one line (colon)",
+    "name": "multiple-statements-on-one-line-colon",
+    "noqa_row": 82,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-colon"
+  },
+  {
+    "cell": null,
+    "code": "E701",
+    "end_location": {
+      "column": 29,
+      "row": 83
+    },
+    "filename": "/app/services/todoist.py",
+    "fix": null,
+    "location": {
+      "column": 28,
+      "row": 83
+    },
+    "message": "Multiple statements on one line (colon)",
+    "name": "multiple-statements-on-one-line-colon",
+    "noqa_row": 83,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-colon"
+  },
+  {
+    "cell": null,
+    "code": "E701",
+    "end_location": {
+      "column": 29,
+      "row": 84
+    },
+    "filename": "/app/services/todoist.py",
+    "fix": null,
+    "location": {
+      "column": 28,
+      "row": 84
+    },
+    "message": "Multiple statements on one line (colon)",
+    "name": "multiple-statements-on-one-line-colon",
+    "noqa_row": 84,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-colon"
+  },
+  {
+    "cell": null,
+    "code": "E701",
+    "end_location": {
+      "column": 32,
+      "row": 85
+    },
+    "filename": "/app/services/todoist.py",
+    "fix": null,
+    "location": {
+      "column": 31,
+      "row": 85
+    },
+    "message": "Multiple statements on one line (colon)",
+    "name": "multiple-statements-on-one-line-colon",
+    "noqa_row": 85,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-colon"
+  },
+  {
+    "cell": null,
+    "code": "W291",
+    "end_location": {
+      "column": 79,
+      "row": 4
+    },
+    "filename": "/app/tests/test_5r_ec5_traversal.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 79,
+            "row": 4
+          },
+          "location": {
+            "column": 78,
+            "row": 4
+          }
+        }
+      ],
+      "message": "Remove trailing whitespace"
+    },
+    "location": {
+      "column": 78,
+      "row": 4
+    },
+    "message": "Trailing whitespace",
+    "name": "trailing-whitespace",
+    "noqa_row": 20,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/trailing-whitespace"
+  },
+  {
+    "cell": null,
+    "code": "W291",
+    "end_location": {
+      "column": 84,
+      "row": 5
+    },
+    "filename": "/app/tests/test_5r_ec5_traversal.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 84,
+            "row": 5
+          },
+          "location": {
+            "column": 83,
+            "row": 5
+          }
+        }
+      ],
+      "message": "Remove trailing whitespace"
+    },
+    "location": {
+      "column": 83,
+      "row": 5
+    },
+    "message": "Trailing whitespace",
+    "name": "trailing-whitespace",
+    "noqa_row": 20,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/trailing-whitespace"
+  },
+  {
+    "cell": null,
+    "code": "W291",
+    "end_location": {
+      "column": 84,
+      "row": 8
+    },
+    "filename": "/app/tests/test_5r_ec5_traversal.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 84,
+            "row": 8
+          },
+          "location": {
+            "column": 83,
+            "row": 8
+          }
+        }
+      ],
+      "message": "Remove trailing whitespace"
+    },
+    "location": {
+      "column": 83,
+      "row": 8
+    },
+    "message": "Trailing whitespace",
+    "name": "trailing-whitespace",
+    "noqa_row": 20,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/trailing-whitespace"
+  },
+  {
+    "cell": null,
+    "code": "W291",
+    "end_location": {
+      "column": 82,
+      "row": 9
+    },
+    "filename": "/app/tests/test_5r_ec5_traversal.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 82,
+            "row": 9
+          },
+          "location": {
+            "column": 81,
+            "row": 9
+          }
+        }
+      ],
+      "message": "Remove trailing whitespace"
+    },
+    "location": {
+      "column": 81,
+      "row": 9
+    },
+    "message": "Trailing whitespace",
+    "name": "trailing-whitespace",
+    "noqa_row": 20,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/trailing-whitespace"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 12,
+      "row": 22
+    },
+    "filename": "/app/tests/test_5r_ec5_traversal.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 23
+          },
+          "location": {
+            "column": 1,
+            "row": 22
+          }
+        }
+      ],
+      "message": "Remove unused import: `json`"
+    },
+    "location": {
+      "column": 8,
+      "row": 22
+    },
+    "message": "`json` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 22,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 16,
+      "row": 9
+    },
+    "filename": "/app/tests/test_s5r3_destructive_audit.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 10
+          },
+          "location": {
+            "column": 1,
+            "row": 9
+          }
+        }
+      ],
+      "message": "Remove unused import: `tempfile`"
+    },
+    "location": {
+      "column": 8,
+      "row": 9
+    },
+    "message": "`tempfile` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 9,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 25,
+      "row": 10
+    },
+    "filename": "/app/tests/test_s5r3_destructive_audit.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 11
+          },
+          "location": {
+            "column": 1,
+            "row": 10
+          }
+        }
+      ],
+      "message": "Remove unused import: `pathlib.Path`"
+    },
+    "location": {
+      "column": 21,
+      "row": 10
+    },
+    "message": "`pathlib.Path` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 10,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 36,
+      "row": 11
+    },
+    "filename": "/app/tests/test_s5r3_destructive_audit.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 12
+          },
+          "location": {
+            "column": 1,
+            "row": 11
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 27,
+      "row": 11
+    },
+    "message": "`unittest.mock.MagicMock` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 11,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 43,
+      "row": 11
+    },
+    "filename": "/app/tests/test_s5r3_destructive_audit.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 12
+          },
+          "location": {
+            "column": 1,
+            "row": 11
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 38,
+      "row": 11
+    },
+    "message": "`unittest.mock.patch` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 11,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  }
+]

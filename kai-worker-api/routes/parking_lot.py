@@ -297,6 +297,48 @@ def parking_lot_list():
     return {"items": items, "count": len(items)}
 
 
+@router.get("/parking-lot/loop-status")
+def parking_lot_loop_status(stale_days: int = 3):
+    """Processing-loop health (C-3): the loop that kills the black hole.
+
+    Every open capture is visible with a status; anything sitting un-triaged
+    (status new/waiting) past `stale_days` is surfaced as stale so nothing is
+    lost. Read-only — scheduled morning delivery is separately P-3-gated
+    ([P-4a] flip daily_brief live), so this exposes the surface without pushing.
+    """
+    LOT_DIR.mkdir(parents=True, exist_ok=True)
+    now = _datetime.utcnow()
+    open_statuses = {"new", "waiting"}
+    counts, open_items, stale = {}, 0, []
+    for f in sorted(LOT_DIR.glob("*.md"), reverse=True):
+        try:
+            card = _parse_card(f)
+        except Exception as e:
+            logger.exception("loop-status parse error: %s", e)
+            continue
+        st = card.get("status") or "new"
+        counts[st] = counts.get(st, 0) + 1
+        open_items += 1
+        try:
+            age_days = (now - _datetime.strptime(card.get("date", ""), "%Y-%m-%d")).days
+        except Exception:
+            age_days = int((now.timestamp() - f.stat().st_mtime) // 86400)
+        if st in open_statuses and age_days >= stale_days:
+            stale.append({
+                "slug": card["slug"], "title": card["title"],
+                "status": st, "age_days": age_days,
+            })
+    stale.sort(key=lambda s: s["age_days"], reverse=True)
+    return {
+        "open_count": open_items,
+        "status_counts": counts,
+        "stale_days": stale_days,
+        "stale_count": len(stale),
+        "stale": stale,
+        "black_hole_clear": len(stale) == 0,
+    }
+
+
 @router.patch("/parking-lot/{slug}")
 def parking_lot_edit(slug: str, body: dict):
     path = LOT_DIR / f"{slug}.md"
@@ -340,6 +382,8 @@ def parking_lot_route(slug: str, body: RouteBody):
     if not path.exists():
         raise HTTPException(404, "Capture not found")
     ARCH_DIR.mkdir(parents=True, exist_ok=True)
+    _update_field(path, "status", "routed")
+    _update_field(path, "next_action", f"→ routed to #{body.advisor}")
     dest = ARCH_DIR / f"{slug}.md"
     dest.write_text(path.read_text() + f"\n\n<!-- Routed to #{body.advisor} -->")
     path.unlink()
@@ -352,6 +396,7 @@ def parking_lot_archive(slug: str):
     if not path.exists():
         raise HTTPException(404, "Capture not found")
     ARCH_DIR.mkdir(parents=True, exist_ok=True)
+    _update_field(path, "status", "archived")
     path.rename(ARCH_DIR / path.name)
     return {"ok": True}
 
@@ -512,17 +557,14 @@ class TriageRequest(BaseModel):
 @router.post("/parking-lot/{slug}/triage")
 def parking_lot_triage(slug: str, req: TriageRequest):
     """Dispatch a lot item to its exit path."""
-    import httpx as _hx
     path = LOT_DIR / f"{slug}.md"
     if not path.exists():
         raise HTTPException(404, "Not found")
 
-    item_text = path.read_text()
     card = _parse_card(path)
     title   = card.get("title") or slug
     summary = card.get("summary") or ""
     url     = card.get("url") or ""
-    tags    = card.get("tags") or []
     context_note = req.notes or card.get("why_saved") or card.get("next_action") or ""
 
     action = req.action.lower().strip()
@@ -530,9 +572,12 @@ def parking_lot_triage(slug: str, req: TriageRequest):
     if action == "task":
         from services.todoist import create_task as _create_task
         desc_parts = []
-        if summary: desc_parts.append(summary)
-        if url: desc_parts.append(url)
-        if context_note: desc_parts.append(context_note)
+        if summary:
+            desc_parts.append(summary)
+        if url:
+            desc_parts.append(url)
+        if context_note:
+            desc_parts.append(context_note)
         _create_task(title, description="\n".join(desc_parts))
         # Mark item as triaged
         _update_field(path, "status", "triaged")
@@ -543,17 +588,24 @@ def parking_lot_triage(slug: str, req: TriageRequest):
     elif action == "project":
         # Write to inbox so KAI creates the project via the intake pipeline
         _write_to_inbox(slug, title, summary, url, context_note, route="project", action="create_project")
+        ARCH_DIR.mkdir(parents=True, exist_ok=True)
+        _update_field(path, "status", "project")
+        _update_field(path, "next_action", "→ project intake queued")
         path.rename(ARCH_DIR / path.name)
         return {"ok": True, "action": "project", "title": title}
 
     elif action == "knowledge":
         advisor = req.advisor if req.advisor in {"doc","sky","roads","beats","creative","dev","kai"} else "kai"
         _write_to_inbox(slug, title, summary, url, context_note, route=advisor, action="ingest")
+        ARCH_DIR.mkdir(parents=True, exist_ok=True)
+        _update_field(path, "status", "knowledge")
+        _update_field(path, "next_action", f"→ knowledge ingest ({advisor})")
         path.rename(ARCH_DIR / path.name)
         return {"ok": True, "action": "knowledge", "advisor": advisor, "title": title}
 
     elif action == "archive":
         ARCH_DIR.mkdir(parents=True, exist_ok=True)
+        _update_field(path, "status", "archived")
         path.rename(ARCH_DIR / path.name)
         return {"ok": True, "action": "archive", "title": title}
 
@@ -588,9 +640,12 @@ def _write_to_inbox(slug, title, summary, url, context_note, route, action):
         f"# {title}",
         "\n> IMPORTANT: The summary below was pre-captured at save time. Work from this content only. Do NOT attempt to fetch or visit the URL — it may be paywalled, require authentication, or block bots.",
     ]
-    if summary: body_parts.append(f"\n## Captured Summary\n\n{summary}")
-    if url: body_parts.append(f"\nOriginal source (do not fetch): {url}")
-    if context_note: body_parts.append(f"\nLeo's notes: {context_note}")
+    if summary:
+        body_parts.append(f"\n## Captured Summary\n\n{summary}")
+    if url:
+        body_parts.append(f"\nOriginal source (do not fetch): {url}")
+    if context_note:
+        body_parts.append(f"\nLeo's notes: {context_note}")
     content = (
         f"---\nroute: {route}\naction: {action}\n"
         f"context: From Parking Lot — {title}\n---\n\n"
