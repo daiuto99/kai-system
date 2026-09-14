@@ -1,8 +1,9 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
-import GroupHub from './components/GroupHub'
 import Chat from './pages/Chat'
 import Now from './pages/Now'
+import Work from './pages/Work'
+import Life from './pages/Life'
 import Today from './pages/Today'
 import Harmony from './pages/Harmony'
 import ParkingLot from './pages/ParkingLot'
@@ -25,17 +26,21 @@ export default function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Navigate to="/today" replace />} />
-        <Route path="/today" element={<Now />} />
+        <Route path="/" element={<Navigate to="/now" replace />} />
+        <Route path="/now" element={<Now />} />
+        {/* back-compat: old /today route now redirects to the canonical /now */}
+        <Route path="/today" element={<Navigate to="/now" replace />} />
         {/* KAI-1319 Slice 2 — old kitchen-sink home kept reachable for fallback/compare */}
         <Route path="/today-classic" element={<Today />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/chat/:advisorId" element={<Chat />} />
 
-        {/* KAI-1319 Slice 1 — group hubs (existing pages stay reachable below) */}
-        <Route path="/build" element={<GroupHub groupKey="build" />} />
-        <Route path="/life" element={<GroupHub groupKey="life" />} />
-        <Route path="/system-hub" element={<GroupHub groupKey="system" />} />
+        {/* KAI-1319 — finalized life-assistant pages */}
+        <Route path="/work" element={<Work />} />
+        <Route path="/life" element={<Life />} />
+        {/* back-compat: retired group-hub routes fold into the new pages */}
+        <Route path="/build" element={<Navigate to="/work" replace />} />
+        <Route path="/system-hub" element={<Navigate to="/system" replace />} />
 
         <Route path="/harmony" element={<Harmony />} />
         <Route path="/tasks" element={<Tasks />} />

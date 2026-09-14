@@ -1,338 +1,498 @@
-import { useState, useEffect, useMemo } from 'react'
+// System — the deliberate back-office. Unlike the Now page (which forbids
+// telemetry), this is the ONE place system stats belong: you go to it, it's
+// never in your face. Text-forward / Vercel-style to match Now.jsx: hairlines
+// not boxes, mono uppercase labels, terra accent, status dots. Four sections:
+//   1. Architecture & Status — layers/components with status dots + versions,
+//      plus host health + ops state (reuses getSystemHealth / getOpsState).
+//   2. Activity Log — chronological DevOps feed (getSystemActivity + getGitActivity).
+//   3. Cost / Spend — KAI's OWN operating cost (getTokenUsage / getAnthropicBilling
+//      / getFinancial). Not Leo's business finances.
+//   4. About — a short, honest "About KAI" describing the self-hosted stack.
+// Every fetch is fail-soft: a dead call renders a quiet empty line, never an
+// error wall. Comms = Buzz primary / Telegram backup only (Slack is retired).
+import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
-import { Activity, RefreshCw, ArrowUpRight, EyeOff, Layout, AlertTriangle,
-         HardDrive, GitCommit, ShieldCheck } from 'lucide-react'
 
-// How each gateway decision reads at a glance.
-const DECISION = {
-  delivered:            { label: 'Reached you',   cls: 'text-emerald-400 bg-emerald-400/10', icon: ArrowUpRight },
-  dashboard_only:       { label: 'Dashboard',     cls: 'text-sky-400 bg-sky-400/10',         icon: Layout },
-  suppressed_synthetic: { label: 'Suppressed',    cls: 'text-zinc-400 bg-zinc-400/10',       icon: EyeOff },
-  suppressed_dedup:     { label: 'Deduped',       cls: 'text-zinc-400 bg-zinc-400/10',       icon: EyeOff },
-  send_failed:          { label: 'Send failed',   cls: 'text-red-400 bg-red-400/10',         icon: AlertTriangle },
-}
-const FILTERS = [
-  { id: 'all',        label: 'All' },
-  { id: 'delivered',  label: 'Reached you' },
-  { id: 'dashboard',  label: 'Dashboard-only' },
-  { id: 'suppressed', label: 'Suppressed' },
-]
+const MONO = "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace"
 
-function decInfo(d) {
-  return DECISION[d] || { label: d || 'unknown', cls: 'text-zinc-400 bg-zinc-400/10', icon: Activity }
+// status dot colours — locked palette
+const DOT = { green: '#10b981', amber: '#f59e0b', red: '#ef4444', grey: 'var(--text-tertiary)' }
+
+// ── a text-forward section: a mono label over a hairline, then rows ───────────
+function Section({ label, meta, children, style }) {
+  return (
+    <section style={style}>
+      <div style={{
+        display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12,
+        paddingBottom: 10, borderBottom: '1px solid var(--border)',
+      }}>
+        <span style={{
+          fontSize: 11, fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase',
+          color: 'var(--text-tertiary)', fontFamily: MONO,
+        }}>{label}</span>
+        {meta != null && (
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: MONO, letterSpacing: '0.02em', flexShrink: 0 }}>{meta}</span>
+        )}
+      </div>
+      <div>{children}</div>
+    </section>
+  )
 }
+
+// a single hairline-separated row (subtle accent-bg hover only when clickable)
+function Row({ children, onClick, align = 'baseline' }) {
+  const [hover, setHover] = useState(false)
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex', alignItems: align, gap: 14, padding: '11px 8px',
+        borderBottom: '1px solid var(--border)', cursor: onClick ? 'pointer' : 'default',
+        background: hover && onClick ? 'var(--accent-bg)' : 'transparent',
+        transition: 'background 120ms',
+      }}
+    >{children}</div>
+  )
+}
+
+function SubLabel({ children }) {
+  return (
+    <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-tertiary)', fontFamily: MONO, margin: '18px 8px 2px' }}>{children}</div>
+  )
+}
+
+function Dot({ tone = 'grey' }) {
+  return (
+    <span style={{
+      width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+      background: DOT[tone] || DOT.grey, display: 'inline-block',
+      alignSelf: 'center',
+    }} />
+  )
+}
+
+function Empty({ children }) {
+  return (
+    <div style={{ padding: '14px 8px', fontSize: 13, color: 'var(--text-tertiary)' }}>{children}</div>
+  )
+}
+
+// ── time helpers ──────────────────────────────────────────────────────────────
 function fmtTime(ts) {
   if (!ts) return ''
   try {
-    const d = new Date(ts)
-    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-  } catch { return ts }
+    return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  } catch { return String(ts) }
+}
+function fmtUsd(n) {
+  if (n == null || isNaN(n)) return '—'
+  if (n === 0) return '$0'
+  if (Math.abs(n) < 0.01) return '$' + n.toFixed(4)
+  if (Math.abs(n) < 1)    return '$' + n.toFixed(3)
+  if (Math.abs(n) < 100)  return '$' + n.toFixed(2)
+  return '$' + Math.round(n).toLocaleString()
+}
+function fmtKilo(n) {
+  if (n == null || n === 0) return '0'
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) return (n / 1000).toFixed(1) + 'k'
+  return (n / 1_000_000).toFixed(2) + 'M'
 }
 
-export default function System() {
-  const [data, setData]     = useState(null)
-  const [loading, setLoad]  = useState(true)
-  const [error, setError]   = useState(null)
-  const [filter, setFilter] = useState('all')
+// ══════════════════════════════════════════════════════════════════════════════
+// 1. ARCHITECTURE & STATUS — components with status dots + versions, host + ops.
+// ══════════════════════════════════════════════════════════════════════════════
+function Architecture() {
+  const [health, setHealth] = useState(null)
+  const [ops, setOps] = useState(null)
+  const [services, setServices] = useState(null)
 
-  async function load() {
-    setLoad(true); setError(null)
-    try { setData(await api.getSystemActivity()) }
-    catch (e) { setError(e.message) }
-    finally { setLoad(false) }
-  }
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    api.getSystemHealth().then(setHealth).catch(() => setHealth(null))
+    api.getOpsState().then(setOps).catch(() => setOps(null))
+    // Optional live service/component list — self-hides if the route isn't wired.
+    api.get('/admin/services').then(setServices).catch(() => setServices(null))
+  }, [])
 
-  const s = data?.summary || {}
-  const totals = useMemo(() => ({
-    reached:   s.delivered || 0,
-    dashboard: s.dashboard_only || 0,
-    suppressed: (s.suppressed_synthetic || 0) + (s.suppressed_dedup || 0),
-    failed:    s.send_failed || 0,
-  }), [data])
+  const t = (health && health.thresholds) || {}
+  const tone = (v, max) => (max != null && v != null && v >= max) ? 'amber' : 'green'
 
-  const rows = useMemo(() => {
-    const r = data?.records || []
-    if (filter === 'all') return r
-    if (filter === 'delivered')  return r.filter(x => x.decision === 'delivered')
-    if (filter === 'dashboard')  return r.filter(x => x.decision === 'dashboard_only')
-    if (filter === 'suppressed') return r.filter(x => String(x.decision || '').startsWith('suppressed'))
-    return r
-  }, [data, filter])
+  // Host health metrics as rows (only when the backend returned them).
+  const metrics = health ? [
+    { k: 'Disk', v: health.disk_pct != null ? `${health.disk_pct}%` : '—', sub: health.disk_free_gb != null ? `${health.disk_free_gb}G free / ${health.disk_total_gb}G` : '', tone: tone(health.disk_pct, t.disk_pct) },
+    { k: 'Memory', v: health.mem_pct != null ? `${health.mem_pct}%` : '—', sub: health.mem_free_gb != null ? `${health.mem_free_gb}G free / ${health.mem_total_gb}G` : '', tone: tone(health.mem_pct, t.mem_pct) },
+    { k: 'Load (1m)', v: health.load_1m != null ? String(health.load_1m) : '—', sub: '', tone: 'green' },
+    { k: 'Temp', v: health.temp_c != null ? `${health.temp_c}°C` : '—', sub: '', tone: tone(health.temp_c, t.temp_c) },
+    { k: 'Uptime', v: health.uptime || '—', sub: '', tone: 'green' },
+    { k: 'Pending updates', v: health.apt_updates != null ? String(health.apt_updates) : '—', sub: 'apt', tone: tone(health.apt_updates, t.apt_updates) },
+  ] : []
+
+  // Live services/components list — accept a couple of common shapes, fail-soft.
+  const svcList = (() => {
+    if (!services) return []
+    const raw = Array.isArray(services) ? services
+      : services.services || services.components || services.items || []
+    if (!Array.isArray(raw)) return []
+    return raw.map((s) => {
+      const status = String(s.status || s.state || '').toLowerCase()
+      const ok = ['ok', 'up', 'running', 'healthy', 'live', 'green'].includes(status)
+      const bad = ['down', 'error', 'failed', 'dead', 'red', 'unhealthy'].includes(status)
+      return {
+        name: s.name || s.id || s.label || 'component',
+        version: s.version || s.tag || s.image || '',
+        detail: s.detail || s.note || (ok || bad ? '' : status),
+        tone: ok ? 'green' : bad ? 'red' : status ? 'amber' : 'grey',
+      }
+    })
+  })()
+
+  const failing = (ops && ops.failing_invariants) || {}
+  const failKeys = Object.keys(failing)
+  const backup = (ops && ops.backup) || null
+
+  const nothing = !health && !ops && svcList.length === 0
+  const invSummary = ops ? (failKeys.length ? `${failKeys.length} failing invariant${failKeys.length > 1 ? 's' : ''}` : 'invariants clean') : null
 
   return (
-    <div className="max-w-4xl mx-auto px-8 py-10">
-      <div className="flex items-start justify-between mb-2">
+    <Section label="Architecture & Status" meta={invSummary}>
+      {nothing && <Empty>System state unavailable right now.</Empty>}
+
+      {/* Live components / services, when the backend exposes them */}
+      {svcList.length > 0 && (
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Activity size={20} className="kai-text-subtle" /> System
-          </h1>
-          <p className="kai-text-subtle text-sm mt-1">
-            Host health, ops state, currency, recent activity — and everything KAI's notification
-            gateway handled. {data?.count ? `${data.count} recent events.` : ''}
-          </p>
-        </div>
-        <button onClick={load} className="btn-ghost flex items-center gap-1.5 text-xs"><RefreshCw size={12} /></button>
-      </div>
-
-      <HostHealthBoard />
-      <OpsStateBoard />
-      <CurrencyBoard />
-      <GitActivityBoard />
-
-      {error && <div className="kai-card px-5 py-4 text-sm text-red-400 my-4">Failed to load: {error}</div>}
-
-      {loading ? (
-        <div className="kai-card px-5 py-12 text-center kai-text-subtle text-sm">Loading system activity…</div>
-      ) : !data ? null : (
-        <>
-          {/* Summary */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-5">
-            <Stat label="Reached you"     value={totals.reached}    tone="text-emerald-400" />
-            <Stat label="Dashboard-only"  value={totals.dashboard}  tone="text-sky-400" />
-            <Stat label="Suppressed"      value={totals.suppressed} tone="text-zinc-400" />
-            <Stat label="Send failures"   value={totals.failed}     tone={totals.failed ? 'text-red-400' : 'text-zinc-400'} />
-          </div>
-
-          {/* Filters */}
-          <div className="flex gap-1.5 mb-4 flex-wrap">
-            {FILTERS.map(f => (
-              <button key={f.id} onClick={() => setFilter(f.id)}
-                className={`text-xs px-3 py-1 rounded-full border transition-colors
-                  ${filter === f.id ? 'border-kai-blue text-kai-blue bg-kai-blue/10'
-                                    : 'border-white/10 kai-text-subtle hover:border-white/20'}`}>
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Feed */}
-          <div className="kai-card divide-y divide-white/5">
-            {rows.length === 0 ? (
-              <p className="text-xs kai-text-subtle py-10 text-center">No events for this filter.</p>
-            ) : rows.map((r, i) => {
-              const info = decInfo(r.decision)
-              const Icon = info.icon
-              return (
-                <div key={i} className="flex items-start gap-3 px-4 py-3">
-                  <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${info.cls}`}>
-                    <Icon size={11} /> {info.label}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] leading-snug truncate" title={r.title}>{r.title || <span className="kai-text-subtle">—</span>}</div>
-                    <div className="text-[11px] kai-text-subtle mt-0.5">
-                      {r.reason ? <span className="font-mono">{r.reason}</span> : null}
-                      {r.reason ? ' · ' : ''}{fmtTime(r.ts)}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-          <p className="text-[10px] kai-text-subtle mt-4">
-            Source: the single notify() gateway audit log. Telegram is used only for approvals and
-            break-glass; everything else is handled and recorded here.
-          </p>
-        </>
-      )}
-    </div>
-  )
-}
-
-function Stat({ label, value, tone }) {
-  return (
-    <div className="kai-card px-4 py-3">
-      <div className="kai-text-subtle text-[11px] uppercase tracking-wide">{label}</div>
-      <div className={`text-2xl font-semibold mt-1 tabular-nums ${tone}`}>{value}</div>
-    </div>
-  )
-}
-
-const CUR_PILL = {
-  fresh:          "text-emerald-400 bg-emerald-400/10",
-  stale:          "text-amber-400 bg-amber-400/10",
-  "not-checked":  "text-zinc-400 bg-zinc-400/10",
-}
-function curPill(s) { return CUR_PILL[s] || "text-zinc-400 bg-zinc-400/10" }
-
-const CUR_LABEL = { os_apt: "OS packages (apt)", container_images: "Container images", tls_certs: "TLS certificates" }
-const CUR_ORDER = ["os_apt", "container_images", "tls_certs"]
-
-// System Currency board (CUR-1). Self-contained + fail-silent so it can never
-// break the notification feed. Honest: not-checked renders grey, never green.
-function CurrencyBoard() {
-  const [cur, setCur] = useState(null)
-  useEffect(() => { api.getCurrencyState().then(setCur).catch(() => setCur(null)) }, [])
-  if (!cur || !cur.layers) return null
-  const roll = cur.rollup || {}
-  return (
-    <div className="kai-card px-5 py-4 my-5">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold">System Currency</h2>
-        <span className="text-[11px] kai-text-subtle tabular-nums">
-          {roll.fresh || 0} fresh · {roll.stale || 0} stale · {roll.not_checked || 0} not-checked
-        </span>
-      </div>
-      <div className="divide-y divide-white/5">
-        {CUR_ORDER.filter(k => cur.layers[k]).map(k => {
-          const L = cur.layers[k]
-          return (
-            <div key={k} className="flex items-start gap-3 py-2.5">
-              <span className={"inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap " + curPill(L.status)}>
-                {L.status}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] leading-snug">{CUR_LABEL[k] || k}</div>
-                <div className="text-[11px] kai-text-subtle mt-0.5">{L.detail}</div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-      <p className="text-[10px] kai-text-subtle mt-3">
-        Source: currency_scan.py (host, read-only, CUR-1). Not-checked means no live reader yet — never a faked pass.
-      </p>
-    </div>
-  )
-}
-
-// ── DevOps / system-activity substance (KAI-1006) ──────────────────────────────
-// Each board is self-contained and fail-silent: a failed fetch renders nothing so
-// it can never break the notification feed above it. All read-only, live backend data.
-
-function Metric({ label, value, tone = 'text-zinc-200', sub }) {
-  return (
-    <div className="kai-card px-4 py-3">
-      <div className="kai-text-subtle text-[11px] uppercase tracking-wide">{label}</div>
-      <div className={`text-xl font-semibold mt-1 tabular-nums ${tone}`}>{value}</div>
-      {sub ? <div className="text-[10px] kai-text-subtle mt-0.5">{sub}</div> : null}
-    </div>
-  )
-}
-
-// Host hygiene — disk, memory, load, temperature, uptime, pending updates. Each
-// metric colours against the backend's own thresholds (never a faked green).
-function HostHealthBoard() {
-  const [h, setH] = useState(null)
-  useEffect(() => { api.getSystemHealth().then(setH).catch(() => setH(null)) }, [])
-  if (!h) return null
-  const t = h.thresholds || {}
-  const tone = (v, max) => (max != null && v != null && v >= max) ? 'text-amber-400' : 'text-zinc-200'
-  return (
-    <div className="kai-card px-5 py-4 my-5">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold flex items-center gap-1.5">
-          <HardDrive size={14} className="kai-text-subtle" /> Host Health
-        </h2>
-        <span className={`text-[11px] tabular-nums ${h.ok ? 'text-emerald-400' : 'text-amber-400'}`}>
-          {h.ok ? 'nominal' : `${(h.alerts || []).length} alert(s)`}
-        </span>
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <Metric label="Disk" value={`${h.disk_pct ?? '—'}%`} tone={tone(h.disk_pct, t.disk_pct)}
-                sub={h.disk_free_gb != null ? `${h.disk_free_gb}G free / ${h.disk_total_gb}G` : ''} />
-        <Metric label="Memory" value={`${h.mem_pct ?? '—'}%`} tone={tone(h.mem_pct, t.mem_pct)}
-                sub={h.mem_free_gb != null ? `${h.mem_free_gb}G free / ${h.mem_total_gb}G` : ''} />
-        <Metric label="Load (1m)" value={h.load_1m ?? '—'} />
-        <Metric label="Temp" value={h.temp_c != null ? `${h.temp_c}°C` : '—'} tone={tone(h.temp_c, t.temp_c)} />
-        <Metric label="Uptime" value={h.uptime || '—'} />
-        <Metric label="Updates" value={h.apt_updates ?? '—'} tone={tone(h.apt_updates, t.apt_updates)}
-                sub="pending apt" />
-      </div>
-      {(h.alerts && h.alerts.length > 0) && (
-        <div className="mt-3 space-y-1">
-          {h.alerts.map((a, i) => (
-            <div key={i} className="flex items-center gap-1.5 text-[11px] text-amber-400">
-              <AlertTriangle size={11} /> {a}
-            </div>
+          <SubLabel>Components</SubLabel>
+          {svcList.map((s, i) => (
+            <Row key={s.name + i}>
+              <Dot tone={s.tone} />
+              <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+              {s.detail && <span style={{ fontSize: 12, color: 'var(--text-tertiary)', flexShrink: 0 }}>{s.detail}</span>}
+              {s.version && <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: MONO, flexShrink: 0 }}>{s.version}</span>}
+            </Row>
           ))}
         </div>
       )}
-      <p className="text-[10px] kai-text-subtle mt-3">Source: /system/health (host, read-only). Colours track the backend's own thresholds.</p>
-    </div>
-  )
-}
 
-// Ops state — failing invariants + backup freshness. This is exactly the state the
-// scheduler watchdog alerts on; the dashboard now sees it too.
-function OpsStateBoard() {
-  const [o, setO] = useState(null)
-  useEffect(() => { api.getOpsState().then(setO).catch(() => setO(null)) }, [])
-  if (!o) return null
-  const inv = o.failing_invariants || {}
-  const invKeys = Object.keys(inv)
-  const bk = o.backup || {}
-  return (
-    <div className="kai-card px-5 py-4 my-5">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold flex items-center gap-1.5">
-          <ShieldCheck size={14} className="kai-text-subtle" /> Ops State
-        </h2>
-        <span className={`text-[11px] tabular-nums ${invKeys.length ? 'text-amber-400' : 'text-emerald-400'}`}>
-          {invKeys.length ? `${invKeys.length} failing invariant(s)` : 'invariants clean'}
-        </span>
-      </div>
-      <div className="divide-y divide-white/5">
-        <div className="flex items-start gap-3 py-2.5">
-          <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${bk.status === 'ok' ? 'text-emerald-400 bg-emerald-400/10' : 'text-amber-400 bg-amber-400/10'}`}>
-            backup {bk.status || '?'}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="text-[13px] leading-snug">Backups {o.backup_trigger_pending ? '· trigger pending' : ''}</div>
-            <div className="text-[11px] kai-text-subtle mt-0.5">{bk.detail || '—'}</div>
-          </div>
+      {/* Host health — the running node's hygiene, coloured on the backend's own thresholds */}
+      {metrics.length > 0 && (
+        <div>
+          <SubLabel>Host health {health && health.ok === false ? `· ${(health.alerts || []).length} alert(s)` : '· nominal'}</SubLabel>
+          {metrics.map((m) => (
+            <Row key={m.k}>
+              <Dot tone={m.tone} />
+              <span style={{ fontSize: 14, color: 'var(--text-primary)', flex: 1 }}>{m.k}</span>
+              {m.sub && <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: MONO, flexShrink: 0 }}>{m.sub}</span>}
+              <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-primary)', fontFamily: MONO, flexShrink: 0, minWidth: 52, textAlign: 'right' }}>{m.v}</span>
+            </Row>
+          ))}
+          {(health && health.alerts && health.alerts.length > 0) && health.alerts.map((a, i) => (
+            <Row key={`al${i}`}>
+              <Dot tone="amber" />
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)', flex: 1 }}>{a}</span>
+            </Row>
+          ))}
         </div>
-        {invKeys.map(k => (
-          <div key={k} className="flex items-start gap-3 py-2.5">
-            <span className="inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap text-amber-400 bg-amber-400/10">
-              {k}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-[11px] kai-text-subtle mt-0.5">{inv[k]}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="text-[10px] kai-text-subtle mt-3">Source: /system/ops-state — the same invariants the scheduler watchdog alerts on.</p>
-    </div>
+      )}
+
+      {/* Ops state — the same invariants the scheduler watchdog alerts on */}
+      {ops && (
+        <div>
+          <SubLabel>Ops state</SubLabel>
+          {backup && (
+            <Row>
+              <Dot tone={backup.status === 'ok' ? 'green' : 'amber'} />
+              <span style={{ fontSize: 14, color: 'var(--text-primary)', flex: 1 }}>
+                Backups{ops.backup_trigger_pending ? ' · trigger pending' : ''}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{backup.detail || backup.status || '—'}</span>
+            </Row>
+          )}
+          {failKeys.length === 0 ? (
+            <Row><Dot tone="green" /><span style={{ fontSize: 14, color: 'var(--text-primary)', flex: 1 }}>Invariants clean</span></Row>
+          ) : failKeys.map((k) => (
+            <Row key={k} align="baseline">
+              <span style={{ marginTop: 4 }}><Dot tone="amber" /></span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-primary)', fontFamily: MONO }}>{k}</div>
+                <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.4 }}>{failing[k]}</div>
+              </div>
+            </Row>
+          ))}
+        </div>
+      )}
+
+      <p style={{ fontSize: 10.5, color: 'var(--text-tertiary)', margin: '12px 8px 0', lineHeight: 1.5 }}>
+        Source: /system/health + /system/ops-state (host, read-only). Dots track the backend's own thresholds — never a faked green.
+      </p>
+    </Section>
   )
 }
 
-// Recent git activity — what the system actually shipped, across its repos.
-function GitActivityBoard() {
-  const [g, setG] = useState(null)
-  useEffect(() => { api.getGitActivity().then(setG).catch(() => setG(null)) }, [])
-  const commits = (g && g.commits) || []
-  if (!commits.length) return null
-  const TYPE = {
-    remote: 'text-emerald-400 bg-emerald-400/10',
-    local:  'text-amber-400 bg-amber-400/10',
-    both:   'text-sky-400 bg-sky-400/10',
+// ══════════════════════════════════════════════════════════════════════════════
+// 2. ACTIVITY LOG — chronological DevOps feed: gateway events + git commits.
+// ══════════════════════════════════════════════════════════════════════════════
+const GATEWAY_TONE = {
+  delivered: 'green',
+  dashboard_only: 'grey',
+  suppressed_synthetic: 'grey',
+  suppressed_dedup: 'grey',
+  send_failed: 'red',
+}
+const GATEWAY_LABEL = {
+  delivered: 'reached you',
+  dashboard_only: 'dashboard',
+  suppressed_synthetic: 'suppressed',
+  suppressed_dedup: 'deduped',
+  send_failed: 'send failed',
+}
+
+function ActivityLog() {
+  const [act, setAct] = useState(null)
+  const [git, setGit] = useState(null)
+
+  useEffect(() => {
+    api.getSystemActivity().then(setAct).catch(() => setAct(null))
+    api.getGitActivity().then(setGit).catch(() => setGit(null))
+  }, [])
+
+  // Merge notify-gateway events + git commits into one chronological feed.
+  const events = []
+  for (const r of (act && act.records) || []) {
+    events.push({
+      kind: 'gateway',
+      tone: GATEWAY_TONE[r.decision] || 'grey',
+      tag: GATEWAY_LABEL[r.decision] || (r.decision || 'event'),
+      title: r.title || '—',
+      sub: r.reason || '',
+      ts: r.ts,
+    })
   }
+  for (const c of (git && git.commits) || []) {
+    events.push({
+      kind: 'commit',
+      tone: c.commit_type === 'local' ? 'amber' : 'green',
+      tag: c.short_hash || (c.hash || '').slice(0, 7),
+      title: c.message || '—',
+      sub: [c.repo, c.author].filter(Boolean).join(' · '),
+      ts: c.committed_at,
+    })
+  }
+  events.sort((a, b) => {
+    const ta = a.ts ? new Date(a.ts).getTime() : 0
+    const tb = b.ts ? new Date(b.ts).getTime() : 0
+    return tb - ta // most recent first
+  })
+  const feed = events.slice(0, 40)
+
   return (
-    <div className="kai-card px-5 py-4 my-5">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold flex items-center gap-1.5">
-          <GitCommit size={14} className="kai-text-subtle" /> Recent Activity
-        </h2>
-        <span className="text-[11px] kai-text-subtle tabular-nums">{commits.length} commit(s)</span>
-      </div>
-      <div className="divide-y divide-white/5">
-        {commits.slice(0, 8).map((c, i) => (
-          <div key={c.hash || i} className="flex items-start gap-3 py-2.5">
-            <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${TYPE[c.commit_type] || 'text-zinc-400 bg-zinc-400/10'}`}>
-              {c.short_hash || (c.hash || '').slice(0, 7)}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-[13px] leading-snug truncate" title={c.message}>{c.message}</div>
-              <div className="text-[11px] kai-text-subtle mt-0.5">
-                <span className="font-mono">{c.repo}</span> · {c.author} · {fmtTime(c.committed_at)}
-              </div>
-            </div>
+    <Section label="Activity Log" meta={feed.length ? `${feed.length} recent` : null}>
+      {feed.length === 0 ? (
+        <Empty>No recent system activity.</Empty>
+      ) : feed.map((e, i) => (
+        <Row key={`${e.kind}${i}`}>
+          <span style={{ marginTop: 4 }}><Dot tone={e.tone} /></span>
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: MONO, flexShrink: 0, minWidth: 74, textTransform: 'uppercase', letterSpacing: '0.04em', alignSelf: 'flex-start', marginTop: 1 }}>{e.tag}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.title}>{e.title}</div>
+            {e.sub && <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', fontFamily: MONO, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.sub}</div>}
           </div>
-        ))}
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: MONO, flexShrink: 0, alignSelf: 'flex-start', marginTop: 1 }}>{fmtTime(e.ts)}</span>
+        </Row>
+      ))}
+      <p style={{ fontSize: 10.5, color: 'var(--text-tertiary)', margin: '12px 8px 0', lineHeight: 1.5 }}>
+        Source: the notify() gateway audit log + /git-activity/latest (kai-system + sonicink). Telegram is used only for approvals and break-glass; everything else is handled and recorded here.
+      </p>
+    </Section>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 3. COST / SPEND — KAI's OWN operating cost. Not Leo's business finances.
+// ══════════════════════════════════════════════════════════════════════════════
+function CostSpend() {
+  const [usage, setUsage] = useState(null)
+  const [billing, setBilling] = useState(null)
+  const [financial, setFinancial] = useState(null)
+
+  useEffect(() => {
+    api.getTokenUsage().then(setUsage).catch(() => setUsage(null))
+    api.getAnthropicBilling(30).then(setBilling).catch(() => setBilling(null))
+    api.getFinancial().then(setFinancial).catch(() => setFinancial(null))
+  }, [])
+
+  // Aggregate the internal token tracker over the last 30 days.
+  const days = (usage && usage.days) || []
+  const last30 = [...days].sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-30)
+  let cost = 0, calls = 0, tin = 0, tout = 0
+  const byProvider = {}
+  for (const d of last30) {
+    cost += d.cost_usd || 0
+    calls += d.calls || 0
+    tin += d.input || 0
+    tout += d.output || 0
+    for (const [k, v] of Object.entries(d.by_provider || {})) {
+      const e = byProvider[k] || { cost: 0, calls: 0 }
+      if (typeof v === 'number') { e.calls += v }
+      else { e.cost += v.cost_usd || 0; e.calls += v.calls || 0 }
+      byProvider[k] = e
+    }
+  }
+  const providerRows = Object.entries(byProvider)
+    .map(([k, v]) => ({ key: k, ...v }))
+    .sort((a, b) => b.cost - a.cost)
+
+  // Anthropic billed total — build (Claude Code) vs run (council · Buzz).
+  const b = (billing && billing.buckets) || null
+  const billingConfigured = billing && billing.configured !== false && !billing.error
+
+  // Financial registry — metered MTD spend + fixed monthly (KAI's operating caps).
+  const totals = (financial && financial.totals) || null
+
+  const nothing = last30.length === 0 && !b && !totals
+
+  return (
+    <Section label="Cost / Spend" meta={last30.length ? `${last30.length}d` : null}>
+      {nothing && <Empty>Operating-cost data unavailable right now.</Empty>}
+
+      {/* Top-line — KAI's own 30d operating spend from the internal tracker */}
+      {last30.length > 0 && (
+        <div>
+          <SubLabel>Operating spend · 30d</SubLabel>
+          <Row>
+            <span style={{ fontSize: 14, color: 'var(--text-primary)', flex: 1 }}>Instrumented API cost</span>
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: MONO, flexShrink: 0 }}>{calls.toLocaleString()} calls · {fmtKilo(tin)}/{fmtKilo(tout)} tok</span>
+            <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--accent)', fontFamily: MONO, flexShrink: 0, minWidth: 64, textAlign: 'right' }}>{fmtUsd(cost)}</span>
+          </Row>
+          {providerRows.map((p) => (
+            <Row key={p.key}>
+              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)', flex: 1, paddingLeft: 4 }}>{p.key}</span>
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: MONO, flexShrink: 0 }}>{p.calls.toLocaleString()} calls</span>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)', fontFamily: MONO, flexShrink: 0, minWidth: 64, textAlign: 'right' }}>{fmtUsd(p.cost)}</span>
+            </Row>
+          ))}
+        </div>
+      )}
+
+      {/* Anthropic billed total — the true build-vs-run split */}
+      {b && (
+        <div>
+          <SubLabel>Anthropic billed · {billing.range_days || 30}d</SubLabel>
+          {!billingConfigured ? (
+            <Empty>Admin key not configured — build-vs-run total unavailable.</Empty>
+          ) : (
+            <>
+              <Row>
+                <span style={{ fontSize: 14, color: 'var(--text-primary)', flex: 1 }}>Total billed</span>
+                <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--accent)', fontFamily: MONO, flexShrink: 0, minWidth: 64, textAlign: 'right' }}>{fmtUsd(billing.total_usd)}</span>
+              </Row>
+              <Row>
+                <span style={{ fontSize: 13.5, color: 'var(--text-secondary)', flex: 1, paddingLeft: 4 }}>Build (Claude Code)</span>
+                <span style={{ fontSize: 13, color: 'var(--text-primary)', fontFamily: MONO, flexShrink: 0, minWidth: 64, textAlign: 'right' }}>{fmtUsd(b.build || 0)}</span>
+              </Row>
+              <Row>
+                <span style={{ fontSize: 13.5, color: 'var(--text-secondary)', flex: 1, paddingLeft: 4 }}>Run (council · Buzz)</span>
+                <span style={{ fontSize: 13, color: 'var(--text-primary)', fontFamily: MONO, flexShrink: 0, minWidth: 64, textAlign: 'right' }}>{fmtUsd(b.run || 0)}</span>
+              </Row>
+              {(b.unclassified != null) && (
+                <Row>
+                  <span style={{ fontSize: 13.5, color: 'var(--text-tertiary)', flex: 1, paddingLeft: 4 }}>Unclassified</span>
+                  <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontFamily: MONO, flexShrink: 0, minWidth: 64, textAlign: 'right' }}>{fmtUsd(b.unclassified || 0)}</span>
+                </Row>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Provider caps — metered MTD + fixed monthly from the financial registry */}
+      {totals && (
+        <div>
+          <SubLabel>Provider caps</SubLabel>
+          <Row>
+            <span style={{ fontSize: 14, color: 'var(--text-primary)', flex: 1 }}>Metered spend (MTD)</span>
+            <span style={{ fontSize: 13, color: 'var(--text-primary)', fontFamily: MONO, flexShrink: 0, minWidth: 64, textAlign: 'right' }}>{fmtUsd(totals.metered_mtd_usd)}</span>
+          </Row>
+          <Row>
+            <span style={{ fontSize: 14, color: 'var(--text-primary)', flex: 1 }}>Fixed / recurring per month</span>
+            <span style={{ fontSize: 13, color: 'var(--text-primary)', fontFamily: MONO, flexShrink: 0, minWidth: 64, textAlign: 'right' }}>{fmtUsd(totals.fixed_monthly_usd)}</span>
+          </Row>
+          {(financial && financial.providers) && (
+            <Row>
+              <span style={{ fontSize: 13.5, color: 'var(--text-tertiary)', flex: 1, paddingLeft: 4 }}>Providers tracked</span>
+              <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontFamily: MONO, flexShrink: 0 }}>{financial.providers.length}</span>
+            </Row>
+          )}
+        </div>
+      )}
+
+      <p style={{ fontSize: 10.5, color: 'var(--text-tertiary)', margin: '12px 8px 0', lineHeight: 1.5 }}>
+        KAI's own operating cost — API providers, tokens, and caps. Not Leo's business finances. Sources: /token-usage, /anthropic/billing, /orchestrator/financial.
+      </p>
+    </Section>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 4. ABOUT — the pipeline-maintained "About KAI". Structure-first, honest, brief.
+// ══════════════════════════════════════════════════════════════════════════════
+function About() {
+  // If the pipeline publishes an About/presentation asset, prefer it; else the
+  // concise structural description below. Fail-soft on any fetch.
+  const [about, setAbout] = useState(undefined) // undefined = loading, null = use fallback
+  useEffect(() => {
+    api.get('/about').then((d) => setAbout(d && (d.markdown || d.text || d.body) ? d : null)).catch(() => setAbout(null))
+  }, [])
+
+  const facts = [
+    { k: 'What it is', v: 'A self-hosted personal-assistant stack — KAI — built to be JARVIS-like for Leo.' },
+    { k: 'Where it runs', v: 'Own hardware on a private Tailscale network; no third-party host holds the system of record.' },
+    { k: 'Council model', v: 'KAI orchestrates a council of advisors; work is tracked as structured tasks and gated on approval.' },
+    { k: 'Comms', v: 'Buzz is the primary channel; Telegram is emergency backup only.' },
+    { k: 'Operating principle', v: 'Read-only by default, acts under an explicit unlock, and audits its own surfaces.' },
+  ]
+
+  return (
+    <Section label="About">
+      {about ? (
+        <div style={{ padding: '14px 8px', fontSize: 13.5, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+          {about.markdown || about.text || about.body}
+        </div>
+      ) : (
+        facts.map((f) => (
+          <Row key={f.k} align="baseline">
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: MONO, flexShrink: 0, minWidth: 120, textTransform: 'uppercase', letterSpacing: '0.04em', alignSelf: 'flex-start', marginTop: 2 }}>{f.k}</span>
+            <span style={{ fontSize: 13.5, color: 'var(--text-primary)', flex: 1, lineHeight: 1.55 }}>{f.v}</span>
+          </Row>
+        ))
+      )}
+      <p style={{ fontSize: 10.5, color: 'var(--text-tertiary)', margin: '12px 8px 0', lineHeight: 1.5 }}>
+        The About view is pipeline-maintained so it stays current. Deeper presentation content is deferred (structure-first).
+      </p>
+    </Section>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+export default function System() {
+  return (
+    <div style={{ maxWidth: 1120, margin: '0 auto', padding: '40px 20px 56px' }}>
+      <div style={{ fontSize: 26, fontWeight: 650, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>System</div>
+      <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', marginTop: 5, fontFamily: MONO, letterSpacing: '0.02em' }}>
+        BACK-OFFICE · ARCHITECTURE · ACTIVITY · COST · ABOUT
       </div>
-      <p className="text-[10px] kai-text-subtle mt-3">Source: /git-activity/latest — commits across kai-system + sonicink.</p>
+
+      {/* Architecture + Activity side-by-side on desktop, stacked on phone */}
+      <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: 30, marginTop: 34, alignItems: 'start' }}>
+        <Architecture />
+        <ActivityLog />
+      </div>
+
+      {/* Cost + About side-by-side on desktop, stacked on phone */}
+      <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: 30, marginTop: 40, alignItems: 'start' }}>
+        <CostSpend />
+        <About />
+      </div>
     </div>
   )
 }

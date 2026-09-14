@@ -1,20 +1,18 @@
-// KAI-1319 Slice 2 — the action-first home, as a command/control center.
-// Phone: single focused column. Desktop: a status strip up top + a multi-panel
-// grid that uses the width (needs-you spans full width; day + proactive sit side
-// by side). Every section is fail-soft (a dead fetch renders nothing, never an
-// error wall) and self-hides when empty. Composes only proven live endpoints.
-import { useState, useEffect, useCallback } from 'react'
+// KAI-1319 — the text-forward Now (v1.1). Leo's JARVIS life-assistant home:
+// organize / plan / prioritize the day. Vercel-style: hairlines not boxes,
+// mono labels, terra accent. NO system stats / health telemetry — the system
+// is autonomous and escalates via Buzz (project_dashboard_is_life_assistant).
+// Layout (responsive): greeting · Talk-to-KAI · Digest (full width, top) ·
+// then Today (Schedule=today+tomorrow · Priorities) and Inbox side-by-side on
+// desktop, stacked on phone. Every section is fail-soft (a dead fetch renders
+// nothing, never an error wall) and self-hides when empty.
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  Lock, Calendar, ListTodo, ChevronRight, ShieldCheck, Sparkles,
-} from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { api } from '../lib/api'
 import ProactiveDigest from '../components/ProactiveDigest'
 
-const BLUE = '#3882F6'
-const GREEN = '#10b981'
-const AMBER = '#f59e0b'
-const RED = '#ef4444'
+const MONO = "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace"
 
 function greeting() {
   const h = new Date().getHours()
@@ -24,6 +22,9 @@ function greeting() {
 }
 function longDate() {
   return new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+}
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 function ageOf(iso) {
   if (!iso) return ''
@@ -36,163 +37,198 @@ function ageOf(iso) {
     return `${Math.round(hrs / 24)}d ago`
   } catch { return '' }
 }
-function eventWhen(startISO) {
+function eventWhen(startISO, todayStr, tomStr) {
   if (!startISO) return ''
   const d = new Date(startISO)
   const allDay = startISO.length <= 10
-  const sameDay = d.toDateString() === new Date().toDateString()
-  const dayLabel = sameDay ? 'Today' : d.toLocaleDateString([], { weekday: 'short' })
+  const ds = allDay ? startISO : localDateStr(d)
+  const dayLabel = ds === todayStr ? 'Today' : ds === tomStr ? 'Tomorrow' : d.toLocaleDateString([], { weekday: 'short' })
   if (allDay) return `${dayLabel} · all day`
   return `${dayLabel} · ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
 }
 
-// A titled panel — the command-center building block.
-function Panel({ title, count, countColor, accent, children }) {
+// ── a text-forward section: a mono label over a hairline, then rows ───────────
+function Section({ label, children, style }) {
   return (
-    <section style={{
-      background: 'var(--bg-card)', border: `1px solid ${accent || 'var(--border)'}`,
-      borderRadius: 14, overflow: 'hidden', display: 'flex', flexDirection: 'column',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.13em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>{title}</span>
-        {count != null && count > 0 && (
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: countColor || 'var(--accent)', borderRadius: 20, padding: '1px 8px', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
-        )}
-      </div>
-      <div style={{ padding: 14, flex: 1 }}>{children}</div>
+    <section style={style}>
+      <div style={{
+        fontSize: 11, fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase',
+        color: 'var(--text-tertiary)', fontFamily: MONO,
+        paddingBottom: 10, borderBottom: '1px solid var(--border)',
+      }}>{label}</div>
+      <div>{children}</div>
     </section>
   )
 }
 
-// ── header status strip: greeting + live pulse chips ─────────────────────────
-function PulseCluster() {
-  const [h, setH] = useState(null)
+// a single hairline-separated row
+function Row({ children, onClick }) {
+  const [hover, setHover] = useState(false)
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex', alignItems: 'baseline', gap: 14, padding: '12px 8px',
+        borderBottom: '1px solid var(--border)', cursor: onClick ? 'pointer' : 'default',
+        background: hover && onClick ? 'var(--accent-bg)' : 'transparent',
+        transition: 'background 120ms',
+      }}
+    >{children}</div>
+  )
+}
+
+function SubLabel({ children }) {
+  return (
+    <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-tertiary)', fontFamily: MONO, margin: '16px 8px 2px' }}>{children}</div>
+  )
+}
+
+// ── Talk-to-KAI — 1:1 planning line; hands off to the live KAI conversation ───
+function TalkToKai() {
+  const [text, setText] = useState('')
+  const [focus, setFocus] = useState(false)
   const nav = useNavigate()
-  useEffect(() => { api.getSystemHealth().then(setH).catch(() => setH(null)) }, [])
-  if (!h) return null
-  const alerts = (h.alerts || []).length
-  const cells = [
-    { k: 'Baseline', v: h.ok ? 'GREEN' : 'WARN', c: h.ok ? GREEN : AMBER },
-    { k: 'Warnings', v: alerts, c: alerts ? AMBER : 'var(--text-secondary)' },
-    { k: 'Disk', v: h.disk_pct != null ? `${Math.round(h.disk_pct)}%` : '—', c: h.disk_pct >= 90 ? RED : 'var(--text-secondary)' },
-    { k: 'Mem', v: h.mem_pct != null ? `${Math.round(h.mem_pct)}%` : '—', c: h.mem_pct >= 90 ? RED : 'var(--text-secondary)' },
-  ]
+  const send = () => {
+    const t = text.trim()
+    if (t) sessionStorage.setItem('kai:prefill', t)
+    nav('/chat/kai')
+  }
   return (
-    <button onClick={() => nav('/system')} title="Open System" style={{
-      all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'stretch', gap: 1,
-      background: 'var(--border)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden',
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10, marginTop: 20,
+      padding: '13px 16px', borderRadius: 12,
+      background: 'var(--bg-card)',
+      border: `1px solid ${focus ? 'var(--accent)' : 'var(--border)'}`,
+      boxShadow: focus ? '0 0 0 3px var(--accent-bg)' : 'none',
+      transition: 'border-color 120ms, box-shadow 120ms',
     }}>
-      {cells.map((c) => (
-        <div key={c.k} style={{ background: 'var(--bg-card)', padding: '8px 14px', minWidth: 66 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>{c.k}</div>
-          <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2, color: c.c, fontVariantNumeric: 'tabular-nums' }}>{c.v}</div>
-        </div>
-      ))}
-      <div style={{ background: 'var(--bg-card)', display: 'flex', alignItems: 'center', padding: '0 12px', color: 'var(--text-tertiary)' }}>
-        <ShieldCheck size={14} /><ChevronRight size={13} />
-      </div>
-    </button>
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onFocus={() => setFocus(true)}
+        onBlur={() => setFocus(false)}
+        onKeyDown={(e) => { if (e.key === 'Enter') send() }}
+        placeholder="Talk to KAI — plan the day, think out loud, ask anything…"
+        style={{ all: 'unset', flex: 1, fontSize: 14.5, color: 'var(--text-primary)', fontFamily: 'inherit', lineHeight: 1.4 }}
+      />
+      <button
+        onClick={send}
+        aria-label="Talk to KAI"
+        style={{
+          all: 'unset', cursor: 'pointer', flexShrink: 0, width: 30, height: 30,
+          borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'var(--accent)', color: '#fff',
+        }}
+      >
+        <ArrowRight size={16} strokeWidth={2.2} />
+      </button>
+    </div>
   )
 }
 
-// ── Needs you — mode-lock unlock requests awaiting Leo ───────────────────────
-function NeedsYou() {
-  const [pending, setPending] = useState([])
-  const load = useCallback(() => {
-    api.get('/mode_lock/pending').then((d) => setPending(d.pending || [])).catch(() => setPending([]))
-  }, [])
-  useEffect(() => {
-    load()
-    const iv = setInterval(load, 20000)
-    return () => clearInterval(iv)
-  }, [load])
-  if (pending.length === 0) return null
-  return (
-    <Panel title="Needs you" count={pending.length} countColor="var(--accent)" accent="var(--hover-border)">
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
-        {pending.map((p) => (
-          <div key={p.request_id} style={{ padding: '11px 13px', borderRadius: 11, background: 'var(--accent-bg)', border: '1px solid var(--hover-border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <Lock size={15} color="var(--accent)" strokeWidth={2} style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                Unlock — {p.tool || 'action'}
-              </span>
-              <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>{ageOf(p.created_at)}</span>
-            </div>
-            {p.reason && <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '6px 0 0', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{p.reason}</div>}
-            <div style={{ fontSize: 10.5, color: 'var(--text-tertiary)', marginTop: 7 }}>Approve on Buzz or type <b style={{ color: 'var(--text-secondary)' }}>YES</b> at the keyboard.</div>
-          </div>
-        ))}
-      </div>
-    </Panel>
-  )
-}
-
-// ── Your day — calendar + today's focus tasks ────────────────────────────────
-function YourDay() {
+// ── Today — Schedule (today + tomorrow only) + Priorities (focus tasks) ───────
+function Today() {
   const [events, setEvents] = useState(null)
   const [focus, setFocus] = useState(null)
   useEffect(() => {
     api.get('/calendar/events').then((d) => setEvents(d.events || [])).catch(() => setEvents([]))
     api.getFocusBrief().then((d) => setFocus((d.top3 || []).concat(d.next5 || []))).catch(() => setFocus([]))
   }, [])
-  const evs = (events || []).slice(0, 5)
-  const tasks = (focus || []).slice(0, 4)
-  const today = new Date().toISOString().slice(0, 10)
-  const empty = evs.length === 0 && tasks.length === 0
+  const now = new Date()
+  const todayStr = localDateStr(now)
+  const tomStr = localDateStr(new Date(now.getTime() + 86400000))
+  const inWindow = (e) => {
+    if (!e.start) return false
+    const ds = e.start.length <= 10 ? e.start : localDateStr(new Date(e.start))
+    return ds === todayStr || ds === tomStr
+  }
+  const evs = (events || []).filter(inWindow).slice(0, 6)
+  const tasks = (focus || []).slice(0, 5)
+  if (evs.length === 0 && tasks.length === 0) {
+    return (
+      <Section label="Today">
+        <div style={{ padding: '14px 8px', fontSize: 13.5, color: 'var(--text-tertiary)' }}>
+          Nothing today or tomorrow, and the priority list is clear. Clear runway.
+        </div>
+      </Section>
+    )
+  }
   return (
-    <Panel title="Your day">
-      {empty ? (
-        <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Nothing on the calendar or the focus list. Clear runway.</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <Section label="Today">
+      {evs.length > 0 && (
+        <div>
+          <SubLabel>Schedule</SubLabel>
           {evs.map((e, i) => (
-            <div key={e.id || i} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 4px' }}>
-              <Calendar size={15} color={BLUE} strokeWidth={1.9} style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title || '(no title)'}</span>
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{eventWhen(e.start)}</span>
-            </div>
-          ))}
-          {tasks.map((t, i) => (
-            <div key={t.id || `t${i}`} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 4px' }}>
-              <ListTodo size={15} color="var(--accent)" strokeWidth={1.9} style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: 13, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.content}</span>
-              {t.due && <span style={{ fontSize: 11, color: t.due <= today ? AMBER : 'var(--text-tertiary)', flexShrink: 0 }}>{t.due <= today ? 'due' : t.due.slice(5)}</span>}
-            </div>
+            <Row key={e.id || i}>
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: MONO, flexShrink: 0, minWidth: 132 }}>{eventWhen(e.start, todayStr, tomStr)}</span>
+              <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title || '(no title)'}</span>
+            </Row>
           ))}
         </div>
       )}
-    </Panel>
+      {tasks.length > 0 && (
+        <div>
+          <SubLabel>Priorities</SubLabel>
+          {tasks.map((t, i) => (
+            <Row key={t.id || `t${i}`}>
+              <span style={{ fontSize: 12, color: 'var(--accent)', fontFamily: MONO, flexShrink: 0, minWidth: 22, fontWeight: 600 }}>{String(i + 1).padStart(2, '0')}</span>
+              <span style={{ fontSize: 14, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.content}</span>
+              {t.due && <span style={{ fontSize: 11.5, fontFamily: MONO, color: t.due <= todayStr ? 'var(--accent)' : 'var(--text-tertiary)', flexShrink: 0 }}>{t.due <= todayStr ? 'due' : t.due.slice(5)}</span>}
+            </Row>
+          ))}
+        </div>
+      )}
+    </Section>
   )
 }
 
-// ProactiveDigest brings its own card chrome; wrap it in a matching panel only when
-// it has content (it self-hides when empty, so an empty panel never shows).
-function ProactivePanel() {
-  return <ProactiveDigest />
+// ── Inbox — deliverables KAI produced + surfaced items awaiting Leo ───────────
+function Inbox() {
+  const [items, setItems] = useState(null)
+  useEffect(() => {
+    api.get('/inbox/pending').then((d) => setItems(d.pending || [])).catch(() => setItems([]))
+  }, [])
+  const list = (items || []).slice(0, 6)
+  if (list.length === 0) return null
+  return (
+    <Section label="Inbox">
+      {list.map((it, i) => {
+        const m = it.meta || {}
+        const title = m.title || it.filename?.replace(/\.md$/, '') || 'Item'
+        const when = m.created_at || m.captured_at || m.date
+        return (
+          <Row key={it.filename || i}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+              {m.summary && <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.45 }}>{m.summary}</div>}
+            </div>
+            {when && <span style={{ fontSize: 11, fontFamily: MONO, color: 'var(--text-tertiary)', flexShrink: 0 }}>{ageOf(when)}</span>}
+          </Row>
+        )
+      })}
+    </Section>
+  )
 }
 
 export default function Now() {
   return (
-    <div style={{ maxWidth: 1180, margin: '0 auto', padding: '24px 20px 44px' }}>
-      {/* status strip */}
-      <div className="flex flex-col md:flex-row md:items-end md:justify-between" style={{ gap: 14, marginBottom: 22 }}>
-        <div>
-          <div style={{ fontSize: 24, fontWeight: 680, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>{greeting()}, Leo</div>
-          <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', marginTop: 3, fontFamily: 'var(--mono, ui-monospace)' }}>{longDate()}</div>
-        </div>
-        <PulseCluster />
+    <div style={{ maxWidth: 1120, margin: '0 auto', padding: '40px 20px 56px' }}>
+      <div style={{ fontSize: 26, fontWeight: 650, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>{greeting()}, Leo</div>
+      <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', marginTop: 5, fontFamily: MONO, letterSpacing: '0.02em' }}>{longDate()}</div>
+
+      <TalkToKai />
+
+      {/* Digest — full width at the top; self-hides when the queue is empty */}
+      <div style={{ marginTop: 26 }}>
+        <ProactiveDigest />
       </div>
 
-      {/* needs-you spans full width when present */}
-      <div style={{ marginBottom: 16 }}>
-        <NeedsYou />
-      </div>
-
-      {/* working area — two panels side by side on desktop, stacked on phone */}
-      <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: 16, alignItems: 'start' }}>
-        <YourDay />
-        <ProactivePanel />
+      {/* Responsive: Today + Inbox side-by-side on desktop, stacked on phone */}
+      <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: 30, marginTop: 34, alignItems: 'start' }}>
+        <Today />
+        <Inbox />
       </div>
     </div>
   )

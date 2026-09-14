@@ -8,11 +8,12 @@ import { GROUPS } from '../lib/nav'
 // Mobile header label — derived from the nav config plus a few leaf pages that live
 // under a group hub. Keeps the title in step with the one nav (no hardcoded drift).
 const PAGE_LABELS = {
+  '/now': 'Now',
   '/today': 'Now',
-  '/chat': 'Chat',
-  '/build': 'Build',
+  '/advisors': 'Advisors',
+  '/work': 'Work',
   '/life': 'Life',
-  '/system-hub': 'System',
+  '/system': 'System',
   '/more': 'More',
   '/settings': 'Settings',
 }
@@ -22,6 +23,7 @@ GROUPS.forEach((g) => (g.members || []).forEach((m) => { PAGE_LABELS[m.path] = m
 // pages) and add only the new nav surfaces. Full-bleed pages (chat, wordpress,
 // financial, system) keep their own layout; unifying their chrome is Slice 3.
 const FRAMED_PAGES = [
+  '/now', '/work', '/system',
   '/today', '/today-classic', '/harmony', '/tasks', '/habits', '/insights', '/settings',
   '/parking-lot', '/knowledge', '/models', '/plane', '/advisors', '/wiki', '/usage',
   '/build', '/life', '/system-hub', '/more',
