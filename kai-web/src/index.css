@@ -243,3 +243,7 @@
   .status-yellow { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(245,158,11,0.12); color: #f59e0b; }
   .status-red    { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(239,68,68,0.12);   color: #ef4444; }
 }
+
+/* utility: spinner for async affordances (KAI-1319 Advisors Manage) */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 0.9s linear infinite; }

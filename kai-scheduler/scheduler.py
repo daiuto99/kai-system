@@ -373,6 +373,8 @@ def telegram_poll_loop():
                     tg_send(token, chat_id,
                             "🤖 *KAI online.*\n\nSend a message or use an advisor prefix:\n"
                             "/beats /coach /sky /roads /tech /dev /ops\n\n"
+                            "Info (read-only, works when Buzz is down):\n"
+                            "/status — one-glance pulse · /health — host detail · /pending — what's waiting on you\n\n"
                             "Emergency: /recover — restart the Buzz app tier to bring the primary back online.")
                     continue
                 if (text.split(maxsplit=1)[0].lower() if text else "") in ("/recover", "/heal"):
@@ -392,6 +394,57 @@ def telegram_poll_loop():
                     except Exception as e:
                         log.error("Telegram /recover error: %s", type(e).__name__)
                         tg_send(token, chat_id, f"⚠️ Recovery request failed: {type(e).__name__}")
+                    continue
+                # Emergency-line job #2 (KAI-1038): read-only info surface. Pull
+                # system state over Telegram when Buzz is down. Council-independent
+                # by construction — every command hits worker-api read endpoints
+                # directly (same BasicAuth path as /recover), no LLM, no writes.
+                _info_cmd = text.split(maxsplit=1)[0].lower() if text else ""
+                if _info_cmd in ("/status", "/health", "/pending"):
+                    log.info("Telegram %s from @%s (%s)", _info_cmd, username, chat_id)
+                    def _wget(path):
+                        return httpx.get(f"{WORKER_API}{path}", timeout=15, auth=worker_auth()).json()
+                    try:
+                        if _info_cmd == "/health":
+                            h = _wget("/system/health")
+                            emoji = "✅" if h.get("ok") else "⚠️"
+                            lines = [f"{emoji} *Host health*",
+                                     f"  • disk: {h.get('disk_pct')}% ({h.get('disk_free_gb')}G free of {h.get('disk_total_gb')}G)",
+                                     f"  • mem: {h.get('mem_pct')}% ({h.get('mem_free_gb')}G free)",
+                                     f"  • load: {h.get('load_1m')} · temp: {h.get('temp_c')}°C",
+                                     f"  • uptime: {h.get('uptime')} · apt: {h.get('apt_updates')} pending"]
+                            for a in (h.get("alerts") or []):
+                                lines.append(f"  ⚠️ {a}")
+                            tg_send(token, chat_id, "\n".join(lines))
+                        elif _info_cmd == "/pending":
+                            ml = _wget("/mode_lock/pending")
+                            ib = _wget("/inbox/pending")
+                            mlc, ibc = ml.get("count", 0), ib.get("count", 0)
+                            lines = ["📋 *Pending for you*",
+                                     f"  • mode-lock approvals: {mlc}",
+                                     f"  • inbox items: {ibc}"]
+                            if not mlc and not ibc:
+                                lines.append("  ✅ nothing waiting")
+                            tg_send(token, chat_id, "\n".join(lines))
+                        else:  # /status — combined one-glance pulse
+                            h = _wget("/system/health")
+                            ops = _wget("/system/ops-state")
+                            ml = _wget("/mode_lock/pending")
+                            fails = ops.get("failing_invariants") or {}
+                            overall = "✅ nominal" if (h.get("ok") and ops.get("ok")) else "⚠️ attention"
+                            lines = [f"*KAI status* — {overall}",
+                                     f"  • disk {h.get('disk_pct')}% · mem {h.get('mem_pct')}% · load {h.get('load_1m')} · up {h.get('uptime')}",
+                                     f"  • backup: {(ops.get('backup') or {}).get('status', '?')}",
+                                     f"  • pending approvals: {ml.get('count', 0)}"]
+                            if fails:
+                                lines.append(f"  ⚠️ {len(fails)} failing invariant(s): " + ", ".join(list(fails.keys())[:3]))
+                            for a in (h.get("alerts") or [])[:3]:
+                                lines.append(f"  ⚠️ {a}")
+                            lines.append("\n_/health · /pending · /recover_")
+                            tg_send(token, chat_id, "\n".join(lines))
+                    except Exception as e:
+                        log.error("Telegram %s error: %s", _info_cmd, type(e).__name__)
+                        tg_send(token, chat_id, f"⚠️ Couldn't fetch {_info_cmd[1:]}: {type(e).__name__}")
                     continue
                 advisor = "kai"
                 message = text
