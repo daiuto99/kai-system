@@ -1,6 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
+import GroupHub from './components/GroupHub'
 import Chat from './pages/Chat'
+import Now from './pages/Now'
 import Today from './pages/Today'
 import Harmony from './pages/Harmony'
 import ParkingLot from './pages/ParkingLot'
@@ -24,9 +26,17 @@ export default function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<Navigate to="/today" replace />} />
-        <Route path="/today" element={<Today />} />
+        <Route path="/today" element={<Now />} />
+        {/* KAI-1319 Slice 2 — old kitchen-sink home kept reachable for fallback/compare */}
+        <Route path="/today-classic" element={<Today />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/chat/:advisorId" element={<Chat />} />
+
+        {/* KAI-1319 Slice 1 — group hubs (existing pages stay reachable below) */}
+        <Route path="/build" element={<GroupHub groupKey="build" />} />
+        <Route path="/life" element={<GroupHub groupKey="life" />} />
+        <Route path="/system-hub" element={<GroupHub groupKey="system" />} />
+
         <Route path="/harmony" element={<Harmony />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/habits" element={<Habits />} />

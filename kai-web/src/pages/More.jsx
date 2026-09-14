@@ -1,38 +1,40 @@
+// KAI-1319 Slice 1 — the mobile overflow. Now driven by lib/nav.js so it can never
+// drift from the bottom bar again: it lists exactly the groups not on the bar
+// (Life · System · Settings), each opening its hub.
 import { NavLink } from 'react-router-dom'
-import { CheckSquare, Inbox, Sparkles, Activity, BookOpen, Users, DollarSign, Wallet } from 'lucide-react'
-
-const ITEMS = [
-  { to: '/tasks',       icon: CheckSquare, label: 'Tasks',       desc: 'Todoist queue'         },
-  { to: '/parking-lot', icon: Inbox,       label: 'Lot Inventory', desc: 'Captured items'        },
-  { to: '/insights',    icon: Sparkles,    label: 'Insights',    desc: 'Ember observations'    },
-  { to: '/harmony',     icon: Activity,    label: 'Harmony',     desc: 'Life domain balance'   },
-  { to: '/wiki',        icon: BookOpen,    label: 'Wiki',        desc: 'Knowledge vault'       },
-  { to: '/advisors',    icon: Users,       label: 'Advisors',    desc: 'Manage advisor personas' },
-  { to: '/financial',   icon: Wallet,      label: 'Financial',   desc: 'Providers, caps, access status' },
-  { to: '/usage',       icon: DollarSign,  label: 'Usage',       desc: 'API cost & token spend' },
-]
+import { MOBILE_OVERFLOW, groupByKey } from '../lib/nav'
 
 export default function More() {
+  const groups = MOBILE_OVERFLOW.map(groupByKey).filter(Boolean)
   return (
-    <div className="max-w-lg mx-auto px-4 py-8">
-      <h1 className="text-xl font-semibold mb-6">More</h1>
-      <div className="kai-card divide-y kai-divider">
-        {ITEMS.map(({ to, icon: Icon, label, desc }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className="flex items-center gap-4 px-5 py-4 hover:bg-white/4 transition-colors"
-          >
-            <div className="w-9 h-9 rounded-xl bg-white/6 flex items-center justify-center flex-shrink-0">
-              <Icon size={17} strokeWidth={1.75} className="kai-text-secondary" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium">{label}</p>
-              <p className="text-xs kai-text-subtle mt-0.5">{desc}</p>
-            </div>
-            <span className="text-white/20 text-lg">›</span>
-          </NavLink>
-        ))}
+    <div style={{ maxWidth: 640, margin: '0 auto', padding: '28px 20px 40px' }}>
+      <h1 style={{ fontSize: 22, fontWeight: 680, letterSpacing: '-0.02em', margin: '0 0 18px', color: 'var(--text-primary)' }}>More</h1>
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
+        {groups.map((g, i) => {
+          const Icon = g.icon
+          const sub = g.members ? g.members.map((m) => m.label).join(' · ') : (g.blurb || '')
+          return (
+            <NavLink key={g.key} to={g.path} style={{
+              display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px',
+              textDecoration: 'none', color: 'inherit', transition: 'background 0.15s',
+              borderTop: i === 0 ? 'none' : '1px solid var(--border)',
+            }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover-bg)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}>
+              <div style={{
+                width: 38, height: 38, borderRadius: 11, flexShrink: 0, display: 'flex',
+                alignItems: 'center', justifyContent: 'center', background: 'var(--accent-bg)', color: 'var(--accent)',
+              }}>
+                <Icon size={18} strokeWidth={1.85} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{g.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>
+              </div>
+              <span style={{ color: 'var(--text-subtle)', fontSize: 18, flexShrink: 0 }}>›</span>
+            </NavLink>
+          )
+        })}
       </div>
     </div>
   )
