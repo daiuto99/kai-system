@@ -29,6 +29,11 @@ class NotifyRequest(BaseModel):
     channel: str = "dashboard"
     source: str = "autonomous"
     kind: str = "alert"
+    # KAI-1449: allow a caller to target the #devops Buzz channel (actionable ops
+    # that Leo should SEE in Buzz — e.g. a tap-approved lock-asset apply landing),
+    # not only the silent dashboard log. Defaults to "dashboard" so every existing
+    # caller is unchanged. Only the notify_gateway-recognized audiences route.
+    audience: str = "dashboard"
 
 
 @router.post("/notify")
@@ -40,7 +45,7 @@ def post_notify(body: NotifyRequest):
     only a truncated title + decision metadata (never a token or bot URL)."""
     res = ng.notify(ng.Event(
         source=body.source, kind=body.kind, title=body.text,
-        audience="dashboard", provenance="real"))
+        audience=body.audience, provenance="real"))
     return {"ok": True, "decision": res.decision, "destination": res.destination}
 
 

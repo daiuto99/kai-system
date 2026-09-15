@@ -69,8 +69,25 @@ _ML_ACTION = {"allow": "once", "approve": "once", "approved": "once", "yes": "on
 _LIST_RE = re.compile(r"^\s*(pending|list|resend|approvals?|status|what'?s? pending|any approvals?)\s*\??\s*$", re.I)
 
 
+# KAI-1449: the web password must be read FRESH on each request, not cached at
+# import. agents_bridge reads WEB_PW once at import; a credential rotation then
+# silently 401'd every poll of /api/mode_lock/pending until a restart — a 2-day
+# approvals blackout (2026-09-15, nothing surfaced in #kai-approvals). Re-reading
+# the small secret file each call (~5s cadence) makes a rotation self-heal on the
+# next poll. Falls back to the import-time value only if the file is transiently
+# unreadable, so a fumbled read never hard-fails auth.
+_WEB_PW_FILE = os.path.expanduser(os.environ.get("KAI_WEB_PW_FILE", "~/kai-system/secrets/kai_web_password.txt"))
+
+
+def _web_pw() -> str:
+    try:
+        return open(_WEB_PW_FILE).read().strip()
+    except OSError:
+        return ab.WEB_PW
+
+
 def _basic_auth() -> str:
-    return base64.b64encode(f"{ab.WEB_USER}:{ab.WEB_PW}".encode()).decode()
+    return base64.b64encode(f"{ab.WEB_USER}:{_web_pw()}".encode()).decode()
 
 
 def _council_get(path: str) -> dict:

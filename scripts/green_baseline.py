@@ -257,6 +257,28 @@ def check_buzz_shim() -> str:
     return "Buzz advisor shim (:4001) serves kai/sky/roads/coach"
 
 
+def check_buzz_approvals_auth() -> str:
+    # KAI-1449: the #kai-approvals poller authenticates to /api/mode_lock/pending
+    # with the web basic-auth credential. It cached that password at import, so a
+    # rotation silently 401'd EVERY poll — mode-lock unlock AND lockfile-apply tap
+    # cards went invisible in Buzz for ~2 days while the poller stayed 'alive' (its
+    # heartbeat is written BEFORE the poll, so liveness never dropped and nothing
+    # alarmed). This probes the poller's EXACT path + credential from inside its own
+    # container network, so a broken shared credential surfaces instead of hiding.
+    # WARN, not RED: runtime keeps serving, but a blind approval surface must alarm.
+    code = _command(
+        "docker", "exec", "kai-buzz", "sh", "-c",
+        "curl -s -o /dev/null -w %{http_code} "
+        "-u kai:$(cat /run/secrets/kai_web_password) http://kai-web/api/mode_lock/pending",
+        timeout=12,
+    )
+    if code != "200":
+        return (f"WARN Buzz approvals poller auth to /api/mode_lock/pending = {code or 'unreachable'} "
+                f"— approval cards invisible in #kai-approvals; the poller's web credential is "
+                f"stale/broken (rotate → restart kai-buzz) [KAI-1449]")
+    return "Buzz approvals poller authenticates to /api/mode_lock/pending (cards can surface)"
+
+
 def check_codex_verifier_auth() -> str:
     """KAI-1159 — Codex is the cross-provider verifier (Claude builds / Codex
     verifies). Its "Sign in with ChatGPT" OAuth token is single-use-refresh and
@@ -1566,6 +1588,7 @@ def checks() -> tuple[Check, ...]:
         Check("litellm_models", check_litellm_models),
         Check("qwen_mid_route_and_fallback", check_qwen_route_contract),
         Check("buzz_shim_backend", check_buzz_shim),
+        Check("buzz_approvals_auth", check_buzz_approvals_auth),
         Check("secret_permissions", check_secret_permissions),
         Check("credential_registry", check_credential_registry),
         Check("jobs_secret_leak", check_jobs_secret_leak),
