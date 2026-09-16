@@ -34,6 +34,11 @@ CHAN_ABOUT = "KAI approval gates — reply `approve` or `reject: reason`."
 # drains that queue to the channel + a DM push. Read-only surface — no replies parsed.
 DEVOPS_CHAN_FILE = "devops_channel.txt"
 DEVOPS_QUEUE = os.environ.get("KAI_DEVOPS_QUEUE", "/vault/00_System/devops_queue.jsonl")
+# KAI-1449 (Leo 2026-09-15): approval-LIFECYCLE notices (e.g. a tap-approved apply
+# landing) route to THIS channel (#kai-approvals) — where Leo tapped — via the
+# notify() gateway (audience="approvals") -> APPROVALS_QUEUE, drained below. Keeps
+# #devops focused on infra/system alerts only.
+APPROVALS_QUEUE = os.environ.get("KAI_APPROVALS_QUEUE", "/vault/00_System/approvals_notice_queue.jsonl")
 # nginx at :3001 strips ONE /council/ prefix, so gate routes (/council/gate/...) need
 # the doubled prefix. The #kai bridge reaches /council/message the same way.
 COUNCIL_BASE  = os.environ.get("BUZZ_COUNCIL_BASE", "http://localhost:3001/council/council")
@@ -218,17 +223,17 @@ def compose_dm_pointer(total: int) -> str:
             "open #kai-approvals to approve/reject.")
 
 
-def _drain_devops_queue() -> list:
-    """Atomically claim queued #devops records: rename the queue aside, read it, remove
-    it. New appends land in a fresh queue for the next cycle so nothing is lost mid-drain.
+def _drain_queue(path: str, label: str) -> list:
+    """Atomically claim queued records: rename the queue aside, read it, remove it.
+    New appends land in a fresh queue for the next cycle so nothing is lost mid-drain.
     Recovers a prior interrupted drain first. Returns [] if empty; never raises."""
-    work = DEVOPS_QUEUE + ".draining"
+    work = path + ".draining"
     recs = []
     try:
         if not os.path.exists(work):
-            if not os.path.exists(DEVOPS_QUEUE):
+            if not os.path.exists(path):
                 return []
-            os.rename(DEVOPS_QUEUE, work)
+            os.rename(path, work)
         with open(work) as fh:
             for line in fh:
                 line = line.strip()
@@ -239,8 +244,16 @@ def _drain_devops_queue() -> list:
                         continue
         os.remove(work)
     except Exception as e:
-        ab.log("approvals", f"!! devops drain error: {type(e).__name__}: {e}")
+        ab.log("approvals", f"!! {label} drain error: {type(e).__name__}: {e}")
     return recs
+
+
+def _drain_devops_queue() -> list:
+    return _drain_queue(DEVOPS_QUEUE, "devops")
+
+
+def _drain_approvals_queue() -> list:
+    return _drain_queue(APPROVALS_QUEUE, "approvals")
 
 
 async def run():
@@ -446,6 +459,19 @@ async def run():
                             ab.log("approvals", f"!! devops DM push failed: {e}")
                 except Exception as e:
                     ab.log("approvals", f"!! devops post error: {type(e).__name__}: {e}")
+
+                # #kai-approvals lifecycle notices (KAI-1449, Leo 2026-09-15): drain
+                # apply-outcome confirmations (notify gateway, audience="approvals")
+                # to THIS channel — where Leo tapped — so an approved apply reports
+                # back where he acted (not #devops). Read-only; no reply parsing.
+                try:
+                    appr_recs = await asyncio.to_thread(_drain_approvals_queue)
+                    for r in appr_recs:
+                        body = r.get("text") or r.get("title") or "approval update"
+                        await send(body)
+                        ab.log("approvals", f">> approvals notice posted ({r.get('source','?')})")
+                except Exception as e:
+                    ab.log("approvals", f"!! approvals notice error: {type(e).__name__}: {e}")
 
                 # Push surface (bug 5de64f3f): a channel card doesn't notify, so whenever a
                 # card was posted or re-nudged this cycle, DM Leo one pointer with the TOTAL

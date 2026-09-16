@@ -63,6 +63,11 @@ _DEDUP_WINDOW_S = int(os.environ.get("KAI_NOTIFY_DEDUP_WINDOW", "3600"))
 # that genuinely need Leo to act belong here; autonomous-fixable issues stay on
 # the dashboard (audience="dashboard").
 _DEVOPS_QUEUE = Path(os.environ.get("KAI_DEVOPS_QUEUE", "/vault/00_System/devops_queue.jsonl"))
+# KAI-1449 (Leo 2026-09-15): approval-LIFECYCLE notices (e.g. a tap-approved
+# lock-asset apply landing) route to the #kai-approvals Buzz channel — where Leo
+# tapped — via audience="approvals", drained by the kai-buzz poller. This keeps
+# #devops in its lane (infra/system alerts) and reports approvals where he acted.
+_APPROVALS_QUEUE = Path(os.environ.get("KAI_APPROVALS_QUEUE", "/vault/00_System/approvals_notice_queue.jsonl"))
 
 # The only audiences permitted to reach Leo's Telegram (Rule B). Telegram is now
 # break-glass only; actionable ops → "devops" (Buzz), never Leo's phone.
@@ -382,6 +387,9 @@ def _route(event: Event) -> tuple[str, str]:
     # (not his phone). Autonomous-fixable ops fall through to the dashboard.
     if event.audience == "devops":
         return "devops", "audience:devops"
+    # KAI-1449: approval-lifecycle notice → the #kai-approvals Buzz channel.
+    if event.audience == "approvals":
+        return "approvals", "audience:approvals"
     # Audience-based routing (Rule B): only approval / personal-consequence reach Leo.
     if event.audience in _LEO_AUDIENCES:
         return "telegram", f"audience:{event.audience}"
@@ -406,6 +414,27 @@ def _devops_enqueue(event: Event) -> bool:
         return True
     except Exception as e:
         log.error("devops enqueue failed (%s) — falling back to dashboard", type(e).__name__)
+        return False
+
+
+def _approvals_enqueue(event: Event) -> bool:
+    """KAI-1449: append an approval-lifecycle notice to the queue the kai-buzz poller
+    drains to the #kai-approvals channel. Same atomic-append contract as the devops
+    queue; best-effort — a write failure falls back to the dashboard log."""
+    try:
+        _APPROVALS_QUEUE.parent.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "source": event.source,
+            "kind": event.kind,
+            "title": event.title,
+            "text": _format(event),
+        }
+        with open(_APPROVALS_QUEUE, "a") as fh:
+            fh.write(json.dumps(rec) + "\n")
+        return True
+    except Exception as e:
+        log.error("approvals enqueue failed (%s) — falling back to dashboard", type(e).__name__)
         return False
 
 
@@ -476,6 +505,12 @@ def notify(event: Event) -> NotifyResult:
         # Enqueue for the #devops Buzz channel; fall back to the dashboard log on failure.
         if _devops_enqueue(event):
             res = NotifyResult("delivered", "devops", True, reason)
+        else:
+            res = NotifyResult("dashboard_only", "dashboard", False, f"{reason}:enqueue_failed")
+    elif dest == "approvals":
+        # KAI-1449: enqueue for the #kai-approvals Buzz channel; fall back to dashboard.
+        if _approvals_enqueue(event):
+            res = NotifyResult("delivered", "approvals", True, reason)
         else:
             res = NotifyResult("dashboard_only", "dashboard", False, f"{reason}:enqueue_failed")
     else:
