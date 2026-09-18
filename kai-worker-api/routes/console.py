@@ -458,3 +458,101 @@ def put_project_doc(project_id: str, slot: str, body: DocWrite):
         logger.exception("console doc write store rebuild: %s", e)
         raise HTTPException(500, f"doc written but store rebuild failed: {e}")
     return {"ok": True, "slot": slot, "filename": filename, "bytes": len(body.content.encode())}
+
+
+# ---------------------------------------------------------------------------
+# P4 (KAI-1458) — brand-at-scope resolution layer (READ-ONLY)
+# ---------------------------------------------------------------------------
+# Resolve and EXPOSE the house<->project brand inheritance from the EXISTING
+# style.md files. This is the engineering read substrate ONLY — no brand author/
+# create/modify affordance. Brand authoring routes through the Creative Gate
+# (BUILD_PROFILE §9 tokens + brand_drift enforcement, per STYLE_MD_CONTRACT.md);
+# a mutation endpoint is a deliberate NON-goal of this ticket.
+
+
+def _read_style_ref(style_ref: str | None) -> tuple[str | None, bool]:
+    """Safely read a style.md by its authored home-relative path (e.g.
+    `vault/20_Projects/the71c/style.md`). The container only mounts /vault, so a
+    leading `vault/` is stripped and the remainder is resolved under VAULT_PATH,
+    guarded against path traversal via config.safe_path. Returns (contents, exists);
+    an absent file (or a ref outside vault/) yields (None, False)."""
+    if not style_ref:
+        return None, False
+    rel = style_ref.split("vault/", 1)[1] if style_ref.startswith("vault/") else style_ref
+    path = safe_path(VAULT_PATH, rel)
+    if path is None:
+        return None, False
+    if path.exists() and path.is_file():
+        try:
+            return path.read_text(), True
+        except Exception as e:
+            logger.exception("brand style read %s: %s", style_ref, e)
+            raise HTTPException(500, f"style ref unreadable: {e}")
+    return None, False
+
+
+def _business_or_404(business_id: str) -> dict:
+    for b in _load_store().get("businesses", []):
+        if b.get("id") == business_id:
+            return b
+    raise HTTPException(404, f"business '{business_id}' not found")
+
+
+@router.get("/console/business/{business_id}/brand")
+def get_business_brand(business_id: str):
+    """Resolve a business's HOUSE brand from its authored house_brand.style_ref.
+    Read-only: exposes the existing style.md, never authors one."""
+    biz = _business_or_404(business_id)
+    house = biz.get("house_brand") or {}
+    style_ref = house.get("style_ref")
+    style_md, exists = _read_style_ref(style_ref)
+    return {
+        "business_id": business_id,
+        "scope": "house",
+        "style_ref": style_ref,
+        "style_md": style_md,
+        "exists": exists,
+    }
+
+
+@router.get("/console/project/{project_id}/brand")
+def get_project_brand(project_id: str):
+    """Resolve a project's EFFECTIVE brand with house inheritance. `effective` picks
+    the project style.md if present, else the inherited house style.md, else source
+    'none'. Read-only resolution of existing style.md files; brand authoring routes
+    through the Creative Gate."""
+    project = _project_or_404(project_id)
+    business_id = project.get("business_id")
+
+    proj_ref = (project.get("brand") or {}).get("style_ref")
+    proj_md, proj_exists = _read_style_ref(proj_ref)
+
+    house_ref = None
+    house_md = None
+    house_exists = False
+    if business_id:
+        biz = next((b for b in _load_store().get("businesses", [])
+                    if b.get("id") == business_id), None)
+        if biz:
+            house_ref = (biz.get("house_brand") or {}).get("style_ref")
+            house_md, house_exists = _read_style_ref(house_ref)
+
+    if proj_exists:
+        effective = {"source": "project", "style_ref": proj_ref, "style_md": proj_md}
+    elif house_exists:
+        effective = {"source": "house", "style_ref": house_ref, "style_md": house_md}
+    else:
+        effective = {"source": "none", "style_ref": None, "style_md": None}
+
+    return {
+        "project_id": project_id,
+        "business_id": business_id,
+        "project_brand": {"style_ref": proj_ref, "style_md": proj_md, "exists": proj_exists},
+        "house_brand": {
+            "business_id": business_id,
+            "style_ref": house_ref,
+            "style_md": house_md,
+            "exists": house_exists,
+        },
+        "effective": effective,
+    }
