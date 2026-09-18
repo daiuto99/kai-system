@@ -20,7 +20,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from config import VAULT_PATH
+from config import VAULT_PATH, safe_path
 
 import console_store  # co-located runtime builder (RUNTIME twin, KAI-1456)
 
@@ -365,3 +365,96 @@ def rebuild_store():
         logger.exception("console rebuild: %s", e)
         raise HTTPException(500, f"rebuild failed: {e}")
     return {"ok": True, "counts": store.get("counts", {})}
+
+
+# ---------------------------------------------------------------------------
+# P3 (KAI-1457) — project workspace / doc-set (open-context load + doc r/w)
+# ---------------------------------------------------------------------------
+# Canonical, CASE-SENSITIVE doc-set filenames the console_store `_DOCSET_GLOBS`
+# discovers (overview*/ethos*/research* on Linux). The three editable slots map
+# to fixed lowercase filenames so a write is always re-detected by the builder.
+_DOC_SLOTS = {
+    "overview": "overview.md",
+    "ethos_goal": "ethos_and_goal.md",
+    "research": "research.md",
+}
+
+
+class DocWrite(BaseModel):
+    content: str
+
+
+def _project_or_404(project_id: str) -> dict:
+    for p in _load_store().get("projects", []):
+        if p.get("id") == project_id:
+            return p
+    raise HTTPException(404, f"project '{project_id}' not found")
+
+
+def _read_slot(project_id: str, slot: str) -> tuple[str, str, bool]:
+    """(filename, content, exists) for a doc slot, read straight from the project
+    dir. Absent slot -> empty content, exists False."""
+    filename = _DOC_SLOTS[slot]
+    path = safe_path(PROJECTS_DIR, f"{project_id}/{filename}")
+    if path is None:
+        raise HTTPException(400, f"invalid project id '{project_id}'")
+    if path.exists() and path.is_file():
+        try:
+            return filename, path.read_text(), True
+        except Exception as e:
+            logger.exception("console doc read %s/%s: %s", project_id, slot, e)
+            raise HTTPException(500, f"doc unreadable: {e}")
+    return filename, "", False
+
+
+@router.get("/console/project/{project_id}/workspace")
+def get_project_workspace(project_id: str):
+    """Open-context load for the project workspace: the project dict + the CONTENTS
+    of its three editable docs + this project's deliverables + a tasks stub."""
+    project = _project_or_404(project_id)
+    docs = {slot: _read_slot(project_id, slot)[1] for slot in _DOC_SLOTS}
+    delivs = [d for d in _load_store().get("deliverables", [])
+              if d.get("project_id") == project_id]
+    tasks = {"plane_project": None, "note": "per-project Plane board pending KAI-1462"}
+    return {
+        "project": project,
+        "docs": docs,
+        "deliverables": delivs,
+        "tasks": tasks,
+    }
+
+
+@router.get("/console/project/{project_id}/doc/{slot}")
+def get_project_doc(project_id: str, slot: str):
+    """Read one editable doc slot (overview | ethos_goal | research)."""
+    if slot not in _DOC_SLOTS:
+        raise HTTPException(400, f"invalid slot '{slot}' — expected one of {sorted(_DOC_SLOTS)}")
+    _project_or_404(project_id)
+    filename, content, exists = _read_slot(project_id, slot)
+    return {"slot": slot, "filename": filename, "content": content, "exists": exists}
+
+
+@router.put("/console/project/{project_id}/doc/{slot}")
+def put_project_doc(project_id: str, slot: str, body: DocWrite):
+    """Write one editable doc slot to its canonical lowercase filename, then rebuild
+    the derived store so docset detection refreshes. Drafts-only internal content."""
+    if slot not in _DOC_SLOTS:
+        raise HTTPException(400, f"invalid slot '{slot}' — expected one of {sorted(_DOC_SLOTS)}")
+    _project_or_404(project_id)
+    filename = _DOC_SLOTS[slot]
+    path = safe_path(PROJECTS_DIR, f"{project_id}/{filename}")
+    if path is None:
+        raise HTTPException(400, f"invalid project id '{project_id}'")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body.content)
+    except Exception as e:
+        logger.exception("console doc write %s/%s: %s", project_id, slot, e)
+        raise HTTPException(500, f"doc write failed: {e}")
+    # refresh docset detection in the derived store
+    try:
+        console_store.build_store(write=True)
+    except Exception as e:
+        logger.exception("console doc write store rebuild: %s", e)
+        raise HTTPException(500, f"doc written but store rebuild failed: {e}")
+    return {"ok": True, "slot": slot, "filename": filename, "bytes": len(body.content.encode())}
