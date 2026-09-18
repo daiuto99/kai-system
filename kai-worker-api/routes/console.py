@@ -192,6 +192,53 @@ def _synthesize_overview(name: str, project_id: str, src_dir: Path | None,
 """
 
 
+def _derive_plane_identifier(name: str, project_id: str) -> str:
+    """A short uppercase alphanumeric Plane identifier from the id/name (KAI-1462)."""
+    import re
+    base = re.sub(r"[^A-Za-z0-9]", "", (project_id or name or "")).upper()
+    return base[:5] or "PROJ"
+
+
+def _create_plane_project(name: str, project_id: str) -> tuple[str | None, str | None]:
+    """Provision a per-project Plane PROJECT board (KAI-1462). Returns
+    (plane_project_id, error). Fail-soft: any failure returns (None, message) so a
+    promote still succeeds — the board is a follow-on, not a hard dependency.
+    Reuses the existing Plane integration (base + token) from routes.plane."""
+    import urllib.request as ur
+    import urllib.error
+    from routes.plane import PLANE_BASE, _plane_token
+    token = _plane_token()
+    if not token:
+        return None, "Plane API token not configured"
+
+    def _post(identifier: str):
+        payload = json.dumps({"name": name, "identifier": identifier}).encode()
+        req = ur.Request(f"{PLANE_BASE}/projects/", data=payload,
+                         headers={"X-API-Key": token, "Content-Type": "application/json"},
+                         method="POST")
+        with ur.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read())
+
+    ident = _derive_plane_identifier(name, project_id)
+    try:
+        return _post(ident).get("id"), None
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode()[:200]
+        except Exception:
+            pass
+        # identifier collision (already taken) → retry once with a numeric suffix
+        if e.code in (400, 409) and "identifier" in body.lower():
+            try:
+                return _post((ident[:4] + "1")).get("id"), None
+            except Exception as e2:
+                return None, f"Plane create retry failed: {e2}"
+        return None, f"Plane create failed: {e.code} {body}"
+    except Exception as e:
+        return None, f"Plane create failed: {e}"
+
+
 @router.post("/console/promote")
 def promote_idea(req: PromoteRequest):
     """Promote an Idea into a first-class Project: scaffold the doc-set, register it
@@ -344,10 +391,22 @@ _TODO._
         logger.exception("promote store rebuild: %s", e)
         raise HTTPException(500, f"store rebuild failed after promote: {e}")
 
-    # (h) Plane project creation is out of v1 scope
-    warnings.append("Plane project NOT created — no worker-api endpoint for creating "
-                    "a Plane PROJECT. Create it in Plane and link it in STATUS.md "
-                    "(plane_project) as a design follow-on.")
+    # (h) provision the per-project Plane board (KAI-1462) — fail-soft
+    plane_pid, plane_err = _create_plane_project(name, project_id)
+    if plane_pid:
+        try:
+            status_path = proj_dir / "STATUS.md"
+            txt = status_path.read_text()
+            txt = txt.replace("plane_project: null", f"plane_project: {plane_pid}")
+            status_path.write_text(txt)
+            # rebuild once more so the derived store surfaces the linked board
+            new_store = console_store.build_store(write=True)
+        except Exception as e:
+            logger.exception("promote plane link write: %s", e)
+            warnings.append(f"Plane board {plane_pid} created but STATUS.md link failed: {e}")
+    else:
+        warnings.append(f"Plane board NOT created ({plane_err}) — create it in Plane and "
+                        "link it in STATUS.md (plane_project) manually.")
 
     # (i) return the new project from the freshly-built store
     project = next((p for p in new_store.get("projects", []) if p.get("id") == project_id), None)

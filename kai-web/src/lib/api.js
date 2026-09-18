@@ -89,6 +89,16 @@ export const api = {
   // Projects
   setupProject: (body) => post(`${BASE}/projects/setup`, body),
 
+  // Console (Agency Mode) — the Business/Project/Deliverable/Idea object model
+  // (P1–P4 backend). The Work page is the app shell over these (P5, KAI-1459).
+  getConsoleStore: () => get(`${BASE}/console/store`),
+  getProjectWorkspace: (id) => get(`${BASE}/console/project/${id}/workspace`),
+  getProjectBrand: (id) => get(`${BASE}/console/project/${id}/brand`),
+  getBusinessBrand: (id) => get(`${BASE}/console/business/${id}/brand`),
+  getProjectDoc: (id, slot) => get(`${BASE}/console/project/${id}/doc/${slot}`),
+  putProjectDoc: (id, slot, content) => put(`${BASE}/console/project/${id}/doc/${slot}`, { content }),
+  promoteIdea: (body) => post(`${BASE}/console/promote`, body),
+
   // Wellbeing check-in
   getCheckin: () => get(`${BASE}/checkin`),
   saveCheckin: (body) => post(`${BASE}/checkin`, body),

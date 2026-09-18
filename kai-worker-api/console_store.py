@@ -150,6 +150,11 @@ def _build_projects(seed: dict, registry: list[dict]) -> list[dict]:
         if fm:
             sources.append(f"vault/20_Projects/{pid}/STATUS.md")
         business_id = biz_of.get(pid)
+        # plane_project — the per-project Plane board id (KAI-1462), set by promote
+        # into STATUS.md frontmatter. The frontmatter parser yields strings, so an
+        # authored `null`/empty coerces back to None.
+        _pp = fm.get("plane_project")
+        plane_project = _pp if _pp and _pp not in ("null", "none", "") else None
         projects.append({
             "id": pid,
             "business_id": business_id,
@@ -168,7 +173,7 @@ def _build_projects(seed: dict, registry: list[dict]) -> list[dict]:
                 "inherits": business_id,
                 "style_ref": _rel(pdir / "style.md") if (pdir / "style.md").exists() else None,
             },
-            "plane_project": None,
+            "plane_project": plane_project,
             "unassigned": business_id is None,
             "sources": sources,
         })
