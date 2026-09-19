@@ -1305,6 +1305,24 @@ def _h_jobs(client, tool_name, ti, advisor):
 
     return {"error": f"Unknown jobs tool: {tool_name}"}
 
+
+def _h_idea(client, tool_name, ti, advisor):
+    """Idea brainstorm loop (B4 KAI-1468) — thin proxy to the worker console API so
+    KAI can catch up on an idea and capture a riff over any channel."""
+    if tool_name == "list_ideas":
+        r = client.get(f"{WORKER_URL}/console/ideas")
+        return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
+    if tool_name == "load_idea_brief":
+        slug = ti["slug"]
+        r = client.get(f"{WORKER_URL}/console/idea/{slug}/workspace")
+        return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
+    if tool_name == "capture_idea_riff":
+        payload = {k: v for k, v in ti.items() if k != "slug"}
+        r = client.post(f"{WORKER_URL}/console/idea/{ti['slug']}/capture", json=payload)
+        return r.json() if r.status_code == 200 else {"error": f"Worker {r.status_code}: {r.text[:200]}"}
+    return {"error": f"unknown idea tool: {tool_name}"}
+
+
 TOOL_REGISTRY = {
     # Workflows
     "save_workflow": _h_workflows,
@@ -1332,6 +1350,10 @@ TOOL_REGISTRY = {
     "read_vault": _h_vault,
     "read_workspace": _h_vault,
     "list_workspace": _h_vault,
+    # Idea brainstorm loop (B4 KAI-1468) — catch-up + capture over any channel
+    "list_ideas": _h_idea,
+    "load_idea_brief": _h_idea,
+    "capture_idea_riff": _h_idea,
     # Asset delivery / advisor DMs (Buzz/Telegram surfaces — Slack retired, KAI-1127)
     "deliver_asset": _h_delivery,
     "get_advisor_recent_dms": _h_delivery,

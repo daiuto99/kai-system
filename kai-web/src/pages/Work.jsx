@@ -219,6 +219,228 @@ function ProjectWorkspace({ projectId, onBack, onSwitch }) {
   )
 }
 
+// ── the open-Idea workspace — the living brief (render + EDIT) + sources index ──
+// B1 (KAI-1465): the idea-side twin of ProjectWorkspace. The brief is the single
+// state doc KAI maintains; here Leo reads it to get up to speed and captures new
+// thinking back — the read-state → work → write-state loop (design §3/§4).
+function IdeaWorkspace({ slug, onBack }) {
+  const [ws, setWs] = useState(null)
+  const [err, setErr] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveErr, setSaveErr] = useState(null)
+  // Brainstorm loop (B2): converse with KAI (grounded by the brief) then capture.
+  const [chat, setChat] = useState([])
+  const [chatInput, setChatInput] = useState('')
+  const [sending, setSending] = useState(false)
+  const [grounded, setGrounded] = useState(false)  // brief injected on first turn only
+  const [capturing, setCapturing] = useState(false)
+  const [capDraft, setCapDraft] = useState('')
+  const [capBusy, setCapBusy] = useState(false)
+  const [capErr, setCapErr] = useState(null)
+
+  const load = useCallback(() => {
+    setWs(null); setErr(false)
+    api.getIdeaWorkspace(slug).then(setWs).catch(() => setErr(true))
+  }, [slug])
+  useEffect(() => { load() }, [load])
+
+  const startEdit = () => { setDraft(ws?.brief?.content || ''); setSaveErr(null); setEditing(true) }
+  const save = async () => {
+    setSaving(true); setSaveErr(null)
+    try {
+      await api.putIdeaBrief(slug, draft)
+      setEditing(false)
+      load()
+    } catch (e) {
+      setSaveErr(`Save failed: ${e.message || e}`)
+    } finally { setSaving(false) }
+  }
+
+  const send = async () => {
+    const text = chatInput.trim()
+    if (!text || sending) return
+    setChat((c) => [...c, { role: 'user', content: text }])
+    setChatInput('')
+    setSending(true)
+    try {
+      // Catch-up: on the first turn KAI receives the living brief so it's up to speed.
+      const briefText = ws?.brief?.content || ''
+      const msg = grounded
+        ? text
+        : `We're brainstorming on my idea "${ws?.idea?.name || slug}". Here's the current living brief so you're caught up:\n\n---\n${briefText}\n---\n\nBuild on this, don't just summarize it. ${text}`
+      const res = await api.sendMessage(msg, 'kai')
+      setGrounded(true)
+      setChat((c) => [...c, { role: 'assistant', content: res.reply || '(no reply)' }])
+    } catch (e) {
+      setChat((c) => [...c, { role: 'assistant', content: `Error: ${e.message || e}`, error: true }])
+    } finally { setSending(false) }
+  }
+
+  const [ingesting, setIngesting] = useState(false)
+  const ingest = async () => {
+    setIngesting(true)
+    try { await api.ingestIdeaSources(slug); load() } catch { /* surfaced via reload */ } finally { setIngesting(false) }
+  }
+
+  const lastAssistant = [...chat].reverse().find((m) => m.role === 'assistant' && !m.error)?.content || ''
+  const openCapture = () => { setCapDraft(lastAssistant); setCapErr(null); setCapturing(true) }
+  const doCapture = async () => {
+    const r = capDraft.trim()
+    if (!r) { setCapErr('Nothing to capture.'); return }
+    setCapBusy(true); setCapErr(null)
+    try {
+      await api.captureIdeaRiff(slug, r)
+      setCapturing(false)
+      load()  // brief refreshes with the folded riff
+    } catch (e) {
+      setCapErr(`Capture failed: ${e.message || e}`)
+    } finally { setCapBusy(false) }
+  }
+
+  if (err) return (
+    <div style={{ padding: '20px 8px', fontSize: 13.5, color: 'var(--text-tertiary)' }}>
+      Could not load this idea. <Action onClick={onBack}>Back to all</Action>
+    </div>
+  )
+  if (!ws) return <div style={{ padding: '20px 8px', fontSize: 13, color: 'var(--text-tertiary)', fontFamily: MONO }}>Loading idea…</div>
+
+  const idea = ws.idea || {}
+  const brief = ws.brief || {}
+  const sources = ws.sources || []
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+        <Action onClick={onBack}><ArrowLeft size={13} strokeWidth={2.2} /> All</Action>
+        <span style={{ fontSize: 11, fontFamily: MONO, color: 'var(--text-tertiary)' }}>IDEA · BRAINSTORM</span>
+      </div>
+      <div style={{ fontSize: 24, fontWeight: 650, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>{idea.name || idea.slug}</div>
+      {idea.note && <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', marginTop: 4, lineHeight: 1.5 }}>{idea.note}</div>}
+
+      {/* Living brief — the single state doc KAI maintains; render + edit (B1) */}
+      <Section label="Brief" right={brief.exists ? '_brief.md' : 'not started — seeded'} style={{ marginTop: 26 }}>
+        {!editing && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 8 }}>
+            <Action onClick={startEdit}>{brief.exists ? 'Edit brief' : 'Start the brief'}</Action>
+          </div>
+        )}
+        {editing ? (
+          <div style={{ paddingTop: 10 }}>
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              spellCheck={false}
+              style={{ width: '100%', minHeight: 320, resize: 'vertical', fontFamily: MONO, fontSize: 12.5,
+                lineHeight: 1.6, color: 'var(--text-primary)', background: 'var(--accent-bg)',
+                border: '1px solid var(--border)', borderRadius: 6, padding: 12, boxSizing: 'border-box' }}
+            />
+            {saveErr && <div style={{ fontSize: 12, color: 'var(--danger, #e06c6c)', fontFamily: MONO, marginTop: 6 }}>{saveErr}</div>}
+            <div style={{ display: 'flex', gap: 16, justifyContent: 'flex-end', marginTop: 10 }}>
+              <Action onClick={() => setEditing(false)} disabled={saving}>Cancel</Action>
+              <Action onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save brief'}</Action>
+            </div>
+          </div>
+        ) : (
+          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: MONO, fontSize: 12.5,
+            lineHeight: 1.6, color: 'var(--text-secondary)', margin: '10px 0 0', padding: '2px' }}>
+            {(brief.content || '').trim()}
+          </pre>
+        )}
+      </Section>
+
+      {/* Brainstorm — the loop: catch-up (brief) → converse with KAI → capture (B2) */}
+      <Section label="Brainstorm with KAI" right="brief → converse → capture" style={{ marginTop: 26 }}>
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {chat.length === 0 && (
+            <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', lineHeight: 1.5, padding: '2px 2px' }}>
+              KAI reads the brief above to get up to speed the moment you send. Riff freely, then capture what&apos;s worth keeping back into the brief.
+            </div>
+          )}
+          {chat.map((m, i) => (
+            <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '86%' }}>
+              <div style={{ fontSize: 10, fontFamily: MONO, letterSpacing: '0.08em', textTransform: 'uppercase',
+                color: 'var(--text-tertiary)', marginBottom: 3, textAlign: m.role === 'user' ? 'right' : 'left' }}>
+                {m.role === 'user' ? 'You' : 'KAI'}
+              </div>
+              <div style={{ fontSize: 13.5, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)',
+                background: m.role === 'user' ? 'var(--accent-bg)' : 'transparent',
+                color: m.error ? 'var(--danger, #e06c6c)' : 'var(--text-primary)' }}>
+                {m.content}
+              </div>
+            </div>
+          ))}
+          {sending && <div style={{ fontSize: 12, fontFamily: MONO, color: 'var(--text-tertiary)' }}>KAI is thinking…</div>}
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+            placeholder="Riff with KAI on this idea…"
+            style={{ flex: 1, fontSize: 13.5, color: 'var(--text-primary)', background: 'transparent',
+              border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', outline: 'none' }}
+          />
+          <Action onClick={send} disabled={sending || !chatInput.trim()}>Send</Action>
+        </div>
+        {chat.some((m) => m.role === 'assistant' && !m.error) && !capturing && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+            <Action onClick={openCapture}>Capture riff → brief</Action>
+          </div>
+        )}
+        {capturing && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 11, fontFamily: MONO, color: 'var(--text-tertiary)', marginBottom: 6 }}>
+              What&apos;s worth keeping? This folds into the brief&apos;s &quot;Last session&apos;s riff&quot;.
+            </div>
+            <textarea
+              value={capDraft}
+              onChange={(e) => setCapDraft(e.target.value)}
+              style={{ width: '100%', minHeight: 120, resize: 'vertical', fontFamily: MONO, fontSize: 12.5,
+                lineHeight: 1.6, color: 'var(--text-primary)', background: 'var(--accent-bg)',
+                border: '1px solid var(--border)', borderRadius: 6, padding: 12, boxSizing: 'border-box' }}
+            />
+            {capErr && <div style={{ fontSize: 12, color: 'var(--danger, #e06c6c)', fontFamily: MONO, marginTop: 6 }}>{capErr}</div>}
+            <div style={{ display: 'flex', gap: 16, justifyContent: 'flex-end', marginTop: 10 }}>
+              <Action onClick={() => setCapturing(false)} disabled={capBusy}>Cancel</Action>
+              <Action onClick={doCapture} disabled={capBusy}>{capBusy ? 'Capturing…' : 'Capture to brief'}</Action>
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {/* Sources index — live enumeration + one-line gist per file (B3 ingest) */}
+      <Section label="Sources" right={`${sources.length}`} style={{ marginTop: 26 }}>
+        {sources.length === 0
+          ? <div style={{ padding: '14px 8px', fontSize: 13.5, color: 'var(--text-tertiary)' }}>No files dropped in this idea&apos;s folder yet.</div>
+          : sources.map((s) => (
+              <div key={s.name} style={{ padding: '10px 8px', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                  <FileText size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--text-tertiary)', alignSelf: 'center' }} />
+                  <span style={{ fontSize: 13.5, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                  <Chip>{s.kind}</Chip>
+                  {typeof s.bytes === 'number' && <span style={{ fontSize: 11, fontFamily: MONO, color: 'var(--text-tertiary)' }}>{s.bytes} B</span>}
+                </div>
+                {s.description && (
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4, marginLeft: 23, lineHeight: 1.5,
+                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {s.description}
+                  </div>
+                )}
+              </div>
+            ))}
+        {sources.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 10 }}>
+            <Action onClick={ingest} disabled={ingesting}>{ingesting ? 'Ingesting…' : 'Ingest sources → brief'}</Action>
+          </div>
+        )}
+      </Section>
+    </div>
+  )
+}
+
 // ── a project row inside a business (in the overview) ───────────────────────────
 function ProjectRow({ project, onOpen }) {
   return (
@@ -255,7 +477,7 @@ function BusinessBlock({ business, projects, onOpenProject }) {
 }
 
 // ── Ideas — real, promotable → Project (KAI-1463 promote wiring) ────────────────
-function Ideas({ ideas, businesses, onPromoted }) {
+function Ideas({ ideas, businesses, onPromoted, onOpen }) {
   const [busy, setBusy] = useState(null)   // slug being promoted
   const [pick, setPick] = useState(null)   // slug whose business picker is open
   const [error, setError] = useState(null)
@@ -283,12 +505,13 @@ function Ideas({ ideas, businesses, onPromoted }) {
         </div>
       ) : ideas.map((idea) => (
         <div key={idea.slug}>
-          <Row>
+          <Row onClick={() => onOpen(idea.slug)}>
             <span style={{ fontSize: 14, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{idea.name || idea.slug}</span>
             <Chip>{idea.status}</Chip>
+            <Action onClick={(e) => { e.stopPropagation(); onOpen(idea.slug) }}>Brainstorm <ArrowUpRight size={13} strokeWidth={2.2} /></Action>
             {busy === idea.slug
               ? <span style={{ fontSize: 11, fontFamily: MONO, color: 'var(--text-tertiary)' }}>promoting…</span>
-              : <Action onClick={() => setPick(pick === idea.slug ? null : idea.slug)}>
+              : <Action onClick={(e) => { e.stopPropagation(); setPick(pick === idea.slug ? null : idea.slug) }}>
                   Promote to Project <ArrowUpRight size={13} strokeWidth={2.2} />
                 </Action>}
           </Row>
@@ -325,6 +548,7 @@ export default function Work() {
   useEffect(() => { fetchStore() }, [fetchStore])
 
   const openProject = useCallback((id) => { const c = { type: 'project', id }; setContext(c); saveContext(c) }, [])
+  const openIdea = useCallback((slug) => { const c = { type: 'idea', id: slug }; setContext(c); saveContext(c) }, [])
   const clearContext = useCallback(() => { setContext(null); saveContext(null) }, [])
 
   const onPromoted = useCallback(async (res) => {
@@ -343,6 +567,15 @@ export default function Work() {
     return (
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '40px 20px 56px' }}>
         <ProjectWorkspace projectId={context.id} onBack={clearContext} onSwitch={openProject} />
+      </div>
+    )
+  }
+
+  // Idea-scoped view — the brainstorm loop over an idea's living brief (B1).
+  if (context?.type === 'idea') {
+    return (
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '40px 20px 56px' }}>
+        <IdeaWorkspace slug={context.id} onBack={clearContext} />
       </div>
     )
   }
@@ -366,7 +599,7 @@ export default function Work() {
         {businesses.map((b) => (
           <BusinessBlock key={b.id} business={b} projects={projectsByBiz[b.id] || []} onOpenProject={openProject} />
         ))}
-        <Ideas ideas={ideas} businesses={businesses} onPromoted={onPromoted} />
+        <Ideas ideas={ideas} businesses={businesses} onPromoted={onPromoted} onOpen={openIdea} />
       </div>
     </div>
   )

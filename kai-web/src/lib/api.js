@@ -98,6 +98,17 @@ export const api = {
   getProjectDoc: (id, slot) => get(`${BASE}/console/project/${id}/doc/${slot}`),
   putProjectDoc: (id, slot, content) => put(`${BASE}/console/project/${id}/doc/${slot}`, { content }),
   promoteIdea: (body) => post(`${BASE}/console/promote`, body),
+  // Idea brainstorm loop (B1, KAI-1465): a per-idea living brief KAI maintains +
+  // a live sources index — the read-state → work → write-state loop for ideas.
+  getIdeaWorkspace: (slug) => get(`${BASE}/console/idea/${slug}/workspace`),
+  getIdeaBrief: (slug) => get(`${BASE}/console/idea/${slug}/brief`),
+  putIdeaBrief: (slug, content) => put(`${BASE}/console/idea/${slug}/brief`, { content }),
+  // B2 (KAI-1466): fold a brainstorm riff back into the idea's living brief — the
+  // deterministic CAPTURE step every channel (dashboard/Buzz/voice) shares.
+  captureIdeaRiff: (slug, riff, thinking) =>
+    post(`${BASE}/console/idea/${slug}/capture`, thinking ? { riff, thinking } : { riff }),
+  // B3 (KAI-1467): describe dropped files into the brief's sources index.
+  ingestIdeaSources: (slug) => post(`${BASE}/console/idea/${slug}/ingest`, {}),
 
   // Wellbeing check-in
   getCheckin: () => get(`${BASE}/checkin`),

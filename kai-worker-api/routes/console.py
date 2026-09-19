@@ -615,3 +615,313 @@ def get_project_brand(project_id: str):
         },
         "effective": effective,
     }
+
+
+# ---------------------------------------------------------------------------
+# B1 (KAI-1465) — idea brief + idea-workspace (read-state -> work -> write-state)
+# ---------------------------------------------------------------------------
+# Ideas are unstructured folders; catch-up must never read the messy folder. Every
+# idea gets ONE living brief (_brief.md) that KAI maintains — the single canonical
+# state doc read to get up to speed (mirrors KAI's own boot/close model). The idea
+# workspace endpoint is the idea-side twin of GET /console/project/{id}/workspace.
+# Design: docs/IDEA_BRAINSTORM_LOOP_DESIGN.md §3/§4/§7.
+
+BRIEF_FILENAME = "_brief.md"
+
+_SOURCE_KINDS = {
+    ".md": "markdown", ".txt": "text", ".pdf": "pdf",
+    ".png": "image", ".jpg": "image", ".jpeg": "image", ".gif": "image", ".webp": "image",
+    ".html": "html", ".htm": "html",
+    ".m4a": "audio", ".mp3": "audio", ".wav": "audio",
+}
+
+
+def _brief_template(idea: dict, today: str) -> str:
+    """Canonical spine seeded when an idea has no brief yet (design §3). Freeform
+    below the spine — the folder stays as messy as Leo wants; the brief is the
+    contract."""
+    name = idea.get("name") or idea.get("slug")
+    note = (idea.get("note") or "").strip()
+    what = note or "_(describe what this idea is)_"
+    return (
+        f"# {name} — Idea Brief\n\n"
+        "> KAI-maintained living brief — the single state doc read to get up to speed\n"
+        "> on this idea (design: docs/IDEA_BRAINSTORM_LOOP_DESIGN.md §3). "
+        f"Seeded {today}.\n\n"
+        f"## What it is\n{what}\n\n"
+        "## Current thinking\n_(none captured yet)_\n\n"
+        "## Open threads\n_(none captured yet)_\n\n"
+        "## Last session's riff\n_(none captured yet)_\n\n"
+        "## Sources index\n"
+        "_(one line per raw file in the folder — image->caption, pdf->key points,\n"
+        "html->gist. Maintained by the ingest pass, B3.)_\n"
+    )
+
+
+def _idea_or_404(slug: str) -> dict:
+    for i in _load_store().get("ideas", []):
+        if i.get("slug") == slug:
+            return i
+    raise HTTPException(404, f"idea '{slug}' not found")
+
+
+def _idea_brief_path(idea: dict):
+    """Resolve the idea's _brief.md path inside the container (vault mount only).
+    Returns None if the idea dir isn't under the mounted vault/."""
+    d = idea.get("dir")
+    if not d or not d.startswith("vault/"):
+        return None
+    return safe_path(VAULT_PATH, f"{d.split('vault/', 1)[1]}/{BRIEF_FILENAME}")
+
+
+def _read_brief(idea: dict):
+    """(content, exists) for the idea's brief, read straight from the folder."""
+    path = _idea_brief_path(idea)
+    if path is None:
+        raise HTTPException(400, f"idea '{idea.get('slug')}' dir not under mounted vault/")
+    if path.exists() and path.is_file():
+        try:
+            return path.read_text(), True
+        except Exception as e:
+            logger.exception("idea brief read %s: %s", idea.get("slug"), e)
+            raise HTTPException(500, f"brief unreadable: {e}")
+    return "", False
+
+
+def _sources_index(idea: dict) -> list:
+    """Live enumeration of the idea folder's raw files (excluding the brief itself).
+    B1 lists name + inferred kind + size; B3 will add per-file summaries into the
+    brief's Sources index."""
+    src = _resolve_idea_dir(idea)
+    if src is None or not src.is_dir():
+        return []
+    out = []
+    for f in sorted(src.iterdir()):
+        if not f.is_file() or f.name == BRIEF_FILENAME:
+            continue
+        try:
+            size = f.stat().st_size
+        except OSError:
+            size = None
+        kind = _SOURCE_KINDS.get(f.suffix.lower(), "other")
+        out.append({
+            "name": f.name,
+            "kind": kind,
+            "bytes": size,
+            "description": _describe_source(f, kind),  # B3 one-line gist
+        })
+    return out
+
+
+@router.get("/console/idea/{slug}/workspace")
+def get_idea_workspace(slug: str):
+    """Open-context load for an idea: the idea dict + its living brief (seeded from
+    the canonical spine if absent) + a live sources index + a loop stub. The idea-
+    side twin of GET /console/project/{project_id}/workspace."""
+    idea = _idea_or_404(slug)
+    content, exists = _read_brief(idea)
+    if not exists:
+        content = _brief_template(idea, datetime.now().strftime("%Y-%m-%d"))
+    return {
+        "idea": idea,
+        "brief": {"filename": BRIEF_FILENAME, "content": content, "exists": exists},
+        "sources": _sources_index(idea),
+        "loop": {"note": "brainstorm loop wiring pending B2 (dashboard) / B4 (Buzz) / B5 (voice)"},
+    }
+
+
+@router.get("/console/idea/{slug}/brief")
+def get_idea_brief(slug: str):
+    """Read an idea's living brief. If absent, returns the canonical spine seed
+    (exists False) so the UI can render + let Leo start editing immediately."""
+    idea = _idea_or_404(slug)
+    content, exists = _read_brief(idea)
+    if not exists:
+        content = _brief_template(idea, datetime.now().strftime("%Y-%m-%d"))
+    return {"slug": slug, "filename": BRIEF_FILENAME, "content": content, "exists": exists}
+
+
+@router.put("/console/idea/{slug}/brief")
+def put_idea_brief(slug: str, body: DocWrite):
+    """Write an idea's living brief (drafts/internal). Creates the folder + _brief.md
+    if absent. This is the CAPTURE half of the read-state -> work -> write-state loop."""
+    idea = _idea_or_404(slug)
+    path = _idea_brief_path(idea)
+    if path is None:
+        raise HTTPException(400, f"idea '{slug}' dir not under mounted vault/")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body.content)
+    except Exception as e:
+        logger.exception("idea brief write %s: %s", slug, e)
+        raise HTTPException(500, f"brief write failed: {e}")
+    return {"ok": True, "slug": slug, "filename": BRIEF_FILENAME, "bytes": len(body.content.encode())}
+
+
+# ---------------------------------------------------------------------------
+# B2 (KAI-1466) — capture half of the dashboard brainstorm loop
+# ---------------------------------------------------------------------------
+# The loop is: load brief (catch-up, GET .../workspace) -> converse with KAI
+# (the council, hit by every channel) -> CAPTURE the riff back into the brief.
+# This endpoint is the deterministic, channel-agnostic capture step: dashboard
+# (B2), Buzz (B4) and voice (B5) all fold a session's riff into the SAME brief
+# through here. Design: docs/IDEA_BRAINSTORM_LOOP_DESIGN.md §4.
+
+_PLACEHOLDER = "_(none captured yet)_"
+
+
+class RiffCapture(BaseModel):
+    riff: str                     # the new thinking from this exchange
+    thinking: str | None = None   # optional: fold a durable line into Current thinking
+
+
+def _upsert_section(md: str, heading: str, new_para: str) -> str:
+    """Prepend `new_para` under a `## heading` in the brief markdown, dropping the
+    seed placeholder and preserving prior entries (most-recent-first). Appends a new
+    section if the heading is absent (freeform briefs are allowed to lack it)."""
+    lines = md.split("\n")
+    hi = next((i for i, ln in enumerate(lines) if ln.strip() == heading), None)
+    if hi is None:
+        sep = "" if md.endswith("\n") or md == "" else "\n"
+        return f"{md}{sep}\n{heading}\n\n{new_para}\n"
+    end = len(lines)
+    for k in range(hi + 1, len(lines)):
+        if lines[k].startswith("## "):
+            end = k
+            break
+    prior = [ln for ln in lines[hi + 1:end] if ln.strip() and ln.strip() != _PLACEHOLDER]
+    rebuilt = lines[:hi + 1] + ["", new_para] + (["", *prior] if prior else []) + [""] + lines[end:]
+    return "\n".join(rebuilt).rstrip("\n") + "\n"
+
+
+@router.post("/console/idea/{slug}/capture")
+def capture_idea_riff(slug: str, body: RiffCapture):
+    """Fold a brainstorm riff back into the idea's living brief (the CAPTURE step of
+    the read->work->write loop). Seeds the brief from the canonical spine first if it
+    doesn't exist yet, so a capture is always non-destructive. Drafts/internal."""
+    riff = (body.riff or "").strip()
+    if not riff:
+        raise HTTPException(400, "riff is empty — nothing to capture")
+    idea = _idea_or_404(slug)
+    path = _idea_brief_path(idea)
+    if path is None:
+        raise HTTPException(400, f"idea '{slug}' dir not under mounted vault/")
+    today = datetime.now().strftime("%Y-%m-%d")
+    content, exists = _read_brief(idea)
+    if not exists:
+        content = _brief_template(idea, today)
+    content = _upsert_section(content, "## Last session's riff", f"_{today}_ — {riff}")
+    thinking = (body.thinking or "").strip()
+    if thinking:
+        content = _upsert_section(content, "## Current thinking", f"- {thinking}")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    except Exception as e:
+        logger.exception("idea riff capture %s: %s", slug, e)
+        raise HTTPException(500, f"capture write failed: {e}")
+    return {"ok": True, "slug": slug, "captured": True, "bytes": len(content.encode())}
+
+
+# ---------------------------------------------------------------------------
+# B3 (KAI-1467) — ingest pass: describe dropped files into the brief's sources
+# ---------------------------------------------------------------------------
+# So catch-up never re-reads the messy folder: each raw file gets a one-line
+# description folded into the brief's "## Sources index". Text formats (md/txt/
+# html) get a real deterministic gist; binaries (pdf/image/audio) get a typed
+# caption. Deep LLM/OCR summarization of binaries is a documented follow-up —
+# the deterministic pass already makes the brief self-contained (design §3/§4).
+
+_INGEST_READ_LIMIT = 20000  # bytes read from a text source for its gist
+
+
+def _strip_frontmatter(lines: list) -> list:
+    if lines and lines[0].strip() == "---":
+        try:
+            return lines[lines.index("---", 1) + 1:]
+        except ValueError:
+            return lines
+    return lines
+
+
+def _describe_source(path, kind: str) -> str:
+    """One-line description of a raw source file. Deterministic; never raises."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = 0
+    kb = max(1, round(size / 1024))
+    if kind in ("markdown", "text", "html"):
+        try:
+            raw = path.read_text(errors="replace")[:_INGEST_READ_LIMIT]
+        except OSError:
+            return f"{kind} file (~{kb} KB, unreadable)"
+        if kind == "html":
+            import re
+            m = re.search(r"<title[^>]*>(.*?)</title>", raw, re.I | re.S)
+            if m and m.group(1).strip():
+                return f"web page — {m.group(1).strip()[:140]}"
+            text = re.sub(r"<[^>]+>", " ", raw)
+            gist = " ".join(text.split())[:140]
+            return f"web page — {gist}" if gist else f"HTML file (~{kb} KB)"
+        lines = [ln.rstrip() for ln in raw.splitlines()]
+        lines = _strip_frontmatter(lines)
+        heading = next((ln.lstrip("# ").strip() for ln in lines if ln.startswith("#")), "")
+        para = next((ln.strip() for ln in lines if ln.strip() and not ln.startswith("#")), "")
+        bits = " — ".join(b for b in (heading, para) if b)
+        return (bits[:180] or f"{kind} file (~{kb} KB, empty)")
+    captions = {
+        "pdf": f"PDF document (~{kb} KB) — key points pending LLM/OCR ingest",
+        "image": f"image (~{kb} KB) — caption pending vision ingest",
+        "audio": f"audio (~{kb} KB) — transcript pending STT ingest",
+    }
+    return captions.get(kind, f"{kind} file (~{kb} KB)")
+
+
+def _render_sources_block(sources: list) -> str:
+    if not sources:
+        return "_(no files dropped in this idea's folder yet)_"
+    return "\n".join(f"- `{s['name']}` — {s.get('description') or s['kind']}" for s in sources)
+
+
+@router.post("/console/idea/{slug}/ingest")
+def ingest_idea_sources(slug: str):
+    """Describe every raw file in the idea folder and fold the one-liners into the
+    brief's "## Sources index", so catch-up reads the brief alone (design §3). Seeds
+    the brief from the spine first if absent. Returns the sources described."""
+    idea = _idea_or_404(slug)
+    path = _idea_brief_path(idea)
+    if path is None:
+        raise HTTPException(400, f"idea '{slug}' dir not under mounted vault/")
+    sources = _sources_index(idea)  # already carries per-file descriptions (B3)
+    today = datetime.now().strftime("%Y-%m-%d")
+    content, exists = _read_brief(idea)
+    if not exists:
+        content = _brief_template(idea, today)
+    block = f"_Updated {today} — {len(sources)} file(s)._\n\n" + _render_sources_block(sources)
+    content = _set_section(content, "## Sources index", block)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    except Exception as e:
+        logger.exception("idea ingest %s: %s", slug, e)
+        raise HTTPException(500, f"ingest write failed: {e}")
+    return {"ok": True, "slug": slug, "count": len(sources), "sources": sources}
+
+
+def _set_section(md: str, heading: str, body: str) -> str:
+    """Replace the entire body under a `## heading` with `body` (used by ingest — the
+    sources index is fully re-derived each pass, not appended). Appends the section
+    if absent."""
+    lines = md.split("\n")
+    hi = next((i for i, ln in enumerate(lines) if ln.strip() == heading), None)
+    if hi is None:
+        sep = "" if md.endswith("\n") or md == "" else "\n"
+        return f"{md}{sep}\n{heading}\n\n{body}\n"
+    end = len(lines)
+    for k in range(hi + 1, len(lines)):
+        if lines[k].startswith("## "):
+            end = k
+            break
+    rebuilt = lines[:hi + 1] + ["", body, ""] + lines[end:]
+    return "\n".join(rebuilt).rstrip("\n") + "\n"
