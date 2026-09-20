@@ -1,0 +1,73 @@
+# Reconstructed 2026-09-12 — KAI-1400. Put under version control 2026-09-20 — KAI-1479.
+# The original /home/leo/buzz-eval dir (compose project=buzz) was deleted from disk while
+# buzz-postgres / buzz-redis / buzz-minio kept RUNNING, so a restart/recreate/prune could
+# have lost the stack definition for a production dependency (buzz-postgres backs the Buzz
+# approval surface). This file re-establishes that definition, reconstructed 1:1 from the
+# live container config. Secret values live in .env (chmod 600, gitignored).
+#
+# CANONICAL SOURCE OF TRUTH: /home/leo/kai-system/buzz-eval/docker-compose.yml (git-tracked,
+# repo github.com/daiuto99/kai-system). The live /home/leo/buzz-eval/docker-compose.yml is a
+# symlink to this file so the runtime and the tracked copy can never drift. See README.md.
+#
+# IMPORTANT — the Buzz app connects via the compose SERVICE aliases (postgres, redis) and via
+# http://buzz-minio:9000, so the service names AND container_names below are load-bearing:
+# renaming either breaks the app's DNS. buzz-net and ALL stateful volumes are declared
+# external so `docker compose up`/`down` reuses the existing volumes and NEVER re-initializes
+# a store onto a fresh empty volume (the KAI-1475 Sep-12 data-loss class).
+name: buzz
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: buzz-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - buzz-postgres-data:/var/lib/postgresql/data
+    networks:
+      - buzz-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: buzz-redis
+    restart: unless-stopped
+    command: ["redis-server"]
+    volumes:
+      - buzz-redis-data:/data
+    networks:
+      - buzz-net
+
+  minio:
+    image: minio/minio
+    container_name: buzz-minio
+    restart: unless-stopped
+    # KAI-1479: bucket provisioning-as-code. The wrapper execs the official image entrypoint
+    # as PID 1 (signals + image setup preserved) and a background waiter ensures the required
+    # buckets exist on every start — so a fresh/empty volume self-populates at t=0.
+    entrypoint: ["/bin/sh", "/usr/local/bin/buzz-minio-provision.sh"]
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      BUZZ_REQUIRED_BUCKETS: ${BUZZ_REQUIRED_BUCKETS:-buzz-media}
+    volumes:
+      - buzz-minio-data:/data
+      - /home/leo/kai-system/buzz-eval/buzz-minio-provision.sh:/usr/local/bin/buzz-minio-provision.sh:ro
+    networks:
+      - buzz-net
+
+networks:
+  buzz-net:
+    external: true
+
+volumes:
+  buzz-postgres-data:
+    external: true
+  buzz-redis-data:
+    external: true
+  buzz-minio-data:
+    external: true

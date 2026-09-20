@@ -142,6 +142,24 @@ def check_qdrant() -> str:
     return "Qdrant healthz reachable"
 
 
+# ── KAI-1480 Phase 1: protected stateful-resource integrity (registry-driven) ──
+# The Sep-12 incident (KAI-1475) read GREEN for 8 DAYS because monitoring proved a
+# port answered while the MinIO `buzz-media` bucket was gone. This check reads the
+# registry (config/protected_resources.json) and asserts each stateful store still
+# exists, is bound to the RIGHT container at the RIGHT mount (catches vanish-via-
+# rebind), and passes its integrity invariant (real content, not liveness). It shares
+# ONE verifier with the every-minute custodian (scripts/protected_resource_custodian.py)
+# so the baseline and the pager can never disagree. Creds stay inside each container (L18).
+def check_protected_resources() -> str:
+    sys.path.insert(0, str(ROOT / "shared"))
+    from protected_resources import verify_all
+
+    failures, count = verify_all()
+    if failures:
+        raise RuntimeError("; ".join(failures))
+    return f"{count} protected stateful resource(s) intact — exists + bound + invariant"
+
+
 def parse_model_ids(payload: str) -> set[str]:
     data = json.loads(payload)
     return {item["id"] for item in data.get("data", []) if isinstance(item, dict) and "id" in item}
@@ -1585,6 +1603,7 @@ def checks() -> tuple[Check, ...]:
         Check("worker_auth_fail_closed", check_worker_auth_fails_closed),
         Check("plane_reachable", check_plane),
         Check("qdrant_up", check_qdrant),
+        Check("protected_resources", check_protected_resources),
         Check("litellm_models", check_litellm_models),
         Check("qwen_mid_route_and_fallback", check_qwen_route_contract),
         Check("buzz_shim_backend", check_buzz_shim),

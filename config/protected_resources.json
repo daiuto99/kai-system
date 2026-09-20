@@ -1,0 +1,52 @@
+{
+  "schema": "kai.protected_resources.v1",
+  "_note": "KAI-1480 Phase 1 registry. Each entry is a stateful store that must NEVER silently vanish: the custodian (scripts/protected_resource_custodian.py, cron */1) + the green baseline (check_protected_resources) verify each still exists, is bound to the RIGHT container at the RIGHT mount, and passes its integrity invariant. Add a store here to protect it. Phase 2 will additionally require external:true + an approval-gated veto on destructive ops.",
+  "resources": [
+    {
+      "name": "buzz-minio-data",
+      "container": "buzz-minio",
+      "mount": "/data",
+      "external": true,
+      "invariant": {
+        "type": "minio_buckets",
+        "buckets": [
+          "buzz-media"
+        ]
+      },
+      "why": "Buzz object storage \u2014 the KAI-1475 8-day outage was this store rebound to an empty volume."
+    },
+    {
+      "name": "buzz-postgres-data",
+      "container": "buzz-postgres",
+      "mount": "/var/lib/postgresql/data",
+      "external": true,
+      "invariant": {
+        "type": "pg_tables_min",
+        "min": 1
+      },
+      "why": "Buzz approval database \u2014 backs the Leo approval surface."
+    },
+    {
+      "name": "buzz-redis-data",
+      "container": "buzz-redis",
+      "mount": "/data",
+      "external": true,
+      "invariant": {
+        "type": "redis_ping"
+      },
+      "why": "Buzz cache/queue \u2014 may be empty legitimately, so only liveness is asserted."
+    },
+    {
+      "name": "qdrant-data",
+      "container": "kai-qdrant",
+      "mount": "/qdrant/storage",
+      "external": true,
+      "invariant": {
+        "type": "qdrant_collections_min",
+        "min": 1,
+        "url": "http://localhost:6333/collections"
+      },
+      "why": "Advisor/council vector memory \u2014 a wiped store is silent knowledge loss."
+    }
+  ]
+}

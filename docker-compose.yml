@@ -561,6 +561,7 @@ services:
 volumes:
   buzz-relay-data:
   qdrant-data:
+    external: true  # KAI-1480 Phase 2: protected store — external so compose up/down can never rebind/wipe it
   habitsync_data:
   ollama_data:
   tailscale-data:
