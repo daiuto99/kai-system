@@ -156,9 +156,13 @@ def gcal_events(days: int = 7, calendar_id: str = "primary"):
     import datetime
     svc = _gcal_service()
     if not svc:
-        # Direct-Google path not yet authorized (google_calendar_token.json missing).
-        # n8n fallback retired — direct-Google rebuild tracked in KAI-1383.
-        return {"events": [], "error": "calendar not configured (direct-Google auth pending, KAI-1383)"}
+        # Honest say-so (KAI-1484): a present-but-unusable token means auth
+        # expired/revoked (re-consent), not "never configured". n8n retired.
+        if GCAL_CREDS_FILE.exists():
+            return {"events": [], "feed_status": "auth_failed",
+                    "error": "calendar auth expired or revoked — re-consent needed (GET /calendar/auth-url), KAI-1484"}
+        return {"events": [], "feed_status": "not_configured",
+                "error": "calendar not configured — no token yet (GET /calendar/auth-url), KAI-1383"}
     now = datetime.datetime.utcnow().isoformat() + "Z"
     end = (datetime.datetime.utcnow() + datetime.timedelta(days=days)).isoformat() + "Z"
     result = svc.events().list(

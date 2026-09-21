@@ -74,6 +74,7 @@ _ROSTER = [
     ("devops_fleet_custodian", "FleetCustodian"),        # fleet/host (Phase 2, KAI-53)
     ("devops_currency_custodian", "CurrencyCustodian"),  # dependency + WP currency (CUR-4)
     ("devops_inventory_custodian", "InventoryCustodian"),  # built-blindness drift, between closes (KAI-1298 P3)
+    ("devops_feeds_custodian", "DataFeedsCustodian"),      # data-feed freshness — the Stage 1 "or KAI flags it" (KAI-1487)
 ]
 
 

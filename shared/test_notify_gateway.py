@@ -222,6 +222,25 @@ def test_dedup_write_survives_unwritable_target():
     os.chmod(p, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH)
 
 
+def test_devops_triage_gate_downgrade():
+    # KAI-1489: a raw/un-triaged audience="devops" page (no decision stamp) must NOT
+    # reach the Leo-facing #devops channel — it is downgraded to the dashboard. This is
+    # the structural lock that keeps every watchdog (present or future) off Leo.
+    dest, reason = ng._route(ng.Event(source="buzz_error_watchdog", kind="alert",
+                                      audience="devops", title="restart blip"))
+    check("devops untriaged -> dashboard", dest == "dashboard")
+    check("devops untriaged reason names downgrade", "downgraded_untriaged" in reason)
+
+
+def test_devops_triage_gate_decision():
+    # A genuinely triaged DECISION (the devops_ownership spine's disposition) DOES reach
+    # the #devops channel — data-loss drift and the like still get to Leo.
+    dest, reason = ng._route(ng.Event(source="protected_resource_custodian", kind="alert",
+                                      audience="devops", disposition="decision",
+                                      title="stateful store drift"))
+    check("devops decision -> devops channel", dest == "devops")
+
+
 def main():
     print("notify() gateway tests:")
     for fn in (test_reality_gate_synthetic, test_dashboard_routing,
@@ -230,7 +249,8 @@ def main():
                test_uncaused_problem_stamped, test_caused_problem_passthrough,
                test_good_status_no_cause_line,
                test_tg_alert_status_stamped, test_tg_alert_status_with_cause,
-               test_dedup_write_survives_unwritable_target):
+               test_dedup_write_survives_unwritable_target,
+               test_devops_triage_gate_downgrade, test_devops_triage_gate_decision):
         fn()
     failed = [n for n, ok in _RESULTS if not ok]
     print(f"\n{len(_RESULTS) - len(failed)}/{len(_RESULTS)} checks passed.")

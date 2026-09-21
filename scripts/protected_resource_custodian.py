@@ -98,6 +98,8 @@ def _page(failures: list[str], dry_run: bool) -> str:
             audience="devops",
             actionable=True,
             provenance="real",
+            disposition="decision",  # KAI-1489: genuine data-loss drift IS a real Leo
+                                     # decision — the one case that legitimately reaches #devops.
             dedup_key=f"protected_resource_drift:{keyset}:{hour}",
         ))
         return f"paged: decision={res.decision} dest={res.destination} delivered={res.delivered}"

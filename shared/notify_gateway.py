@@ -99,6 +99,9 @@ class Event:
     action_ref: Optional[str] = None     # e.g. a gate_id
     status: Optional[str] = None         # finding status; if it asserts a problem, a cause is required
     cause: Optional[str] = None          # verified cause, or NOT_YET_DIAGNOSED once stamped
+    disposition: Optional[str] = None    # KAI-1489: "decision" only when the devops_ownership spine
+                                         # triaged this as a genuine Leo decision — the ONLY thing
+                                         # permitted to reach the Leo-facing #devops channel.
 
 
 @dataclass
@@ -383,10 +386,15 @@ def _route(event: Event) -> tuple[str, str]:
         except Exception as e:
             log.error("classify failed, routing to dashboard: %s", type(e).__name__)
             return "dashboard", "classify_error_failclosed"
-    # Actionable system message that needs Leo's action → the #devops Buzz channel
-    # (not his phone). Autonomous-fixable ops fall through to the dashboard.
+    # KAI-1489 triage-gate: #devops is a Leo-reaching Buzz channel, so ONLY a message
+    # the devops_ownership spine triaged as a genuine DECISION may enter it. A raw,
+    # un-triaged devops page — a watchdog that skipped the spine — is DOWNGRADED to the
+    # dashboard so Leo is NEVER paged for un-triaged infra. This invariant is guarded by
+    # shared/test_notify_gateway.py::test_devops_triage_gate_* (run in scripts/ci.sh).
     if event.audience == "devops":
-        return "devops", "audience:devops"
+        if event.disposition == "decision":
+            return "devops", "audience:devops:decision"
+        return "dashboard", "audience:devops:downgraded_untriaged"
     # KAI-1449: approval-lifecycle notice → the #kai-approvals Buzz channel.
     if event.audience == "approvals":
         return "approvals", "audience:approvals"
@@ -485,6 +493,9 @@ def notify(event: Event) -> NotifyResult:
 
     # 2. Decide destination.
     dest, reason = _route(event)
+    if reason == "audience:devops:downgraded_untriaged":
+        log.warning("KAI-1489: downgraded un-triaged devops page to dashboard (Leo untouched): "
+                    "%s/%s %r", event.source, event.kind, (event.title or "")[:80])
 
     # 3. Dedup — a standing condition notifies once, not every cycle.
     if dest == "telegram" and _dedup_seen(event.dedup_key):

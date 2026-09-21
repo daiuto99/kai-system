@@ -164,7 +164,8 @@ def _page(container: str, count: int, sample: str, sig: str, dry_run: bool) -> s
             kind="alert",
             title=title,
             body=body,
-            audience="devops",
+            audience="dashboard",  # KAI-1489: DevOps activity log, never Leo. A genuinely
+                                   # stuck fault is surfaced by the ownership spine, not here.
             actionable=True,
             provenance="real",
             dedup_key=f"buzz_error:{sig}:{bucket}",
@@ -186,20 +187,31 @@ def main(argv: list[str]) -> int:
             else:
                 all_sigs[sig] = info
 
+    prior = _load_prior()
+    prior_keys = set(prior.get("error_signature_keys") or [])
+
+    # KAI-1489 persistence gate: a signature seen only ONCE, in a single run, is almost
+    # always a transient (e.g. a 3s 502 while a container restarts on deploy) — never
+    # worth surfacing. Only route a signature onward when it RECURS: >=2 in-window, or it
+    # was already present in the prior run. Kills deploy/restart blips at the source;
+    # combined with the notify triage-gate, none of this can reach Leo regardless.
     pages = []
     # Most-frequent signatures first; cap per run so a storm cannot flood the channel.
     ordered = sorted(all_sigs.items(), key=lambda kv: kv[1]["count"], reverse=True)
-    for sig, info in ordered[:MAX_SIGNATURES_PER_RUN]:
+    qualifying = [(sig, info) for sig, info in ordered
+                  if info["count"] >= 2 or sig in prior_keys]
+    suppressed_transient = len(ordered) - len(qualifying)
+    for sig, info in qualifying[:MAX_SIGNATURES_PER_RUN]:
         pages.append(_page(info["container"], info["count"], info["sample"], sig, dry_run))
-    dropped = max(0, len(ordered) - MAX_SIGNATURES_PER_RUN)
-
-    prior = _load_prior()
+    dropped = max(0, len(qualifying) - MAX_SIGNATURES_PER_RUN)
     state = {
         "schema": SCHEMA,
         "last_check": _iso(now),
         "error_signatures": len(all_sigs),
         "error_lines_total": sum(i["count"] for i in all_sigs.values()),
         "signatures_dropped": dropped,
+        "suppressed_transient": suppressed_transient,
+        "error_signature_keys": sorted(all_sigs.keys()),
         "last_clean": _iso(now) if not all_sigs else prior.get("last_clean"),
         "dry_run": dry_run,
     }

@@ -158,7 +158,7 @@ def _page(reason: str, heal_detail: str, dry_run: bool) -> str:
             kind="alert",
             title=title,
             body=body,
-            audience="devops",     # -> #devops Buzz channel (infra/system alerts lane)
+            audience="dashboard",  # KAI-1489: auto-heal notice = DevOps activity log, never Leo
             actionable=True,
             provenance="real",
             dedup_key=f"buzz_media_bucket_autoheal:{bucket}",

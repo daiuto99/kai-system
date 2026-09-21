@@ -90,7 +90,12 @@ def gmail_messages(max_results: int = 10, query: str = "is:unread"):
     graceful {emails: [], error} when the direct-Google auth is not yet done."""
     svc = _gmail_service()
     if not svc:
-        return {"emails": [], "error": "gmail not configured (direct-Google auth pending, KAI-1384)"}
+        # Honest say-so (KAI-1484): present-but-unusable token = auth expired/revoked.
+        if GMAIL_CREDS_FILE.exists():
+            return {"emails": [], "feed_status": "auth_failed",
+                    "error": "gmail auth expired or revoked — re-consent needed (GET /gmail/auth-url), KAI-1484"}
+        return {"emails": [], "feed_status": "not_configured",
+                "error": "gmail not configured — no token yet (GET /gmail/auth-url), KAI-1384"}
     try:
         max_results = max(1, min(int(max_results), 25))
         listing = svc.users().messages().list(
