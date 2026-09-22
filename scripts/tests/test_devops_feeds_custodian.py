@@ -1,6 +1,8 @@
-"""KAI-1487 — data-feed custodian decision logic + assess() flagging."""
+"""KAI-1487 — data-feed custodian decision logic + assess() flagging.
+KAI-1488 — tasks-freshness: an all-overdue 'today' bucket is flagged, not silently served."""
 import importlib.util
 import sys
+from datetime import date
 from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location(
@@ -101,3 +103,69 @@ def test_assess_all_healthy_is_silent(monkeypatch):
     monkeypatch.setattr(fc, "fetch_feed", lambda path, **kw: {
         "events": [1], "emails": [1], "today": [1], "readiness": {"score": 1}})
     assert fc.DataFeedsCustodian().assess() == []
+
+
+# ── KAI-1488 tasks freshness ────────────────────────────────────────────────────
+
+_REF = date(2026, 9, 22)
+
+
+def test_tasks_stale_all_overdue():
+    # the exact 2026-09 state: 'today' is a pile of months-overdue tasks
+    resp = {"today": [{"id": "a", "due": "2026-05-01"}, {"id": "b", "due": "2026-05-12"}]}
+    stale, reason = fc.tasks_stale(resp, _REF)
+    assert stale is True and "stale pile" in reason
+
+
+def test_tasks_fresh_when_one_current():
+    # a single current dated task keeps the bucket fresh even amid overdue ones
+    resp = {"today": [{"id": "a", "due": "2026-05-01"}, {"id": "b", "due": "2026-09-22"}]}
+    stale, _ = fc.tasks_stale(resp, _REF)
+    assert stale is False
+
+
+def test_tasks_fresh_when_just_late():
+    # a few days late is not stale (threshold is generous)
+    resp = {"today": [{"id": "a", "due": "2026-09-15"}]}
+    stale, _ = fc.tasks_stale(resp, _REF)
+    assert stale is False
+
+
+def test_tasks_undated_bucket_is_not_stale():
+    # undated tasks can't be judged stale-by-date -> never trips (incl. non-dict items)
+    assert fc.tasks_stale({"today": [{"id": "a"}, 1]}, _REF)[0] is False
+
+
+def test_tasks_empty_today_is_not_stale():
+    assert fc.tasks_stale({"today": []}, _REF)[0] is False
+
+
+def test_tasks_unreachable_is_not_freshness_concern():
+    # None/non-dict is feed_broken's job, not freshness'
+    assert fc.tasks_stale(None, _REF)[0] is False
+
+
+def test_assess_flags_stale_tasks_as_warn_structural(monkeypatch):
+    # every feed reachable & non-empty, but 'today' is all-overdue -> one warn finding
+    def fake_fetch(path, **kw):
+        if path.startswith("/calendar/ics"):
+            return {"events": [1], "errors": []}
+        if path.startswith("/calendar"):
+            return {"events": [1]}
+        if path.startswith("/gmail"):
+            return {"emails": [{"id": "1"}]}
+        if path.startswith("/tasks"):
+            return {"today": [{"id": "t", "due": "2026-05-01"}]}
+        if path.startswith("/oura"):
+            return {"readiness": {"score": 80}}
+        return None
+    monkeypatch.setattr(fc, "fetch_feed", fake_fetch)
+    monkeypatch.setattr(fc, "_today", lambda: _REF)
+    import devops_ownership as do
+    findings = fc.DataFeedsCustodian().assess()
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.check == "tasks_freshness"
+    assert f.severity == "warn"
+    assert f.disposition == do.STRUCTURAL
+    assert f.dedup_key == "feed-stale-tasks"

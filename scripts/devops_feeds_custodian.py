@@ -26,6 +26,7 @@ import os
 import sys
 import urllib.request
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 # devops_ownership (Finding/dispatch spine) lives in shared/ — make this module
@@ -39,6 +40,13 @@ SECRETS = Path(os.environ.get("KAI_SECRETS_DIR", "/home/leo/kai-system/secrets")
 
 # feed_status values (KAI-1484 honest say-so) that mean the feed is NOT serving truth.
 _BAD_FEED_STATUS = frozenset({"auth_failed", "not_configured", "stale", "expired"})
+
+# A "today" task bucket every one of whose dated items is overdue past this many days
+# is a STALE PILE — the feed is reachable and non-empty (so feed_broken() is silent),
+# but it is serving months-old tasks as "today." This is the KAI-1488 gap: freshness,
+# not reachability. Threshold is generous so a genuinely busy-but-current list (a task
+# a few days late) never trips it; only a wholesale-stale bucket does.
+_TASKS_STALE_DAYS = 30
 
 
 @dataclass(frozen=True)
@@ -86,6 +94,12 @@ def fetch_feed(path: str, *, timeout: float = 15.0):
         return None
 
 
+def _today() -> date:
+    """Impure 'today' boundary — injected into the pure freshness classifier so tests
+    pin a fixed reference date."""
+    return date.today()
+
+
 # ── pure classification (unit-tested) ──────────────────────────────────────────
 
 def feed_broken(resp, feed: "Feed") -> tuple[bool, str]:
@@ -111,6 +125,37 @@ def feed_broken(resp, feed: "Feed") -> tuple[bool, str]:
     return False, ""
 
 
+def tasks_stale(resp, ref_date, *, threshold_days: int = _TASKS_STALE_DAYS) -> tuple[bool, str]:
+    """Pure freshness verdict for the tasks feed. Returns (stale, reason).
+
+    Stale when the 'today' bucket is non-empty AND every *dated* task in it is overdue
+    by more than threshold_days. Undated items (a task with no `due`) are ignored — a
+    bucket that is all undated can't be judged stale-by-date, so it never trips. A bucket
+    with even one current/near-due dated task is fresh. ref_date is a datetime.date (the
+    impure 'today' is injected by the caller so this stays unit-testable).
+    """
+    if not isinstance(resp, dict):
+        return False, ""  # unreachable is feed_broken's job, not freshness'
+    today = resp.get("today") or []
+    ages = []
+    for t in today:
+        if not isinstance(t, dict):
+            continue
+        due = t.get("due")
+        if not due:
+            continue
+        try:
+            ages.append((ref_date - date.fromisoformat(due)).days)
+        except (ValueError, TypeError):
+            continue
+    if not ages:
+        return False, ""
+    if all(a > threshold_days for a in ages):
+        return True, (f"'today' has {len(today)} task(s); all {len(ages)} dated one(s) are "
+                      f"overdue >{threshold_days}d (oldest {max(ages)}d) — a stale pile shown as today")
+    return False, ""
+
+
 def _severity(reason: str) -> str:
     """Unreachable / auth-dead / error => crit; a softer empty/stale case => warn."""
     hard = ("unreachable", "auth_failed", "not_configured", "expired", "error:")
@@ -125,7 +170,8 @@ class DataFeedsCustodian:
         from devops_ownership import Finding, STRUCTURAL
         findings = []
         for feed in FEEDS:
-            broken, reason = feed_broken(fetch_feed(feed.path), feed)
+            resp = fetch_feed(feed.path)
+            broken, reason = feed_broken(resp, feed)
             if broken:
                 findings.append(Finding(
                     domain="feeds", check=feed.name, severity=_severity(reason),
@@ -135,6 +181,22 @@ class DataFeedsCustodian:
                                      f"stale/empty/expired and Leo's morning brief depends on it"),
                     dedup_key=f"feed-broken-{feed.name}",
                     detail={"path": feed.path, "reason": reason}))
+                continue
+            # Freshness overlay: a reachable, non-empty tasks feed can still be lying if
+            # 'today' is a pile of long-overdue tasks. feed_broken() can't see this
+            # (empty_ok=True), so flag it here (KAI-1488). Warn, not crit — the data is
+            # present, it's just stale; the fix is a human reconcile, so STRUCTURAL.
+            if feed.name == "tasks":
+                stale, sreason = tasks_stale(resp, _today())
+                if stale:
+                    findings.append(Finding(
+                        domain="feeds", check="tasks_freshness", severity="warn",
+                        diagnosis=f"tasks feed stale: {sreason}",
+                        disposition=STRUCTURAL,
+                        proposed_action=("reconcile the task backlog — the 'today' list is "
+                                         "entirely long-overdue; cull dead tasks or re-date live ones"),
+                        dedup_key="feed-stale-tasks",
+                        detail={"path": feed.path, "reason": sreason}))
         return findings
 
     def remediate_safe(self, f) -> str:
