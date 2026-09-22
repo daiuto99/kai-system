@@ -58,6 +58,12 @@ def test_oura_populated_is_not_broken():
     assert broken is False
 
 
+def test_errors_list_is_broken():
+    # /calendar/ics reports per-feed failures in an `errors` list, not a scalar `error`
+    broken, reason = fc.feed_broken({"events": [], "errors": ["psu: HTTP 404"]}, CAL)
+    assert broken is True and "errors" in reason
+
+
 def test_severity_hard_vs_soft():
     assert fc._severity("unreachable / no response") == "crit"
     assert fc._severity("feed_status=auth_failed") == "crit"
@@ -67,6 +73,8 @@ def test_severity_hard_vs_soft():
 def test_assess_flags_broken_feeds_as_structural(monkeypatch):
     # calendar dead (error), everything else healthy -> exactly one STRUCTURAL finding
     def fake_fetch(path, **kw):
+        if path.startswith("/calendar/ics"):
+            return {"events": [1], "errors": []}
         if path.startswith("/calendar"):
             return {"events": [], "error": "calendar auth expired", "feed_status": "auth_failed"}
         if path.startswith("/gmail"):

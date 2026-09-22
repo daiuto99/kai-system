@@ -46,6 +46,18 @@ def _save_ics_feeds(feeds: dict):
     ICS_FEEDS_FILE.write_text(json.dumps(feeds, indent=2))
 
 
+def _feed_url(v):
+    """A feed entry is either a bare url string (legacy) or {url, everyday}."""
+    return v["url"] if isinstance(v, dict) else v
+
+
+def _feed_everyday(v) -> bool:
+    """Legacy string entries (and objects without the flag) are EVERYDAY feeds. A
+    reference feed (everyday:false) is queryable on demand but excluded from the
+    everyday aggregate + the morning brief — e.g. Jill's calendar (KAI-1486)."""
+    return bool(v.get("everyday", True)) if isinstance(v, dict) else True
+
+
 def _parse_ics(ics_text: str, days: int = 7) -> list:
     try:
         from icalendar import Calendar
@@ -210,16 +222,27 @@ def gcal_create_event(body: GCalEventCreate):
 
 
 @router.get("/calendar/ics")
-def get_ics_calendars(days: int = 7):
+def get_ics_calendars(days: int = 7, include_reference: bool = False, account: str | None = None):
+    """Aggregate registered ICS calendars. By DEFAULT returns only everyday feeds —
+    a reference feed (everyday:false, e.g. Jill's) is excluded from the daily view and
+    the morning brief, but reachable on demand via include_reference=true or
+    account=<name> so KAI can answer 'does Jill have anything Tuesday?' (KAI-1486)."""
     import httpx as _hx
     feeds = _load_ics_feeds()
     if not feeds:
         return {"events": [], "accounts": [], "note": "No ICS feeds registered. POST /calendar/ics/register to add one."}
     all_events = []
     errors = []
-    for name, url in feeds.items():
+    included = []
+    for name, v in feeds.items():
+        if account is not None:
+            if name.lower() != account.lower():
+                continue
+        elif not include_reference and not _feed_everyday(v):
+            continue  # reference feed — queryable, but not in the everyday view
+        included.append(name)
         try:
-            r = _hx.get(url, timeout=10, follow_redirects=True)
+            r = _hx.get(_feed_url(v), timeout=10, follow_redirects=True)
             if r.status_code == 200:
                 evts = _parse_ics(r.text, days=days)
                 for e in evts:
@@ -231,20 +254,25 @@ def get_ics_calendars(days: int = 7):
             logger.exception("ics fetch %s: %s", name, ex)
             errors.append(f"{name}: {str(ex)}")
     all_events.sort(key=lambda e: e.get("start", ""))
-    return {"events": all_events, "accounts": list(feeds.keys()), "count": len(all_events), "days": days, "errors": errors}
+    scope = ("account:" + account) if account else ("all" if include_reference else "everyday")
+    return {"events": all_events, "accounts": included, "count": len(all_events),
+            "days": days, "scope": scope,
+            "reference": [k for k, fv in feeds.items() if not _feed_everyday(fv)],
+            "errors": errors}
 
 
 class ICSFeedRequest(BaseModel):
     name: str
     url: str
+    everyday: bool = True  # False => reference feed: queryable, excluded from the everyday view
 
 
 @router.post("/calendar/ics/register")
 def register_ics_feed(req: ICSFeedRequest):
     feeds = _load_ics_feeds()
-    feeds[req.name] = req.url
+    feeds[req.name] = {"url": req.url, "everyday": req.everyday}
     _save_ics_feeds(feeds)
-    return {"ok": True, "name": req.name, "registered": len(feeds)}
+    return {"ok": True, "name": req.name, "everyday": req.everyday, "registered": len(feeds)}
 
 
 @router.delete("/calendar/ics/{name}")
@@ -260,4 +288,6 @@ def remove_ics_feed(name: str):
 @router.get("/calendar/ics/feeds")
 def list_ics_feeds():
     feeds = _load_ics_feeds()
-    return {"feeds": list(feeds.keys()), "count": len(feeds)}
+    return {"feeds": list(feeds.keys()), "count": len(feeds),
+            "everyday": [k for k, v in feeds.items() if _feed_everyday(v)],
+            "reference": [k for k, v in feeds.items() if not _feed_everyday(v)]}

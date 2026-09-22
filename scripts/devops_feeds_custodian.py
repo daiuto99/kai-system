@@ -57,6 +57,10 @@ FEEDS = (
     Feed("email",    "/gmail/messages",         "emails",    True),
     Feed("tasks",    "/tasks",                  "today",     True),
     Feed("oura",     "/oura/today",             "readiness", False),
+    # Work + reference calendars ingested credential-free via published ICS URLs
+    # (PSU/Revolt/Family/Jill). include_reference=true so an expired reference link
+    # (e.g. Jill's) is flagged too. A broken feed shows in the response `errors` list.
+    Feed("calendars", "/calendar/ics?days=7&include_reference=true", "events", True),
 )
 
 
@@ -96,6 +100,9 @@ def feed_broken(resp, feed: "Feed") -> tuple[bool, str]:
     fs = resp.get("feed_status")
     if fs in _BAD_FEED_STATUS:
         return True, f"feed_status={fs}"
+    errs = resp.get("errors")  # /calendar/ics dialect: a per-feed fetch failure list
+    if errs:
+        return True, ("feed errors: " + "; ".join(str(e) for e in errs))[:140]
     content = resp.get(feed.content_key)
     if content is None:
         return True, f"missing '{feed.content_key}' in response"
