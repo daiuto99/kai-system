@@ -40,8 +40,13 @@ DEVOPS_QUEUE = os.environ.get("KAI_DEVOPS_QUEUE", "/vault/00_System/devops_queue
 # #devops focused on infra/system alerts only.
 APPROVALS_QUEUE = os.environ.get("KAI_APPROVALS_QUEUE", "/vault/00_System/approvals_notice_queue.jsonl")
 # KAI-1314: the scheduled morning brief lands here (notify gateway, audience="brief")
-# and is DM'd to Leo as a personal digest — DM-only, never a channel post or Telegram.
+# and is posted to its OWN dedicated #briefs channel (Leo 2026-09-23) — never the shared
+# KAI DM line (it clogged the advisor conversation and the DM giftwrap did not render),
+# never Telegram. A morning digest is Leo's alone, on a surface he opens each morning.
 BRIEF_QUEUE = os.environ.get("KAI_BRIEF_QUEUE", "/vault/00_System/brief_queue.jsonl")
+BRIEF_CHAN_FILE = "briefs_channel.txt"
+BRIEF_CHAN_NAME = "briefs"
+BRIEF_CHAN_ABOUT = "Your morning brief — schedule, action items, what is worth knowing. Posted daily."
 # nginx at :3001 strips ONE /council/ prefix, so gate routes (/council/gate/...) need
 # the doubled prefix. The #kai bridge reaches /council/message the same way.
 COUNCIL_BASE  = os.environ.get("BUZZ_COUNCIL_BASE", "http://localhost:3001/council/council")
@@ -267,6 +272,7 @@ async def run():
     pk = ab.load_or_create_key(KEY_FILE)
     cid = ab.get_channel(CHAN_FILE)
     devops_cid = ab.get_channel(DEVOPS_CHAN_FILE)
+    brief_cid = ab.get_channel(BRIEF_CHAN_FILE)
     me = ab.xonly(pk)
     send_lock = asyncio.Lock()
     prompt_map: dict[str, str] = {}   # prompt event id -> gate id (reply binding)
@@ -285,6 +291,13 @@ async def run():
     async def send_devops(text) -> dict:
         """Post a system message to the #devops channel (separate from approvals)."""
         ev = ab.sign_event(pk, 9, [["h", devops_cid]], text)
+        async with send_lock:
+            await ws.send(json.dumps(["EVENT", ev]))
+        return ev
+
+    async def send_brief(text) -> dict:
+        """KAI-1314: post the morning digest to its own #briefs channel (never the KAI DM)."""
+        ev = ab.sign_event(pk, 9, [["h", brief_cid]], text)
         async with send_lock:
             await ws.send(json.dumps(["EVENT", ev]))
         return ev
@@ -480,22 +493,19 @@ async def run():
                 except Exception as e:
                     ab.log("approvals", f"!! approvals notice error: {type(e).__name__}: {e}")
 
-                # KAI-1314: scheduled morning brief → a personal Buzz DM to Leo (never
-                # Telegram, never a channel post). Drained from the notify() gateway
-                # (audience="brief"). DM-only: a morning digest is Leo's alone. Best-effort;
-                # if the DM path is down the record is logged as undelivered, never faked.
+                # KAI-1314: scheduled morning brief → its OWN #briefs channel (Leo
+                # 2026-09-23), never the shared KAI DM line, never Telegram. Drained from
+                # the notify() gateway (audience="brief"). Best-effort; a post failure is
+                # logged as undelivered, never faked.
                 try:
                     brief_recs = await asyncio.to_thread(_drain_brief_queue)
                     for r in brief_recs:
                         body = r.get("text") or r.get("title") or "Morning brief"
-                        if _dm_send:
-                            try:
-                                await _dm_send(body)
-                                ab.log("approvals", f">> morning brief DM sent ({r.get('source','?')})")
-                            except Exception as e:
-                                ab.log("approvals", f"!! brief DM failed: {e}")
-                        else:
-                            ab.log("approvals", "!! brief undelivered — DM push unavailable")
+                        try:
+                            await send_brief(body)
+                            ab.log("approvals", f">> morning brief posted to #briefs ({r.get('source','?')})")
+                        except Exception as e:
+                            ab.log("approvals", f"!! brief post failed: {e}")
                 except Exception as e:
                     ab.log("approvals", f"!! brief drain error: {type(e).__name__}: {e}")
 
