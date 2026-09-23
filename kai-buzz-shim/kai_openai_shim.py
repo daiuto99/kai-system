@@ -15,17 +15,25 @@ Buzz "New Agent -> Buzz Agent -> OpenAI-compatible provider" points here:
   base_url = http://<worker>:4001/v1   model = kai | sky | roads | beats | coach
 Everything stays on Leo's tailnet.
 """
-import os, json, base64, urllib.request, time, re
+import os, json, base64, urllib.request, urllib.error, time, re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:4000/v1/chat/completions")
-LITELLM_KEY = open(os.environ.get("LITELLM_KEY_FILE", "/home/leo/kai-system/secrets/litellm_master_key.txt")).read().strip()
+LITELLM_KEY_FILE = os.environ.get("LITELLM_KEY_FILE", "/home/leo/kai-system/secrets/litellm_master_key.txt")
 COUNCIL_URL = os.environ.get("BUZZ_COUNCIL_URL", "http://localhost:3001/council/message")
 WEB_USER = os.environ.get("BUZZ_WEB_USER", "kai")
-WEB_PW = open(os.environ.get("KAI_WEB_PW_FILE", "/home/leo/kai-system/secrets/kai_web_password.txt")).read().strip()
+KAI_WEB_PW_FILE = os.environ.get("KAI_WEB_PW_FILE", "/home/leo/kai-system/secrets/kai_web_password.txt")
 API_KEY = "buzz-eval"  # the key Buzz Agent config uses (any-string; tailnet-gated anyway)
 
 MODELS = ["kai", "sky", "roads", "beats", "coach"]  # public advisors only; Ember+Doc off Buzz until AR-5.4 egress gate
+
+
+def _read_secret(path):
+    """Read a credential FRESH on every call — never cache at import. The 2026-09-13
+    web-password rotation silently 401'd every Buzz advisor for ~10 days because the
+    password was cached at module load (KAI-1506); reading fresh (the file is a live
+    bind-mount) makes a rotation take effect with no restart. Cheap local read."""
+    return open(path).read().strip()
 
 
 def _last_user(messages):
@@ -38,23 +46,31 @@ def _last_user(messages):
 def call_council(text, channel="kai"):
     body = json.dumps({"channel": channel, "message": text, "user_id": "leo",
                        "trigger_source": "webhook:buzz-agent"}).encode()
-    basic = base64.b64encode(f"{WEB_USER}:{WEB_PW}".encode()).decode()
-    req = urllib.request.Request(COUNCIL_URL, data=body, method="POST",
-        headers={"Authorization": f"Basic {basic}", "Content-Type": "application/json"})
-    # KAI-1182: was 180s. A council STALL let request threads live up to 3 min each and
-    # pile up, a contributing factor in the 2026-08-21 shim wedge (2.5h connection-refused
-    # outage). 90s caps thread lifetime without severing legitimate slow-but-valid replies
-    # (the advisor_dm_probe's own round-trip bound is 90s). Autoheal (buzz_shim_watchdog)
-    # is the primary durability fix; this is defense-in-depth against the pileup trigger.
-    with urllib.request.urlopen(req, timeout=90) as r:
-        return json.loads(r.read()).get("reply", "(no reply)")
+    # Credential read FRESH each attempt + one 401 retry, so a mid-flight password
+    # rotation self-heals instead of 401-looping every advisor reply (KAI-1506).
+    # Timeout 90s (KAI-1182): caps thread lifetime without severing slow-but-valid replies.
+    last = None
+    for attempt in (1, 2):
+        basic = base64.b64encode(f"{WEB_USER}:{_read_secret(KAI_WEB_PW_FILE)}".encode()).decode()
+        req = urllib.request.Request(COUNCIL_URL, data=body, method="POST",
+            headers={"Authorization": f"Basic {basic}", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r:
+                return json.loads(r.read()).get("reply", "(no reply)")
+        except urllib.error.HTTPError as e:
+            last = e
+            if e.code == 401 and attempt == 1:
+                time.sleep(0.5)
+                continue
+            raise
+    raise last
 
 
 def call_ember(messages):
     body = json.dumps({"model": "qwen-mid", "messages": messages,
                        "max_tokens": 600, "temperature": 0.6}).encode()
     req = urllib.request.Request(LITELLM_URL, data=body, method="POST",
-        headers={"Authorization": f"Bearer {LITELLM_KEY}", "Content-Type": "application/json"})
+        headers={"Authorization": f"Bearer {_read_secret(LITELLM_KEY_FILE)}", "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=120) as r:
         return json.loads(r.read())["choices"][0]["message"]["content"].strip()
 

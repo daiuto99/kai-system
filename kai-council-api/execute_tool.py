@@ -19,6 +19,15 @@ PLANE_BASE_URL = "http://plane-proxy:8090/api/v1"
 PLANE_WORKSPACE = "sonicink"
 
 
+def _plane_token():
+    """Read the Plane API token FRESH per call — never cache at import (KAI-1506:
+    a rotated credential must take effect without a service restart)."""
+    try:
+        return open("/run/secrets/plane_api_token").read().strip().split("\n")[0]
+    except Exception:
+        return PLANE_API_TOKEN
+
+
 def _capability_auth_headers() -> dict[str, str]:
     """Attach the dedicated router credential; an absent file fails closed."""
     try:
@@ -1181,7 +1190,7 @@ def _h_web_search(client, tool_name, ti, advisor):
 
 
 def _h_plane(client, tool_name, ti, advisor):
-    headers_base = {"X-API-Key": PLANE_API_TOKEN}
+    headers_base = {"X-API-Key": _plane_token()}
     if tool_name == "get_plane_issues":
         project_id = ti.get("project_id", "")
         issue_id = ti.get("issue_id", "")

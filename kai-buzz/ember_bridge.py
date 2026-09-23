@@ -21,6 +21,14 @@ CONNECT_URL = os.environ.get("CONNECT_URL", os.environ.get("RELAY_URL", "ws://12
 RELAY_TAG = os.environ.get("RELAY_TAG", "wss://kai-worker.tail7f43c5.ts.net")
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:4000/v1/chat/completions")
 LITELLM_KEY = open(os.path.expanduser(os.environ.get("LITELLM_KEY_FILE", "~/kai-system/secrets/litellm_master_key.txt"))).read().strip()
+
+
+def _litellm_key():
+    """Read the litellm master key fresh per call — never cache at import (KAI-1506)."""
+    try:
+        return open(os.path.expanduser(os.environ.get("LITELLM_KEY_FILE", "~/kai-system/secrets/litellm_master_key.txt"))).read().strip()
+    except Exception:
+        return LITELLM_KEY
 MODEL = os.environ.get("EMBER_MODEL", "qwen-mid")
 CHANNEL_NAME = "ember-lab"
 
@@ -107,7 +115,7 @@ def call_litellm(user_text):
     }).encode()
     req = urllib.request.Request(
         LITELLM_URL, data=body,
-        headers={"Authorization": f"Bearer {LITELLM_KEY}", "Content-Type": "application/json"},
+        headers={"Authorization": f"Bearer {_litellm_key()}", "Content-Type": "application/json"},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=90) as r:

@@ -34,7 +34,7 @@ class GreenBaselineTests(unittest.TestCase):
             [
                 "services_up", "session_brief", "worker_auth_fail_closed",
                 "plane_reachable", "qdrant_up", "protected_resources", "litellm_models",
-                "qwen_mid_route_and_fallback", "buzz_shim_backend", "buzz_approvals_auth", "secret_permissions",
+                "qwen_mid_route_and_fallback", "buzz_shim_backend", "buzz_approvals_auth", "buzz_shim_answers", "secret_permissions",
                 "credential_registry", "jobs_secret_leak", "source_drift",
                 "deploy_path_commit", "pinned_base",
                 "fleet_visibility", "codex_verifier_auth", "hostops_rail_canary",

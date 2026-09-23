@@ -297,6 +297,38 @@ def check_buzz_approvals_auth() -> str:
     return "Buzz approvals poller authenticates to /api/mode_lock/pending (cards can surface)"
 
 
+def check_buzz_shim_answers() -> str:
+    # KAI-1506: the shim's LIVENESS (/v1/models) stayed green for ~10 days while every
+    # advisor answer 401'd — the shim held the web password cached at import and it was
+    # rotated out from under it. Liveness-only checks AND a fresh-credential auth probe
+    # both missed it (the probe used a fresh cred; the shim used a stale one). This
+    # exercises the ACTUAL answer path once at boot: shim -> /council/message (web
+    # basic-auth) -> LLM -> reply. A stale/broken credential or a dead council surfaces
+    # HERE instead of hiding behind a green endpoint. WARN not RED: one transient LLM
+    # hiccup must not block boot, but a mute advisor must alarm.
+    import json as _json, urllib.request as _r, urllib.error as _e
+    body = _json.dumps({"model": "kai",
+        "messages": [{"role": "user", "content": "health ping - reply OK"}]}).encode()
+    req = _r.Request("http://localhost:4001/v1/chat/completions", data=body,
+                     headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with _r.urlopen(req, timeout=60) as resp:
+            reply = _json.loads(resp.read())["choices"][0]["message"]["content"] or ""
+    except _e.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode()[:120]
+        except Exception:
+            pass
+        return (f"WARN Buzz advisor answer path DOWN - shim /v1/chat/completions[kai] = HTTP {exc.code} {detail}; "
+                f"advisors emit only error cards (check web credential + council) [KAI-1506]")
+    except Exception as exc:
+        return (f"WARN Buzz advisor answer path unreachable - {type(exc).__name__}; advisors may be mute [KAI-1506]")
+    if not reply.strip() or "backend error" in reply.lower():
+        return "WARN Buzz advisor answered with an error envelope, not a real reply [KAI-1506]"
+    return "Buzz advisor answer path verified end-to-end (shim -> council -> reply)"
+
+
 def check_codex_verifier_auth() -> str:
     """KAI-1159 — Codex is the cross-provider verifier (Claude builds / Codex
     verifies). Its "Sign in with ChatGPT" OAuth token is single-use-refresh and
@@ -1608,6 +1640,7 @@ def checks() -> tuple[Check, ...]:
         Check("qwen_mid_route_and_fallback", check_qwen_route_contract),
         Check("buzz_shim_backend", check_buzz_shim),
         Check("buzz_approvals_auth", check_buzz_approvals_auth),
+        Check("buzz_shim_answers", check_buzz_shim_answers),
         Check("secret_permissions", check_secret_permissions),
         Check("credential_registry", check_credential_registry),
         Check("jobs_secret_leak", check_jobs_secret_leak),

@@ -50,6 +50,23 @@ COUNCIL_URL = os.environ.get("BUZZ_COUNCIL_URL", "http://localhost:3001/council/
 WEB_USER = os.environ.get("BUZZ_WEB_USER", "kai")
 WEB_PW = open(os.path.expanduser(os.environ.get("KAI_WEB_PW_FILE", "~/kai-system/secrets/kai_web_password.txt"))).read().strip()
 
+
+def litellm_key():
+    """LITELLM master key, read FRESH per call (never cached) so a rotation needs no restart (KAI-1506)."""
+    try:
+        return open(os.path.expanduser(os.environ.get("LITELLM_KEY_FILE", "~/kai-system/secrets/litellm_master_key.txt"))).read().strip()
+    except Exception:
+        return LITELLM_KEY
+
+
+def web_pw():
+    """Web basic-auth password, read FRESH per call (never cached). A cached-at-import copy
+    silently 401'd advisors for ~10 days after the 2026-09-13 rotation (KAI-1506)."""
+    try:
+        return open(os.path.expanduser(os.environ.get("KAI_WEB_PW_FILE", "~/kai-system/secrets/kai_web_password.txt"))).read().strip()
+    except Exception:
+        return WEB_PW
+
 # KAI-1020: transient-failure retry. The live 401 recovered on the very next turn, so a
 # short bounded backoff fully masks the nginx-injected-worker-auth hiccup without ever
 # dropping the turn or speaking the raw error.
@@ -259,7 +276,7 @@ def call_litellm(model, system, text):
         {"role": "system", "content": system}, {"role": "user", "content": text}],
         "max_tokens": 500, "temperature": 0.6}).encode()
     req = urllib.request.Request(LITELLM_URL, data=body, method="POST",
-        headers={"Authorization": f"Bearer {LITELLM_KEY}", "Content-Type": "application/json"})
+        headers={"Authorization": f"Bearer {litellm_key()}", "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=120) as r:
         return json.loads(r.read())["choices"][0]["message"]["content"].strip()
 
@@ -276,11 +293,13 @@ def call_council(council_channel, text, thread_ts=""):
     body = json.dumps({"channel": council_channel, "message": text,
                        "user_id": "leo", "thread_ts": thread_ts,
                        "trigger_source": "webhook:buzz-eval"}).encode()
-    basic = base64.b64encode(f"{WEB_USER}:{WEB_PW}".encode()).decode()
     attempts = len(RETRY_BACKOFF) + 1
     last = None
     for i in range(attempts):
         try:
+            # Credential read FRESH each attempt so a 401-retry recovers from a mid-flight
+            # password rotation instead of resending the stale one (KAI-1506).
+            basic = base64.b64encode(f"{WEB_USER}:{web_pw()}".encode()).decode()
             req = urllib.request.Request(COUNCIL_URL, data=body, method="POST",
                 headers={"Authorization": f"Basic {basic}", "Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=180) as r:
