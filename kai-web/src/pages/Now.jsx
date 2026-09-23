@@ -4,11 +4,13 @@
 // is autonomous and escalates via Buzz (project_dashboard_is_life_assistant).
 // Layout (responsive): greeting · Talk-to-KAI · Digest (full width, top) ·
 // then Today (Schedule=today+tomorrow · Priorities) and Inbox side-by-side on
-// desktop, stacked on phone. Every section is fail-soft (a dead fetch renders
-// nothing, never an error wall) and self-hides when empty.
+// desktop, stacked on phone. TRUST (Stage-2 exit — KAI-1314 sibling): a section
+// distinguishes a DOWN feed (flagged, never shown as "clear") from a genuinely
+// empty one. A dead fetch is surfaced, never fabricated as an empty day — a
+// brief you cannot trust is worse than no brief. Never an error wall.
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, AlertTriangle } from 'lucide-react'
 import { api } from '../lib/api'
 import ProactiveDigest from '../components/ProactiveDigest'
 
@@ -85,6 +87,27 @@ function SubLabel({ children }) {
   )
 }
 
+// ── FlaggedFeed — a DOWN feed is shown, never silently collapsed to "empty".
+// This is the Stage-2 "trustworthy" property: Leo must be able to tell an
+// actually-clear day from a feed that failed to answer.
+function FlaggedFeed({ children }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8, padding: '12px 8px',
+      fontSize: 12.5, color: '#b45309', fontFamily: MONO,
+      borderBottom: '1px solid var(--border)',
+    }}>
+      <AlertTriangle size={14} strokeWidth={2} style={{ flexShrink: 0 }} />
+      <span>{children}</span>
+    </div>
+  )
+}
+
+// a genuinely-empty (but healthy) feed says so plainly — distinct from a flag
+function Muted({ children }) {
+  return <div style={{ padding: '12px 8px', fontSize: 13, color: 'var(--text-tertiary)' }}>{children}</div>
+}
+
 // ── Talk-to-KAI — 1:1 planning line; hands off to the live KAI conversation ───
 function TalkToKai() {
   const [text, setText] = useState('')
@@ -130,11 +153,13 @@ function TalkToKai() {
 
 // ── Today — Schedule (today + tomorrow only) + Priorities (focus tasks) ───────
 function Today() {
-  const [events, setEvents] = useState(null)
+  const [events, setEvents] = useState(null)   // null = still loading
   const [focus, setFocus] = useState(null)
+  const [evDown, setEvDown] = useState(false)   // fetch rejected → feed is DOWN, not empty
+  const [focusDown, setFocusDown] = useState(false)
   useEffect(() => {
-    api.get('/calendar/events').then((d) => setEvents(d.events || [])).catch(() => setEvents([]))
-    api.getFocusBrief().then((d) => setFocus((d.top3 || []).concat(d.next5 || []))).catch(() => setFocus([]))
+    api.get('/calendar/events').then((d) => setEvents(d.events || [])).catch(() => { setEvents([]); setEvDown(true) })
+    api.getFocusBrief().then((d) => setFocus((d.top3 || []).concat(d.next5 || []))).catch(() => { setFocus([]); setFocusDown(true) })
   }, [])
   const now = new Date()
   const todayStr = localDateStr(now)
@@ -146,7 +171,11 @@ function Today() {
   }
   const evs = (events || []).filter(inWindow).slice(0, 6)
   const tasks = (focus || []).slice(0, 5)
-  if (evs.length === 0 && tasks.length === 0) {
+  // still loading both feeds → render nothing yet (avoid a flash of "clear runway")
+  if (events === null && focus === null) return null
+  // "Clear runway" is only honest when BOTH feeds are UP and genuinely empty.
+  const bothClearAndHealthy = !evDown && !focusDown && evs.length === 0 && tasks.length === 0
+  if (bothClearAndHealthy) {
     return (
       <Section label="Today">
         <div style={{ padding: '14px 8px', fontSize: 13.5, color: 'var(--text-tertiary)' }}>
@@ -157,29 +186,37 @@ function Today() {
   }
   return (
     <Section label="Today">
-      {evs.length > 0 && (
-        <div>
-          <SubLabel>Schedule</SubLabel>
-          {evs.map((e, i) => (
+      <div>
+        <SubLabel>Schedule</SubLabel>
+        {evDown ? (
+          <FlaggedFeed>Calendar feed didn’t respond — schedule unavailable, not empty.</FlaggedFeed>
+        ) : evs.length > 0 ? (
+          evs.map((e, i) => (
             <Row key={e.id || i}>
               <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: MONO, flexShrink: 0, minWidth: 132 }}>{eventWhen(e.start, todayStr, tomStr)}</span>
               <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title || '(no title)'}</span>
             </Row>
-          ))}
-        </div>
-      )}
-      {tasks.length > 0 && (
-        <div>
-          <SubLabel>Priorities</SubLabel>
-          {tasks.map((t, i) => (
+          ))
+        ) : (
+          <Muted>Nothing on the calendar today or tomorrow.</Muted>
+        )}
+      </div>
+      <div>
+        <SubLabel>Priorities</SubLabel>
+        {focusDown ? (
+          <FlaggedFeed>Task feed didn’t respond — priorities unavailable, not empty.</FlaggedFeed>
+        ) : tasks.length > 0 ? (
+          tasks.map((t, i) => (
             <Row key={t.id || `t${i}`}>
               <span style={{ fontSize: 12, color: 'var(--accent)', fontFamily: MONO, flexShrink: 0, minWidth: 22, fontWeight: 600 }}>{String(i + 1).padStart(2, '0')}</span>
               <span style={{ fontSize: 14, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.content}</span>
               {t.due && <span style={{ fontSize: 11.5, fontFamily: MONO, color: t.due <= todayStr ? 'var(--accent)' : 'var(--text-tertiary)', flexShrink: 0 }}>{t.due <= todayStr ? 'due' : t.due.slice(5)}</span>}
             </Row>
-          ))}
-        </div>
-      )}
+          ))
+        ) : (
+          <Muted>No priorities queued.</Muted>
+        )}
+      </div>
     </Section>
   )
 }
@@ -187,9 +224,18 @@ function Today() {
 // ── Inbox — deliverables KAI produced + surfaced items awaiting Leo ───────────
 function Inbox() {
   const [items, setItems] = useState(null)
+  const [down, setDown] = useState(false)
   useEffect(() => {
-    api.get('/inbox/pending').then((d) => setItems(d.pending || [])).catch(() => setItems([]))
+    api.get('/inbox/pending').then((d) => setItems(d.pending || [])).catch(() => { setItems([]); setDown(true) })
   }, [])
+  // DOWN feed is flagged (never silently hidden); a genuinely-empty inbox self-hides.
+  if (down) {
+    return (
+      <Section label="Inbox">
+        <FlaggedFeed>Inbox feed didn’t respond — items may be waiting.</FlaggedFeed>
+      </Section>
+    )
+  }
   const list = (items || []).slice(0, 6)
   if (list.length === 0) return null
   return (
