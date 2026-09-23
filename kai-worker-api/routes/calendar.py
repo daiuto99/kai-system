@@ -131,10 +131,16 @@ def gcal_auth_url():
             raise HTTPException(400, "google_calendar_client.json not found in vault")
         flow = Flow.from_client_secrets_file(
             str(GCAL_CLIENT_FILE), scopes=GCAL_SCOPES,
-            redirect_uri="urn:ietf:wg:oauth:2.0:oob"
+            redirect_uri="http://localhost"
         )
         auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
-        return {"auth_url": auth_url}
+        # Loopback grant (KAI-1499): Google killed OOB. Open auth_url, approve,
+        # then copy the ?code=... value from the http://localhost/ redirect the
+        # browser fails to load and POST it to the matching /auth-code endpoint.
+        return {"auth_url": auth_url,
+                "instructions": "Open auth_url and approve. The browser will fail "
+                                "to load a http://localhost/ page — copy the code= value "
+                                "from its address bar and POST it to the auth-code endpoint."}
     except Exception as e:
         logger.exception("gcal auth url: %s", e)
         raise HTTPException(500, str(e))
@@ -152,7 +158,7 @@ def gcal_auth_code(req: GCalCodeRequest):
             raise HTTPException(400, "google_calendar_client.json not found in vault")
         flow = Flow.from_client_secrets_file(
             str(GCAL_CLIENT_FILE), scopes=GCAL_SCOPES,
-            redirect_uri="urn:ietf:wg:oauth:2.0:oob"
+            redirect_uri="http://localhost"
         )
         flow.fetch_token(code=req.code)
         creds = flow.credentials

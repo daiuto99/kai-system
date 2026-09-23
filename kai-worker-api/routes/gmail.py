@@ -6,7 +6,7 @@ from config import VAULT_PATH
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Direct-Gmail read-only path (KAI-1384). Mirrors routes/calendar.py: same OOB
+# Direct-Gmail read-only path (KAI-1384). Mirrors routes/calendar.py: same loopback
 # OAuth flow, same Google OAuth app (reuses google_calendar_client.json), token
 # stored separately with the gmail.readonly scope. n8n Gmail path retired.
 GMAIL_CREDS_FILE  = VAULT_PATH / "00_System" / "google_gmail_token.json"
@@ -40,10 +40,16 @@ def gmail_auth_url():
             raise HTTPException(400, "google_calendar_client.json not found in vault")
         flow = Flow.from_client_secrets_file(
             str(GMAIL_CLIENT_FILE), scopes=GMAIL_SCOPES,
-            redirect_uri="urn:ietf:wg:oauth:2.0:oob"
+            redirect_uri="http://localhost"
         )
         auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
-        return {"auth_url": auth_url}
+        # Loopback grant (KAI-1499): Google killed OOB. Open auth_url, approve,
+        # then copy the ?code=... value from the http://localhost/ redirect the
+        # browser fails to load and POST it to the matching /auth-code endpoint.
+        return {"auth_url": auth_url,
+                "instructions": "Open auth_url and approve. The browser will fail "
+                                "to load a http://localhost/ page — copy the code= value "
+                                "from its address bar and POST it to the auth-code endpoint."}
     except HTTPException:
         raise
     except Exception as e:
@@ -63,7 +69,7 @@ def gmail_auth_code(req: GmailCodeRequest):
             raise HTTPException(400, "google_calendar_client.json not found in vault")
         flow = Flow.from_client_secrets_file(
             str(GMAIL_CLIENT_FILE), scopes=GMAIL_SCOPES,
-            redirect_uri="urn:ietf:wg:oauth:2.0:oob"
+            redirect_uri="http://localhost"
         )
         flow.fetch_token(code=req.code)
         creds = flow.credentials
