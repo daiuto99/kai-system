@@ -39,6 +39,9 @@ DEVOPS_QUEUE = os.environ.get("KAI_DEVOPS_QUEUE", "/vault/00_System/devops_queue
 # notify() gateway (audience="approvals") -> APPROVALS_QUEUE, drained below. Keeps
 # #devops focused on infra/system alerts only.
 APPROVALS_QUEUE = os.environ.get("KAI_APPROVALS_QUEUE", "/vault/00_System/approvals_notice_queue.jsonl")
+# KAI-1314: the scheduled morning brief lands here (notify gateway, audience="brief")
+# and is DM'd to Leo as a personal digest — DM-only, never a channel post or Telegram.
+BRIEF_QUEUE = os.environ.get("KAI_BRIEF_QUEUE", "/vault/00_System/brief_queue.jsonl")
 # nginx at :3001 strips ONE /council/ prefix, so gate routes (/council/gate/...) need
 # the doubled prefix. The #kai bridge reaches /council/message the same way.
 COUNCIL_BASE  = os.environ.get("BUZZ_COUNCIL_BASE", "http://localhost:3001/council/council")
@@ -254,6 +257,10 @@ def _drain_devops_queue() -> list:
 
 def _drain_approvals_queue() -> list:
     return _drain_queue(APPROVALS_QUEUE, "approvals")
+
+
+def _drain_brief_queue() -> list:
+    return _drain_queue(BRIEF_QUEUE, "brief")
 
 
 async def run():
@@ -472,6 +479,25 @@ async def run():
                         ab.log("approvals", f">> approvals notice posted ({r.get('source','?')})")
                 except Exception as e:
                     ab.log("approvals", f"!! approvals notice error: {type(e).__name__}: {e}")
+
+                # KAI-1314: scheduled morning brief → a personal Buzz DM to Leo (never
+                # Telegram, never a channel post). Drained from the notify() gateway
+                # (audience="brief"). DM-only: a morning digest is Leo's alone. Best-effort;
+                # if the DM path is down the record is logged as undelivered, never faked.
+                try:
+                    brief_recs = await asyncio.to_thread(_drain_brief_queue)
+                    for r in brief_recs:
+                        body = r.get("text") or r.get("title") or "Morning brief"
+                        if _dm_send:
+                            try:
+                                await _dm_send(body)
+                                ab.log("approvals", f">> morning brief DM sent ({r.get('source','?')})")
+                            except Exception as e:
+                                ab.log("approvals", f"!! brief DM failed: {e}")
+                        else:
+                            ab.log("approvals", "!! brief undelivered — DM push unavailable")
+                except Exception as e:
+                    ab.log("approvals", f"!! brief drain error: {type(e).__name__}: {e}")
 
                 # Push surface (bug 5de64f3f): a channel card doesn't notify, so whenever a
                 # card was posted or re-nudged this cycle, DM Leo one pointer with the TOTAL

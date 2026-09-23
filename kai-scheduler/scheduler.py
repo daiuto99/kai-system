@@ -729,6 +729,81 @@ def _file_wp_security_bug(finding: dict) -> str:
         return ""
 
 
+def _compose_daily_brief() -> str:
+    """KAI-1314: compose the morning brief from the SAME live Stage-1 feeds the
+    dashboard /now page reads (focus priorities + calendar + inbox). Read-only.
+    A feed that fails to answer is FLAGGED in the text (never fabricated as an empty
+    day) — the /now trustworthiness contract carried to the push surface."""
+    now = datetime.now(_leo_timezone())
+    lines = ["\u2600\ufe0f Morning brief \u2014 " + now.strftime("%A, %b %d"), ""]
+
+    lines.append("\U0001f4c5 Schedule")
+    try:
+        r = httpx.get(f"{WORKER_API}/calendar/events", params={"days": 2},
+                      auth=worker_auth(), timeout=15)
+        r.raise_for_status()
+        cal = r.json()
+        if cal.get("feed_status") in ("auth_failed", "not_configured"):
+            lines.append("  \u26a0 Calendar feed didn\u2019t respond \u2014 schedule unavailable, not empty.")
+        else:
+            evs = cal.get("events", [])[:6]
+            if not evs:
+                lines.append("  \u2014 Nothing scheduled.")
+            for e in evs:
+                start = str(e.get("start", ""))
+                when = start[11:16] if (len(start) >= 16 and "T" in start) else "all-day"
+                lines.append("  \u2022 " + when + "  " + str(e.get("title", "(no title)")))
+    except Exception:
+        lines.append("  \u26a0 Calendar feed didn\u2019t respond \u2014 schedule unavailable, not empty.")
+
+    lines.append("")
+    lines.append("\u2705 Priorities")
+    try:
+        r = httpx.get(f"{WORKER_API}/focus/today", auth=worker_auth(), timeout=15)
+        r.raise_for_status()
+        f = r.json()
+        if f.get("error"):
+            lines.append("  \u26a0 Task feed didn\u2019t respond \u2014 priorities unavailable, not empty.")
+        else:
+            top = (f.get("top3") or []) + (f.get("next5") or [])
+            if not top:
+                lines.append("  \u2014 No priorities flagged.")
+            for i, t in enumerate(top[:5], 1):
+                lines.append("  " + str(i) + ". " + str(t.get("content", "")))
+    except Exception:
+        lines.append("  \u26a0 Task feed didn\u2019t respond \u2014 priorities unavailable, not empty.")
+
+    lines.append("")
+    lines.append("\U0001f4e5 Inbox")
+    try:
+        r = httpx.get(f"{WORKER_API}/inbox/pending", auth=worker_auth(), timeout=15)
+        r.raise_for_status()
+        n = int(r.json().get("count", 0))
+        lines.append(("  " + str(n) + " item(s) waiting for routing.") if n else "  \u2014 Inbox clear.")
+    except Exception:
+        lines.append("  \u26a0 Inbox feed didn\u2019t respond \u2014 items may be waiting.")
+
+    return "\n".join(lines)
+
+
+def _daily_brief_job():
+    """KAI-1314: scheduled morning digest. Composes the brief from the live feeds and
+    delivers it to Leo as a personal Buzz DM via the notify() gateway
+    (audience='brief' -> brief_queue -> kai-buzz poller). Never emergency-only Telegram."""
+    try:
+        text = _compose_daily_brief()
+    except Exception as e:
+        log.error("daily_brief: compose failed: %s", e)
+        return
+    try:
+        from notify_gateway import notify, Event
+        res = notify(Event(source="daily_brief", kind="brief", title="",
+                           body=text, audience="brief", provenance="real"))
+        log.info("daily_brief: delivered=%s dest=%s", res.delivered, res.destination)
+    except Exception as e:
+        log.error("daily_brief: delivery failed: %s", e)
+
+
 def main():
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
@@ -842,7 +917,12 @@ def main():
             return
         log.info("Timezone changed: %s → %s — rescheduling daily jobs", _scheduled_tz[0], new_tz)
         _scheduled_tz[0] = new_tz
-        # no daily cron jobs to reschedule
+        try:
+            sched.reschedule_job("daily_brief",
+                                 trigger=CronTrigger(hour=6, minute=30, timezone=new_tz))
+            log.info("daily_brief rescheduled to 06:30 %s", new_tz)
+        except Exception as e:
+            log.error("daily_brief reschedule failed: %s", e)
 
 
     def _weekly_learning_cron():
@@ -897,9 +977,11 @@ def main():
 
     sched = BackgroundScheduler(timezone=tz)
 
-    # Daily brief jobs — CronTrigger in Leo's local timezone
-    # BRIEFS PAUSED 2026-05-19 — re-enable when Leo directs
-    # morning_checkin, evening_checkin, worker_health_check removed — watchdog covers alerting
+    # Daily brief — KAI-1314: scheduled morning digest at 06:30 Leo-local, composed from
+    # the live Stage-1 feeds and DM'd to Leo on Buzz (never emergency-only Telegram).
+    # Re-enabled 2026-09-23 (was BRIEFS PAUSED 2026-05-19). Rescheduled on tz change above.
+    sched.add_job(_daily_brief_job, CronTrigger(hour=6, minute=30, timezone=tz),
+                  id="daily_brief", coalesce=True, max_instances=1)
 
     # Periodic jobs
     sched.add_job(_watchdog_job,                         IntervalTrigger(minutes=30), id="watchdog",   coalesce=True, max_instances=1)

@@ -68,6 +68,9 @@ _DEVOPS_QUEUE = Path(os.environ.get("KAI_DEVOPS_QUEUE", "/vault/00_System/devops
 # tapped — via audience="approvals", drained by the kai-buzz poller. This keeps
 # #devops in its lane (infra/system alerts) and reports approvals where he acted.
 _APPROVALS_QUEUE = Path(os.environ.get("KAI_APPROVALS_QUEUE", "/vault/00_System/approvals_notice_queue.jsonl"))
+# KAI-1314: the scheduled morning brief (audience="brief") routes to a personal Buzz
+# DM to Leo — NEVER emergency-only Telegram. The kai-buzz poller drains this queue.
+_BRIEF_QUEUE = Path(os.environ.get("KAI_BRIEF_QUEUE", "/vault/00_System/brief_queue.jsonl"))
 
 # The only audiences permitted to reach Leo's Telegram (Rule B). Telegram is now
 # break-glass only; actionable ops → "devops" (Buzz), never Leo's phone.
@@ -398,6 +401,9 @@ def _route(event: Event) -> tuple[str, str]:
     # KAI-1449: approval-lifecycle notice → the #kai-approvals Buzz channel.
     if event.audience == "approvals":
         return "approvals", "audience:approvals"
+    # KAI-1314: the scheduled morning brief → a personal Buzz DM to Leo (never Telegram).
+    if event.audience == "brief":
+        return "brief", "audience:brief"
     # Audience-based routing (Rule B): only approval / personal-consequence reach Leo.
     if event.audience in _LEO_AUDIENCES:
         return "telegram", f"audience:{event.audience}"
@@ -443,6 +449,28 @@ def _approvals_enqueue(event: Event) -> bool:
         return True
     except Exception as e:
         log.error("approvals enqueue failed (%s) — falling back to dashboard", type(e).__name__)
+        return False
+
+
+def _brief_enqueue(event: Event) -> bool:
+    """KAI-1314: append the composed morning brief to the queue the kai-buzz poller
+    drains to Leo as a personal NIP-17 DM (never Telegram). Same atomic-append
+    contract as the devops/approvals queues; best-effort — a write failure falls
+    back to the dashboard log so a missed morning is visible, never fabricated."""
+    try:
+        _BRIEF_QUEUE.parent.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "source": event.source,
+            "kind": event.kind,
+            "title": event.title,
+            "text": _format(event),
+        }
+        with open(_BRIEF_QUEUE, "a") as fh:
+            fh.write(json.dumps(rec) + "\n")
+        return True
+    except Exception as e:
+        log.error("brief enqueue failed (%s) — falling back to dashboard", type(e).__name__)
         return False
 
 
@@ -522,6 +550,12 @@ def notify(event: Event) -> NotifyResult:
         # KAI-1449: enqueue for the #kai-approvals Buzz channel; fall back to dashboard.
         if _approvals_enqueue(event):
             res = NotifyResult("delivered", "approvals", True, reason)
+        else:
+            res = NotifyResult("dashboard_only", "dashboard", False, f"{reason}:enqueue_failed")
+    elif dest == "brief":
+        # KAI-1314: enqueue the morning brief for a personal Buzz DM; fall back to dashboard.
+        if _brief_enqueue(event):
+            res = NotifyResult("delivered", "brief", True, reason)
         else:
             res = NotifyResult("dashboard_only", "dashboard", False, f"{reason}:enqueue_failed")
     else:
