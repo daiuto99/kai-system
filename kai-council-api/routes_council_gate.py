@@ -1238,7 +1238,7 @@ def _gate_review_llm(persona_advisor: str, message: str, trigger: str) -> str:
 
 def _gate_review_cloud(persona_advisor: str, system: str, messages: list, trigger: str) -> str:
     """Pinned cloud reviewer. Raises on a no/over-budget verdict so the caller falls back."""
-    from router import _run_agentic_loop
+    from router import _run_agentic_loop, OVER_BUDGET_REPLY
     reply, in_tok, out_tok, cr_tok, cc_tok = _run_agentic_loop(
         messages, [], _GATE_REVIEW_MODEL, system, persona_advisor,
         turn_token_budget=_GATE_REVIEW_TOKEN_BUDGET,
@@ -1250,7 +1250,7 @@ def _gate_review_cloud(persona_advisor: str, system: str, messages: list, trigge
                      cache_creation_tokens=cc_tok)
     except Exception as exc:
         logger.warning("gate review usage tracking failed: %s", exc)
-    if not reply.strip() or reply.startswith("over_budget:"):
+    if not reply.strip() or reply.strip() == OVER_BUDGET_REPLY.strip() or reply.startswith("over_budget:"):
         raise ReviewerUnavailable(f"{persona_advisor} cloud gate review returned no verdict")
     return reply
 
@@ -1261,6 +1261,7 @@ def _gate_review_local(persona_advisor: str, system: str, messages: list, trigge
     still reads the model's VERDICT: header while the audit shows the review came from
     the local reviewer rather than the pinned cloud model."""
     from providers import _call_litellm
+    from router import OVER_BUDGET_REPLY
     reply, in_tok, out_tok = _call_litellm(
         _GATE_REVIEW_FALLBACK_MODEL, system, messages, max_tokens=2048,
     )
@@ -1275,7 +1276,7 @@ def _gate_review_local(persona_advisor: str, system: str, messages: list, trigge
     # formats (VERDICT: / APPROVED / ROUTINE) and every auto-approve branch requires a
     # POSITIVE token, so a verdict-less reply can never auto-approve — fail-closed holds
     # downstream via _extract_verdict's logged fallback + the positive-keyword checks.
-    if not reply.strip() or reply.startswith("over_budget:"):
+    if not reply.strip() or reply.strip() == OVER_BUDGET_REPLY.strip() or reply.startswith("over_budget:"):
         raise ReviewerUnavailable(f"{persona_advisor} local gate review returned no verdict")
     _REVIEW_FALLBACK_USED.set(True)  # a fallback verdict may inform, but never auto-approve
     return (
