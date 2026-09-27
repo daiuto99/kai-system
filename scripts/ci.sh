@@ -87,7 +87,8 @@ if docker ps --format '{{.Names}}' | grep -qx 'kai-scheduler'; then
         /app/test_watchdog_dedup.py \
         /app/test_token_redaction.py \
         /app/test_fleet_watchdog.py \
-        /app/test_kai808_telegram_allowlist.py || FAIL=1
+        /app/test_kai808_telegram_allowlist.py \
+        /app/test_council_down_fallback.py || FAIL=1
 else
     echo "  [FAIL] kai-scheduler container not running — cannot exercise watchdog tests"
     FAIL=1

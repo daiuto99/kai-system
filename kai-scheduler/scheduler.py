@@ -272,6 +272,52 @@ def telegram_post(text: str) -> dict:
 
 # ── Telegram Long Polling ──────────────────────────────────────────────────────
 
+def _independent_status_reply() -> str:
+    """Council-independent status for the Telegram fallback (KAI-1513 #4).
+
+    When the advisor council (KAI's brain) is unreachable, Telegram must still
+    give Leo something REAL — not a bare error, and not a second call to the same
+    dead brain. This assembles a status from sources that do NOT touch the
+    council: worker-api read endpoints (the same BasicAuth path /status uses),
+    and if worker-api is also down, a pure read of the invariants result file.
+    No LLM, no council.
+    """
+    try:
+        def _wget(path):
+            return httpx.get(f"{WORKER_API}{path}", timeout=8, auth=worker_auth()).json()
+        h = _wget("/system/health")
+        ops = _wget("/system/ops-state")
+        ml = _wget("/mode_lock/pending")
+        fails = ops.get("failing_invariants") or {}
+        overall = "✅ nominal" if (h.get("ok") and ops.get("ok")) else "⚠️ attention"
+        lines = [f"*Direct status* — {overall}",
+                 f"  • disk {h.get('disk_pct')}% · mem {h.get('mem_pct')}% · load {h.get('load_1m')} · up {h.get('uptime')}",
+                 f"  • backup: {(ops.get('backup') or {}).get('status', '?')}",
+                 f"  • pending approvals: {ml.get('count', 0)}"]
+        if fails:
+            lines.append(f"  ⚠️ {len(fails)} failing invariant(s): " + ", ".join(list(fails.keys())[:3]))
+        for a in (h.get("alerts") or [])[:3]:
+            lines.append(f"  ⚠️ {a}")
+        return "\n".join(lines)
+    except Exception as e:
+        log.error("fallback worker-api status failed: %s", type(e).__name__)
+    try:
+        import json as _j
+        from pathlib import Path as _P
+        d = _j.loads(_P("/vault/00_System/invariants.json").read_text())
+        invs = d.get("invariants") or {}
+        failing = [k for k, v in invs.items() if isinstance(v, dict) and not v.get("pass", True)]
+        head = "✅ all invariants passing" if d.get("all_pass") else f"⚠️ {len(failing)} failing invariant(s)"
+        lines = [f"*Direct status (cached {str(d.get('updated_at', '?'))[:16]})* — {head}"]
+        if failing:
+            lines.append("  • " + ", ".join(failing[:6]))
+        return "\n".join(lines)
+    except Exception as e:
+        log.error("fallback invariants.json read failed: %s", type(e).__name__)
+    return ("Couldn't reach the council *or* the worker health service — core "
+            "services may be restarting. Try /status shortly.")
+
+
 def deliver_council_reply(token, chat_id, advisor, message, username, attachments, send=None):
     """Build the council payload, call the council, and deliver the reply.
 
@@ -300,18 +346,27 @@ def deliver_council_reply(token, chat_id, advisor, message, username, attachment
         reply = resp.json().get("reply", "No response.")
     except httpx.TimeoutException:
         log.error("Council API timeout (Telegram) after %ss", COUNCIL_TIMEOUT_S)
-        reply = (f"⚠️ KAI error — the council did not answer within {COUNCIL_TIMEOUT_S}s. "
-                 "It may still be working; ask again in a minute.")
+        reply = (f"⚠️ KAI's council didn't answer within {COUNCIL_TIMEOUT_S}s — it may be "
+                 f"overloaded or restarting.\n\n{_independent_status_reply()}")
     except httpx.HTTPStatusError as e:
-        log.error("Council API HTTP %s (Telegram)", e.response.status_code)
-        reply = f"⚠️ KAI error — the council API returned HTTP {e.response.status_code}."
+        code = e.response.status_code
+        log.error("Council API HTTP %s (Telegram)", code)
+        if code >= 500:
+            reply = (f"⚠️ KAI's council errored (HTTP {code}) — it may be restarting.\n\n"
+                     f"{_independent_status_reply()}")
+        else:
+            # 4xx is a request problem (e.g. bad channel), not a brain outage —
+            # the independent status wouldn't be relevant here.
+            reply = (f"⚠️ KAI couldn't process that (HTTP {code}). Try rephrasing, "
+                     "or send /status for system state.")
     except httpx.TransportError as e:
         log.error("Council API unreachable (Telegram): %s", type(e).__name__)
-        reply = (f"⚠️ KAI error — the council API is unreachable ({type(e).__name__}); "
-                 "the service may be restarting.")
+        reply = (f"⚠️ KAI's council is unreachable ({type(e).__name__}) — it may be "
+                 f"restarting.\n\n{_independent_status_reply()}")
     except Exception as e:
         log.error("Council API error (Telegram): %s", type(e).__name__)
-        reply = f"⚠️ KAI error — unexpected {type(e).__name__} while contacting the council."
+        reply = (f"⚠️ Unexpected error reaching KAI's council ({type(e).__name__}).\n\n"
+                 f"{_independent_status_reply()}")
     send(token, chat_id, reply)
     return reply
 

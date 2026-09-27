@@ -28,5 +28,6 @@ COPY invariants.py .
 COPY test_watchdog_dedup.py .
 COPY test_fleet_watchdog.py .
 COPY test_kai808_telegram_allowlist.py .
+COPY test_council_down_fallback.py .
 
 CMD ["python", "scheduler.py"]
