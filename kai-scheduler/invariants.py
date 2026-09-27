@@ -443,6 +443,47 @@ def inv_council_api_latency() -> tuple[bool, str]:
         return False, f"latency check error: {e}"
 
 
+def inv_council_answer_quality() -> tuple[bool, str]:
+    """KAI-1513: the council returns a REAL answer, not a raw budget/error stub.
+
+    The 2026-09-27 incident: the agentic loop hit TURN_TOKEN_BUDGET and returned
+    OVER_BUDGET_REPLY (the "this turn's safety limit" jargon) verbatim to Leo for
+    ~12h, and NOTHING caught it — every other check proved only synthetic liveness
+    / HTTP 200, never answer quality. This exercises the SAME council path Leo's
+    DMs use (POST /council/message on the kai channel) with an isolated probe
+    user_id, and asserts the reply is a genuine answer: HTTP 200, non-empty, and
+    free of the known degraded-stub markers.
+    """
+    STUB_MARKERS = ("over_budget", "this turn's safety limit",
+                    "run failed", "kai error")
+    payload = {
+        "channel": "kai",
+        "message": "Health probe: reply with the single word OK.",
+        "user_id": "invariant:answer-quality-probe",
+        "history": [],
+        "trigger_source": "invariant:answer_quality_probe",
+    }
+    t0 = time.monotonic()
+    try:
+        r = httpx.post(f"{COUNCIL_API}/council/message", json=payload,
+                       timeout=90, auth=worker_auth())
+    except httpx.TimeoutException:
+        return False, "council did not answer within 90s (Leo would see a timeout stub)"
+    except Exception as e:
+        return False, f"council unreachable: {type(e).__name__}"
+    ms = int((time.monotonic() - t0) * 1000)
+    if r.status_code != 200:
+        return False, f"HTTP {r.status_code} in {ms}ms"
+    reply = (r.json().get("reply") or "").strip()
+    if not reply:
+        return False, f"empty reply in {ms}ms"
+    low = reply.lower()
+    for m in STUB_MARKERS:
+        if m in low:
+            return False, f"degraded stub ('{m}') not an answer in {ms}ms: {reply[:80]!r}"
+    return True, f"real answer in {ms}ms ({len(reply)} chars)"
+
+
 def inv_execution_registry_freshness() -> tuple[bool, str]:
     """At least one scheduled function ran in the last 90 minutes."""
     STALE_MINUTES = 90
@@ -1443,6 +1484,7 @@ INVARIANTS = [
     ("container_health",              "Container Health",          inv_container_health),
     ("vault_writability",             "Vault Writability",         inv_vault_writability),
     ("council_api_latency",           "Council API Latency",       inv_council_api_latency),
+    ("council_answer_quality",        "Council Answer Quality",    inv_council_answer_quality),
     ("execution_registry_freshness",  "Execution Registry Fresh",  inv_execution_registry_freshness),
     ("cert_expiry",                   "SSL Cert Expiry",           inv_cert_expiry),
     ("backup_integrity",              "Backup Integrity",          inv_backup_integrity),
