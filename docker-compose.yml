@@ -382,6 +382,9 @@ services:
     environment:
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
+      - TS_DEBUG_FIREWALL_MODE=nftables
+      - TS_ACCEPT_DNS=false
+      - TS_EXTRA_ARGS=--advertise-exit-node
       - TS_HOSTNAME=kai-worker
       - TS_AUTHKEY_FILE=/secrets/tailscale_authkey.txt
     restart: unless-stopped
