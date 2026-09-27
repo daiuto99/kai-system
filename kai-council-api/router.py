@@ -82,6 +82,12 @@ MAX_AGENTIC_ITERATIONS = 12
 # raw stub to Leo (2026-09-27 incident). 60k gives normal turns headroom; the
 # 12-iteration cap + per-call max_tokens=2048 remain the hard runaway brakes.
 TURN_TOKEN_BUDGET = 60_000
+# KAI-1513: Buzz/Telegram are Leo's CORE channel — his interactive questions must
+# not hit a token wall that yields a non-answer. The 12-iteration cap above is the
+# real runaway guard; for interactive traffic the token budget is raised out of the
+# way so only a genuine runaway (12 heavy iterations) can trip it. Non-interactive/
+# autonomous traffic keeps the tight 60k brake against background loops.
+INTERACTIVE_TURN_TOKEN_BUDGET = 200_000
 # KAI-1513: graceful, jargon-free degraded reply. No "over_budget:"/"safety
 # limit" leaking to Leo. The answer-quality invariant keys on positive expected
 # content (the probe's "OK"), not this wording, so this stays free to reword.
@@ -636,6 +642,7 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
             raw_reply, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens = _run_agentic_loop(
                 messages, tools, model, system_prompt, advisor, cache_breakpoint_chars=_cache_breakpoint_chars,
                 active_project=req.project, active_task_id=req.task_id,
+                turn_token_budget=(INTERACTIVE_TURN_TOKEN_BUDGET if _traffic_type == "interactive" else TURN_TOKEN_BUDGET),
             )
 
         elif provider == "ollama":
