@@ -454,8 +454,12 @@ def inv_council_answer_quality() -> tuple[bool, str]:
     user_id, and asserts the reply is a genuine answer: HTTP 200, non-empty, and
     free of the known degraded-stub markers.
     """
-    STUB_MARKERS = ("over_budget", "this turn's safety limit",
-                    "run failed", "kai error")
+    # KAI-1513: assert POSITIVE expected content (the probe's "OK") — robust to
+    # any rewording of degraded replies — plus explicit degraded-marker matches
+    # for a clearer failure message.
+    DEGRADED = ("couldn't finish that one", "run failed", "kai error",
+                "did not answer within", "unreachable", "over_budget",
+                "this turn's safety limit")
     payload = {
         "channel": "kai",
         "message": "Health probe: reply with the single word OK.",
@@ -478,9 +482,11 @@ def inv_council_answer_quality() -> tuple[bool, str]:
     if not reply:
         return False, f"empty reply in {ms}ms"
     low = reply.lower()
-    for m in STUB_MARKERS:
+    for m in DEGRADED:
         if m in low:
-            return False, f"degraded stub ('{m}') not an answer in {ms}ms: {reply[:80]!r}"
+            return False, f"degraded reply ('{m}') not an answer in {ms}ms: {reply[:80]!r}"
+    if "ok" not in low:
+        return False, f"probe answer missing (no 'OK') in {ms}ms: {reply[:80]!r}"
     return True, f"real answer in {ms}ms ({len(reply)} chars)"
 
 

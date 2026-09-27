@@ -514,7 +514,7 @@ def check_component_currency() -> tuple[bool, str]:
                 created_raw = img.get("CreatedAt", "")
                 dt = datetime.strptime(created_raw[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
                 age_days = (datetime.now(timezone.utc) - dt).days
-                if age_days > 30:
+                if age_days > 90:  # KAI-1513: 30d was too aggressive (77d image false-CRITICAL); 90d is genuinely stale
                     name = repo.split("/")[-1] + ":" + img.get("Tag", "?")
                     issues.append(f"{name} ({age_days}d old)")
             except Exception:
@@ -955,7 +955,7 @@ def _try_fix_components() -> str:
                 created_raw = img.get("CreatedAt", "")
                 dt = datetime.strptime(created_raw[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=_tz.utc)
                 age_days = (datetime.now(_tz.utc) - dt).days
-                if age_days > 30:
+                if age_days > 90:  # KAI-1513: 30d was too aggressive (77d image false-CRITICAL); 90d is genuinely stale
                     svc = IMAGE_TO_SERVICE.get(repo)
                     if svc and svc not in stale_services:
                         stale_services.append(svc)

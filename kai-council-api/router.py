@@ -77,10 +77,18 @@ router = APIRouter()
 # L9 brakes are independent of the S5R-19 dollar cap: a cheap runaway loop or
 # hung provider call must still stop.
 MAX_AGENTIC_ITERATIONS = 12
-TURN_TOKEN_BUDGET = 24_000
+# KAI-1513: 24k was too tight — the loop counts full (uncached) input on EVERY
+# iteration, so a multi-tool turn with a cache-miss blew the cap and returned a
+# raw stub to Leo (2026-09-27 incident). 60k gives normal turns headroom; the
+# 12-iteration cap + per-call max_tokens=2048 remain the hard runaway brakes.
+TURN_TOKEN_BUDGET = 60_000
+# KAI-1513: graceful, jargon-free degraded reply. No "over_budget:"/"safety
+# limit" leaking to Leo. The answer-quality invariant keys on positive expected
+# content (the probe's "OK"), not this wording, so this stays free to reword.
 OVER_BUDGET_REPLY = (
-    "over_budget: I reached this turn's safety limit before completing the "
-    "request. Please retry with a narrower request."
+    "I couldn't finish that one in a single pass — it needed more steps than I "
+    "can take in one turn. Ask me again a bit more specifically and I'll pick it "
+    "right back up."
 )
 
 

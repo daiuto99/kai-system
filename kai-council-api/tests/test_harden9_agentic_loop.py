@@ -37,7 +37,7 @@ def test_agentic_loop_stops_cleanly_at_iteration_cap():
          patch.object(router.httpx, "post", side_effect=_ok_post):
         reply, *_ = router._run_agentic_loop([], [{"name": "noop"}], "model", "system", "kai")
 
-    assert reply.startswith("over_budget:")
+    assert reply == router.OVER_BUDGET_REPLY  # KAI-1513: assert the degraded constant, not pinned wording
     assert client.messages.create.call_count == router.MAX_AGENTIC_ITERATIONS
 
 
@@ -71,4 +71,4 @@ def test_agentic_loop_stops_when_turn_token_budget_is_exceeded():
          patch.object(router.httpx, "post", side_effect=_ok_post):
         reply, *_ = router._run_agentic_loop([], [], "model", "system", "kai")
 
-    assert reply.startswith("over_budget:")
+    assert reply == router.OVER_BUDGET_REPLY  # KAI-1513: assert the degraded constant, not pinned wording
