@@ -277,6 +277,113 @@ def dispatch(f: "Finding", custodian: "Custodian", deps: Optional["Deps"] = None
     return rec
 
 
+# ── Incident capture (KAI-1514, Leo-directed 2026-09-28) ──────────────────────
+# The operator/session entry point the spine was missing. Ad-hoc hand-written prose
+# tickets are RETIRED: a diagnosed incident is now a contract-validated STRUCTURAL
+# Finding with a full, untruncated schema (symptom / evidence / root-cause / fix /
+# verification / status), deduped by the same marker as any structural finding, so
+# "why did X fail on <date>" is answerable from the durable record — not a lost
+# transcript. Routes through this ownership layer; a bare/uncaused incident cannot
+# be filed (the Finding contract stamps NOT_YET_DIAGNOSED).
+
+_INCIDENT_SCHEMA = ("domain", "check", "severity", "summary", "symptom", "evidence",
+                    "root_cause", "fix", "verification", "status", "source", "dedup_key")
+
+
+def _esc(s: str) -> str:
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _incident_finding(inc: dict) -> "Finding":
+    """Contract-validated Finding from an incident dict. root_cause -> diagnosis
+    (blank becomes NOT_YET_DIAGNOSED by the Finding contract — no bare alarms)."""
+    sev = "crit" if str(inc.get("severity", "")).lower() in ("crit", "critical", "p0") else "warn"
+    dk = str(inc.get("dedup_key") or "").strip() or f"{inc.get('domain', 'x')}-{inc.get('check', 'incident')}"
+    return Finding(
+        domain=str(inc.get("domain") or "unknown"),
+        check=str(inc.get("check") or "incident"),
+        severity=sev,
+        diagnosis=str(inc.get("root_cause") or "").strip(),
+        disposition=STRUCTURAL,
+        proposed_action=str(inc.get("fix") or "").strip() or "(no fix proposed yet)",
+        dedup_key=dk,
+        detail={k: inc.get(k) for k in _INCIDENT_SCHEMA if inc.get(k) is not None},
+    )
+
+
+def _incident_body(inc: dict, f: "Finding") -> str:
+    ev = inc.get("evidence")
+    if isinstance(ev, (list, tuple)):
+        ev_html = "<ul>" + "".join(f"<li>{_esc(x)}</li>" for x in ev) + "</ul>"
+    elif isinstance(ev, dict):
+        ev_html = "<ul>" + "".join(f"<li><b>{_esc(k)}:</b> {_esc(v)}</li>" for k, v in ev.items()) + "</ul>"
+    else:
+        ev_html = f"<p>{_esc(ev or '(none recorded)')}</p>"
+
+    def row(label, val):
+        return f"<p><strong>{label}:</strong> {_esc(val)}</p>" if val else ""
+
+    cause = f.diagnosis + (" (UNDIAGNOSED — needs root-cause)" if f.undiagnosed else "")
+    related = " ".join([*(inc.get("tickets") or []), *(inc.get("commits") or [])])
+    parts = [
+        row("Symptom", inc.get("symptom")),
+        "<p><strong>Evidence:</strong></p>" + ev_html,
+        row("Root cause", cause),
+        row("Fix", inc.get("fix")),
+        row("Verification", inc.get("verification")),
+        row("Status", inc.get("status") or "open"),
+        row("Source", inc.get("source")),
+        row("Related", related),
+        f"<p><em>Captured {_now()} via capture_incident — routed through the DevOps "
+        f"ownership spine, deduped by {f.dedup_key}.</em></p>",
+    ]
+    return "".join(p for p in parts if p)
+
+
+def _live_file_incident(f: "Finding", inc: dict) -> str:
+    """File (or idempotently refresh) a full structured incident ticket, deduped by
+    the same marker as structural findings. Full evidence — never truncated."""
+    marker = _STRUCTURAL_MARKER_TMPL.format(dedup_key=f.dedup_key)
+    sev = "P0/crit" if f.severity == "crit" else "warn"
+    title = f"[INCIDENT] {f.domain}/{f.check} {sev} — {inc.get('summary') or f.proposed_action} {marker}"
+    body = _incident_body(inc, f)
+    try:
+        sys.path.insert(0, str(_KAI_ROOT))
+        import sync_plane_state as sp
+        for i in sp.get_issues(KAI_PROJECT_ID):
+            if marker in (i.get("name") or ""):
+                existing = i.get("description_html", "") or ""
+                sp.req("PATCH", f"projects/{KAI_PROJECT_ID}/issues/{i['id']}/",
+                       {"description_html": existing + "<hr>" + body})
+                return f"incident refreshed (deduped) → Plane {i.get('sequence_id') or i.get('id')}"
+        r = sp.req("POST", f"projects/{KAI_PROJECT_ID}/issues/",
+                   {"name": title, "description_html": body,
+                    "priority": "urgent" if f.severity == "crit" else "high",
+                    "state": _STATE_BACKLOG})
+        return f"incident filed → Plane {r.get('sequence_id') or r.get('id')}"
+    except Exception as e:  # filing failure must never crash the caller
+        log.error("incident filing failed for %s/%s: %s", f.domain, f.check, type(e).__name__)
+        return f"incident filing failed (logged): {type(e).__name__}"
+
+
+def capture_incident(incident: dict, *, file_fn: Optional[Callable] = None) -> dict:
+    """THE structured incident-capture entry point (KAI-1514, Leo-directed 2026-09-28).
+    Turns a diagnosed incident into a contract-validated Finding and files it as a
+    deduped, full-evidence Plane record through the ownership spine. Fail-soft:
+    never raises into the caller. `file_fn` is overridable for tests."""
+    rec = {"ts": _now(), "outcome": None, "handled": False}
+    try:
+        f = _incident_finding(incident)
+        rec.update(f.to_dict())
+        rec["undiagnosed"] = f.undiagnosed
+        rec["outcome"] = (file_fn or _live_file_incident)(f, incident)
+        rec["handled"] = True
+    except Exception as e:
+        log.error("capture_incident failed: %s", type(e).__name__)
+        rec["outcome"] = f"capture error (logged): {type(e).__name__}: {e}"
+    return rec
+
+
 # ── Pre-exhaustion guard (§Phase 3, KAI-48) ────────────────────────────────────
 
 def root_pct() -> float:

@@ -233,3 +233,64 @@ def test_run_custodians_no_preempt_when_healthy(monkeypatch, tmp_path):
     summary = do.run_custodians([_Cust()], deps=rec.deps(), record=False,
                                 preempt_reclaim=lambda: "should not run")
     assert summary["preempt"] is None
+
+
+# ── Incident capture (KAI-1514) ────────────────────────────────────────────────
+
+def _incident(**kw):
+    base = dict(domain="comms", check="answer-path", severity="crit",
+                summary="Buzz went silent", symptom="empty reply",
+                evidence=["turn 03:26 returned 200 with blank body"],
+                root_cause="empty completion not guarded", fix="never-empty guard",
+                verification="pending", status="open", source="real-use",
+                dedup_key="comms-answer-path-empty")
+    base.update(kw)
+    return base
+
+
+def test_capture_incident_builds_structural_finding_and_files():
+    captured = {}
+    def fake_file(f, inc):
+        captured["f"] = f
+        captured["inc"] = inc
+        return "incident filed → Plane KAI-9999"
+    rec = do.capture_incident(_incident(), file_fn=fake_file)
+    assert rec["handled"] is True
+    assert rec["disposition"] == do.STRUCTURAL
+    assert rec["severity"] == "crit"
+    assert rec["undiagnosed"] is False
+    assert "KAI-9999" in rec["outcome"]
+    # root_cause maps to the Finding diagnosis (the cause the contract requires)
+    assert captured["f"].diagnosis == "empty completion not guarded"
+
+
+def test_capture_incident_blank_root_cause_is_stamped_undiagnosed():
+    rec = do.capture_incident(_incident(root_cause=""), file_fn=lambda f, i: "ok")
+    assert rec["undiagnosed"] is True
+    assert rec["diagnosis"] == do.NOT_YET_DIAGNOSED   # no bare/uncaused incident
+
+
+def test_capture_incident_body_carries_full_schema_untruncated():
+    f = do._incident_finding(_incident())
+    body = do._incident_body(_incident(), f)
+    for token in ("Symptom", "Evidence", "Root cause", "Fix", "Verification", "Status"):
+        assert token in body
+    # a long evidence item is NOT truncated (the whole point vs the 1500-char structural cap)
+    big = "X" * 4000
+    body2 = do._incident_body(_incident(evidence=[big]), do._incident_finding(_incident()))
+    assert big in body2
+
+
+def test_capture_incident_evidence_shapes_all_render():
+    f = do._incident_finding(_incident())
+    assert "<ul>" in do._incident_body(_incident(evidence=["a", "b"]), f)          # list
+    assert "k1" in do._incident_body(_incident(evidence={"k1": "v1"}), f)          # dict
+    assert "plain" in do._incident_body(_incident(evidence="plain"), f)            # str
+
+
+def test_capture_incident_is_fail_soft_on_filer_error():
+    def boom(f, inc):
+        raise RuntimeError("plane down")
+    rec = do.capture_incident(_incident(), file_fn=boom)   # must not raise
+    assert rec["handled"] is False
+    assert "capture error" in rec["outcome"]
