@@ -9,6 +9,7 @@ logic lives here as tier5_standing_context().
 import json
 import logging
 import re
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -990,9 +991,30 @@ def record_turn(key: dict, role: str, content: str, package_id: str = None, turn
 
         conv = conn.execute("SELECT * FROM conversations WHERE id=?", (cid,)).fetchone()
         if conv["turns_since_compaction"] >= COMPACTION_TRIGGER_TURNS:
-            _compact(conn, cid)
+            # KAI-1513: compaction (local Ollama summarize) is slow and record_turn
+            # runs on the response path (before the reply returns), so an inline
+            # _compact stalled the user up to 30s every 10th turn and, on timeout,
+            # truncated context. The turn is already committed above, so reset the
+            # counter now and fold in the background (fresh conn; WAL + busy_timeout
+            # make concurrent writes safe) — the reply is never blocked.
+            conn.execute("UPDATE conversations SET turns_since_compaction=0 WHERE id=?", (cid,))
+            conn.commit()
+            threading.Thread(target=_compact_bg, args=(cid,), daemon=True).start()
 
         return {"turn_id": tid, "conversation_id": cid, "deduped": False}
+    finally:
+        conn.close()
+
+
+def _compact_bg(conversation_id: str) -> None:
+    """KAI-1513: background compaction — its own connection (WAL + busy_timeout=5000
+    + check_same_thread=False make concurrent writes safe). Keeps the slow Ollama
+    fold off the response path; failures degrade to the summary already stored."""
+    conn = get_conn()
+    try:
+        _compact(conn, conversation_id)
+    except Exception as e:
+        logger.warning("background compaction failed: %s", e)
     finally:
         conn.close()
 
