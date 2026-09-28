@@ -93,11 +93,21 @@ class GateFailClosedTests(unittest.TestCase):
         # router._run_agentic_loop (no advisor graph). A crash anywhere in that
         # path must still fail-closed as ReviewerUnavailable — never silently
         # let a gate pass. Mock the new crash surface, not the retired graph.
+        # KAI-1513: also mock the LOCAL fallback reviewer (providers._call_litellm,
+        # used by _gate_review_local). The cloud reviewer now correctly falls back
+        # to the local one when it crashes, so fail-closed only holds when BOTH are
+        # down — this test previously passed only because the local litellm path was
+        # broken (missing key, since fixed). The fallback's never-auto-approve safety
+        # is covered separately (test_bug_91dbcb0a_gate_local_fallback).
         import router
+        import providers
 
         with mock.patch.object(
             router, "_run_agentic_loop",
             side_effect=RuntimeError("forced reviewer crash"),
+        ), mock.patch.object(
+            providers, "_call_litellm",
+            side_effect=RuntimeError("forced local reviewer crash"),
         ):
             with self.assertRaises(gates.ReviewerUnavailable):
                 gates._call_advisor("dev", "test", "bug18-wrapper")
