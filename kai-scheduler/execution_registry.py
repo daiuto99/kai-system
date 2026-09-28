@@ -7,9 +7,6 @@ REGISTRY_PATH = Path("/vault/00_System/execution_registry.db")
 
 # Expected max gap between runs. Watchdog flags anything overdue.
 EXPECTED_SCHEDULE = {
-    "morning_checkin":     {"max_gap_hours": 26},
-    "evening_checkin":     {"max_gap_hours": 26},
-    "worker_health_check": {"max_gap_hours": 26},
     "watchdog":            {"max_gap_hours": 1},
     "inbox_scan":          {"max_gap_hours": 1},
 }

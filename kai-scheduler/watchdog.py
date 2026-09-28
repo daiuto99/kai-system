@@ -318,6 +318,10 @@ def run_maintenance():
     if (now - _last_maintenance) < MAINTENANCE_INTERVAL_HOURS * 3600:
         return
     _last_maintenance = now
+    import shutil
+    if shutil.which("sudo") is None:
+        log.info("watchdog maintenance: skipped — no sudo in container (host handles disk/journald)")
+        return
     try:
         subprocess.run(
             ["sudo", "journalctl", f"--vacuum-time={JOURNAL_VACUUM_DAYS}d"],
