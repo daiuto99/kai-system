@@ -7,6 +7,10 @@ the exact enumeration logic proven in green_baseline.check_container_roster.
 
 Contract (§1):
   - down + expects-up, restarts still nominal          -> AUTO   (docker restart)
+  - network-DETACH (expects a real network, attached   -> AUTO   (recreate to
+    to zero) whether flapping or silently isolated          re-attach — a restart
+                                                            relaunches into the same
+                                                            detached netns and loops)
   - a CRASH-LOOP (down after many restarts, OR running  -> STRUCTURAL (queue with
     but flapping at a high RestartCount)                    recent logs — restarting
                                                             into a loop is not a fix)
@@ -78,28 +82,43 @@ def _managed_names() -> list[str]:
 
 
 def _inspect(names: list[str]) -> list[tuple]:
-    """(name, status, exit_code, restart_policy, restart_count, uptime_s) per container.
-    uptime_s is seconds since the last (re)start, or None if unknown."""
+    """(name, status, exit_code, restart_policy, restart_count, uptime_s,
+    net_mode, net_count) per container. uptime_s is seconds since the last
+    (re)start, or None if unknown. net_mode is HostConfig.NetworkMode; net_count
+    is how many docker networks the container is actually attached to (the
+    detach signal — see classify_container)."""
     if not names:
         return []
     fmt = ("{{.Name}}|{{.State.Status}}|{{.State.ExitCode}}|"
-           "{{.HostConfig.RestartPolicy.Name}}|{{.RestartCount}}|{{.State.StartedAt}}")
+           "{{.HostConfig.RestartPolicy.Name}}|{{.RestartCount}}|{{.State.StartedAt}}|"
+           "{{.HostConfig.NetworkMode}}|{{len .NetworkSettings.Networks}}")
     insp = subprocess.run(["docker", "inspect", "-f", fmt, *names],
                           capture_output=True, text=True, timeout=20).stdout
     rows = []
     for line in insp.splitlines():
         parts = line.strip().lstrip("/").split("|")
-        if len(parts) != 6:
+        if len(parts) != 8:
             continue
-        name, status, exit_code, policy, rc, started = parts
+        name, status, exit_code, policy, rc, started, net_mode, net_count = parts
         rows.append((name, status, exit_code, policy,
-                     int(rc) if rc.isdigit() else 0, _uptime_s(started)))
+                     int(rc) if rc.isdigit() else 0, _uptime_s(started),
+                     net_mode, int(net_count) if net_count.isdigit() else None))
     return rows
 
 
 # ── pure classification (unit-tested) ──────────────────────────────────────────
 
-def classify_container(status: str, exit_code: str, policy: str, rc: int, uptime_s=None):
+def _shares_netns(net_mode) -> bool:
+    """True when the container legitimately has NO entries in .NetworkSettings.Networks
+    because it shares another namespace or opted out — host/none/container:/service:.
+    For these, zero attached networks is expected, NOT a detach. Only a container
+    that asked for a real bridge/named network yet has zero attached is detached."""
+    m = (net_mode or "").strip()
+    return m in ("host", "none", "") or m.startswith("container:") or m.startswith("service:")
+
+
+def classify_container(status: str, exit_code: str, policy: str, rc: int, uptime_s=None,
+                       net_mode=None, net_count=None):
     """Return (disposition|None, reason). None == healthy (no Finding).
 
     A one-shot that exited 0 (e.g. plane-migrator) is healthy, not down.
@@ -108,6 +127,18 @@ def classify_container(status: str, exit_code: str, policy: str, rc: int, uptime
     container that has held past STABLE_UPTIME_S is cleared however high its count
     (recovered/fixed/stale). uptime_s=None means unknown → stay conservative."""
     expects_up = policy in ("always", "unless-stopped")
+    # Network-DETACH (KAI, brief sprint): a container that asked for a real docker
+    # network but is attached to ZERO. Distinct from a crash-loop — the safe heal is
+    # RECREATE (re-attach), never a `docker restart` (which relaunches into the same
+    # detached netns and loops forever). This one signature covers BOTH observed
+    # faults: the crash-looping detach (langfuse-web, 6929 restarts) AND the silent,
+    # stable-but-isolated detach (kai-code-server, running yet unreachable off-box)
+    # that no restart-count signal would ever surface. Gated on expects_up so a
+    # deliberately network-less one-shot is never touched; net_count=None (unknown)
+    # stays conservative and skips detach detection.
+    if expects_up and net_count == 0 and not _shares_netns(net_mode):
+        return "detach", ("attached to ZERO docker networks (network-isolated) — "
+                          "recreate to re-attach")
     if status == "running":
         if rc >= CRASH_LOOP_RC:
             if uptime_s is not None and uptime_s >= STABLE_UPTIME_S:
@@ -139,12 +170,24 @@ class ServicesCustodian:
                 proposed_action="investigate docker daemon / socket access on the host",
                 dedup_key="services-roster-unavailable", detail={})]
         findings = []
-        for name, status, exit_code, policy, rc, uptime_s in rows:
-            disp, reason = classify_container(status, exit_code, policy, rc, uptime_s)
+        for name, status, exit_code, policy, rc, uptime_s, net_mode, net_count in rows:
+            disp, reason = classify_container(status, exit_code, policy, rc, uptime_s,
+                                              net_mode, net_count)
             if disp is None:
                 continue
             sev = "crit" if status != "running" else "warn"
-            if disp == AUTO:
+            if disp == "detach":
+                # AUTO-healed by RECREATE (re-attach), not a restart. A crit even when
+                # still "running": a detached container is silently unreachable off-box.
+                findings.append(Finding(
+                    domain="services", check="network_detach", severity="crit",
+                    diagnosis=f"{name}: {reason}",
+                    disposition=AUTO,
+                    proposed_action=f"recreate {name} to re-attach it to its docker network",
+                    dedup_key=f"services-detach-{name}",
+                    detail={"name": name, "status": status, "rc": rc,
+                            "net_mode": net_mode, "heal": "recreate"}))
+            elif disp == AUTO:
                 findings.append(Finding(
                     domain="services", check="container_down", severity=sev,
                     diagnosis=f"{name}: {reason}",
@@ -168,6 +211,16 @@ class ServicesCustodian:
         name = f.detail.get("name")
         if not name:
             return "no container name in finding — nothing to restart"
+        # A network-detach heals by RECREATE (re-attach), not a restart: a restart
+        # relaunches the container into the same detached netns and never re-attaches.
+        if f.detail.get("heal") == "recreate":
+            ok, msg = _recreate_attached(name)
+            rows = _inspect([name])
+            net_count = rows[0][7] if rows else None
+            status = rows[0][1] if rows else "unknown"
+            if ok and net_count:
+                return f"recreated {name} → status {status}, re-attached to {net_count} network(s)"
+            return f"recreate of {name} did not re-attach (status={status}, nets={net_count}): {msg}"
         try:
             subprocess.run(["docker", "restart", name], capture_output=True, text=True, timeout=60)
         except Exception as e:
@@ -176,6 +229,31 @@ class ServicesCustodian:
         rows = _inspect([name])
         status = rows[0][1] if rows else "unknown"
         return f"restarted {name} → status now {status}"
+
+
+def _recreate_attached(name: str) -> tuple:
+    """Recreate a compose-managed container so it re-attaches to its network. Reads
+    the compose working-dir + service from the container's own labels and runs
+    `docker compose up -d --force-recreate <service>` there — the exact motion that
+    healed langfuse-web and kai-code-server by hand. Returns (ok, message)."""
+    fmt = ('{{index .Config.Labels "com.docker.compose.project.working_dir"}}|'
+           '{{index .Config.Labels "com.docker.compose.service"}}')
+    try:
+        out = subprocess.run(["docker", "inspect", "-f", fmt, name],
+                             capture_output=True, text=True, timeout=20).stdout.strip()
+    except Exception as e:
+        return False, f"inspect failed: {type(e).__name__}: {e}"
+    workdir, _, service = out.partition("|")
+    if not (workdir and service):
+        return False, f"not compose-managed (labels: {out!r}) — cannot recreate safely"
+    try:
+        r = subprocess.run(["docker", "compose", "up", "-d", "--force-recreate", service],
+                           cwd=workdir, capture_output=True, text=True, timeout=240)
+    except Exception as e:
+        return False, f"compose up failed: {type(e).__name__}: {e}"
+    if r.returncode != 0:
+        return False, (r.stderr or r.stdout)[-400:]
+    return True, "recreated"
 
 
 def _recent_logs(name: str, tail: int = 20) -> str:
