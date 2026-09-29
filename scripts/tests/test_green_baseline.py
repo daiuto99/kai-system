@@ -639,6 +639,24 @@ class OffsiteFreshnessVerdict(unittest.TestCase):
         self.assertEqual(sev, "red")
         self.assertIn("FAILED", d)
 
+    def test_fail_target_unreachable_warns_not_reds(self):
+        # KAI-1527: a non-spine DR host being offline is an external availability
+        # condition (watchdog already pages) — WARN, never a RED that hard-blocks a
+        # code push. Mirrors fleet_visibility's non-spine-node-offline discipline.
+        sev, d = baseline.offsite_freshness_verdict(
+            True, "FAIL", 1.0, reason="target-unreachable:100.85.243.2")
+        self.assertEqual(sev, "warn")
+        self.assertIn("unreachable", d)
+        self.assertIn("100.85.243.2", d)
+
+    def test_fail_real_transport_break_still_reds(self):
+        # A genuine transport/credential failure (target reachable) is a true DR
+        # config break and must stay RED.
+        sev, d = baseline.offsite_freshness_verdict(
+            True, "FAIL", 1.0, reason="rsync-auth-denied")
+        self.assertEqual(sev, "red")
+        self.assertIn("FAILED", d)
+
     def test_enabled_never_run_warns(self):
         sev, d = baseline.offsite_freshness_verdict(True, None, None)
         self.assertEqual(sev, "warn")

@@ -852,7 +852,7 @@ def check_backup_verify() -> str:
     return f"backup verify PASS ({age_d:.0f}d ago)"
 
 
-def offsite_freshness_verdict(enabled: bool, result, age_h):
+def offsite_freshness_verdict(enabled: bool, result, age_h, reason=None):
     """Pure verdict for the offsite backup copy — S1-B3 (audit #01, "RED freshness probe").
     enabled: offsite.env sets OFFSITE_ENABLED=1. result: first token of
     ~/backups/.offsite_result ('OK'|'FAIL') or None if never run. age_h: hours since
@@ -862,6 +862,13 @@ def offsite_freshness_verdict(enabled: bool, result, age_h):
     if not enabled:
         return "warn", "offsite transport not enabled (staged, awaiting gate) [S1-B3]"
     if result == "FAIL":
+        # An unreachable secondary DR host is an external availability condition the
+        # watchdog already pages on (same class as fleet_visibility's non-spine node
+        # offline) — WARN, never a RED that hard-blocks an unrelated code push. A
+        # genuine transport/credential failure with the target reachable stays RED.
+        if reason and reason.startswith("target-unreachable"):
+            host = reason.split(":", 1)[-1]
+            return "warn", f"offsite target unreachable ({host}) — DR host offline, watchdog paging [S1-B3]"
         return "red", "offsite sync FAILED — no current offsite copy [S1-B3]"
     if result is None or age_h is None:
         return "warn", "offsite sync never run (cron pending) [S1-B3]"
@@ -899,15 +906,17 @@ def check_offsite_freshness() -> str:
             break
 
     stamp = base / ".offsite_result"
-    result, age_h = None, None
+    result, age_h, reason = None, None, None
     if stamp.exists():
         try:
-            result = stamp.read_text().strip().split()[0]
+            parts = stamp.read_text().strip().split()
+            result = parts[0] if parts else None
+            reason = parts[2] if len(parts) > 2 else None
         except Exception:
             result = None
         age_h = (_time.time() - stamp.stat().st_mtime) / 3600
 
-    sev, detail = offsite_freshness_verdict(enabled, result, age_h)
+    sev, detail = offsite_freshness_verdict(enabled, result, age_h, reason)
     if sev == "red":
         raise RuntimeError(detail)
     if sev == "warn":
