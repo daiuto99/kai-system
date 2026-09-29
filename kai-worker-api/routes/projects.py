@@ -32,7 +32,9 @@ def _parse_status_md(path: Path) -> dict:
             return _yaml.safe_load(m.group(1)) or {}
         return {}
     except Exception as e:
-        logger.exception("parse status md: %s", e)
+        # Handled — a malformed/partial STATUS.md yields an empty dict, not a
+        # crash. Log concisely with the path so the bad file is identifiable.
+        logger.warning("parse status md %s: %s", path, e)
         return {}
 
 

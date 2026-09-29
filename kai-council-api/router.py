@@ -237,6 +237,7 @@ KAI_TOOLS = [
     {"name": "wordpress_override", "description": "Force a WP build task to a target state, bypassing the normal gate sequence. USE ONLY when the protocol cannot be followed for a legitimate reason. Requires an explicit reason — vague reasons are rejected. Every override is permanently logged with the skipped gates identified. Override frequency is surfaced in audit reports to tune the protocol.", "input_schema": {"type": "object", "properties": {"task_id": {"type": "string"}, "target_state": {"type": "string", "enum": ["dev_approved", "cs_disabled", "homepage_set", "creative_approved", "content_written", "content_verified", "cache_purged", "live_verified", "devops_approved", "complete", "failed"]}, "reason": {"type": "string", "description": "Explicit reason for the override — required and logged permanently"}, "authorized_by": {"type": "string", "description": "Who authorized this override, default leo"}}, "required": ["task_id", "target_state", "reason"]}},
     {"name": "wordpress_audit_report", "description": "Return audit data for the WP enforcement system. report_type=task_history: full timeline for one task (transitions, council reviews, consultations, overrides). report_type=override_frequency: which gates are being skipped most — signal to tune the protocol. report_type=council_effectiveness: Leo feedback patterns per council — signal to tune persona rules.", "input_schema": {"type": "object", "properties": {"task_id": {"type": "string", "description": "Required for task_history report type"}, "report_type": {"type": "string", "enum": ["task_history", "override_frequency", "council_effectiveness"]}}, "required": ["report_type"]}},
     {"name": "add_to_parking_lot", "description": "Save an item to Leo's Parking Lot. Only call this when Leo explicitly asks to save or capture something. Do not use it to defer answering a question or handle topics you are uncertain about.", "input_schema": {"type": "object", "properties": {"content": {"type": "string"}, "source": {"type": "string"}}, "required": ["content"]}},
+    {"name": "read_parking_lot", "description": "Read/list the items in Leo's Parking Lot (his saved captures). Use this whenever Leo asks what is in his parking lot, to review, summarize, or find a saved item. Never ask Leo for a file path or to paste contents — this tool already knows where the lot lives. Optionally filter by status (e.g. new, waiting) or limit the number returned.", "input_schema": {"type": "object", "properties": {"status": {"type": "string", "description": "Optional status filter, e.g. new or waiting"}, "limit": {"type": "integer", "description": "Optional max items to return (default 25)"}}, "required": []}},
     {"name": "list_templates", "description": "List available project template versions.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "submit_job", "description": "Submit a job to the KAI orchestrator for tracked async execution. Use for any multi-step work that should be tracked, retried, and reported. Pass workflow='capability_chain' with a chain array for ad-hoc capability sequences. Pass workflow='wordpress.publish_homepage' for WP homepage builds. Omit workflow and pass intent to let the orchestrator infer the type.", "input_schema": {"type": "object", "properties": {"workflow": {"type": "string", "description": "Workflow type, e.g. capability_chain, wordpress.publish_homepage. Omit to infer from intent."}, "intent": {"type": "string", "description": "Natural language intent used to infer workflow type when workflow is not specified."}, "title": {"type": "string", "description": "Human-readable job title shown in Slack notifications."}, "inputs": {"type": "object", "description": "Inputs for the workflow. For capability_chain, include a chain array."}}}},
     {"name": "get_job_status", "description": "Get the current status of a submitted job, including step-level detail.", "input_schema": {"type": "object", "properties": {"job_id": {"type": "string", "description": "The job ID returned by submit_job."}}, "required": ["job_id"]}},
@@ -763,6 +764,18 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
 
     from insights import strip_markdown
     clean_reply = strip_markdown(clean_reply)
+
+    # Never-empty-reply guard (KAI-1514 item 7): a blank 200-OK reply reads to
+    # Leo as "KAI stopped responding" (the real-use failure 2026-09-28). If the
+    # model produced no final text — agentic loop ended on a tool_use with no
+    # closing message, or insight/markdown strip emptied it — return an honest
+    # retry instead of a blank body.
+    if not (clean_reply or "").strip():
+        logger.error("empty-reply guard fired for %s (provider=%s model=%s, raw_len=%d) — "
+                     "returning honest retry instead of blank body",
+                     advisor, actual_provider, actual_model, len(raw_reply or ""))
+        clean_reply = ("Sorry — I didn't land a response that time. Let me try again: "
+                       "resend or rephrase and I'll pick it right up.")
 
     if _package is not None:
         try:

@@ -112,7 +112,9 @@ def get_stoic_quote():
             if d.get("content") and d.get("author"):
                 return {"content": d["content"], "author": d["author"]}
     except Exception as e:
-        logger.exception("stoic-quote remote fetch: %s", e)
+        # Fully handled — falls back to the local quote below. Flaky upstream
+        # (api.quotable.io); log concisely rather than dumping a stack trace.
+        logger.warning("stoic-quote remote fetch failed, using local: %s", e)
 
     return quote
 

@@ -490,6 +490,29 @@ def inv_council_answer_quality() -> tuple[bool, str]:
     return True, f"real answer in {ms}ms ({len(reply)} chars)"
 
 
+def inv_capability_reachability() -> tuple[bool, str]:
+    """KAI-1514 item 8: answer-quality proves the council TALKS; the 2026-09-28
+    real-use failure was a CAPABILITY it could not REACH — no read path to Leo's
+    parking lot, so it asked for a file path while synthetic liveness stayed
+    green. This asserts the parking-lot READ capability (the one that failed)
+    actually responds, so a broken capability surface can no longer run 'green'.
+    Read-only; no side effects.
+    """
+    try:
+        r = httpx.get(f"{WORKER_API}/parking-lot/list", timeout=10, auth=worker_auth())
+    except Exception as e:
+        return False, f"parking-lot read unreachable: {type(e).__name__}: {e}"
+    if r.status_code != 200:
+        return False, f"parking-lot read HTTP {r.status_code}"
+    try:
+        body = r.json()
+    except Exception as e:
+        return False, f"parking-lot read non-JSON: {e}"
+    if "items" not in body:
+        return False, f"parking-lot read malformed (no items key): {str(body)[:80]!r}"
+    return True, f"parking-lot read reachable ({body.get('count', len(body.get('items', [])))} items)"
+
+
 def inv_execution_registry_freshness() -> tuple[bool, str]:
     """At least one scheduled function ran in the last 90 minutes."""
     STALE_MINUTES = 90
@@ -826,7 +849,10 @@ def inv_internal_worker_auth() -> tuple[bool, str]:
     """
     url = f"{WORKER_API}/system/ops-state"
     try:
-        r_noauth = httpx.get(url, timeout=5)  # GUARD: intentional-unauthenticated-probe
+        # Self-identifying UA so these EXPECTED 401s are trivially filterable in
+        # nginx/worker-api access logs (KAI-1514 item 1: the ~45x/day 401 on
+        # /system/ops-state is this probe by design, NOT auth-glue to "fix").
+        r_noauth = httpx.get(url, timeout=5, headers={"User-Agent": "kai-invariant-auth-probe/1.0"})  # GUARD: intentional-unauthenticated-probe
     except Exception as e:
         return False, f"worker unreachable (no-auth probe): {type(e).__name__}: {e}"
     if r_noauth.status_code != 401:
@@ -1491,6 +1517,7 @@ INVARIANTS = [
     ("vault_writability",             "Vault Writability",         inv_vault_writability),
     ("council_api_latency",           "Council API Latency",       inv_council_api_latency),
     ("council_answer_quality",        "Council Answer Quality",    inv_council_answer_quality),
+    ("capability_reachability",       "Capability Reachability",   inv_capability_reachability),
     ("execution_registry_freshness",  "Execution Registry Fresh",  inv_execution_registry_freshness),
     ("cert_expiry",                   "SSL Cert Expiry",           inv_cert_expiry),
     ("backup_integrity",              "Backup Integrity",          inv_backup_integrity),

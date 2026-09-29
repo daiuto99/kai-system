@@ -247,8 +247,23 @@ def get_ics_calendars(days: int = 7, include_reference: bool = False, account: s
         elif not include_reference and not _feed_everyday(v):
             continue  # reference feed — queryable, but not in the everyday view
         included.append(name)
+        # Harden the Stage-1 feed read: a single transient network blip must not
+        # drop a feed from the everyday view / morning brief. Retry once on
+        # transient httpx errors before flagging the feed down, and log transient
+        # failures concisely — a full stack trace is reserved for the unexpected.
         try:
-            r = _hx.get(_feed_url(v), timeout=10, follow_redirects=True)
+            r = None
+            last_exc = None
+            for attempt in range(2):
+                try:
+                    r = _hx.get(_feed_url(v), timeout=10, follow_redirects=True)
+                    break
+                except _hx.TransportError as ex:
+                    last_exc = ex
+                    logger.warning("ics fetch %s transient (attempt %d/2): %s", name, attempt + 1, ex)
+            if r is None:
+                errors.append(f"{name}: {type(last_exc).__name__}: {last_exc}")
+                continue
             if r.status_code == 200:
                 evts = _parse_ics(r.text, days=days)
                 for e in evts:
@@ -257,7 +272,7 @@ def get_ics_calendars(days: int = 7, include_reference: bool = False, account: s
             else:
                 errors.append(f"{name}: HTTP {r.status_code}")
         except Exception as ex:
-            logger.exception("ics fetch %s: %s", name, ex)
+            logger.exception("ics fetch %s unexpected: %s", name, ex)
             errors.append(f"{name}: {str(ex)}")
     all_events.sort(key=lambda e: e.get("start", ""))
     scope = ("account:" + account) if account else ("all" if include_reference else "everyday")

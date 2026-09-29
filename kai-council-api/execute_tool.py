@@ -1148,6 +1148,31 @@ def _h_parking_lot(client, tool_name, ti, advisor):
         return {"error": f"Parking lot save failed: {e}"}
 
 
+def _h_read_parking_lot(client, tool_name, ti, advisor):
+    """Read/list Leo's parking lot (KAI-1514 item 6). KAI must always be able to
+    read the lot conversationally — never ask Leo for a path or to paste it."""
+    status = (ti.get("status") or "").strip().lower()
+    try:
+        limit = int(ti.get("limit") or 25)
+    except (TypeError, ValueError):
+        limit = 25
+    try:
+        r = client.get(f"{WORKER_URL}/parking-lot/list", timeout=10)
+        r.raise_for_status()
+        items = (r.json() or {}).get("items", [])
+    except Exception as e:
+        logger.exception("read_parking_lot: %s", e)
+        return {"error": f"Could not read the parking lot: {e}"}
+    if status:
+        items = [it for it in items if (it.get("status") or "new").lower() == status]
+    total = len(items)
+    trimmed = [
+        {k: it.get(k) for k in ("title", "status", "slug", "date", "url", "summary") if it.get(k)}
+        for it in items[:limit]
+    ]
+    return {"count": total, "returned": len(trimmed), "status_filter": status or None, "items": trimmed}
+
+
 def _h_t2(client, tool_name, ti, advisor):
     action = ti.get("action", "")
     detail = ti.get("detail", "")
@@ -1430,6 +1455,7 @@ TOOL_REGISTRY = {
     "wordpress_verify_live": _h_wordpress,
     # Parking lot
     "add_to_parking_lot": _h_parking_lot,
+    "read_parking_lot": _h_read_parking_lot,
     # T2
     "request_t2_approval": _h_t2,
     # Web search
