@@ -72,10 +72,10 @@ find "$GIT_BK" -name "*.bundle" -mtime +7 -delete
 # Full snapshot via the API, downloaded out of the container. Each ~3.5G so keep
 # only 2. The tier3bench_* benchmark collections bloat this (follow-up cleanup). ---
 mkdir -p "$BACKUP_DIR/qdrant"
-QSNAP=$(curl -s -X POST http://localhost:6333/snapshots 2>>"$LOG" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("result",{}).get("name",""))' 2>>"$LOG" || true)
+QSNAP=$(curl -s -m 300 -X POST http://localhost:6333/snapshots 2>>"$LOG" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("result",{}).get("name",""))' 2>>"$LOG" || true)  # KAI-1549: -m cap so a slow/hung Qdrant snapshot can never block the secrets backup that runs after it
 if [ -n "$QSNAP" ]; then
     QFILE="$BACKUP_DIR/qdrant/qdrant_${TIMESTAMP}.snapshot"
-    if curl -sf "http://localhost:6333/snapshots/$QSNAP" -o "$QFILE" 2>>"$LOG"; then
+    if curl -sf -m 300 "http://localhost:6333/snapshots/$QSNAP" -o "$QFILE" 2>>"$LOG"; then
         echo "[$TIMESTAMP] Qdrant snapshot: $QFILE ($(du -sh "$QFILE" | cut -f1))" >> "$LOG"
     else
         echo "[$TIMESTAMP] WARNING: Qdrant snapshot download FAILED" >> "$LOG"
