@@ -784,6 +784,128 @@ def _file_wp_security_bug(finding: dict) -> str:
         return ""
 
 
+# ── KAI-1551: morning-brief additions — self-health line + contextual sports ────────
+# Both NEVER raise: a failure degrades to a visible flag, never breaks the brief.
+def _brief_self_health() -> str:
+    """One-line baseline self-check: is the assistant relationship holding? DM path
+    liveness (kai_dm heartbeat KAI-1548), calendar read (registry KAI-1543), offsite
+    backup freshness (KAI-1549). Local signals only; never raises."""
+    import time as _t
+    from pathlib import Path as _P
+    bits = []
+    try:
+        age = _t.time() - _P("/vault/00_System/buzz_agent_KAI-DM_heartbeat").stat().st_mtime
+        bits.append("DM ✓" if age < 600 else "DM ⚠ stale %dm" % int(age / 60))
+    except Exception:
+        bits.append("DM ?")
+    try:
+        from execution_registry import get_last_run
+        r = (get_last_run("calendar_read") or {}).get("result")
+        bits.append("calendar ✓" if r in ("ok", "empty") else ("calendar ⚠" if r else "calendar ?"))
+    except Exception:
+        bits.append("calendar ?")
+    try:
+        from datetime import datetime as _dt
+        ts = _P("/backups/.offsite_result").read_text().strip().split()[1]
+        h = (_dt.now() - _dt.strptime(ts, "%Y%m%d_%H%M%S")).total_seconds() / 3600
+        bits.append("offsite backup %dh ago" % int(h))
+    except Exception:
+        bits.append("backup ?")
+    return "🩺 Self-check: " + " · ".join(bits)
+
+
+def _espn_sb(sport, league, date_yyyymmdd):
+    import json as _j, urllib.request as _u
+    url = ("https://site.api.espn.com/apis/site/v2/sports/%s/%s/scoreboard?dates=%s"
+           % (sport, league, date_yyyymmdd))
+    try:
+        with _u.urlopen(url, timeout=8) as r:
+            return _j.load(r).get("events", []) or []
+    except Exception:
+        return None
+
+
+def _espn_ah(ev):
+    cs = (ev.get("competitions") or [{}])[0].get("competitors", [])
+    away = next((c for c in cs if c.get("homeAway") == "away"), cs[-1] if cs else {})
+    home = next((c for c in cs if c.get("homeAway") == "home"), cs[0] if cs else {})
+    return away, home
+
+
+def _espn_abbr(c):
+    return c.get("team", {}).get("abbreviation", "?")
+
+
+def _espn_state(ev):
+    return ev.get("status", {}).get("type", {}).get("state", "")
+
+
+def _espn_when(ev):
+    sd = ev.get("status", {}).get("type", {}).get("shortDetail", "")
+    return sd.split("- ", 1)[1].strip() if "- " in sd else sd
+
+
+def _espn_final(ev):
+    a, h = _espn_ah(ev)
+    return "%s %s, %s %s" % (_espn_abbr(a), a.get("score", ""), _espn_abbr(h), h.get("score", ""))
+
+
+def _espn_has(ev, abbr):
+    return any(_espn_abbr(c) == abbr for c in (ev.get("competitions") or [{}])[0].get("competitors", []))
+
+
+def _team_sports_line(label, sport, league, abbr, yday, tstr):
+    y = _espn_sb(sport, league, yday)
+    t = _espn_sb(sport, league, tstr)
+    if y is None and t is None:
+        return "  %s: ⚠ scores unavailable" % label
+    yg = next((e for e in (y or []) if _espn_has(e, abbr)), None)
+    if yg and _espn_state(yg) == "post":
+        a, h = _espn_ah(yg)
+        me, opp = (a, h) if _espn_abbr(a) == abbr else (h, a)
+        res = "W" if me.get("winner") else ("L" if opp.get("winner") else "—")
+        vs = "vs" if me.get("homeAway") == "home" else "@"
+        last = "last night %s %s–%s %s %s" % (res, me.get("score", ""), opp.get("score", ""), vs, _espn_abbr(opp))
+    else:
+        last = "no game last night"
+    tg = next((e for e in (t or []) if _espn_has(e, abbr)), None)
+    if tg:
+        a, h = _espn_ah(tg)
+        opp = h if _espn_abbr(a) == abbr else a
+        vs = "vs" if (_espn_abbr(h) == abbr) else "@"
+        tod = "play today %s %s %s" % (_espn_when(tg), vs, _espn_abbr(opp))
+    else:
+        tod = "no game today"
+    return "  %s: %s · %s" % (label, last, tod)
+
+
+def _brief_sports() -> str:
+    """Contextual sports (KAI-1551): MLB playoff scores (last night + today's slate) +
+    Leo's Philly teams (Flyers, Eagles). ESPN public scoreboard, no key. Never raises."""
+    from datetime import timedelta
+    now = datetime.now(_leo_timezone())
+    yday = (now - timedelta(days=1)).strftime("%Y%m%d")
+    tstr = now.strftime("%Y%m%d")
+    out = ["🏈⚾ Sports"]
+    my = _espn_sb("baseball", "mlb", yday)
+    mt = _espn_sb("baseball", "mlb", tstr)
+    if my is None and mt is None:
+        out.append("  MLB playoffs: ⚠ scores unavailable")
+    else:
+        pf = [e for e in (my or []) if e.get("season", {}).get("type") == 3 and _espn_state(e) == "post"]
+        pt = [e for e in (mt or []) if e.get("season", {}).get("type") == 3]
+        if pf:
+            out.append("  MLB playoffs — last night: " + " · ".join(_espn_final(e) for e in pf))
+        if pt:
+            slate = ["%s @ %s %s" % (_espn_abbr(_espn_ah(e)[0]), _espn_abbr(_espn_ah(e)[1]), _espn_when(e)) for e in pt]
+            out.append("  MLB playoffs — today: " + " · ".join(slate))
+        if not pf and not pt:
+            out.append("  MLB playoffs: none in the last 24h")
+    out.append(_team_sports_line("Flyers", "hockey", "nhl", "PHI", yday, tstr))
+    out.append(_team_sports_line("Eagles", "football", "nfl", "PHI", yday, tstr))
+    return "\n".join(out)
+
+
 def _compose_daily_brief() -> str:
     """KAI-1314: compose the morning brief from the SAME live Stage-1 feeds the
     dashboard /now page reads (focus priorities + calendar + inbox). Read-only.
@@ -791,6 +913,8 @@ def _compose_daily_brief() -> str:
     day) — the /now trustworthiness contract carried to the push surface."""
     now = datetime.now(_leo_timezone())
     lines = ["\u2600\ufe0f Morning brief \u2014 " + now.strftime("%A, %b %d"), ""]
+    lines.append(_brief_self_health())
+    lines.append("")
 
     lines.append("\U0001f4c5 Schedule")
     try:
@@ -846,6 +970,9 @@ def _compose_daily_brief() -> str:
         lines.append(("  " + str(n) + " item(s) waiting for routing.") if n else "  \u2014 Inbox clear.")
     except Exception:
         lines.append("  \u26a0 Inbox feed didn\u2019t respond \u2014 items may be waiting.")
+
+    lines.append("")
+    lines.append(_brief_sports())
 
     return "\n".join(lines)
 
