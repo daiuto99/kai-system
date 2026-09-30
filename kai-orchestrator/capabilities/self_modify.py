@@ -84,8 +84,16 @@ def _validate(inputs: dict) -> tuple[bool, list[str]]:
 
 
 def _litellm_key() -> str:
-    p = Path("/run/wp_secrets/litellm_master_key.txt")
-    return p.read_text().strip() if p.exists() else os.environ.get("LITELLM_MASTER_KEY", "")
+    # KAI-1544: same fix as model_peer — read the mounted key file
+    # (LITELLM_KEY_FILE=/run/secrets/litellm_master_key); the old wp_secrets/.txt
+    # path + LITELLM_MASTER_KEY env were never populated, so this returned "".
+    kf = Path(os.environ.get("LITELLM_KEY_FILE", "/run/secrets/litellm_master_key"))
+    if kf.exists():
+        return kf.read_text().strip()
+    legacy = Path("/run/wp_secrets/litellm_master_key.txt")
+    if legacy.exists():
+        return legacy.read_text().strip()
+    return os.environ.get("LITELLM_MASTER_KEY", "")
 
 
 def _plane_token() -> str:
@@ -426,7 +434,7 @@ def commit(target_root: str, plane_ticket_id: str, gate: str, principle: str,
 
     # Bail if nothing actually staged (patch may have been a no-op)
     rc, out, _ = _git(["diff", "--cached", "--name-only"], root)
-    staged = [l for l in out.splitlines() if l]
+    staged = [ln for ln in out.splitlines() if ln]
     if not staged:
         return CapabilityResult(
             ok=False, status="failed_permanent",

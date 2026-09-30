@@ -49,8 +49,18 @@ _CHATGPT_SYSTEM = (
 
 
 def _litellm_key() -> str:
-    p = Path("/run/wp_secrets/litellm_master_key.txt")
-    return p.read_text().strip() if p.exists() else os.environ.get("LITELLM_MASTER_KEY", "")
+    # KAI-1544: read the master key from the file compose actually mounts
+    # (LITELLM_KEY_FILE=/run/secrets/litellm_master_key), matching wp_generate.py.
+    # The old /run/wp_secrets/*.txt path and LITELLM_MASTER_KEY env were never
+    # populated here, so this returned "" and every peer review (codex/chatgpt)
+    # died with an empty "Bearer " header. Legacy paths kept as fallback.
+    kf = Path(os.environ.get("LITELLM_KEY_FILE", "/run/secrets/litellm_master_key"))
+    if kf.exists():
+        return kf.read_text().strip()
+    legacy = Path("/run/wp_secrets/litellm_master_key.txt")
+    if legacy.exists():
+        return legacy.read_text().strip()
+    return os.environ.get("LITELLM_MASTER_KEY", "")
 
 
 def _topic_slug(topic: str) -> str:
