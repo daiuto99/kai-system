@@ -629,8 +629,10 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
         adv_cfg = {"provider": "ollama", "model": "qwen2.5:3b"}
 
     # Budget degradation (S5R-19): interactive sub-budget exhausted → cap to Haiku
+    _budget_degraded = False
     if rl.get("degrade") and adv_cfg.get("provider") == "anthropic":
         adv_cfg = dict(adv_cfg, model="claude-haiku-4-5-20251001")
+        _budget_degraded = True  # KAI-1550: surface in-chat at the return — never silently degrade
 
     provider = adv_cfg.get("provider", "anthropic")
     model    = adv_cfg.get("model", "claude-sonnet-4-6")
@@ -794,6 +796,13 @@ def council_message(req: MessageRequest, background_tasks: BackgroundTasks = Non
                  trigger_source=effective_trigger,
                  cache_read_tokens=total_cache_read_tokens,
                  cache_creation_tokens=total_cache_creation_tokens)
+
+    # KAI-1550: never silently become a lesser assistant. If this turn was capped to the
+    # lighter model because the daily chat budget was exhausted, say so in-chat — a shallower
+    # answer is then explained, not mysterious. Jargon-free, once, prepended to the reply.
+    if _budget_degraded and clean_reply:
+        clean_reply = ("_(Heads up — I've hit today's chat budget, so I'm on a lighter, faster "
+                       "model until midnight; back to full depth then.)_\n\n") + clean_reply
 
     return {
         "advisor": advisor,
