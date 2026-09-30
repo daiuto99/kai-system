@@ -343,6 +343,13 @@ def session_brief():
             "issue_id": na.get("issue_id", ""),
         }
 
+    # RETIRED 2026-09-30: sprint/stage framing is retired — /PLAN.md is a flat priority
+    # stack, no sprints. Null these so the boot brief never surfaces a stale "sprint"
+    # parsed from the (retired) StateOfTheUnion / Sprint_History / warmboot active_stage.
+    brief["sprint"] = None
+    brief["sprint_status"] = None
+    brief["next_sprint"] = None
+
     return brief
 
 

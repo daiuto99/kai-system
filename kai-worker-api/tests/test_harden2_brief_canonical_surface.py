@@ -33,7 +33,10 @@ def test_brief_reads_close_verified_vault_wiki_artifacts_without_workspace_sync(
 
     assert first["version"] == "9.9.9"
     assert first["last_session"] == "canonical SOTU one"
-    assert first["sprint"] == "canonical history one"
+    # Sprint framing retired 2026-09-30 (KAI-1547): /PLAN.md is a flat priority stack,
+    # so the brief no longer surfaces a sprint even when Sprint_History has an entry.
+    # version + last_session above still prove the wiki surface is read (test's intent).
+    assert first["sprint"] is None
 
     # This models the close's vault wiki write; no /workspace or rsync read is involved.
     sotu.write_text(
@@ -45,8 +48,8 @@ def test_brief_reads_close_verified_vault_wiki_artifacts_without_workspace_sync(
 
     assert second["version"] == "9.9.10"
     assert second["last_session"] == "canonical SOTU two"
-    assert second["sprint"] == "canonical history two"
-    assert second["sprint_status"] == "in_progress"
+    assert second["sprint"] is None
+    assert second["sprint_status"] is None
 
 
 def test_brief_artifact_paths_match_close_vault_wiki_contract():
