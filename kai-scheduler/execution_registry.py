@@ -9,6 +9,11 @@ REGISTRY_PATH = Path("/vault/00_System/execution_registry.db")
 EXPECTED_SCHEDULE = {
     "watchdog":            {"max_gap_hours": 1},
     "inbox_scan":          {"max_gap_hours": 1},
+    # KAI-1543: the two MVP capabilities Leo judges KAI by. Daily jobs → 25h tolerance
+    # (24h cadence + 1h slack). A missed morning brief or a day the calendar didn't
+    # answer is now a visible gap, not a silent nothing.
+    "daily_brief":         {"max_gap_hours": 25},
+    "calendar_read":       {"max_gap_hours": 25},
 }
 
 

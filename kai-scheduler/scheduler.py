@@ -800,16 +800,25 @@ def _compose_daily_brief() -> str:
         cal = r.json()
         if cal.get("feed_status") in ("auth_failed", "not_configured"):
             lines.append("  \u26a0 Calendar feed didn\u2019t respond \u2014 schedule unavailable, not empty.")
+            reg_record("calendar_read", "fail", error="feed_status=" + str(cal.get("feed_status")))
         else:
-            evs = cal.get("events", [])[:6]
+            all_evs = cal.get("events", [])
+            # KAI-1543: one ledger row per daily read so the "calendar reads reliably"
+            # streak is observable. 'ok' = feed answered with real events; 'empty' = feed
+            # answered with 0 (a quiet window, NOT a failure); 'fail' = feed down. This is
+            # what makes greens-on-empty distinguishable from a real read.
+            reg_record("calendar_read", "ok" if all_evs else "empty",
+                       error=None if all_evs else "responded, 0 events")
+            evs = all_evs[:6]
             if not evs:
                 lines.append("  \u2014 Nothing scheduled.")
             for e in evs:
                 start = str(e.get("start", ""))
                 when = start[11:16] if (len(start) >= 16 and "T" in start) else "all-day"
                 lines.append("  \u2022 " + when + "  " + str(e.get("title", "(no title)")))
-    except Exception:
+    except Exception as _cal_e:
         lines.append("  \u26a0 Calendar feed didn\u2019t respond \u2014 schedule unavailable, not empty.")
+        reg_record("calendar_read", "fail", error=str(_cal_e)[:160])
 
     lines.append("")
     lines.append("\u2705 Priorities")
@@ -844,19 +853,37 @@ def _compose_daily_brief() -> str:
 def _daily_brief_job():
     """KAI-1314: scheduled morning digest. Composes the brief from the live feeds and
     delivers it to Leo as a personal Buzz DM via the notify() gateway
-    (audience='brief' -> brief_queue -> kai-buzz poller). Never emergency-only Telegram."""
+    (audience='brief' -> brief_queue -> kai-buzz poller). Never emergency-only Telegram.
+
+    KAI-1543: every outcome is now written to the execution registry so a missed or
+    degraded morning is visible (result: ok / degraded / fail), and the 14-day streak
+    is queryable. A silent compose/delivery failure no longer leaves zero trace."""
+    t0 = time.monotonic()
     try:
         text = _compose_daily_brief()
     except Exception as e:
         log.error("daily_brief: compose failed: %s", e)
+        reg_record("daily_brief", "fail", error="compose: " + str(e)[:200],
+                   duration_s=time.monotonic() - t0)
         return
+    degraded = "⚠" in text  # a feed flagged itself unavailable in the composed brief
     try:
         from notify_gateway import notify, Event
         res = notify(Event(source="daily_brief", kind="brief", title="",
                            body=text, audience="brief", provenance="real"))
         log.info("daily_brief: delivered=%s dest=%s", res.delivered, res.destination)
+        reg_record(
+            "daily_brief",
+            ("degraded" if degraded else "ok") if res.delivered else "fail",
+            error=(None if (res.delivered and not degraded)
+                   else ("a feed didn’t respond" if res.delivered
+                         else "not delivered (dest=%s)" % res.destination)),
+            duration_s=time.monotonic() - t0,
+        )
     except Exception as e:
         log.error("daily_brief: delivery failed: %s", e)
+        reg_record("daily_brief", "fail", error="delivery: " + str(e)[:200],
+                   duration_s=time.monotonic() - t0)
 
 
 def main():
@@ -1041,7 +1068,7 @@ def main():
     # Periodic jobs
     sched.add_job(_watchdog_job,                         IntervalTrigger(minutes=30), id="watchdog",   coalesce=True, max_instances=1)
     sched.add_job(_fleet_container_job,                  IntervalTrigger(minutes=5),  id="fleet_containers", coalesce=True, max_instances=1)
-    sched.add_job(run_security_checks,                   IntervalTrigger(hours=1),    id="security",   coalesce=True, max_instances=1)
+    sched.add_job(lambda: _safe("security", run_security_checks), IntervalTrigger(hours=1), id="security",   coalesce=True, max_instances=1)  # KAI-1543: was a black box — now recorded
     sched.add_job(_invariant_job,                        IntervalTrigger(minutes=30), id="invariants", coalesce=True, max_instances=1)
     sched.add_job(_inbox_job,                            IntervalTrigger(seconds=60), id="inbox_scan", coalesce=True, max_instances=1)
     sched.add_job(lambda: _tz_check_job(sched),          IntervalTrigger(hours=1),    id="tz_check",   coalesce=True, max_instances=1)
