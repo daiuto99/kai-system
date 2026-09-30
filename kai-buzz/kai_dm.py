@@ -35,6 +35,15 @@ async def _wrap_json(receiver_pub, text):
     return ab.build_giftwrap_now(KAI_KEYS, receiver_pub, text)
 
 
+# ── self-healing reliability (KAI-1548) — ports the proven agents_bridge KAI-1142 loop ──
+WS_PING_INTERVAL = 20        # send a ping this often; a missed pong -> ConnectionClosed -> reconnect
+WS_PING_TIMEOUT = 20         # (detects a truly dead/half-open socket instead of blocking forever)
+IDLE_RESUB_SEC = 50          # after this much inbound silence, re-arm the REQ — recovers a
+                             # subscription the relay silently dropped, without a full reconnect
+RECONNECT_BACKOFF_SEC = 3    # pause before reconnecting (no hot loop on a hard error)
+_HB = {"name": "KAI-DM", "heartbeat": True}   # ab._heartbeat -> /vault/00_System/buzz_agent_KAI-DM_heartbeat
+
+
 async def run():
     pk = ab.load_or_create_key("kai_dm.key")            # coincurve key, for NIP-42 auth
     send_lock = asyncio.Lock()
@@ -44,56 +53,86 @@ async def run():
         async with send_lock:
             await ws.send(json.dumps(["EVENT", w]))
 
-    ab.log("kai-dm", "KAI DM agent · pubkey", KAI_PUB_HEX, "· connect", ab.CONNECT_URL)
-    async with websockets.connect(ab.CONNECT_URL, max_size=2 ** 20) as ws:
-        await ab.authenticate(ws, pk)
+    async def arm_req(ws):
+        # NIP-17 gift-wrap created_at is randomized up to LOOKBACK into the past, so the
+        # window can't be tightened on reconnect — always look back LOOKBACK and let the
+        # cross-reconnect `seen` set dedup. This is what makes a gap message survivable.
         async with send_lock:
             await ws.send(json.dumps(["REQ", "dm", {"kinds": [GIFT_WRAP_KIND], "#p": [KAI_PUB_HEX],
                                                     "since": int(time.time()) - LOOKBACK}]))
-        # one-time intro DM so Sky appears as a contact/conversation in Leo's client
-        if not os.path.exists(INTRO_MARKER):
-            try:
-                await send_dm(ws, LEO_PUB, INTRO)
-                open(INTRO_MARKER, "w").write(str(int(time.time())))
-                ab.log("kai-dm", "intro DM sent to Leo")
-            except Exception as e:
-                ab.log("kai-dm", f"intro send failed: {e}")
-        ab.log("kai-dm", "online — listening for Leo's DMs")
-        seen = set()
-        async for raw in ws:
-            m = json.loads(raw)
-            if m[0] == "AUTH":
-                async with send_lock:
-                    await ws.send(json.dumps(["AUTH", ab.sign_event(
-                        pk, 22242, [["relay", ab.RELAY], ["challenge", m[1]]], "")]))
-                continue
-            if m[0] != "EVENT" or m[1] != "dm":
-                continue
-            wrap_ev = m[2]
-            if wrap_ev.get("id") in seen:
-                continue
-            seen.add(wrap_ev["id"])
-            try:
-                uw = await UnwrappedGift.from_gift_wrap(KAI_SIGNER, Event.from_json(json.dumps(wrap_ev)))
-                sender_hex = uw.sender().to_hex()
-                text = uw.rumor().content()
-            except Exception as e:
-                ab.log("kai-dm", f"unwrap failed: {e}")
-                continue
-            if sender_hex == KAI_PUB_HEX:
-                continue    # skip our own self-copies
-            ab.log("kai-dm", f"<< {sender_hex[:8]}: {text[:80]}")
-            try:
-                reply = await asyncio.to_thread(ab.call_council, "kai", text, "kai-dm:" + sender_hex[:16])
-            except ab.BackendError:
-                reply = "Hit a transient backend hiccup and couldn't process that — resend it and I'll pick right up; nothing was lost."
-            except Exception as e:
-                reply = f"(KAI ran into an error handling that: {e})"
-            try:
-                await send_dm(ws, uw.sender(), reply)
-                ab.log("kai-dm", f">> {reply[:100]}")
-            except Exception as e:
-                ab.log("kai-dm", f"reply send failed: {e}")
+
+    ab.log("kai-dm", "KAI DM agent · pubkey", KAI_PUB_HEX, "· connect", ab.CONNECT_URL)
+    seen = set()             # dedup across reconnects — a backfilled message is never re-answered
+    first = True
+    while True:              # KAI-1548 self-healing reconnect loop: a dropped, half-open, or
+                             # silently-idle relay link now reconnects + re-subscribes + backfills
+                             # instead of dying quietly or blocking forever in `async for` (the
+                             # 2026-09 silent-deaf gap on Leo's real DM path).
+        try:
+            async with websockets.connect(ab.CONNECT_URL, max_size=2 ** 20,
+                                          ping_interval=WS_PING_INTERVAL,
+                                          ping_timeout=WS_PING_TIMEOUT) as ws:
+                await ab.authenticate(ws, pk)
+                await arm_req(ws)
+                # one-time intro DM so KAI appears as a contact/conversation in Leo's client
+                if first and not os.path.exists(INTRO_MARKER):
+                    try:
+                        await send_dm(ws, LEO_PUB, INTRO)
+                        open(INTRO_MARKER, "w").write(str(int(time.time())))
+                        ab.log("kai-dm", "intro DM sent to Leo")
+                    except Exception as e:
+                        ab.log("kai-dm", f"intro send failed: {e}")
+                ab.log("kai-dm", "online — listening for Leo's DMs" if first else "reconnected — backfilling")
+                first = False
+                ab._heartbeat(_HB)
+                while True:
+                    try:
+                        raw = await asyncio.wait_for(ws.recv(), timeout=IDLE_RESUB_SEC)
+                    except asyncio.TimeoutError:
+                        # inbound silence: stamp liveness + re-arm the REQ (recovers a
+                        # subscription the relay dropped without ever sending a CLOSE).
+                        ab._heartbeat(_HB)
+                        await arm_req(ws)
+                        continue
+                    ab._heartbeat(_HB)
+                    m = json.loads(raw)
+                    if m[0] == "AUTH":
+                        async with send_lock:
+                            await ws.send(json.dumps(["AUTH", ab.sign_event(
+                                pk, 22242, [["relay", ab.RELAY], ["challenge", m[1]]], "")]))
+                        continue
+                    if m[0] != "EVENT" or m[1] != "dm":
+                        continue
+                    wrap_ev = m[2]
+                    if wrap_ev.get("id") in seen:
+                        continue
+                    seen.add(wrap_ev["id"])
+                    try:
+                        uw = await UnwrappedGift.from_gift_wrap(KAI_SIGNER, Event.from_json(json.dumps(wrap_ev)))
+                        sender_hex = uw.sender().to_hex()
+                        text = uw.rumor().content()
+                    except Exception as e:
+                        ab.log("kai-dm", f"unwrap failed: {e}")
+                        continue
+                    if sender_hex == KAI_PUB_HEX:
+                        continue    # skip our own self-copies
+                    ab.log("kai-dm", f"<< {sender_hex[:8]}: {text[:80]}")
+                    try:
+                        reply = await asyncio.to_thread(ab.call_council, "kai", text, "kai-dm:" + sender_hex[:16])
+                    except ab.BackendError:
+                        reply = "Hit a transient backend hiccup and couldn't process that — resend it and I'll pick right up; nothing was lost."
+                    except Exception as e:
+                        reply = f"(KAI ran into an error handling that: {e})"
+                    try:
+                        await send_dm(ws, uw.sender(), reply)
+                        ab.log("kai-dm", f">> {reply[:100]}")
+                    except Exception as e:
+                        ab.log("kai-dm", f"reply send failed: {e}")
+        except Exception as e:
+            # ANY link loss (dead socket via missed pong, relay CLOSE, network blip) lands here
+            # and reconnects with backfill — never a silent death. `seen` persists for dedup.
+            ab.log("kai-dm", f"link lost ({type(e).__name__}: {e}) — reconnecting in {RECONNECT_BACKOFF_SEC}s")
+            await asyncio.sleep(RECONNECT_BACKOFF_SEC)
 
 
 if __name__ == "__main__":
